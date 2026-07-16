@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0f1923">
+<title>Trade Verdict</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  :root {
+    --bg: #080c12; --card: #0f1923; --border: #1a2840;
+    --green: #00c853; --red: #ff1744; --amber: #ffab00;
+    --blue: #40c4ff; --text: #dde3ea; --dim: #546e7a; --bright: #f0f6ff;
+  }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif;
+    min-height: 100vh; padding-bottom: 40px; }
+  .safe-top { height: env(safe-area-inset-top, 20px); background: var(--card); }
+
+  /* HEADER */
+  .header { background: var(--card); border-bottom: 1px solid var(--border);
+    padding: 12px 16px; display: flex; justify-content: space-between; align-items: center;
+    position: sticky; top: 0; z-index: 100; }
+  .header-left h1 { font-family: monospace; color: var(--bright); font-size: 18px;
+    font-weight: 700; letter-spacing: 1px; }
+  .header-left p { font-family: monospace; color: var(--dim); font-size: 10px; margin-top: 2px; }
+  .analyze-all-btn { background: rgba(0,200,83,0.15); border: 1px solid rgba(0,200,83,0.4);
+    color: var(--green); border-radius: 6px; padding: 8px 14px; font-family: monospace;
+    font-size: 11px; font-weight: 700; cursor: pointer; }
+
+  /* SECTOR BAR */
+  .sector-bar { background: var(--card); border-bottom: 1px solid var(--border); padding: 12px 16px; }
+  .sector-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .gate-status { display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .gate-label { font-family: monospace; font-size: 12px; font-weight: 700; }
+  .refresh-btn { border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px;
+    background: transparent; color: var(--blue); font-family: monospace; font-size: 10px; cursor: pointer; }
+  .sector-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .sector-cell label { font-family: monospace; color: var(--dim); font-size: 9px; display: block; }
+  .sector-cell span { font-family: monospace; font-size: 14px; font-weight: 700; }
+  .gate-note { font-family: monospace; color: var(--dim); font-size: 10px; margin-top: 8px; }
+  .btc-signal { font-family: monospace; font-size: 10px; font-weight: 700; margin-top: 4px; }
+  .ts { font-family: monospace; color: var(--dim); font-size: 9px; margin-top: 6px; }
+
+  /* CONTEXT */
+  .context-section { border-bottom: 1px solid var(--border); padding: 8px 16px; }
+  .context-toggle { font-family: monospace; color: var(--dim); font-size: 10px;
+    background: none; border: none; cursor: pointer; padding: 0; }
+  .context-input { width: 100%; background: var(--card); border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px; color: var(--text); font-size: 12px;
+    margin-top: 8px; resize: vertical; min-height: 72px; display: none; }
+  .context-input.open { display: block; }
+
+  /* INPUT */
+  .input-section { border-bottom: 1px solid var(--border); padding: 12px 16px; }
+  .input-row { display: flex; gap: 8px; }
+  .ticker-input { flex: 1; background: var(--card); border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px 14px; color: var(--text); font-family: monospace;
+    font-size: 13px; }
+  .add-btn { background: rgba(64,196,255,0.15); border: 1px solid rgba(64,196,255,0.4);
+    color: var(--blue); border-radius: 6px; padding: 10px 16px; font-family: monospace;
+    font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+  .input-hint { font-family: monospace; color: var(--dim); font-size: 9px; margin-top: 6px; }
+
+  /* WATCHLIST */
+  .watchlist { padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+
+  /* CARD */
+  .card { background: var(--card); border: 1px solid var(--border);
+    border-left: 3px solid var(--border); border-radius: 8px; overflow: hidden;
+    transition: border-color 0.3s; }
+  .card.up { border-color: rgba(0,200,83,0.4); border-left-color: var(--green); }
+  .card.down { border-color: rgba(255,23,68,0.4); border-left-color: var(--red); }
+  .card-head { padding: 14px; display: flex; gap: 12px; align-items: flex-start; }
+  .card-left { flex: 1; }
+  .card-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+  .ticker-name { font-family: monospace; font-size: 20px; font-weight: 700;
+    color: var(--bright); letter-spacing: 1px; }
+  .badge { border: 1px solid; border-radius: 3px; padding: 1px 6px;
+    font-family: monospace; font-size: 9px; font-weight: 700; }
+  .reason-txt { color: var(--text); font-size: 12px; line-height: 1.5; }
+  .err-txt { color: var(--red); font-size: 11px; }
+  .card-right { display: flex; flex-direction: column; align-items: center; gap: 6px; flex-shrink: 0; }
+  .analyze-btn { background: rgba(64,196,255,0.15); border: 1px solid rgba(64,196,255,0.4);
+    color: var(--blue); border-radius: 6px; padding: 8px 12px; font-family: monospace;
+    font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+  .verdict-emoji { font-size: 36px; cursor: pointer; animation: pop 0.3s ease-out; }
+  @keyframes pop { 0%{transform:scale(0.5);opacity:0} 70%{transform:scale(1.2)} 100%{transform:scale(1);opacity:1} }
+  .retry-btn { background: rgba(255,23,68,0.15); border: 1px solid rgba(255,23,68,0.4);
+    color: var(--red); border-radius: 6px; padding: 6px 10px; font-family: monospace;
+    font-size: 10px; font-weight: 700; cursor: pointer; }
+  .remove-btn { background: none; border: none; color: var(--dim); font-size: 20px;
+    cursor: pointer; padding: 0 4px; line-height: 1; }
+  .spinner { width: 24px; height: 24px; border: 3px solid var(--border);
+    border-top-color: var(--blue); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner-label { font-family: monospace; color: var(--dim); font-size: 8px; }
+
+  /* GATE BREAKDOWN */
+  .expand-btn { border-top: 1px solid var(--border); display: flex; justify-content: space-between;
+    padding: 8px 14px; background: none; border-left: none; border-right: none; border-bottom: none;
+    width: 100%; color: var(--dim); font-family: monospace; font-size: 10px; cursor: pointer; }
+  .gate-list { padding: 0 14px 12px; }
+  .gate-row { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0;
+    border-bottom: 1px solid var(--border); }
+  .gate-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
+  .gate-content { flex: 1; }
+  .gate-header { display: flex; justify-content: space-between; }
+  .gate-lbl { font-family: monospace; color: var(--dim); font-size: 10px; }
+  .gate-stat { font-family: monospace; font-size: 10px; font-weight: 700; }
+  .gate-note-txt { color: var(--text); font-size: 12px; margin-top: 2px; line-height: 1.4; }
+  .wait-box { background: rgba(255,171,0,0.1); border: 1px solid rgba(255,171,0,0.3);
+    border-radius: 4px; padding: 8px; margin-top: 10px; }
+  .wait-lbl { font-family: monospace; color: var(--amber); font-size: 10px; font-weight: 700; }
+  .wait-txt { color: var(--text); font-size: 12px; }
+  .conf-row { display: flex; align-items: center; margin-top: 8px; }
+  .conf-lbl { font-family: monospace; color: var(--dim); font-size: 10px; }
+  .conf-val { font-family: monospace; font-size: 10px; font-weight: 700; }
+
+  .footer { color: var(--dim); font-size: 10px; text-align: center; line-height: 1.6;
+    padding: 16px; font-family: monospace; }
+
+  .color-green { color: var(--green); }
+  .color-red   { color: var(--red);   }
+  .color-amber { color: var(--amber); }
+  .color-dim   { color: var(--dim);   }
+  .color-blue  { color: var(--blue);  }
+</style>
+</head>
+<body>
+
+<div class="safe-top"></div>
+
+<div class="header">
+  <div class="header-left">
+    <h1>TRADE VERDICT</h1>
+    <p id="ticker-count">CRF · 8 TICKERS</p>
+  </div>
+  <button class="analyze-all-btn" onclick="analyzeAll()">ANALYZE ALL</button>
+</div>
+
+<div class="sector-bar">
+  <div class="sector-top">
+    <div class="gate-status">
+      <span class="dot" id="gate-dot" style="background:var(--green)"></span>
+      <span class="gate-label color-green" id="gate-label">GREEN GATE</span>
+    </div>
+    <button class="refresh-btn" onclick="fetchMarket()">↻ REFRESH</button>
+  </div>
+  <div class="sector-grid" id="sector-grid">
+    <div class="sector-cell"><label>SPY</label><span id="spy-val" class="color-dim">...</span></div>
+    <div class="sector-cell"><label>QQQ</label><span id="qqq-val" class="color-dim">...</span></div>
+    <div class="sector-cell"><label>BTC</label><span id="btc-val" class="color-dim">...</span></div>
+    <div class="sector-cell"><label>SOXX</label><span id="soxx-val" class="color-dim">...</span></div>
+    <div class="sector-cell"><label>XBI</label><span id="xbi-val" class="color-dim">...</span></div>
+    <div class="sector-cell"><label>IWM</label><span id="iwm-val" class="color-dim">...</span></div>
+  </div>
+  <div class="gate-note color-dim" id="gate-note">Fetching live data...</div>
+  <div class="btc-signal" id="btc-signal" style="display:none"></div>
+  <div class="ts" id="ts"></div>
+</div>
+
+<div class="context-section">
+  <button class="context-toggle" onclick="toggleContext()">▼ ADD CONTEXT (Korea, news, catalyst…)</button>
+  <textarea class="context-input" id="context-input"
+    placeholder="e.g. KOSPI down 4%, circuit breaker. NVDA earnings in 2 days..."></textarea>
+</div>
+
+<div class="input-section">
+  <div class="input-row">
+    <input class="ticker-input" id="ticker-input" type="text"
+      placeholder="AAPL, $MU, NVDA TSMC..."
+      style="text-transform:uppercase"
+      onkeydown="if(event.key==='Enter')addTickers()">
+    <button class="add-btn" onclick="addTickers()">ADD</button>
+  </div>
+  <div class="input-hint">Accepts: AAPL · $MU · aapl · comma or space separated</div>
+</div>
+
+<div class="watchlist" id="watchlist"></div>
+
+<div class="footer">
+  CRF v2.0 · PWA · Not financial advice<br>
+  Market data refreshes every 5 minutes
+</div>
+
+<script>
+const API_URL = "https://tra-zacg.onrender.com";
+
+// ─── STATE ───────────────────────────────────────────────────────
+let watchlist = JSON.parse(localStorage.getItem("tv_wl") || '["SMMT","VCYT","TWST","IMVT","IREN","ALAB","MU","ASML"]');
+let market    = null;
+
+// ─── HELPERS ─────────────────────────────────────────────────────
+function signalColor(s) {
+  return { GREEN: "var(--green)", RED: "var(--red)", YELLOW: "var(--amber)", "N/A": "var(--dim)" }[s] || "var(--dim)";
+}
+function dirColor(d) {
+  return { green: "var(--green)", red: "var(--red)", flat: "var(--text)" }[d] || "var(--text)";
+}
+function parseTickers(raw) {
+  return raw.toUpperCase().replace(/[$#]/g,"").split(/[\s,;|\n]+/).map(t=>t.trim()).filter(t=>/^[A-Z]{1,6}$/.test(t));
+}
+function saveWatchlist() {
+  localStorage.setItem("tv_wl", JSON.stringify(watchlist));
+  document.getElementById("ticker-count").textContent = `CRF · ${watchlist.length} TICKERS`;
+}
+
+// ─── MARKET DATA ─────────────────────────────────────────────────
+async function fetchMarket() {
+  document.getElementById("gate-label").textContent = "LOADING...";
+  try {
+    const res  = await fetch(`${API_URL}/market`);
+    const data = await res.json();
+    market = data;
+
+    const fields = ["spy","qqq","btc","soxx","xbi","iwm"];
+    fields.forEach(k => {
+      const el  = document.getElementById(`${k}-val`);
+      const val = data[k]?.change;
+      if (!el) return;
+      if (!val || val === "?") {
+        el.textContent = "?";
+        el.style.color = "var(--dim)";
+      } else {
+        el.textContent  = val;
+        el.style.color  = dirColor(data[k]?.direction);
+      }
+    });
+
+    const gc    = signalColor(data.gateStatus || "GREEN");
+    const gdot  = document.getElementById("gate-dot");
+    const glbl  = document.getElementById("gate-label");
+    gdot.style.background = gc;
+    glbl.style.color      = gc;
+    glbl.textContent      = `${data.gateStatus || "GREEN"} GATE`;
+
+    document.getElementById("gate-note").textContent = data.gateNote || "";
+
+    const btcEl = document.getElementById("btc-signal");
+    if (data.btcSignal && data.btcSignal !== "neutral") {
+      btcEl.style.display = "block";
+      btcEl.textContent   = `BTC SIGNAL: ${data.btcSignal.toUpperCase()}`;
+      btcEl.style.color   = data.btcSignal === "full conviction" ? "var(--green)"
+                          : data.btcSignal === "stand down"     ? "var(--red)"
+                          : "var(--amber)";
+    } else {
+      btcEl.style.display = "none";
+    }
+
+    if (data.timestamp) {
+      const t = new Date(data.timestamp).toLocaleTimeString();
+      document.getElementById("ts").textContent = `${data.cached ? "⚡ Cached" : "🔴 Live"} · ${t}`;
+    }
+  } catch(e) {
+    document.getElementById("gate-label").textContent = "DATA ERROR";
+    document.getElementById("gate-note").textContent  = "Tap refresh to retry";
+  }
+}
+
+// ─── CONTEXT TOGGLE ──────────────────────────────────────────────
+function toggleContext() {
+  const el  = document.getElementById("context-input");
+  const btn = document.querySelector(".context-toggle");
+  const open = el.classList.toggle("open");
+  btn.textContent = open ? "▲ HIDE CONTEXT" : "▼ ADD CONTEXT (Korea, news, catalyst…)";
+}
+
+// ─── ADD TICKERS ─────────────────────────────────────────────────
+function addTickers() {
+  const raw     = document.getElementById("ticker-input").value;
+  const tickers = parseTickers(raw);
+  if (!tickers.length) return alert("No valid tickers found. Try: AAPL, $MU, or NVDA TSMC");
+  tickers.forEach(t => { if (!watchlist.includes(t)) watchlist.push(t); });
+  document.getElementById("ticker-input").value = "";
+  saveWatchlist();
+  renderWatchlist();
+}
+
+// ─── REMOVE TICKER ───────────────────────────────────────────────
+function removeTicker(ticker) {
+  if (!confirm(`Remove ${ticker} from watchlist?`)) return;
+  watchlist = watchlist.filter(t => t !== ticker);
+  saveWatchlist();
+  renderWatchlist();
+}
+
+// ─── ANALYZE ─────────────────────────────────────────────────────
+async function analyzeTicker(ticker) {
+  const card = document.getElementById(`card-${ticker}`);
+  if (!card) return;
+
+  const ctx = document.getElementById("context-input").value;
+  const sc  = {
+    spy: market?.spy?.change || "?",
+    qqq: market?.qqq?.change || "?",
+    btc: market?.btc?.change || "?",
+    spyChange:  market?.spy?.change  || "?",
+    qqqChange:  market?.qqq?.change  || "?",
+    btcChange:  market?.btc?.change  || "?",
+    iwm:        market?.iwm?.change  || "?",
+    soxx:       market?.soxx?.change || "?",
+    xbi:        market?.xbi?.change  || "?",
+    gateStatus: market?.gateStatus   || "unknown",
+    btcSignal:  market?.btcSignal    || "neutral",
+  };
+
+  // Show loading
+  card.querySelector(".card-action").innerHTML =
+    `<div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+      <div class="spinner"></div>
+      <span class="spinner-label">RUNNING</span>
+    </div>`;
+  card.querySelector(".card-reason").textContent = "";
+  card.classList.remove("up","down");
+  card.querySelector(".card-badges").innerHTML = "";
+
+  try {
+    const res = await fetch(`${API_URL}/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticker, sectorContext: sc, marketContext: ctx }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(()=>({}));
+      throw new Error(err.error || `Server error ${res.status}`);
+    }
+    const data = await res.json();
+    renderCardResult(ticker, data);
+  } catch(e) {
+    card.querySelector(".card-action").innerHTML =
+      `<button class="retry-btn" onclick="analyzeTicker('${ticker}')">RETRY</button>`;
+    card.querySelector(".card-reason").textContent = e.message;
+    card.querySelector(".card-reason").style.color = "var(--red)";
+  }
+}
+
+function analyzeAll() {
+  watchlist.forEach(t => analyzeTicker(t));
+}
+
+// ─── RENDER CARD RESULT ──────────────────────────────────────────
+function renderCardResult(ticker, data) {
+  const card = document.getElementById(`card-${ticker}`);
+  if (!card) return;
+
+  const isUp = data.verdict === "UP";
+  card.classList.toggle("up",   isUp);
+  card.classList.toggle("down", !isUp);
+
+  // Verdict emoji
+  const emoji = document.createElement("span");
+  emoji.className   = "verdict-emoji";
+  emoji.textContent = isUp ? "👍" : "👎";
+  emoji.onclick     = () => resetCard(ticker);
+  const actionEl    = card.querySelector(".card-action");
+  actionEl.innerHTML = "";
+  actionEl.appendChild(emoji);
+
+  // Reason
+  const reasonEl = card.querySelector(".card-reason");
+  reasonEl.textContent = data.reason || "";
+  reasonEl.style.color = "var(--text)";
+
+  // Badges
+  const badgesEl = card.querySelector(".card-badges");
+  badgesEl.innerHTML = "";
+  if (data.type) {
+    const tc = { CANARY: "var(--amber)", SENTIMENT: "var(--blue)", FLOW: "var(--green)" }[data.type] || "var(--dim)";
+    badgesEl.innerHTML += `<span class="badge" style="color:${tc};border-color:${tc}55;background:${tc}11">${data.type}</span>`;
+  }
+  if (data.sizing) {
+    const sl = { FULL:"Full size", HALF:"Half size", QUARTER:"¼ size", NONE:"No trade" }[data.sizing] || data.sizing;
+    const sc2 = { FULL:"var(--green)", HALF:"var(--amber)", QUARTER:"var(--amber)", NONE:"var(--red)" }[data.sizing] || "var(--dim)";
+    badgesEl.innerHTML += `<span class="badge" style="color:${sc2};border-color:${sc2}55;background:${sc2}11">${sl}</span>`;
+  }
+
+  // Gate breakdown
+  const gateEl = card.querySelector(".gate-section");
+  if (data.gates) {
+    const gates = [
+      ["SECTOR  SPY/QQQ",   data.gates.sector],
+      ["G1  PRE-WINDOW 14D", data.gates.g1_prewindow],
+      ["G2  CATALYST TYPE",  data.gates.g2_catalyst],
+      ["G3  OPENING BAR",    data.gates.g3_openbar],
+      ["G4  PHASE",          data.gates.g4_phase],
+      ["G5  KOREA PROXY",    data.gates.g5_korea],
+    ];
+    const confColor = data.confidence === "HIGH" ? "var(--green)" : data.confidence === "MEDIUM" ? "var(--amber)" : "var(--red)";
+
+    gateEl.innerHTML = `
+      <button class="expand-btn" onclick="toggleGates('${ticker}')">
+        <span>GATE BREAKDOWN</span><span id="arrow-${ticker}">▼</span>
+      </button>
+      <div class="gate-list" id="gates-${ticker}" style="display:none">
+        ${gates.map(([lbl, g]) => `
+          <div class="gate-row">
+            <div class="gate-dot" style="background:${signalColor(g?.status)}"></div>
+            <div class="gate-content">
+              <div class="gate-header">
+                <span class="gate-lbl">${lbl}</span>
+                <span class="gate-stat" style="color:${signalColor(g?.status)}">${g?.status || ""}</span>
+              </div>
+              ${g?.note ? `<div class="gate-note-txt">${g.note}</div>` : ""}
+            </div>
+          </div>`).join("")}
+        ${data.wait_for && data.wait_for !== "null" ? `
+          <div class="wait-box">
+            <span class="wait-lbl">WAIT FOR  </span>
+            <span class="wait-txt">${data.wait_for}</span>
+          </div>` : ""}
+        <div class="conf-row">
+          <span class="conf-lbl">CONFIDENCE  </span>
+          <span class="conf-val" style="color:${confColor}">${data.confidence}</span>
+        </div>
+      </div>`;
+    gateEl.style.display = "block";
+  }
+}
+
+function toggleGates(ticker) {
+  const el    = document.getElementById(`gates-${ticker}`);
+  const arrow = document.getElementById(`arrow-${ticker}`);
+  const open  = el.style.display === "none";
+  el.style.display    = open ? "block" : "none";
+  arrow.textContent   = open ? "▲" : "▼";
+}
+
+function resetCard(ticker) {
+  const card = document.getElementById(`card-${ticker}`);
+  if (!card) return;
+  card.classList.remove("up","down");
+  card.querySelector(".card-action").innerHTML =
+    `<button class="analyze-btn" onclick="analyzeTicker('${ticker}')">ANALYZE</button>`;
+  card.querySelector(".card-reason").textContent = "";
+  card.querySelector(".card-badges").innerHTML = "";
+  card.querySelector(".gate-section").innerHTML = "";
+  card.querySelector(".gate-section").style.display = "none";
+}
+
+// ─── RENDER WATCHLIST ────────────────────────────────────────────
+function renderWatchlist() {
+  const el = document.getElementById("watchlist");
+  el.innerHTML = watchlist.map(ticker => `
+    <div class="card" id="card-${ticker}">
+      <div class="card-head">
+        <div class="card-left">
+          <div class="card-title-row">
+            <span class="ticker-name">${ticker}</span>
+            <span class="card-badges"></span>
+          </div>
+          <div class="card-reason"></div>
+        </div>
+        <div class="card-right">
+          <div class="card-action">
+            <button class="analyze-btn" onclick="analyzeTicker('${ticker}')">ANALYZE</button>
+          </div>
+          <button class="remove-btn" onclick="removeTicker('${ticker}')">×</button>
+        </div>
+      </div>
+      <div class="gate-section" style="display:none"></div>
+    </div>`).join("");
+}
+
+// ─── INIT ─────────────────────────────────────────────────────────
+renderWatchlist();
+fetchMarket();
+setInterval(fetchMarket, 5 * 60 * 1000);
+</script>
+</body>
+</html>
