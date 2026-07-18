@@ -1,0 +1,1216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0f1923">
+<title>Trade Verdict</title>
+<style>
+/* ── RESET & TOKENS ─────────────────────────────────────────────── */
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+:root {
+  --bg:     #080c12;
+  --card:   #0f1923;
+  --border: #1a2840;
+  --green:  #00e676;
+  --red:    #ff1744;
+  --amber:  #ffab00;
+  --blue:   #40c4ff;
+  --purple: #ce93d8;
+  --white:  #ffffff;
+  --dim:    #607d8b;
+  /* Two font sizes only */
+  --fs-lg:  14px;
+  --fs-sm:  11px;
+}
+body {
+  background: var(--bg);
+  color: var(--white);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: var(--fs-lg);
+  min-height: 100vh;
+  padding-bottom: 60px;
+}
+.safe-top { height: env(safe-area-inset-top, 32px); background: var(--card); }
+
+/* ── TYPOGRAPHY SYSTEM ──────────────────────────────────────────── */
+/* ALL text is white. Color is used ONLY for data values and signals. */
+.fs-lg { font-size: var(--fs-lg); color: var(--white); }
+.fs-sm { font-size: var(--fs-sm); color: var(--white); }
+.mono  { font-family: "SF Mono", "Fira Code", monospace; }
+.dim   { color: var(--dim); }
+.c-green  { color: var(--green);  }
+.c-red    { color: var(--red);    }
+.c-amber  { color: var(--amber);  }
+.c-blue   { color: var(--blue);   }
+.c-purple { color: var(--purple); }
+
+/* ── HEADER ─────────────────────────────────────────────────────── */
+.header {
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 200;
+}
+.header h1 {
+  font-family: "SF Mono", monospace;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--white);
+  letter-spacing: 1px;
+}
+.header p {
+  font-size: var(--fs-sm);
+  color: var(--dim);
+  margin-top: 2px;
+  font-family: monospace;
+}
+.analyze-all-btn {
+  background: rgba(0,230,118,0.12);
+  border: 1px solid rgba(0,230,118,0.4);
+  color: var(--green);
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-family: monospace;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.05em;
+}
+
+/* ── SECTOR BAR ─────────────────────────────────────────────────── */
+.sector-bar {
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 16px;
+}
+.sector-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.gate-status-wrap { display: flex; align-items: center; gap: 8px; }
+.gate-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.gate-label-txt {
+  font-family: monospace;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--white);
+}
+.refresh-btn {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 10px;
+  background: transparent;
+  color: var(--blue);
+  font-family: monospace;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.sector-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px 8px;
+  margin-bottom: 6px;
+}
+.sector-cell label {
+  font-family: monospace;
+  font-size: 9px;
+  color: var(--dim);
+  display: block;
+  text-transform: uppercase;
+}
+.sector-cell span {
+  font-family: monospace;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--white);
+}
+.sector-divider { height: 1px; background: var(--border); margin: 8px 0; }
+.commodity-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px 8px;
+}
+.commodity-row .sector-cell label { color: var(--purple); }
+.gate-note-bar {
+  font-family: monospace;
+  font-size: var(--fs-sm);
+  color: var(--dim);
+  margin-top: 8px;
+}
+.btc-signal {
+  font-family: monospace;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  margin-top: 4px;
+}
+.ts {
+  font-family: monospace;
+  font-size: 9px;
+  color: var(--dim);
+  margin-top: 6px;
+}
+
+/* ── SECTOR PULSE ───────────────────────────────────────────────── */
+.pulse-section {
+  border-bottom: 1px solid var(--border);
+  padding: 12px 16px;
+  background: linear-gradient(135deg,
+    rgba(206,147,216,0.06) 0%,
+    rgba(64,196,255,0.04) 100%);
+}
+.pulse-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.pulse-title {
+  font-family: monospace;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--purple);
+  letter-spacing: 0.1em;
+}
+.pulse-text {
+  font-size: var(--fs-sm);
+  color: var(--white);
+  line-height: 1.6;
+}
+.pulse-loading {
+  font-size: var(--fs-sm);
+  color: var(--dim);
+  font-style: italic;
+}
+
+/* ── VERDICT ANIMATIONS ─────────────────────────────────────────── */
+@keyframes thumbUp {
+  0%   { transform: scale(0) rotate(-30deg); opacity: 0; }
+  60%  { transform: scale(1.3) rotate(10deg); }
+  80%  { transform: scale(0.95) rotate(-5deg); }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+@keyframes thumbDown {
+  0%   { transform: scale(0) rotate(30deg); opacity: 0; }
+  60%  { transform: scale(1.3) rotate(-10deg); }
+  80%  { transform: scale(0.95) rotate(5deg); }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+@keyframes holdPulse {
+  0%   { transform: scale(1);    box-shadow: 0 0 0 0 rgba(255,171,0,0.6); }
+  50%  { transform: scale(1.05); box-shadow: 0 0 0 8px rgba(255,171,0,0); }
+  100% { transform: scale(1);    box-shadow: 0 0 0 0 rgba(255,171,0,0); }
+}
+@keyframes greenPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(0,230,118,0.5); }
+  70%  { box-shadow: 0 0 0 12px rgba(0,230,118,0); }
+  100% { box-shadow: 0 0 0 0 rgba(0,230,118,0); }
+}
+@keyframes redPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(255,23,68,0.5); }
+  70%  { box-shadow: 0 0 0 12px rgba(255,23,68,0); }
+  100% { box-shadow: 0 0 0 0 rgba(255,23,68,0); }
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.verdict-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.verdict-up {
+  font-size: 40px;
+  animation: thumbUp 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  filter: drop-shadow(0 0 8px rgba(0,230,118,0.8));
+  display: block;
+}
+.verdict-down {
+  font-size: 40px;
+  animation: thumbDown 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  filter: drop-shadow(0 0 8px rgba(255,23,68,0.8));
+  display: block;
+}
+.verdict-hold {
+  font-size: 28px;
+  background: rgba(255,171,0,0.15);
+  border: 2px solid var(--amber);
+  border-radius: 8px;
+  padding: 4px 10px;
+  animation: holdPulse 1.5s ease-in-out infinite;
+  color: var(--amber);
+  font-family: monospace;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  display: block;
+}
+.verdict-label-up   { font-size: 9px; font-family: monospace; color: var(--green);  font-weight: 700; letter-spacing: 0.1em; }
+.verdict-label-down { font-size: 9px; font-family: monospace; color: var(--red);    font-weight: 700; letter-spacing: 0.1em; }
+.verdict-label-hold { font-size: 9px; font-family: monospace; color: var(--amber);  font-weight: 700; letter-spacing: 0.1em; }
+
+/* ── CONTEXT / INPUT ────────────────────────────────────────────── */
+.context-section {
+  border-bottom: 1px solid var(--border);
+  padding: 8px 16px;
+}
+.context-toggle {
+  font-family: monospace;
+  font-size: var(--fs-sm);
+  color: var(--dim);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.context-input {
+  width: 100%;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  color: var(--white);
+  font-size: var(--fs-sm);
+  margin-top: 8px;
+  resize: vertical;
+  min-height: 72px;
+  display: none;
+}
+.context-input.open { display: block; }
+.input-section { border-bottom: 1px solid var(--border); padding: 12px 16px; }
+.input-row { display: flex; gap: 8px; }
+.ticker-input {
+  flex: 1;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  color: var(--white);
+  font-family: monospace;
+  font-size: var(--fs-lg);
+  text-transform: uppercase;
+}
+.add-btn {
+  background: rgba(64,196,255,0.12);
+  border: 1px solid rgba(64,196,255,0.4);
+  color: var(--blue);
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-family: monospace;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+.input-hint { font-family: monospace; font-size: 9px; color: var(--dim); margin-top: 6px; }
+
+/* ── WATCHLIST & CARDS ──────────────────────────────────────────── */
+.watchlist { padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+.card.up {
+  border-left-color: var(--green);
+  border-color: rgba(0,230,118,0.3);
+  animation: greenPulse 1s ease-out;
+}
+.card.down {
+  border-left-color: var(--red);
+  border-color: rgba(255,23,68,0.3);
+  animation: redPulse 1s ease-out;
+}
+.card.flat {
+  border-left-color: var(--amber);
+  border-color: rgba(255,171,0,0.3);
+}
+.card-head { padding: 12px 14px; display: flex; gap: 12px; align-items: flex-start; }
+.card-left { flex: 1; min-width: 0; }
+
+/* Ticker name — large, white, color per direction */
+.ticker-name {
+  font-family: monospace;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--white); /* default */
+  transition: color 0.3s;
+}
+.ticker-name.up   { color: var(--green); }
+.ticker-name.down { color: var(--red);   }
+.ticker-name.flat { color: var(--amber); }
+
+.card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+
+/* Current price */
+.ticker-price {
+  font-family: monospace;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--white);
+}
+.ticker-price.up   { color: var(--green); }
+.ticker-price.down { color: var(--red);   }
+.ticker-price.flat { color: var(--amber); }
+
+/* Badges */
+.badge {
+  border: 1px solid;
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-family: monospace;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--white);
+}
+
+/* News blurb */
+.news-blurb {
+  margin-top: 5px;
+  font-size: var(--fs-sm);
+  color: var(--white);
+  line-height: 1.5;
+}
+.news-blurb a {
+  color: var(--blue);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(64,196,255,0.3);
+}
+.news-blurb .news-source {
+  font-family: monospace;
+  font-size: 9px;
+  color: var(--dim);
+  margin-left: 4px;
+}
+
+/* Options strip */
+.options-strip {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+.options-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.options-label {
+  font-family: monospace;
+  font-size: 8px;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.options-value {
+  font-family: monospace;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--white);
+}
+
+/* Reason text */
+.reason-txt {
+  font-size: var(--fs-sm);
+  color: var(--white);
+  line-height: 1.5;
+  margin-top: 6px;
+}
+.err-txt { color: var(--red); font-size: var(--fs-sm); margin-top: 4px; }
+
+/* Card right */
+.card-right {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.analyze-btn {
+  background: rgba(64,196,255,0.12);
+  border: 1px solid rgba(64,196,255,0.4);
+  color: var(--blue);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-family: monospace;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.retry-btn {
+  background: rgba(255,23,68,0.12);
+  border: 1px solid rgba(255,23,68,0.4);
+  color: var(--red);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-family: monospace;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+.remove-btn {
+  background: none;
+  border: none;
+  color: var(--dim);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.spinner {
+  width: 24px; height: 24px;
+  border: 3px solid var(--border);
+  border-top-color: var(--blue);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.spinner-label {
+  font-family: monospace;
+  font-size: 8px;
+  color: var(--dim);
+  margin-top: 2px;
+}
+
+/* ── GATE BREAKDOWN ─────────────────────────────────────────────── */
+.expand-btn {
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  padding: 7px 14px;
+  background: none;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  width: 100%;
+  color: var(--dim);
+  font-family: monospace;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.gate-list { padding: 0 14px 12px; }
+.gate-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.gate-dot-sm { width: 7px; height: 7px; border-radius: 50%; margin-top: 3px; flex-shrink: 0; }
+.gate-content { flex: 1; }
+.gate-header { display: flex; justify-content: space-between; }
+.gate-lbl  { font-family: monospace; font-size: var(--fs-sm); color: var(--dim); }
+.gate-stat { font-family: monospace; font-size: var(--fs-sm); font-weight: 700; }
+.gate-note-txt { font-size: var(--fs-sm); color: var(--white); margin-top: 2px; line-height: 1.4; }
+.wait-box {
+  background: rgba(255,171,0,0.08);
+  border: 1px solid rgba(255,171,0,0.3);
+  border-radius: 4px;
+  padding: 7px 10px;
+  margin-top: 8px;
+}
+.wait-lbl { font-family: monospace; color: var(--amber); font-size: var(--fs-sm); font-weight: 700; }
+.wait-txt { font-size: var(--fs-sm); color: var(--white); }
+.conf-row { display: flex; align-items: center; margin-top: 6px; gap: 6px; }
+.conf-lbl { font-family: monospace; font-size: var(--fs-sm); color: var(--dim); }
+.conf-val { font-family: monospace; font-size: var(--fs-sm); font-weight: 700; }
+
+/* ── DISCLAIMER / CAPABILITIES ──────────────────────────────────── */
+.disclaimer-section {
+  margin: 16px 16px 0;
+  padding: 14px;
+  background: rgba(255,23,68,0.05);
+  border: 1px solid rgba(255,23,68,0.2);
+  border-radius: 8px;
+}
+.disclaimer-title {
+  font-family: monospace;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--red);
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+}
+.disclaimer-text {
+  font-size: var(--fs-sm);
+  color: var(--white);
+  line-height: 1.6;
+  margin-bottom: 6px;
+}
+.disclaimer-text strong { color: var(--amber); }
+
+.capabilities-section {
+  margin: 12px 16px 0;
+  padding: 14px;
+  background: rgba(64,196,255,0.04);
+  border: 1px solid rgba(64,196,255,0.15);
+  border-radius: 8px;
+}
+.capabilities-title {
+  font-family: monospace;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--blue);
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+}
+.capabilities-text {
+  font-size: var(--fs-sm);
+  color: var(--white);
+  line-height: 1.6;
+  margin-bottom: 4px;
+}
+.source-link {
+  color: var(--blue);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(64,196,255,0.3);
+  font-size: var(--fs-sm);
+}
+.footer {
+  color: var(--dim);
+  font-size: 9px;
+  text-align: center;
+  line-height: 1.6;
+  padding: 16px;
+  font-family: monospace;
+  margin-top: 12px;
+}
+</style>
+</head>
+<body>
+
+<div class="safe-top"></div>
+
+<!-- ── HEADER ─────────────────────────────────────────────────── -->
+<div class="header">
+  <div>
+    <h1>TRADE VERDICT</h1>
+    <p id="ticker-count">CRF · 8 TICKERS</p>
+  </div>
+  <button class="analyze-all-btn" onclick="analyzeAll()">ANALYZE ALL</button>
+</div>
+
+<!-- ── SECTOR BAR ──────────────────────────────────────────────── -->
+<div class="sector-bar">
+  <div class="sector-top">
+    <div class="gate-status-wrap">
+      <span class="gate-dot" id="gate-dot" style="background:var(--green)"></span>
+      <span class="gate-label-txt" id="gate-label" style="color:var(--green)">LOADING...</span>
+    </div>
+    <button class="refresh-btn" onclick="fetchMarket(true)">↻ REFRESH</button>
+  </div>
+
+  <div class="sector-grid">
+    <div class="sector-cell"><label>SPY</label><span id="spy-val" class="dim">...</span></div>
+    <div class="sector-cell"><label>QQQ</label><span id="qqq-val" class="dim">...</span></div>
+    <div class="sector-cell"><label>BTC</label><span id="btc-val" class="dim">...</span></div>
+    <div class="sector-cell"><label>SOXX</label><span id="soxx-val" class="dim">...</span></div>
+    <div class="sector-cell"><label>XBI</label><span id="xbi-val" class="dim">...</span></div>
+    <div class="sector-cell"><label>IWM</label><span id="iwm-val" class="dim">...</span></div>
+  </div>
+
+  <div class="sector-divider"></div>
+
+  <div class="commodity-row">
+    <div class="sector-cell"><label>GLD</label><span id="gld-val" class="dim">...</span></div>
+    <div class="sector-cell"><label>USO</label><span id="uso-val" class="dim">...</span></div>
+    <div class="sector-cell"><label>IBB</label><span id="ibb-val" class="dim">...</span></div>
+    <div class="sector-cell"><label>NVDA</label><span id="nvda-val" class="dim">...</span></div>
+  </div>
+
+  <div class="gate-note-bar dim" id="gate-note">Fetching live data...</div>
+  <div class="btc-signal" id="btc-signal" style="display:none"></div>
+  <div class="ts dim" id="ts"></div>
+</div>
+
+<!-- ── SECTOR PULSE ─────────────────────────────────────────────── -->
+<div class="pulse-section">
+  <div class="pulse-header">
+    <span>📡</span>
+    <span class="pulse-title">SECTOR PULSE</span>
+  </div>
+  <div id="pulse-text" class="pulse-loading">Generating market pulse...</div>
+</div>
+
+<!-- ── CONTEXT ──────────────────────────────────────────────────── -->
+<div class="context-section">
+  <button class="context-toggle" onclick="toggleContext()">
+    ▼ ADD CONTEXT (Korea, earnings, catalyst…)
+  </button>
+  <textarea class="context-input" id="context-input"
+    placeholder="e.g. KOSPI down 4%, circuit breaker. NVDA earnings in 2 days..."></textarea>
+</div>
+
+<!-- ── TICKER INPUT ─────────────────────────────────────────────── -->
+<div class="input-section">
+  <div class="input-row">
+    <input class="ticker-input" id="ticker-input" type="text"
+      placeholder="AAPL, $MU, NVDA TSMC..."
+      onkeydown="if(event.key==='Enter')addTickers()">
+    <button class="add-btn" onclick="addTickers()">ADD</button>
+  </div>
+  <div class="input-hint">Accepts: AAPL · $MU · aapl · comma or space separated</div>
+</div>
+
+<!-- ── WATCHLIST ────────────────────────────────────────────────── -->
+<div class="watchlist" id="watchlist"></div>
+
+<!-- ── DISCLAIMER ───────────────────────────────────────────────── -->
+<div class="disclaimer-section">
+  <div class="disclaimer-title">⚠ NOT FINANCIAL OR MARKET ADVICE</div>
+  <div class="disclaimer-text">
+    This app is a <strong>pattern and catalyst analysis tool</strong> designed exclusively
+    for <strong>short-term trading decision support</strong> during the
+    <strong>first 90 minutes (9:30–11:00am ET)</strong> and
+    <strong>last 90 minutes (2:30–4:00pm ET)</strong> of the regular US trading session.
+    It is not intended for use outside regular market hours.
+  </div>
+  <div class="disclaimer-text">
+    <strong>Always do your own research.</strong> The verdicts generated are based on
+    pattern recognition and sector analysis only. They do not account for your personal
+    financial situation, risk tolerance, tax implications, or individual investment goals.
+    Past patterns do not guarantee future results. You can lose money trading.
+  </div>
+  <div class="disclaimer-text">
+    By using this app you acknowledge that all trading decisions are solely your own
+    responsibility. The creators of this app accept no liability for any losses incurred.
+  </div>
+</div>
+
+<!-- ── CAPABILITIES ─────────────────────────────────────────────── -->
+<div class="capabilities-section">
+  <div class="capabilities-title">📊 HOW THIS APP WORKS</div>
+  <div class="capabilities-text">
+    Trade Verdict runs the <strong>Catalyst Response Framework (CRF)</strong> — a 5-gate
+    entry checklist built from 90-day analysis of MU, ASML, and ALAB price/volume/options data.
+    Each gate checks a specific condition before recommending entry.
+  </div>
+  <div class="capabilities-text">
+    <strong>Gate 0</strong> — Sector gate: SPY + QQQ direction (live data)<br>
+    <strong>Gate 1</strong> — Pre-window exhaustion: 14-day run check (IV-enhanced)<br>
+    <strong>Gate 2</strong> — Catalyst congruence: Canary/Sentiment/Flow classification + put/call skew<br>
+    <strong>Gate 3</strong> — Opening bar: Monday/Friday pattern (67% Friday reversal frequency)<br>
+    <strong>Gate 4</strong> — Phase identification: 1/2/3 cycle position (ATM IV override)<br>
+    <strong>Gate 5</strong> — Korea proxy: KOSPI/Samsung/SK Hynix status (AI/semi names only)
+  </div>
+  <div class="capabilities-text">
+    <strong>Options overlays</strong> (where available): ATM implied volatility,
+    put/call skew, and expected 1-sigma move are fetched from live options chains
+    and used to override AI estimates for Gates 1 and 4.
+  </div>
+  <div class="capabilities-text" style="margin-top:8px">
+    <strong>Market data sources:</strong><br>
+    <a href="https://polygon.io" target="_blank" class="source-link">Polygon.io</a> —
+    price data, options chains, news headlines<br>
+    <a href="https://anthropic.com" target="_blank" class="source-link">Anthropic Claude</a> —
+    CRF gate analysis and sector pulse generation<br>
+    <a href="https://finance.yahoo.com" target="_blank" class="source-link">Yahoo Finance</a> —
+    supplemental reference<br>
+    <a href="https://unusualwhales.com" target="_blank" class="source-link">Unusual Whales</a> —
+    options flow reference (manual check recommended)
+  </div>
+</div>
+
+<div class="footer">
+  Trade Verdict v3.0 · CRF Pattern Analysis · July 2026<br>
+  Not financial advice · Do your own research · Trade at your own risk
+</div>
+
+<script>
+// ── CONFIG ────────────────────────────────────────────────────────
+const API_URL    = "https://tra-zacg.onrender.com";
+const APP_SECRET = "YOUR_SECRET_HERE"; // Replace after setting in Render
+
+// ── STATE ─────────────────────────────────────────────────────────
+let watchlist = JSON.parse(localStorage.getItem("tv_wl") ||
+  '["SMMT","VCYT","TWST","IMVT","IREN","ALAB","MU","ASML"]');
+let market      = null;
+let tickerCache = {}; // stores IV/news per ticker
+
+// ── FETCH HELPERS ─────────────────────────────────────────────────
+function authHeaders() {
+  return {
+    "Content-Type":  "application/json",
+    "x-app-secret":  APP_SECRET,
+  };
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────
+function signalColor(s) {
+  return { GREEN:"var(--green)", RED:"var(--red)", YELLOW:"var(--amber)", "N/A":"var(--dim)" }[s]
+    || "var(--dim)";
+}
+function dirColor(d) {
+  return { green:"var(--green)", red:"var(--red)", flat:"var(--amber)" }[d] || "var(--white)";
+}
+function dirClass(d) {
+  return { green:"up", red:"down", flat:"flat" }[d] || "";
+}
+function parseTickers(raw) {
+  return raw.toUpperCase().replace(/[$#]/g,"")
+    .split(/[\s,;|\n]+/).map(t=>t.trim())
+    .filter(t=>/^[A-Z]{1,6}$/.test(t));
+}
+function saveWatchlist() {
+  localStorage.setItem("tv_wl", JSON.stringify(watchlist));
+  document.getElementById("ticker-count").textContent = `CRF · ${watchlist.length} TICKERS`;
+}
+function formatAge(isoStr) {
+  if (!isoStr) return "";
+  const diff = Date.now() - new Date(isoStr).getTime();
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  if (h > 0) return `${h}h ago`;
+  if (m > 0) return `${m}m ago`;
+  return "just now";
+}
+
+// ── MARKET DATA ───────────────────────────────────────────────────
+async function fetchMarket(force = false) {
+  document.getElementById("gate-label").textContent = "LOADING...";
+  document.getElementById("gate-label").style.color = "var(--dim)";
+  document.getElementById("pulse-text").className   = "pulse-loading";
+  document.getElementById("pulse-text").textContent  = "Generating market pulse...";
+
+  try {
+    const url = force ? `${API_URL}/market?force=true` : `${API_URL}/market`;
+    const res = await fetch(url, { headers: authHeaders() });
+    const data = await res.json();
+    market = data;
+
+    const fields = ["spy","qqq","btc","soxx","xbi","iwm","gld","uso","ibb","nvda"];
+    fields.forEach(k => {
+      const el = document.getElementById(`${k}-val`);
+      if (!el) return;
+      const d = data[k];
+      if (!d || d.change === "?") {
+        el.textContent = "?";
+        el.style.color = "var(--dim)";
+      } else {
+        el.textContent = d.change;
+        el.style.color = dirColor(d.direction);
+      }
+    });
+
+    const gc = signalColor(data.gateStatus || "GREEN");
+    document.getElementById("gate-dot").style.background = gc;
+    const gl = document.getElementById("gate-label");
+    gl.style.color   = gc;
+    gl.textContent   = `${data.gateStatus || "GREEN"} GATE`;
+    document.getElementById("gate-note").textContent = data.gateNote || "";
+
+    const btcEl = document.getElementById("btc-signal");
+    if (data.btcSignal && data.btcSignal !== "neutral") {
+      btcEl.style.display = "block";
+      btcEl.textContent   = `BTC SIGNAL: ${data.btcSignal.toUpperCase()}`;
+      btcEl.style.color   = data.btcSignal === "full conviction" ? "var(--green)"
+                          : data.btcSignal === "stand down"     ? "var(--red)"
+                          : "var(--amber)";
+    } else {
+      btcEl.style.display = "none";
+    }
+
+    if (data.timestamp) {
+      const t = new Date(data.timestamp).toLocaleTimeString();
+      document.getElementById("ts").textContent =
+        `${data.cached ? "⚡ Cached" : "🔴 Live"} · ${t}`;
+    }
+
+    const pulseEl = document.getElementById("pulse-text");
+    if (data.pulse) {
+      pulseEl.className   = "pulse-text";
+      pulseEl.textContent = data.pulse;
+    } else {
+      pulseEl.className   = "pulse-loading";
+      pulseEl.textContent = "Market data unavailable";
+    }
+  } catch(e) {
+    document.getElementById("gate-label").textContent = "DATA ERROR";
+    document.getElementById("gate-label").style.color = "var(--red)";
+    document.getElementById("gate-note").textContent  = "Tap refresh to retry";
+    document.getElementById("pulse-text").textContent  = "Pulse unavailable";
+  }
+}
+
+// ── TICKER DATA (IV + news) ────────────────────────────────────────
+async function fetchTickerData(symbol) {
+  if (tickerCache[symbol]) return tickerCache[symbol];
+  try {
+    const res  = await fetch(`${API_URL}/ticker/${symbol}`, { headers: authHeaders() });
+    const data = await res.json();
+    tickerCache[symbol] = data;
+    return data;
+  } catch(e) {
+    console.error(`fetchTickerData ${symbol}:`, e.message);
+    return null;
+  }
+}
+
+// ── CONTEXT TOGGLE ────────────────────────────────────────────────
+function toggleContext() {
+  const el  = document.getElementById("context-input");
+  const btn = document.querySelector(".context-toggle");
+  const open = el.classList.toggle("open");
+  btn.textContent = open
+    ? "▲ HIDE CONTEXT"
+    : "▼ ADD CONTEXT (Korea, earnings, catalyst…)";
+}
+
+// ── ADD TICKERS ───────────────────────────────────────────────────
+function addTickers() {
+  const raw     = document.getElementById("ticker-input").value;
+  const tickers = parseTickers(raw);
+  if (!tickers.length) return alert("No valid tickers. Try: AAPL, $MU, or NVDA TSMC");
+  tickers.forEach(t => { if (!watchlist.includes(t)) watchlist.push(t); });
+  document.getElementById("ticker-input").value = "";
+  saveWatchlist();
+  renderWatchlist();
+  // Prefetch ticker data for new tickers
+  tickers.forEach(t => fetchTickerData(t).then(d => {
+    if (d) updateCardMeta(t, d);
+  }));
+}
+
+// ── REMOVE TICKER ─────────────────────────────────────────────────
+function removeTicker(ticker) {
+  if (!confirm(`Remove ${ticker}?`)) return;
+  watchlist = watchlist.filter(t => t !== ticker);
+  saveWatchlist();
+  renderWatchlist();
+}
+
+// ── UPDATE CARD META (price, news, IV) BEFORE ANALYZE ─────────────
+function updateCardMeta(ticker, tickerData) {
+  const card = document.getElementById(`card-${ticker}`);
+  if (!card) return;
+
+  const priceEl = card.querySelector(".ticker-price");
+  const newsEl  = card.querySelector(".news-blurb");
+  const ivEl    = card.querySelector(".options-strip");
+
+  // Price from options data
+  if (tickerData?.options?.price && priceEl) {
+    const price = tickerData.options.price;
+    // Determine direction from market data
+    const mkt = market; // use last known market context
+    priceEl.textContent = `$${parseFloat(price).toFixed(2)}`;
+    // We'll set color based on market direction if available
+  }
+
+  // News blurb
+  const news = tickerData?.news;
+  if (news && newsEl) {
+    const age = formatAge(news.published);
+    newsEl.innerHTML = `
+      <a href="${news.url}" target="_blank">${news.headline}</a>
+      <span class="news-source">${news.source} · ${age}</span>
+    `;
+  } else if (newsEl) {
+    newsEl.innerHTML = '<span class="dim">No recent news</span>';
+  }
+
+  // Options data strip
+  const opts = tickerData?.options;
+  if (opts && ivEl) {
+    const skewLabel = opts.skew === null ? "N/A"
+      : opts.skew > 3  ? `+${opts.skew}pts 🔴`
+      : opts.skew < -3 ? `${opts.skew}pts 🟢`
+      : `${opts.skew}pts ⚪`;
+    const skewColor = opts.skew === null ? "var(--dim)"
+      : opts.skew > 3  ? "var(--red)"
+      : opts.skew < -3 ? "var(--green)"
+      : "var(--white)";
+    const ivColor = opts.atmIV === null ? "var(--dim)"
+      : opts.atmIV > 80 ? "var(--red)"
+      : opts.atmIV > 50 ? "var(--amber)"
+      : "var(--green)";
+
+    ivEl.style.display = "flex";
+    ivEl.innerHTML = `
+      <div class="options-item">
+        <span class="options-label">ATM IV</span>
+        <span class="options-value" style="color:${ivColor}">
+          ${opts.atmIV !== null ? opts.atmIV + "%" : "N/A"}
+        </span>
+      </div>
+      <div class="options-item">
+        <span class="options-label">P/C SKEW</span>
+        <span class="options-value" style="color:${skewColor}">${skewLabel}</span>
+      </div>
+      <div class="options-item">
+        <span class="options-label">EXP MOVE</span>
+        <span class="options-value" style="color:var(--blue)">
+          ${opts.expectedMove !== null ? "±$" + opts.expectedMove : "N/A"}
+        </span>
+      </div>
+      <div class="options-item">
+        <span class="options-label">CALL IV</span>
+        <span class="options-value">${opts.callIV !== null ? opts.callIV + "%" : "N/A"}</span>
+      </div>
+      <div class="options-item">
+        <span class="options-label">PUT IV</span>
+        <span class="options-value">${opts.putIV !== null ? opts.putIV + "%" : "N/A"}</span>
+      </div>
+    `;
+  }
+}
+
+// ── ANALYZE ───────────────────────────────────────────────────────
+async function analyzeTicker(ticker) {
+  const card = document.getElementById(`card-${ticker}`);
+  if (!card) return;
+
+  const ctx = document.getElementById("context-input").value;
+  const sc  = {
+    spy:        market?.spy?.change  || "?",
+    qqq:        market?.qqq?.change  || "?",
+    btc:        market?.btc?.change  || "?",
+    iwm:        market?.iwm?.change  || "?",
+    soxx:       market?.soxx?.change || "?",
+    xbi:        market?.xbi?.change  || "?",
+    gld:        market?.gld?.change  || "?",
+    uso:        market?.uso?.change  || "?",
+    nvda:       market?.nvda?.change || "?",
+    gateStatus: market?.gateStatus   || "unknown",
+    btcSignal:  market?.btcSignal    || "neutral",
+  };
+
+  // Show loading in action area
+  card.querySelector(".card-action").innerHTML =
+    `<div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+       <div class="spinner"></div>
+       <span class="spinner-label">RUNNING</span>
+     </div>`;
+  card.querySelector(".reason-txt").textContent = "";
+  card.classList.remove("up","down","flat");
+  card.querySelector(".ticker-name").classList.remove("up","down","flat");
+  card.querySelector(".card-badges").innerHTML  = "";
+  const gs = card.querySelector(".gate-section");
+  gs.innerHTML = ""; gs.style.display = "none";
+
+  // Fetch IV/skew/news in parallel while AI runs
+  const [tickerData] = await Promise.all([fetchTickerData(ticker)]);
+  if (tickerData) updateCardMeta(ticker, tickerData);
+
+  try {
+    const res = await fetch(`${API_URL}/analyze`, {
+      method:  "POST",
+      headers: authHeaders(),
+      body:    JSON.stringify({
+        ticker,
+        sectorContext:  sc,
+        marketContext:  ctx,
+        optionsData:    tickerData?.options || null,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(()=>({}));
+      throw new Error(err.error || `Server error ${res.status}`);
+    }
+    renderCardResult(ticker, await res.json());
+  } catch(e) {
+    card.querySelector(".card-action").innerHTML =
+      `<button class="retry-btn" onclick="analyzeTicker('${ticker}')">RETRY</button>`;
+    const re = card.querySelector(".reason-txt");
+    re.textContent = e.message;
+    re.style.color = "var(--red)";
+  }
+}
+
+function analyzeAll() { watchlist.forEach(t => analyzeTicker(t)); }
+
+// ── RENDER CARD RESULT ────────────────────────────────────────────
+function renderCardResult(ticker, data) {
+  const card = document.getElementById(`card-${ticker}`);
+  if (!card) return;
+
+  const verdict = data.verdict || "FLAT";
+  const isUp    = verdict === "UP";
+  const isDown  = verdict === "DOWN";
+  const isFlat  = verdict === "FLAT";
+
+  card.classList.remove("up","down","flat");
+  card.classList.add(isUp ? "up" : isDown ? "down" : "flat");
+
+  // Color ticker name per direction
+  const nameEl = card.querySelector(".ticker-name");
+  nameEl.classList.remove("up","down","flat");
+  nameEl.classList.add(isUp ? "up" : isDown ? "down" : "flat");
+
+  // Color price per direction
+  const priceEl = card.querySelector(".ticker-price");
+  if (priceEl) {
+    priceEl.classList.remove("up","down","flat");
+    priceEl.classList.add(isUp ? "up" : isDown ? "down" : "flat");
+  }
+
+  // Animated verdict
+  const actionEl = card.querySelector(".card-action");
+  if (isUp) {
+    actionEl.innerHTML = `
+      <div class="verdict-container" onclick="resetCard('${ticker}')">
+        <span class="verdict-up">👍</span>
+        <span class="verdict-label-up">TRADE IT</span>
+      </div>`;
+  } else if (isDown) {
+    actionEl.innerHTML = `
+      <div class="verdict-container" onclick="resetCard('${ticker}')">
+        <span class="verdict-down">👎</span>
+        <span class="verdict-label-down">STAND DOWN</span>
+      </div>`;
+  } else {
+    actionEl.innerHTML = `
+      <div class="verdict-container" onclick="resetCard('${ticker}')">
+        <span class="verdict-hold">HOLD</span>
+        <span class="verdict-label-hold">WAIT & WATCH</span>
+      </div>`;
+  }
+
+  // Reason
+  const re = card.querySelector(".reason-txt");
+  re.textContent = data.reason || "";
+  re.style.color = "var(--white)";
+
+  // Badges
+  const badgesEl = card.querySelector(".card-badges");
+  badgesEl.innerHTML = "";
+  if (data.type) {
+    const tc = { CANARY:"var(--amber)", SENTIMENT:"var(--blue)", FLOW:"var(--green)" }[data.type] || "var(--dim)";
+    badgesEl.innerHTML += `<span class="badge" style="color:${tc};border-color:${tc}55;background:${tc}11">${data.type}</span>`;
+  }
+  if (data.sizing) {
+    const sl  = { FULL:"Full size", HALF:"Half size", QUARTER:"¼ size", NONE:"No trade" }[data.sizing] || data.sizing;
+    const sc2 = { FULL:"var(--green)", HALF:"var(--amber)", QUARTER:"var(--amber)", NONE:"var(--red)" }[data.sizing] || "var(--dim)";
+    badgesEl.innerHTML += `<span class="badge" style="color:${sc2};border-color:${sc2}55;background:${sc2}11">${sl}</span>`;
+  }
+
+  // Gate breakdown
+  const gateEl = card.querySelector(".gate-section");
+  if (data.gates) {
+    const gates = [
+      ["SECTOR  SPY/QQQ",    data.gates.sector],
+      ["G1  PRE-WINDOW 14D", data.gates.g1_prewindow],
+      ["G2  CATALYST TYPE",  data.gates.g2_catalyst],
+      ["G3  OPENING BAR",    data.gates.g3_openbar],
+      ["G4  PHASE",          data.gates.g4_phase],
+      ["G5  KOREA PROXY",    data.gates.g5_korea],
+    ];
+    const cc = data.confidence === "HIGH" ? "var(--green)"
+             : data.confidence === "MEDIUM" ? "var(--amber)" : "var(--red)";
+    gateEl.innerHTML = `
+      <button class="expand-btn" onclick="toggleGates('${ticker}')">
+        <span>GATE BREAKDOWN</span><span id="arrow-${ticker}">▼</span>
+      </button>
+      <div class="gate-list" id="gates-${ticker}" style="display:none">
+        ${gates.map(([lbl,g]) => `
+          <div class="gate-row">
+            <div class="gate-dot-sm" style="background:${signalColor(g?.status)}"></div>
+            <div class="gate-content">
+              <div class="gate-header">
+                <span class="gate-lbl">${lbl}</span>
+                <span class="gate-stat" style="color:${signalColor(g?.status)}">${g?.status||""}</span>
+              </div>
+              ${g?.note ? `<div class="gate-note-txt">${g.note}</div>` : ""}
+            </div>
+          </div>`).join("")}
+        ${data.wait_for && data.wait_for !== "null" ? `
+          <div class="wait-box">
+            <span class="wait-lbl">WAIT FOR  </span>
+            <span class="wait-txt">${data.wait_for}</span>
+          </div>` : ""}
+        <div class="conf-row">
+          <span class="conf-lbl">CONFIDENCE</span>
+          <span class="conf-val" style="color:${cc}">${data.confidence}</span>
+        </div>
+      </div>`;
+    gateEl.style.display = "block";
+  }
+}
+
+function toggleGates(ticker) {
+  const el    = document.getElementById(`gates-${ticker}`);
+  const arrow = document.getElementById(`arrow-${ticker}`);
+  const open  = el.style.display === "none";
+  el.style.display  = open ? "block" : "none";
+  arrow.textContent = open ? "▲" : "▼";
+}
+
+function resetCard(ticker) {
+  const card = document.getElementById(`card-${ticker}`);
+  if (!card) return;
+  card.classList.remove("up","down","flat");
+  card.querySelector(".ticker-name").classList.remove("up","down","flat");
+  const pe = card.querySelector(".ticker-price");
+  if (pe) pe.classList.remove("up","down","flat");
+  card.querySelector(".card-action").innerHTML =
+    `<button class="analyze-btn" onclick="analyzeTicker('${ticker}')">ANALYZE</button>`;
+  card.querySelector(".reason-txt").textContent = "";
+  card.querySelector(".card-badges").innerHTML  = "";
+  const gs = card.querySelector(".gate-section");
+  gs.innerHTML = ""; gs.style.display = "none";
+}
+
+// ── RENDER WATCHLIST ──────────────────────────────────────────────
+function renderWatchlist() {
+  document.getElementById("watchlist").innerHTML = watchlist.map(ticker => `
+    <div class="card" id="card-${ticker}">
+      <div class="card-head">
+        <div class="card-left">
+          <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:2px">
+            <span class="ticker-name mono">${ticker}</span>
+            <span class="ticker-price mono fs-sm">—</span>
+          </div>
+          <div class="card-meta">
+            <span class="card-badges"></span>
+          </div>
+          <div class="news-blurb fs-sm dim">Loading news...</div>
+          <div class="options-strip" style="display:none"></div>
+          <div class="reason-txt"></div>
+        </div>
+        <div class="card-right">
+          <div class="card-action">
+            <button class="analyze-btn" onclick="analyzeTicker('${ticker}')">ANALYZE</button>
+          </div>
+          <button class="remove-btn" onclick="removeTicker('${ticker}')">×</button>
+        </div>
+      </div>
+      <div class="gate-section" style="display:none"></div>
+    </div>`).join("");
+
+  // Prefetch ticker data for all cards
+  watchlist.forEach(t => {
+    fetchTickerData(t).then(d => { if (d) updateCardMeta(t, d); });
+  });
+}
+
+// ── INIT ──────────────────────────────────────────────────────────
+document.getElementById("ticker-count").textContent = `CRF · ${watchlist.length} TICKERS`;
+renderWatchlist();
+fetchMarket();
+setInterval(fetchMarket, 5 * 60 * 1000);
+</script>
+</body>
+</html>
