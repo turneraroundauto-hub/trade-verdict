@@ -334,7 +334,7 @@ let watchlist=JSON.parse(localStorage.getItem('tv_wl')||'["SMMT","VCYT","TWST","
 let market=null,tickerCache={};
 
 function authH(){return{'Content-Type':'application/json','x-app-secret':APP_SECRET}}
-function isMarketOpen(){
+function isMarketClosed(){
   var now=new Date();
   var et=new Date(now.toLocaleString('en-US',{timeZone:'America/New_York'}));
   var day=et.getDay();
