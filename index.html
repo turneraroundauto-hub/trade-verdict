@@ -388,7 +388,7 @@ let watchlist=_wl;
 let market=null,tickerCache={};
 
 function authH(){return{'Content-Type':'application/json','x-app-secret':APP_SECRET}
-function addSecret(url){var sep=url.includes('?')?'&':'?';return url+sep+'secret='+encodeURIComponent(APP_SECRET);}}
+function addSecret(url){var sep=url.includes('?')?'&':'?';return url+sep+'secret='+encodeURIComponent(APP_SECRET);}
 function isMarketClosed(){
   var now=new Date();
   var et=new Date(now.toLocaleString('en-US',{timeZone:'America/New_York'}));
