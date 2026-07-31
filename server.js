@@ -622,6 +622,8 @@ function evaluateGate1(g1) {
       note: `Downtrend, 60-day ${pct60d.toFixed(1)}% exceeds -25% structural breakdown threshold — forces DOWN regardless of any other gate. Sector tailwinds cannot override. Requires structural reversal (higher high + reclaim of 50-day MA) before flipping back to Green.` };
   }
 }
+const MAX_NEWS_AGE_HOURS = 300; // last business week
+
 async function fetchNews(symbol) {
   try {
     const now    = new Date();

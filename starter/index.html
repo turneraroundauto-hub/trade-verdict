@@ -593,7 +593,8 @@ async function analyzeTicker(ticker){
         metricsData:td&&td.metrics?td.metrics:null,
         newsData:td&&td.news?td.news:null,
         openingBarData:td&&td.openingBar?td.openingBar:null,
-        proxyRule:td&&td.proxyRule?td.proxyRule:null
+        proxyRule:td&&td.proxyRule?td.proxyRule:null,
+        gate1Data:td&&td.gate1?td.gate1:null
       })});
     if(!res.ok){
       var errData=await res.json().catch(function(){return{}});
@@ -661,7 +662,7 @@ function renderCardResult(ticker,data){
   // Log buttons
   var logEl=card.querySelector('.log-section');
   if(logEl){
-    logEl.innerHTML='<div class="log-row"><span class="log-prompt">WAS IT RIGHT?</span><button class="log-btn log-btn-right" onclick="logResult(\u0027'+ticker+'\u0027,\u0027'+v+'\u0027,true,this.closest(\u0027.log-row\u0027)">\u2713 RIGHT</button><button class="log-btn log-btn-wrong" onclick="logResult(\u0027'+ticker+'\u0027,\u0027'+v+'\u0027,false,this.closest(\u0027.log-row\u0027))">\u2717 WRONG</button><button class="log-btn log-btn-skip" onclick="this.closest(\u0027.log-row\u0027).style.display=\u0027none\u0027">SKIP</button></div>';
+    logEl.innerHTML='<div class="log-row"><span class="log-prompt">WAS IT RIGHT?</span><button class="log-btn log-btn-right" onclick="logResult(\u0027'+ticker+'\u0027,\u0027'+v+'\u0027,true,this.closest(\u0027.log-row\u0027))">\u2713 RIGHT</button><button class="log-btn log-btn-wrong" onclick="logResult(\u0027'+ticker+'\u0027,\u0027'+v+'\u0027,false,this.closest(\u0027.log-row\u0027))">\u2717 WRONG</button><button class="log-btn log-btn-skip" onclick="this.closest(\u0027.log-row\u0027).style.display=\u0027none\u0027">SKIP</button></div>';
     logEl.style.display='block';
   }
 
@@ -709,7 +710,7 @@ function renderWatchlist(){
       +'<div class="card-badges"></div>'
       +'</div>'
       +'<div class="card-right">'
-      +'<div class="reorder-btns">'+'<button class="reorder-btn" onclick="moveCard(\''+ticker+'\'-1)" title="Up">&#9650;</button>'+'<button class="reorder-btn" onclick="moveCard(\''+ticker+'\',1)" title="Down">&#9660;</button>'+'</div>'
+      +'<div class="reorder-btns">'+'<button class="reorder-btn" onclick="moveCard(\''+ticker+'\',-1)" title="Up">&#9650;</button>'+'<button class="reorder-btn" onclick="moveCard(\''+ticker+'\',1)" title="Down">&#9660;</button>'+'</div>'
       +'<div class="card-action"><button class="analyze-btn" onclick="analyzeTicker(\''+ticker+'\')">ANALYZE</button></div>'
       +'<button class="remove-btn" onclick="removeTicker(\''+ticker+'\')">&#215;</button>'
       +'</div></div>'
