@@ -444,27 +444,20 @@ async function handleLogin(){var email=document.getElementById('auth-email').val
 async function handleSignup(){var email=document.getElementById('auth-email').value.trim(),password=document.getElementById('auth-password').value,btn=document.getElementById('auth-btn'),err=document.getElementById('auth-error');err.textContent='';err.style.color='var(--red)';if(!email||!password){err.textContent='Email and password required';return;}if(password.length<6){err.textContent='Password must be at least 6 characters';return;}btn.disabled=true;btn.textContent='CREATING...';try{var r=await fetch(API_URL+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});if(!r.ok){var e=await r.json();throw new Error(e.error||'Signup failed');}err.style.color='var(--green)';err.textContent='Account created! Check your email to confirm, then sign in.';btn.textContent='SIGN IN';btn.disabled=false;toggleAuthMode('login');}catch(e){err.textContent=e.message;btn.textContent='CREATE ACCOUNT';btn.disabled=false;}}
 
 function initApp(){cleanLS();document.getElementById('ticker-count').textContent='CRF \u00b7 '+watchlist.length+' TICKERS';renderWatchlist();renderTrackRecord();startClock();fetchMarket();setTimeout(fetchCreditStatus,2000);setInterval(function(){fetchMarket()},4*60*1000);enforceMarketState();setInterval(enforceMarketState,60*1000);if(sbSession&&sbSession.email){var pb=document.getElementById('profile-btn');if(pb)pb.textContent=sbSession.email.charAt(0).toUpperCase();var pme=document.getElementById('profile-menu-email');if(pme)pme.textContent=sbSession.email;}}
-var STARTER_CHECKOUT_LINK='https://buy.stripe.com/eVq3cw84pczR6lp0oV3VC03';
-
 function checkTierAccess(session){
   var expectedTier='starter';
   var err=document.getElementById('auth-error');
   if(session.tier!==expectedTier){
-    // Never subscribed before (fresh signup) and currently free → send
-    // straight to checkout instead of parking them on the free tier.
-    // A lapsed subscriber (has_subscribed=true but tier fell back to free)
-    // isn't pushed to buy again here — they just land on free, no login wall.
-    if(session.tier==='free'&&!session.hasSubscribed){
-      if(err){err.style.color='var(--amber)';err.textContent='No active STARTER subscription. Redirecting to checkout...';}
-      setTimeout(function(){
-        window.location.href=STARTER_CHECKOUT_LINK+'?prefilled_email='+encodeURIComponent(session.email||'');
-      },1200);
-      return false;
-    }
+    // Everyone without an active STARTER subscription lands on the free
+    // tier -- new signup or lapsed, no distinction, no login wall (free
+    // has never required auth). The free tier's own upgrade button is
+    // what sends them to Stripe checkout, not this redirect.
     if(err){
       err.style.color='var(--amber)';
       if(session.tier==='free'){
-        err.textContent='Your STARTER subscription is no longer active. Redirecting to free tier...';
+        err.textContent=session.hasSubscribed
+          ?'Your STARTER subscription is no longer active. Redirecting to free tier...'
+          :'No active STARTER subscription. Redirecting to free tier...';
       }else{
         err.textContent='Redirecting to your '+session.tier.toUpperCase()+' tier...';
       }
