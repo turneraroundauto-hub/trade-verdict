@@ -17,6 +17,7 @@ try{
 // SIGN UP / SIGN IN.
 function getStoredSession(){try{return JSON.parse(localStorage.getItem('tv_session')||'null');}catch(e){return null;}}
 function isSessionValid(s){if(!s||!s.token)return false;if(s.expiresAt&&Date.now()/1000>s.expiresAt-60)return false;return true;}
+var sbSession=isSessionValid(getStoredSession())?getStoredSession():null;
 function updateAuthButton(){
   var btn=document.getElementById('auth-action-btn');if(!btn)return;
   if(isSessionValid(getStoredSession())){
@@ -36,7 +37,7 @@ updateAuthButton();
 const API_URL='https://tra-zacg.onrender.com';
 const TIER={
   name:'Free',maxTickers:3,pulse:false,tracker:false,alpaca:false,
-  credits:'3 analyses',cache:'15 min cache',
+  credits:'3 credits/week',cache:'15 min cache',
   nextTier:'Starter',nextPrice:'$9.99/mo',
   stripeLink:'https://buy.stripe.com/eVq3cw84pczR6lp0oV3VC03',creditsLink:'https://buy.stripe.com/3cI3cwacxarJ8txb3z3VC00',
   badgeColor:'#607d8b',
@@ -44,8 +45,13 @@ const TIER={
 const APP_SECRET='Holysmoke42!';
 let market=null;
 
-function authH(){return{'Content-Type':'application/json','x-app-secret':APP_SECRET};}
-function addSecret(url){var sep=url.includes('?')?'&':'?';return url+sep+'secret='+encodeURIComponent(APP_SECRET);}
+// Logged-in visitors (tv_session set by the Starter login flow) are keyed
+// per-account server-side via their Supabase token. Anonymous visitors fall
+// back to the shared APP_SECRET, which the server keys per-IP (see
+// server.js auth middleware) — never per-secret, since every anonymous
+// visitor ships the same secret.
+function authH(){return sbSession&&sbSession.token?{'Content-Type':'application/json','x-supabase-token':sbSession.token}:{'Content-Type':'application/json','x-app-secret':APP_SECRET};}
+function addSecret(url){var sep=url.includes('?')?'&':'?';if(sbSession&&sbSession.token)return url+sep+'supabase_token='+encodeURIComponent(sbSession.token);return url+sep+'secret='+encodeURIComponent(APP_SECRET);}
 
 initWatchlist({defaultTickers:['MU','IREN','ALAB'], maxTickers:3, upgradeMessage:'Free tier supports up to 3 tickers.\n\nUpgrade to Starter for more.'});
 initTickerCache({API_URL:API_URL, authH:authH, addSecret:addSecret});
@@ -395,25 +401,43 @@ function enforceMarketState(){
   }
 }
 
+// Purchasing credits requires attributing the Stripe payment to an
+// account (server.js keys the purchase webhook off email), so the buy
+// link only makes sense for logged-in visitors. Anonymous visitors just
+// see their remaining weekly count.
 async function fetchCreditStatus(){
   try{
-    var res=await fetch(API_URL+'/status?secret='+encodeURIComponent(APP_SECRET));
+    var res=await fetch(addSecret(API_URL+'/status'),{headers:authH()});
     var data=await res.json();
     var el=document.getElementById('credits-btn');
-    if(el&&data.totalCredits!==undefined){
-      el.textContent=(data.totalCredits>0?data.totalCredits:'+')+' CREDITS';
+    if(!el||data.totalCredits===undefined)return;
+    var loggedIn=!!(sbSession&&sbSession.token);
+    var label=(data.totalCredits>0?data.totalCredits:'+')+' CREDITS';
+    if(loggedIn){
+      el.textContent=label;
+      el.href=TIER.creditsLink;
+      el.style.pointerEvents='';el.style.opacity='';
+    }else{
+      el.textContent=label+' · WK';
+      el.removeAttribute('href');
+      el.style.pointerEvents='none';el.style.opacity='.7';
     }
   }catch(e){}
 }
 
+// Next weekly reset boundary — matches credits.js's fixed 7-day epoch
+// buckets (WEEK_MS), so the countdown shown here lines up with when the
+// server actually refreshes the balance.
 var comebackTimer=null;
 function startComebackTimer(){
   if(comebackTimer)clearInterval(comebackTimer);
   comebackTimer=setInterval(function(){
-    var now=new Date(),midnight=new Date();midnight.setHours(24,0,0,0);
-    var diff=midnight-now,h=Math.floor(diff/3600000),m=Math.floor((diff%3600000)/60000),s=Math.floor((diff%60000)/1000);
+    var WEEK_MS=7*24*60*60*1000;
+    var nextReset=(Math.floor(Date.now()/WEEK_MS)+1)*WEEK_MS;
+    var diff=nextReset-Date.now();
+    var d=Math.floor(diff/86400000),h=Math.floor((diff%86400000)/3600000),m=Math.floor((diff%3600000)/60000),s=Math.floor((diff%60000)/1000);
     var el=document.getElementById('comeback-timer');
-    if(el)el.textContent=String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+    if(el)el.textContent=d+'d '+String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
   },1000);
 }
 
@@ -421,6 +445,20 @@ function startComebackTimer(){
 function handleNoCredits(card,ticker){
   var cached=getCachedVerdict(ticker);
   if(cached){renderCardResult(ticker,cached);return;}
+  // Anonymous visitors can't have a $0.99 purchase attributed to them
+  // (server keys purchases by account email) — point them at sign-in
+  // instead of a buy link that won't actually credit their balance.
+  var buyBtn=document.getElementById('comeback-buy-btn');
+  if(buyBtn){
+    if(sbSession&&sbSession.token){
+      buyBtn.textContent='+ BUY CREDITS $0.99';
+      buyBtn.href='https://buy.stripe.com/3cI3cwacxarJ8txb3z3VC00';
+    }else{
+      buyBtn.textContent='SIGN IN TO ADD CREDITS';
+      buyBtn.href='https://turneraroundauto-hub.github.io/trade-verdict/starter/';
+      buyBtn.removeAttribute('target');
+    }
+  }
   document.getElementById('comeback-screen').style.display='flex';
   startComebackTimer();
 }
