@@ -125,6 +125,17 @@ $$ language plpgsql;
 -- this transaction), then spends purchased_credits first, then credits —
 -- atomically, so concurrent deducts for the same key can't both pass the
 -- balance check against the same stale balance.
+--
+-- The UPDATE statements alias the table as `c` and qualify every column
+-- reference through it (c.credits, c.purchased_credits). Without that,
+-- `returns table(..., credits int, purchased_credits int, ...)` declares
+-- those names as this function's own output variables, which collide
+-- with the identically-named columns on public.credits — any bare
+-- `credits`/`purchased_credits` inside an UPDATE on that table becomes
+-- ambiguous between "the column" and "the output variable" and Postgres
+-- throws instead of guessing (as opposed to the left side of a SET
+-- clause, which the UPDATE grammar always resolves as the column, no
+-- ambiguity possible there).
 create or replace function public.deduct_user_credit(p_key text, p_tier text default null, p_count int default 1)
 returns table(success boolean, credits int, purchased_credits int, tier text) as $$
 declare
@@ -138,15 +149,15 @@ begin
   end if;
 
   if v_row.purchased_credits >= p_count then
-    update public.credits
-      set purchased_credits = purchased_credits - p_count, updated_at = now()
-      where api_key = p_key returning * into v_row;
+    update public.credits as c
+      set purchased_credits = c.purchased_credits - p_count, updated_at = now()
+      where c.api_key = p_key returning c.* into v_row;
   else
-    update public.credits
-      set credits = credits - (p_count - purchased_credits),
+    update public.credits as c
+      set credits = c.credits - (p_count - c.purchased_credits),
           purchased_credits = 0,
           updated_at = now()
-      where api_key = p_key returning * into v_row;
+      where c.api_key = p_key returning c.* into v_row;
   end if;
 
   return query select true, v_row.credits, v_row.purchased_credits, v_row.tier;
