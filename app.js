@@ -1,7 +1,7 @@
-import { initTickerCache, fetchTickerData } from './shared/ticker-cache.js';
-import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta } from './shared/watchlist.js';
-import { cleanLS, cacheVerdict, getCachedVerdict } from './shared/analysis-cache.js';
-import { renderTrackRecord } from './shared/track-record.js';
+import { initTickerCache, fetchTickerData } from './shared/ticker-cache.js?v=2';
+import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta } from './shared/watchlist.js?v=2';
+import { cleanLS, cacheVerdict, getCachedVerdict } from './shared/analysis-cache.js?v=2';
+import { renderTrackRecord } from './shared/track-record.js?v=2';
 
 // If user has a paid session in localStorage from paid tier, redirect them
 try{
