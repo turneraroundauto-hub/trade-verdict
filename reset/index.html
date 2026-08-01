@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate">
+<title>Trade Verdict — Reset Password</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#080c12;--card:#0f1923;--border:#1a2840;
+  --green:#00e676;--red:#ff1744;--amber:#ffab00;
+  --blue:#40c4ff;--white:#ffffff;--dim:#607d8b;
+}
+body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px}
+.wrap{width:100%;max-width:340px}
+h1{font-family:monospace;font-size:20px;color:var(--white);margin-bottom:4px}
+.sub{font-family:monospace;font-size:11px;color:var(--dim);margin-bottom:28px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px}
+.title{font-family:monospace;font-size:13px;font-weight:700;color:var(--blue);letter-spacing:.1em;margin-bottom:16px}
+label{font-family:monospace;font-size:9px;color:var(--dim);display:block;margin-bottom:4px}
+input{width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:5px;padding:9px 12px;color:var(--white);font-family:monospace;font-size:13px;margin-bottom:12px;box-sizing:border-box}
+.msg{font-family:monospace;font-size:11px;margin-bottom:12px;min-height:16px;line-height:1.5}
+.msg.err{color:var(--red)}
+.msg.ok{color:var(--green)}
+.msg.info{color:var(--dim)}
+button.primary{width:100%;height:44px;background:rgba(64,196,255,.12);border:1px solid rgba(64,196,255,.4);color:var(--blue);border-radius:6px;font-family:monospace;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:.08em}
+button.primary:disabled{opacity:.5;cursor:default}
+a.back{display:block;text-align:center;margin-top:16px;font-family:monospace;font-size:11px;color:var(--dim);text-decoration:underline}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>TRADE VERDICT</h1>
+  <p class="sub">Reset Password</p>
+  <div class="card">
+    <div class="title" id="title">SET NEW PASSWORD</div>
+    <div id="form-area">
+      <label>NEW PASSWORD</label>
+      <input id="pw1" type="password" autocomplete="new-password" placeholder="••••••••">
+      <label>CONFIRM PASSWORD</label>
+      <input id="pw2" type="password" autocomplete="new-password" placeholder="••••••••">
+      <div class="msg" id="msg"></div>
+      <button type="button" class="primary" id="submit-btn">UPDATE PASSWORD</button>
+    </div>
+  </div>
+  <a class="back" href="https://turneraroundauto-hub.github.io/trade-verdict/starter/">&larr; Back to sign in</a>
+</div>
+<script>
+var API_URL='https://tra-zacg.onrender.com';
+
+function parseToken(){
+  // Classic Supabase recovery link: redirectTo#access_token=...&type=recovery
+  var hash=window.location.hash.replace(/^#/,'');
+  var hp=new URLSearchParams(hash);
+  if(hp.get('type')==='recovery'&&hp.get('access_token')){
+    return {accessToken:hp.get('access_token')};
+  }
+  // Newer OTP-style recovery link: redirectTo?token_hash=...&type=recovery
+  var sp=new URLSearchParams(window.location.search);
+  if(sp.get('type')==='recovery'&&sp.get('token_hash')){
+    return {tokenHash:sp.get('token_hash')};
+  }
+  return null;
+}
+
+var token=parseToken();
+var msgEl=document.getElementById('msg');
+var btn=document.getElementById('submit-btn');
+var pw1=document.getElementById('pw1'),pw2=document.getElementById('pw2');
+
+if(!token){
+  document.getElementById('form-area').innerHTML='';
+  msgEl=document.createElement('div');
+  msgEl.className='msg err';
+  msgEl.textContent='This reset link is invalid or has expired. Go back to sign in and request a new one.';
+  document.getElementById('form-area').appendChild(msgEl);
+}else{
+  btn.addEventListener('click',function(){
+    msgEl.className='msg';msgEl.textContent='';
+    if(!pw1.value||pw1.value.length<6){msgEl.className='msg err';msgEl.textContent='Password must be at least 6 characters';return;}
+    if(pw1.value!==pw2.value){msgEl.className='msg err';msgEl.textContent='Passwords do not match';return;}
+    btn.disabled=true;btn.textContent='UPDATING...';
+    var body={password:pw1.value};
+    if(token.accessToken)body.accessToken=token.accessToken;
+    if(token.tokenHash)body.tokenHash=token.tokenHash;
+    fetch(API_URL+'/auth/reset-confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+      .then(function(r){return r.json().then(function(d){return {ok:r.ok,data:d};});})
+      .then(function(res){
+        if(!res.ok)throw new Error(res.data.error||'Reset failed');
+        document.getElementById('form-area').innerHTML='';
+        var ok=document.createElement('div');
+        ok.className='msg ok';
+        ok.textContent='Password updated. You can sign in now.';
+        document.getElementById('form-area').appendChild(ok);
+      })
+      .catch(function(e){
+        msgEl.className='msg err';msgEl.textContent=e.message;
+        btn.disabled=false;btn.textContent='UPDATE PASSWORD';
+      });
+  });
+}
+</script>
+</body>
+</html>
