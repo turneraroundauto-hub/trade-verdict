@@ -131,6 +131,7 @@ app.use(async (req, res, next) => {
   if (req.path === "/auth/login") return next();
   if (req.path === "/auth/signup") return next();
   if (req.path === "/auth/reset") return next();
+  if (req.path === "/auth/reset-confirm") return next();
   if (req.path === "/stripe/webhook") return next();
   if (req.path === "/stripe/credits") return next();
 
@@ -1682,10 +1683,37 @@ app.post("/auth/reset", async (req, res) => {
   if (!email) return res.status(400).json({ error: "Email required" });
   try {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: "https://turneraroundauto-hub.github.io/trade-verdict/reset",
+      redirectTo: "https://turneraroundauto-hub.github.io/trade-verdict/reset/",
     });
     if (error) return res.status(400).json({ error: error.message });
     res.json({ message: "Reset link sent" });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Consume a password-recovery link (from /reset/) and set a new password.
+// Handles both Supabase recovery-link shapes: the classic implicit-grant
+// hash (#access_token=...&type=recovery) and the newer OTP-style query
+// param (?token_hash=...&type=recovery) — reset/index.html forwards
+// whichever one it parsed out of the URL.
+app.post("/auth/reset-confirm", async (req, res) => {
+  if (!supabase) return res.status(500).json({ error: "Auth not configured" });
+  const { accessToken, tokenHash, password } = req.body;
+  if (!password || password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+  if (!accessToken && !tokenHash) return res.status(400).json({ error: "Missing or expired reset link" });
+  try {
+    let userId = null;
+    if (accessToken) {
+      const { data, error } = await supabase.auth.getUser(accessToken);
+      if (error || !data?.user) return res.status(401).json({ error: "This reset link is invalid or has expired" });
+      userId = data.user.id;
+    } else {
+      const { data, error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: "recovery" });
+      if (error || !data?.user) return res.status(401).json({ error: "This reset link is invalid or has expired" });
+      userId = data.user.id;
+    }
+    const { error: updateErr } = await supabase.auth.admin.updateUserById(userId, { password });
+    if (updateErr) return res.status(400).json({ error: updateErr.message });
+    res.json({ message: "Password updated" });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
