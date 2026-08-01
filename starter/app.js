@@ -389,8 +389,26 @@ function addSecret(url){if(sbSession&&sbSession.token){var sep=url.includes('?')
 function showScreen(id){['auth-screen','comeback-screen','app-root'].forEach(function(s){var el=document.getElementById(s);if(el)el.style.display=s===id?(s==='app-root'?'block':'flex'):'none';});}
 export function authLogout(){storeSession(null);sbSession=null;showScreen('auth-screen');}
 
+// ── PROFILE MENU ──────────────────────────────────────────────────
+export function toggleProfileMenu(e){
+  if(e)e.stopPropagation();
+  var m=document.getElementById('profile-menu');if(!m)return;
+  m.classList.toggle('open');
+}
+document.addEventListener('click',function(e){
+  var m=document.getElementById('profile-menu');
+  if(!m||!m.classList.contains('open'))return;
+  if(!e.target.closest('.profile-wrap'))m.classList.remove('open');
+});
+export function promptLogResults(){
+  var m=document.getElementById('profile-menu');if(m)m.classList.remove('open');
+  if(confirm('Log Results tracks your win/loss outcomes over time — available on Pro.\n\nUpgrade now?')){
+    window.open(TIER.stripeLink,'_blank');
+  }
+}
+
 // ── CREDIT DISPLAY ────────────────────────────────────────────────
-async function fetchCreditStatus(){try{var res=await fetch(addSecret(API_URL+'/status'),{headers:authH()});var data=await res.json();var el=document.getElementById('credit-display');if(el&&data.totalCredits!==undefined){el.textContent=data.totalCredits+' credits';el.style.color=data.totalCredits<5?'var(--red)':data.totalCredits<15?'var(--amber)':'var(--dim)';}}catch(e){}}
+async function fetchCreditStatus(){try{var res=await fetch(addSecret(API_URL+'/status'),{headers:authH()});var data=await res.json();var el=document.getElementById('credits-btn');if(el&&data.totalCredits!==undefined){el.textContent=(data.totalCredits>0?data.totalCredits:'+')+' CREDITS';}}catch(e){}}
 
 // ── NO CREDITS ────────────────────────────────────────────────────
 function handleNoCredits(card,ticker){
@@ -425,7 +443,7 @@ function toggleAuthMode(mode){authMode=mode||(authMode==='login'?'signup':'login
 async function handleLogin(){var email=document.getElementById('auth-email').value.trim(),password=document.getElementById('auth-password').value,btn=document.getElementById('auth-btn'),err=document.getElementById('auth-error');err.textContent='';btn.disabled=true;btn.textContent='SIGNING IN...';try{var r=await fetch(API_URL+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});if(!r.ok){var e=await r.json();throw new Error(e.error||'Login failed');}var session=await r.json();storeSession(session);sbSession=session;btn.textContent='SIGN IN';btn.disabled=false;checkTierAccess(session);}catch(e){err.textContent=e.message;btn.textContent='SIGN IN';btn.disabled=false;}}
 async function handleSignup(){var email=document.getElementById('auth-email').value.trim(),password=document.getElementById('auth-password').value,btn=document.getElementById('auth-btn'),err=document.getElementById('auth-error');err.textContent='';err.style.color='var(--red)';if(!email||!password){err.textContent='Email and password required';return;}if(password.length<6){err.textContent='Password must be at least 6 characters';return;}btn.disabled=true;btn.textContent='CREATING...';try{var r=await fetch(API_URL+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});if(!r.ok){var e=await r.json();throw new Error(e.error||'Signup failed');}err.style.color='var(--green)';err.textContent='Account created! Check your email to confirm, then sign in.';btn.textContent='SIGN IN';btn.disabled=false;toggleAuthMode('login');}catch(e){err.textContent=e.message;btn.textContent='CREATE ACCOUNT';btn.disabled=false;}}
 
-function initApp(){cleanLS();document.getElementById('ticker-count').textContent='CRF \u00b7 '+watchlist.length+' TICKERS';renderWatchlist();renderTrackRecord();startClock();fetchMarket();setTimeout(fetchCreditStatus,2000);setInterval(function(){fetchMarket()},4*60*1000);enforceMarketState();setInterval(enforceMarketState,60*1000);if(sbSession&&sbSession.email){var el=document.getElementById('user-email-display');if(el)el.textContent=sbSession.email;}}
+function initApp(){cleanLS();document.getElementById('ticker-count').textContent='CRF \u00b7 '+watchlist.length+' TICKERS';renderWatchlist();renderTrackRecord();startClock();fetchMarket();setTimeout(fetchCreditStatus,2000);setInterval(function(){fetchMarket()},4*60*1000);enforceMarketState();setInterval(enforceMarketState,60*1000);if(sbSession&&sbSession.email){var pb=document.getElementById('profile-btn');if(pb)pb.textContent=sbSession.email.charAt(0).toUpperCase();var pme=document.getElementById('profile-menu-email');if(pme)pme.textContent=sbSession.email;}}
 function checkTierAccess(session){
   var expectedTier='starter';
   var err=document.getElementById('auth-error');
@@ -484,3 +502,5 @@ window.toggleGates = toggleGates;
 window.toggleGlossary = toggleGlossary;
 window.filterGlossary = filterGlossary;
 window.authLogout = authLogout;
+window.toggleProfileMenu = toggleProfileMenu;
+window.promptLogResults = promptLogResults;
