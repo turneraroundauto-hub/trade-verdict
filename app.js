@@ -127,7 +127,7 @@ export async function analyzeTicker(ticker){
   };
   card.querySelector('.card-action').innerHTML='<div style="display:flex;flex-direction:column;align-items:center;gap:2px"><div class="spinner"></div><span class="spinner-label">RUNNING</span></div>';
   card.querySelector('.reason-txt').textContent='';
-  card.classList.remove('up','down','flat');
+  card.classList.remove('up','down','flat','rim-green','rim-yellow','rim-red');
   card.querySelector('.ticker-name').classList.remove('up','down','flat');
   var pe=card.querySelector('.ticker-price');if(pe)pe.classList.remove('up','down','flat');
   card.querySelector('.card-badges').innerHTML='';
@@ -217,13 +217,20 @@ function renderCardResult(ticker,data){
   var pgEl=card.querySelector('.pregate-strip');
   if(pgEl&&data.gates){
     var merged=mergePreGateSector(data.gates.pre_gate,data.gates.sector);
-    pgEl.innerHTML='<div class="pregate-dot" style="background:'+sigColor(merged.status)+'"></div><div class="pregate-content"><div class="pregate-header"><span class="pregate-lbl">PRE-GATE / SECTOR</span><span class="pregate-stat" style="color:'+sigColor(merged.status)+'">'+(merged.status||'')+'</span></div>'+(merged.note?'<div class="pregate-note">'+merged.note+'</div>':'')+'</div>';
+    pgEl.innerHTML='<div class="pregate-dot" style="background:'+sigColor(merged.status)+'"></div><div class="pregate-content"><div class="pregate-header"><span class="pregate-lbl">PRE-GATE / SECTOR</span></div>'+(merged.note?'<div class="pregate-note">'+merged.note+'</div>':'')+'</div>';
     pgEl.style.display='flex';
   }
 
   // Gate breakdown
   var gateEl=card.querySelector('.gate-section');
   if(data.gates){
+    // Gate 1 dictates the tile rim color (independent of the overall verdict)
+    card.classList.remove('rim-green','rim-yellow','rim-red');
+    var g1s=data.gates.g1_prewindow&&data.gates.g1_prewindow.status;
+    if(g1s==='GREEN')card.classList.add('rim-green');
+    else if(g1s==='YELLOW')card.classList.add('rim-yellow');
+    else if(g1s==='RED')card.classList.add('rim-red');
+
     var gates=[['G1  PRE-WINDOW 14D',data.gates.g1_prewindow],['G2  CATALYST',data.gates.g2_catalyst],['G3  OPENING BAR',data.gates.g3_openbar],['G4  PHASE',data.gates.g4_phase],['G5  SECTOR PROXY',data.gates.g5_korea]];
     var cc=data.confidence==='HIGH'?'var(--green)':data.confidence==='MEDIUM'?'var(--amber)':'var(--red)';
     var gHtml='<button class="expand-btn" onclick="toggleGates(\u0027'+ticker+'\u0027)"><span>GATE BREAKDOWN</span><span id="arrow-'+ticker+'">\u25bc</span></button><div class="gate-list" id="gates-'+ticker+'" style="display:none">';
@@ -244,7 +251,7 @@ export function toggleGates(ticker){
 
 export function resetCard(ticker){
   var card=document.getElementById('card-'+ticker);if(!card)return;
-  card.classList.remove('up','down','flat');
+  card.classList.remove('up','down','flat','rim-green','rim-yellow','rim-red');
   card.querySelector('.ticker-name').classList.remove('up','down','flat');
   var pe=card.querySelector('.ticker-price');if(pe)pe.classList.remove('up','down','flat');
   card.querySelector('.card-action').innerHTML='<button class="analyze-btn" onclick="analyzeTicker(\''+ticker+'\')">ANALYZE</button>';
