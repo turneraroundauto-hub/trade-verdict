@@ -45,6 +45,17 @@ end $$;
 -- exists.
 create unique index if not exists credits_api_key_idx on public.credits (api_key);
 
+-- pending_analyses backs the "1 credit = 3 ticker analyses" pricing
+-- decision, across every tier. Tier allowances (3/week free, 45/mo
+-- starter, etc.) are unchanged and still expressed in whole credits —
+-- what changed is what one credit buys. Rather than storing balances in
+-- fractional credits, each ticker analysis increments this 0-2 counter;
+-- only the 3rd increment actually decrements a whole credit (purchased
+-- first, same priority as before). This keeps the credit balance shown
+-- to users always a true whole number of fully-available 3-packs, with
+-- in-progress partial consumption invisible until it completes.
+alter table public.credits add column if not exists pending_analyses integer not null default 0;
+
 -- RLS disabled to match this table's existing style — server-only
 -- access via the service_role key (server.js never uses the anon key
 -- for this table). No-op if already disabled.
@@ -119,12 +130,17 @@ end;
 $$ language plpgsql;
 
 -- ── deduct_user_credit ──────────────────────────────────────────────
--- 1 credit = 1 ticker analysis (server.js calls this once per /analyze,
--- before the Anthropic call). Applies reset via get_or_create_user_credits
--- (which holds the row lock from its INSERT..ON CONFLICT for the rest of
--- this transaction), then spends purchased_credits first, then credits —
--- atomically, so concurrent deducts for the same key can't both pass the
--- balance check against the same stale balance.
+-- 1 credit = 3 ticker analyses, across every tier. server.js calls this
+-- once per /analyze — p_count is the number of tickers just analyzed
+-- (always 1 in practice), not a credit amount. Applies reset via
+-- get_or_create_user_credits (which holds the row lock from its
+-- INSERT..ON CONFLICT for the rest of this transaction), then advances
+-- pending_analyses by p_count; every complete group of 3 decrements one
+-- whole credit (purchased first, same priority as before), and the
+-- remainder (0-2) stays banked in pending_analyses for the next call.
+-- This is why the balance check below is still "< 1 whole credit", not
+-- "< p_count" — a request only needs *a* credit available to draw down,
+-- not a full credit's worth of remaining analyses.
 --
 -- The UPDATE statements alias the table as `c` and qualify every column
 -- reference through it (c.credits, c.purchased_credits). Without that,
@@ -139,26 +155,40 @@ $$ language plpgsql;
 create or replace function public.deduct_user_credit(p_key text, p_tier text default null, p_count int default 1)
 returns table(success boolean, credits int, purchased_credits int, tier text) as $$
 declare
-  v_row public.credits%rowtype;
+  v_row              public.credits%rowtype;
+  v_new_pending      int;
+  v_whole_to_spend   int;
+  v_i                int;
 begin
   select * into v_row from public.get_or_create_user_credits(p_key, p_tier);
 
-  if (v_row.credits + v_row.purchased_credits) < p_count then
+  if (v_row.credits + v_row.purchased_credits) < 1 then
     return query select false, v_row.credits, v_row.purchased_credits, v_row.tier;
     return;
   end if;
 
-  if v_row.purchased_credits >= p_count then
-    update public.credits as c
-      set purchased_credits = c.purchased_credits - p_count, updated_at = now()
-      where c.api_key = p_key returning c.* into v_row;
-  else
-    update public.credits as c
-      set credits = c.credits - (p_count - c.purchased_credits),
-          purchased_credits = 0,
-          updated_at = now()
-      where c.api_key = p_key returning c.* into v_row;
-  end if;
+  v_new_pending    := coalesce(v_row.pending_analyses, 0) + p_count;
+  v_whole_to_spend := v_new_pending / 3;   -- integer division, floor
+  v_new_pending    := v_new_pending % 3;
+
+  for v_i in 1..v_whole_to_spend loop
+    if v_row.purchased_credits > 0 then
+      update public.credits as c
+        set purchased_credits = c.purchased_credits - 1, updated_at = now()
+        where c.api_key = p_key returning c.* into v_row;
+    elsif v_row.credits > 0 then
+      update public.credits as c
+        set credits = c.credits - 1, updated_at = now()
+        where c.api_key = p_key returning c.* into v_row;
+    else
+      -- Guarded against by the balance check above; defensive only.
+      exit;
+    end if;
+  end loop;
+
+  update public.credits as c
+    set pending_analyses = v_new_pending, updated_at = now()
+    where c.api_key = p_key returning c.* into v_row;
 
   return query select true, v_row.credits, v_row.purchased_credits, v_row.tier;
 end;
