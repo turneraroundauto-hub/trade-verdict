@@ -133,7 +133,8 @@ export async function analyzeTicker(ticker){
         newsData:td&&td.news?td.news:null,
         openingBarData:td&&td.openingBar?td.openingBar:null,
         proxyRule:td&&td.proxyRule?td.proxyRule:null,
-        gate1Data:td&&td.gate1?td.gate1:null
+        gate1Data:td&&td.gate1?td.gate1:null,
+        preGateData:td&&td.preGate?td.preGate:null
       })});
     if(!res.ok){
       var errData=await res.json().catch(function(){return{}});
