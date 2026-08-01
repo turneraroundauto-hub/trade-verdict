@@ -38,13 +38,13 @@ function isMarketClosed(){
 }
 
 function sigColor(s){return{GREEN:'var(--green)',RED:'var(--red)',YELLOW:'var(--amber)','N/A':'var(--dim)'}[s]||'var(--dim)'}
-function mergePreGateSector(pg,sec){
-  pg=pg||{};sec=sec||{};
+function mergePreGateSector(pg,proxy){
+  pg=pg||{};proxy=proxy||{};
   var rank={RED:2,YELLOW:1,GREEN:0};
-  var status=(rank[pg.status]||0)>=(rank[sec.status]||0)?(pg.status||'GREEN'):(sec.status||'GREEN');
+  var status=(rank[pg.status]||0)>=(rank[proxy.status]||0)?(pg.status||'GREEN'):(proxy.status||'GREEN');
   var notes=[];
   if(pg.note)notes.push('Thesis: '+pg.note);
-  if(sec.note)notes.push('Sector: '+sec.note);
+  if(proxy.note)notes.push('Sector: '+proxy.note);
   return{status:status,note:notes.join('  •  ')};
 }
 function dirColor(d){return{green:'var(--green)',red:'var(--red)',flat:'var(--amber)'}[d]||'var(--white)'}
@@ -213,10 +213,12 @@ function renderCardResult(ticker,data){
     logEl.style.display='block';
   }
 
-  // Pre-Gate + Sector — merged, front-and-center on the card header
+  // Pre-Gate + Sector Proxy — merged, front-and-center on the card header.
+  // Uses the ticker's actual sector proxy (Gate 5), not the broad SPY/QQQ
+  // market gate, so this note stays specific to what the company does.
   var pgEl=card.querySelector('.pregate-strip');
   if(pgEl&&data.gates){
-    var merged=mergePreGateSector(data.gates.pre_gate,data.gates.sector);
+    var merged=mergePreGateSector(data.gates.pre_gate,data.gates.g5_korea);
     pgEl.innerHTML='<div class="pregate-dot" style="background:'+sigColor(merged.status)+'"></div><div class="pregate-content"><div class="pregate-header"><span class="pregate-lbl">PRE-GATE / SECTOR</span></div>'+(merged.note?'<div class="pregate-note">'+merged.note+'</div>':'')+'</div>';
     pgEl.style.display='flex';
   }
@@ -231,7 +233,7 @@ function renderCardResult(ticker,data){
     else if(g1s==='YELLOW')card.classList.add('rim-yellow');
     else if(g1s==='RED')card.classList.add('rim-red');
 
-    var gates=[['G1  PRE-WINDOW 14D',data.gates.g1_prewindow],['G2  CATALYST',data.gates.g2_catalyst],['G3  OPENING BAR',data.gates.g3_openbar],['G4  PHASE',data.gates.g4_phase],['G5  SECTOR PROXY',data.gates.g5_korea]];
+    var gates=[['G1  PRE-WINDOW 14D',data.gates.g1_prewindow],['G2  CATALYST',data.gates.g2_catalyst],['G3  OPENING BAR',data.gates.g3_openbar],['G4  PHASE',data.gates.g4_phase]];
     var cc=data.confidence==='HIGH'?'var(--green)':data.confidence==='MEDIUM'?'var(--amber)':'var(--red)';
     var gHtml='<button class="expand-btn" onclick="toggleGates(\u0027'+ticker+'\u0027)"><span>GATE BREAKDOWN</span><span id="arrow-'+ticker+'">\u25bc</span></button><div class="gate-list" id="gates-'+ticker+'" style="display:none">';
     gates.forEach(function(g){
