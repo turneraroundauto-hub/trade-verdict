@@ -1836,11 +1836,13 @@ app.post("/stripe/webhook", async (req, res) => {
       break;
 
     case "customer.subscription.deleted":
-      // Downgrade to free on cancellation — credits remain
+      // Downgrade to free on cancellation — credits remain. Key must
+      // match the sub:<email> convention used everywhere else (auth
+      // middleware, upgradeTier, purchases) — this used to build a
+      // different, never-read key here, so the cancellation never
+      // actually reached the record real requests use.
       if (email && tierInfo) {
-        const userKey = tierInfo.key + ":" + email;
-        const user    = credits.getUser(userKey);
-        user.tier     = "free";
+        await credits.setTier(`sub:${email}`, "free");
         await upsertSubscriber(email, "free", null, null);
         console.log(`Stripe: ${email} cancelled — downgraded to free, credits preserved`);
       }
