@@ -7,35 +7,48 @@
 -- on Render's default plans — every deploy or restart silently wiped
 -- every user's credits, which looked exactly like "credits are broken."
 --
--- Fix: move the store into Supabase (already used for auth/subscribers),
--- with every mutation going through an atomic Postgres function instead
--- of app-level read-then-write. That matters because "Analyze All" fires
--- one /analyze call per watchlist ticker concurrently — a naive read/
--- modify/write over the network could let two concurrent deducts both
--- read the same pre-deduction balance and double-spend it. Expressing
--- each deduction as a single locked UPDATE closes that gap.
+-- Fix: point every mutation at the public.credits table that already
+-- exists in this Supabase project (columns confirmed via
+-- information_schema.columns: api_key, tier, credits, purchased_credits,
+-- last_reset, last_daily_drip, created_at, updated_at) via atomic
+-- Postgres functions instead of app-level read-then-write. That matters
+-- beyond durability: "Analyze All" fires one /analyze call per watchlist
+-- ticker concurrently, and a naive read/modify/write over the network
+-- could let two concurrent deducts both read the same pre-deduction
+-- balance and double-spend it. Expressing each deduction as a single
+-- locked UPDATE closes that gap.
 --
--- Table is named user_credits, not credits — this repo never had a
--- credits.js or a credits table DDL committed to it before this patch
--- chain, so if a differently-shaped `credits` table already exists in
--- this Supabase project from before, it is NOT reused here. Check first;
--- adjust the table/function names below if you want to migrate that data
--- in instead of starting fresh.
+-- last_daily_drip is renamed to last_weekly_reset below. Its name
+-- suggests the original design intended a daily trickle of credits
+-- rather than a hard periodic reset — that column was otherwise unused
+-- (no code in this repo ever read or wrote it), so it's repurposed here
+-- to track the free tier's weekly reset instead, per an explicit
+-- product decision to cap anonymous/free usage at 3 credits/week rather
+-- than a daily drip. The rename is a metadata-only operation (no data
+-- rewrite) and is idempotent — safe to run again.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'credits' and column_name = 'last_daily_drip'
+  ) and not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'credits' and column_name = 'last_weekly_reset'
+  ) then
+    alter table public.credits rename column last_daily_drip to last_weekly_reset;
+  end if;
+end $$;
 
-create table if not exists public.user_credits (
-  key                 text primary key,        -- 'sub:<email>' | 'ip:<addr>' | legacy tier secret
-  tier                text not null default 'free',
-  credits             integer not null default 0,   -- weekly (free) / monthly (paid) allowance balance
-  purchased_credits   integer not null default 0,    -- from $0.99/10-credit purchases — never expire, never reset
-  last_reset          text not null default to_char(now(), 'YYYY-MM'),                    -- monthly reset marker (paid tiers)
-  last_weekly_reset   bigint not null default floor(extract(epoch from now()) / 604800),   -- weekly reset marker (free tier)
-  created_at          timestamptz not null default now(),
-  updated_at          timestamptz not null default now()
-);
+-- Guarantees a unique index on api_key so the ON CONFLICT (api_key)
+-- upserts below work, regardless of whether api_key was already
+-- declared as this table's primary key. Harmless/no-op if one already
+-- exists.
+create unique index if not exists credits_api_key_idx on public.credits (api_key);
 
--- RLS disabled to match subscribers' style — server-only access via the
--- service_role key (server.js never uses the anon key for this table).
-alter table public.user_credits disable row level security;
+-- RLS disabled to match this table's existing style — server-only
+-- access via the service_role key (server.js never uses the anon key
+-- for this table). No-op if already disabled.
+alter table public.credits disable row level security;
 
 -- ── get_or_create_user_credits ──────────────────────────────────────
 -- Ensures a row exists for p_key, applies the weekly (free) or monthly
@@ -45,17 +58,20 @@ alter table public.user_credits disable row level security;
 -- subscribers table on every request — and returns the current row.
 -- The INSERT ... ON CONFLICT DO UPDATE is a get-or-create in one atomic,
 -- row-locking statement, so two concurrent first-touches of the same new
--- key can't both try to INSERT and collide.
+-- key can't both try to INSERT and collide. Reset comparisons use
+-- IS DISTINCT FROM (not <>) so a legacy row with last_reset/
+-- last_weekly_reset still NULL from before this migration reliably
+-- triggers its first reset instead of silently never resetting.
 create or replace function public.get_or_create_user_credits(p_key text, p_tier text default null)
-returns setof public.user_credits as $$
+returns setof public.credits as $$
 declare
   v_tier    text := coalesce(p_tier, 'free');
   v_start   int;
   v_monthly int;
   v_roll    int;
-  v_week    bigint := floor(extract(epoch from now()) / 604800);
-  v_month   text   := to_char(now(), 'YYYY-MM');
-  v_row     public.user_credits%rowtype;
+  v_week    text := floor(extract(epoch from now()) / 604800)::text;
+  v_month   text := to_char(now(), 'YYYY-MM');
+  v_row     public.credits%rowtype;
 begin
   case v_tier
     when 'starter' then v_start := 0; v_monthly := 45;  v_roll := 45;
@@ -64,9 +80,9 @@ begin
     else                v_start := 3; v_monthly := 0;   v_roll := 0;
   end case;
 
-  insert into public.user_credits (key, tier, credits, purchased_credits, last_reset, last_weekly_reset)
+  insert into public.credits (api_key, tier, credits, purchased_credits, last_reset, last_weekly_reset)
   values (p_key, v_tier, v_start, 0, v_month, v_week)
-  on conflict (key) do update set updated_at = public.user_credits.updated_at
+  on conflict (api_key) do update set updated_at = public.credits.updated_at
   returning * into v_row;
 
   if p_tier is not null and v_row.tier <> p_tier then
@@ -77,24 +93,24 @@ begin
       when 'shark'   then v_start := 0; v_monthly := 145; v_roll := 45;
       else                v_start := 3; v_monthly := 0;   v_roll := 0;
     end case;
-    update public.user_credits set tier = v_tier, updated_at = now()
-      where key = p_key returning * into v_row;
+    update public.credits set tier = v_tier, updated_at = now()
+      where api_key = p_key returning * into v_row;
   else
     v_tier := v_row.tier;
   end if;
 
   if v_tier = 'free' then
-    if v_row.last_weekly_reset <> v_week then
-      update public.user_credits
+    if v_row.last_weekly_reset is distinct from v_week then
+      update public.credits
         set credits = v_start, last_weekly_reset = v_week, updated_at = now()
-        where key = p_key returning * into v_row;
+        where api_key = p_key returning * into v_row;
     end if;
   else
-    if v_row.last_reset <> v_month then
-      update public.user_credits
+    if v_row.last_reset is distinct from v_month then
+      update public.credits
         set credits = least(greatest(v_row.credits, 0), v_roll) + v_monthly,
             last_reset = v_month, updated_at = now()
-        where key = p_key returning * into v_row;
+        where api_key = p_key returning * into v_row;
     end if;
   end if;
 
@@ -112,7 +128,7 @@ $$ language plpgsql;
 create or replace function public.deduct_user_credit(p_key text, p_tier text default null, p_count int default 1)
 returns table(success boolean, credits int, purchased_credits int, tier text) as $$
 declare
-  v_row public.user_credits%rowtype;
+  v_row public.credits%rowtype;
 begin
   select * into v_row from public.get_or_create_user_credits(p_key, p_tier);
 
@@ -122,15 +138,15 @@ begin
   end if;
 
   if v_row.purchased_credits >= p_count then
-    update public.user_credits
+    update public.credits
       set purchased_credits = purchased_credits - p_count, updated_at = now()
-      where key = p_key returning * into v_row;
+      where api_key = p_key returning * into v_row;
   else
-    update public.user_credits
+    update public.credits
       set credits = credits - (p_count - purchased_credits),
           purchased_credits = 0,
           updated_at = now()
-      where key = p_key returning * into v_row;
+      where api_key = p_key returning * into v_row;
   end if;
 
   return query select true, v_row.credits, v_row.purchased_credits, v_row.tier;
@@ -141,20 +157,20 @@ $$ language plpgsql;
 -- The $0.99/10-credit top-up. Purchased credits never expire and are
 -- never touched by weekly/monthly resets.
 create or replace function public.add_purchased_credits(p_key text, p_tier text default null, p_count int default 0)
-returns setof public.user_credits as $$
+returns setof public.credits as $$
 declare
   v_tier  text := coalesce(p_tier, 'free');
   v_start int;
-  v_week  bigint := floor(extract(epoch from now()) / 604800);
-  v_month text   := to_char(now(), 'YYYY-MM');
-  v_row   public.user_credits%rowtype;
+  v_week  text := floor(extract(epoch from now()) / 604800)::text;
+  v_month text := to_char(now(), 'YYYY-MM');
+  v_row   public.credits%rowtype;
 begin
   v_start := case when v_tier = 'free' then 3 else 0 end;
 
-  insert into public.user_credits (key, tier, credits, purchased_credits, last_reset, last_weekly_reset)
+  insert into public.credits (api_key, tier, credits, purchased_credits, last_reset, last_weekly_reset)
   values (p_key, v_tier, v_start, p_count, v_month, v_week)
-  on conflict (key) do update
-    set purchased_credits = public.user_credits.purchased_credits + p_count,
+  on conflict (api_key) do update
+    set purchased_credits = public.credits.purchased_credits + p_count,
         updated_at = now()
   returning * into v_row;
 
@@ -167,11 +183,11 @@ $$ language plpgsql;
 -- this cycle's allowance (rollover capped per-tier), same semantics as
 -- the old in-memory upgradeTier().
 create or replace function public.upgrade_user_tier(p_key text, p_new_tier text)
-returns setof public.user_credits as $$
+returns setof public.credits as $$
 declare
   v_monthly int;
   v_roll    int;
-  v_row     public.user_credits%rowtype;
+  v_row     public.credits%rowtype;
 begin
   case p_new_tier
     when 'starter' then v_monthly := 45;  v_roll := 45;
@@ -182,12 +198,12 @@ begin
 
   select * into v_row from public.get_or_create_user_credits(p_key, p_new_tier);
 
-  update public.user_credits
+  update public.credits
     set tier       = p_new_tier,
         credits    = least(greatest(v_row.credits, 0), v_roll) + v_monthly,
         last_reset = to_char(now(), 'YYYY-MM'),
         updated_at = now()
-    where key = p_key
+    where api_key = p_key
     returning * into v_row;
 
   return next v_row;
@@ -200,12 +216,12 @@ $$ language plpgsql;
 -- already syncs the tier field when p_tier differs from the stored one,
 -- so this is just that call under a clearer name for the call site.
 create or replace function public.set_user_tier(p_key text, p_new_tier text)
-returns setof public.user_credits as $$
+returns setof public.credits as $$
 begin
   return query select * from public.get_or_create_user_credits(p_key, p_new_tier);
 end;
 $$ language plpgsql;
 
--- Must be added to Data API -> Exposed tables in the Supabase dashboard
--- (same opt-in step noted in patch2-3.sql) before server.js's supabase-js
--- client can call these functions or select from this table.
+-- If public.credits isn't already exposed via Data API -> Exposed
+-- tables in the Supabase dashboard, add it there before server.js's
+-- supabase-js client can call these functions or select from the table.

@@ -2,9 +2,10 @@
 // ═══════════════════════════════════════════════════════════════════
 // CREDIT SYSTEM — Trade Verdict
 // ═══════════════════════════════════════════════════════════════════
-// Storage: Supabase (public.user_credits + RPC functions, see
-// supabase-ddl-patch5-credits.sql), with every mutation going through
-// an atomic Postgres function instead of app-level read-then-write —
+// Storage: Supabase (the existing public.credits table + RPC functions
+// added on top of it, see supabase-ddl-patch5-credits.sql), with every
+// mutation going through an atomic Postgres function instead of app-level
+// read-then-write —
 // needed because "Analyze All" fires one /analyze call per watchlist
 // ticker concurrently, and a naive read/modify/write over the network
 // could let two concurrent deducts double-spend the same balance.
