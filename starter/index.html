@@ -85,9 +85,11 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 /* WATCHLIST + CARDS */
 .watchlist{padding:12px 16px;display:flex;flex-direction:column;gap:10px}
 .card{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--border);border-radius:8px;overflow:hidden;transition:border-color .3s,box-shadow .3s}
-.card.up{border-left-color:var(--green);border-color:rgba(0,230,118,.3);animation:greenGlow 1s ease-out}
-.card.down{border-left-color:var(--red);border-color:rgba(255,23,68,.3);animation:redGlow 1s ease-out}
-.card.flat{border-left-color:var(--amber);border-color:rgba(255,171,0,.3)}
+.card.up{animation:greenGlow 1s ease-out}
+.card.down{animation:redGlow 1s ease-out}
+.card.rim-green{border-left-color:var(--green);border-color:rgba(0,230,118,.3)}
+.card.rim-yellow{border-left-color:var(--amber);border-color:rgba(255,171,0,.3)}
+.card.rim-red{border-left-color:var(--red);border-color:rgba(255,23,68,.3)}
 .card-head{padding:12px 14px;display:flex;gap:10px;align-items:flex-start}
 .card-left{flex:1;min-width:0}
 .ticker-row{display:flex;align-items:baseline;gap:8px;margin-bottom:3px}
@@ -103,7 +105,6 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 .pregate-content{flex:1;min-width:0}
 .pregate-header{display:flex;justify-content:space-between;gap:6px}
 .pregate-lbl{font-family:monospace;font-size:var(--fs-sm);color:var(--dim)}
-.pregate-stat{font-family:monospace;font-size:var(--fs-sm);font-weight:700}
 .pregate-note{font-size:var(--fs-sm);color:var(--white);margin-top:2px;line-height:1.4}
 .phase-strip{display:flex;gap:10px;flex-wrap:wrap;margin-top:5px;font-family:monospace;font-size:var(--fs-sm)}
 .phase-item{display:flex;align-items:center;gap:3px}
