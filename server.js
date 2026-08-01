@@ -68,18 +68,24 @@ async function getSubscriber(email) {
   } catch(e) { console.error("[SUB LOOKUP] Exception:", e.message); return null; }
 }
 
-async function upsertSubscriber(email, tier, stripeCustomerId, stripeSubId) {
+async function upsertSubscriber(email, tier, stripeCustomerId, stripeSubId, hasSubscribed) {
   if (!supabase) { console.log("[UPSERT] No supabase client"); return; }
   console.log(`[UPSERT] Attempting to upsert: ${email} tier=${tier}`);
   try {
-    const { data, error } = await supabase.from("subscribers").upsert({
+    const payload = {
       email,
       tier,
       status: "active",
       stripe_customer_id: stripeCustomerId || null,
       stripe_subscription_id: stripeSubId || null,
       updated_at: new Date().toISOString(),
-    }, { onConflict: "email" }).select();
+    };
+    // Only ever set has_subscribed=true explicitly (real paid-tier events).
+    // Omitting the key on every other call (signup, cancellation) leaves the
+    // column untouched on conflict — so a lapsed subscriber stays flagged as
+    // having subscribed before, instead of looking like a fresh signup.
+    if (hasSubscribed === true) payload.has_subscribed = true;
+    const { data, error } = await supabase.from("subscribers").upsert(payload, { onConflict: "email" }).select();
     if (error) {
       console.error(`[UPSERT] FAILED for ${email}:`, error.message, error.details, error.hint);
     } else {
@@ -142,10 +148,11 @@ app.use(async (req, res, next) => {
     const tier = (sub && subStatus === "active") ? sub.tier : "free";
     console.log(`Auth: ${user.email} → subscriber ${sub ? "found" : "MISSING"} (status: ${subStatus}) → tier: ${tier}`);
 
-    req.userEmail  = user.email;
-    req.userTier   = tier;
-    req.userKey    = `sub:${user.email}`;  // stable key — email not JWT
-    req.tierConfig = credits.TIERS[tier];
+    req.userEmail          = user.email;
+    req.userTier           = tier;
+    req.userHasSubscribed  = !!(sub && sub.has_subscribed);
+    req.userKey            = `sub:${user.email}`;  // stable key — email not JWT
+    req.tierConfig         = credits.TIERS[tier];
     return next();
   }
 
@@ -1619,6 +1626,7 @@ app.post("/auth/login", async (req, res) => {
     const sub = await getSubscriber(data.user.email);
     const subStatus = sub ? (sub.status || "").trim().toLowerCase() : "none";
     const tier = (sub && subStatus === "active") ? sub.tier : "free";
+    const hasSubscribed = !!(sub && sub.has_subscribed);
 
     // Determine correct app URL for this tier
     const TIER_URLS = {
@@ -1629,12 +1637,13 @@ app.post("/auth/login", async (req, res) => {
     };
     const redirectUrl = TIER_URLS[tier] || TIER_URLS.free;
 
-    console.log(`Login: ${data.user.email} → tier ${tier} → ${redirectUrl}`);
+    console.log(`Login: ${data.user.email} → tier ${tier} (hasSubscribed=${hasSubscribed}) → ${redirectUrl}`);
 
     res.json({
       token:       data.session.access_token,
       email:       data.user.email,
       tier,
+      hasSubscribed,
       redirectUrl,
       expiresAt:   data.session.expires_at,
     });
@@ -1658,9 +1667,10 @@ app.post("/auth/signup", async (req, res) => {
 // Get current session info
 app.get("/auth/me", async (req, res) => {
   res.json({
-    email:  req.userEmail || null,
-    tier:   req.userTier,
-    config: req.tierConfig,
+    email:         req.userEmail || null,
+    tier:          req.userTier,
+    hasSubscribed: req.userHasSubscribed || false,
+    config:        req.tierConfig,
   });
 });
 
@@ -1759,7 +1769,7 @@ app.post("/stripe/webhook", async (req, res) => {
           const subTierInfo = PRICE_TO_TIER[subPriceId];
           if (subTierInfo) {
             await credits.upgradeTier(`sub:${email}`, subTierInfo.tier);
-            await upsertSubscriber(email, subTierInfo.tier, data.customer, data.subscription);
+            await upsertSubscriber(email, subTierInfo.tier, data.customer, data.subscription, true);
             console.log(`[STRIPE WEBHOOK] Checkout: ${email} upgraded to ${subTierInfo.tier}`);
           } else {
             console.log(`[STRIPE WEBHOOK] Checkout: no tier match for price ${subPriceId}`);
@@ -1774,7 +1784,7 @@ app.post("/stripe/webhook", async (req, res) => {
       if (tierInfo && email) {
         // Use email-based key so credits align with Supabase auth
         await credits.upgradeTier(`sub:${email}`, tierInfo.tier);
-        await upsertSubscriber(email, tierInfo.tier, data.customer, data.id);
+        await upsertSubscriber(email, tierInfo.tier, data.customer, data.id, true);
         console.log(`[STRIPE WEBHOOK] Subscription: ${email} upgraded to ${tierInfo.tier}`);
       } else {
         console.log(`[STRIPE WEBHOOK] Subscription: missing email or tier match — email=${email}, tier=${tierInfo?.tier}`);
@@ -1796,7 +1806,7 @@ app.post("/stripe/webhook", async (req, res) => {
       // Initial payment or monthly renewal — ensure subscriber row is correct
       if (email && tierInfo) {
         await credits.upgradeTier(`sub:${email}`, tierInfo.tier);
-        await upsertSubscriber(email, tierInfo.tier, data.customer, data.subscription);
+        await upsertSubscriber(email, tierInfo.tier, data.customer, data.subscription, true);
         console.log(`[STRIPE WEBHOOK] Payment: ${email} confirmed on ${tierInfo.tier}`);
       } else {
         console.log(`[STRIPE WEBHOOK] Payment: email=${email}, tier=${tierInfo?.tier} — skipped`);
