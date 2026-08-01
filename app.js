@@ -38,15 +38,6 @@ function isMarketClosed(){
 }
 
 function sigColor(s){return{GREEN:'var(--green)',RED:'var(--red)',YELLOW:'var(--amber)','N/A':'var(--dim)'}[s]||'var(--dim)'}
-function mergePreGateSector(pg,proxy){
-  pg=pg||{};proxy=proxy||{};
-  var rank={RED:2,YELLOW:1,GREEN:0};
-  var status=(rank[pg.status]||0)>=(rank[proxy.status]||0)?(pg.status||'GREEN'):(proxy.status||'GREEN');
-  var notes=[];
-  if(pg.note)notes.push('Thesis: '+pg.note);
-  if(proxy.note)notes.push('Sector: '+proxy.note);
-  return{status:status,note:notes.join('  •  ')};
-}
 function dirColor(d){return{green:'var(--green)',red:'var(--red)',flat:'var(--amber)'}[d]||'var(--white)'}
 
 function startClock(){
@@ -126,7 +117,7 @@ export async function analyzeTicker(ticker){
     btcSignal:market?market.btcSignal||'neutral':'neutral'
   };
   card.querySelector('.card-action').innerHTML='<div style="display:flex;flex-direction:column;align-items:center;gap:2px"><div class="spinner"></div><span class="spinner-label">RUNNING</span></div>';
-  card.querySelector('.reason-txt').textContent='';
+  var reReset=card.querySelector('.reason-txt');reReset.textContent='';reReset.style.display='none';
   card.classList.remove('up','down','flat','rim-green','rim-yellow','rim-red');
   card.querySelector('.ticker-name').classList.remove('up','down','flat');
   var pe=card.querySelector('.ticker-price');if(pe)pe.classList.remove('up','down','flat');
@@ -153,7 +144,7 @@ export async function analyzeTicker(ticker){
     var _r=await res.json();cacheVerdict(ticker,_r);renderCardResult(ticker,_r);fetchCreditStatus();
   }catch(e){
     card.querySelector('.card-action').innerHTML='<button class="retry-btn" onclick="analyzeTicker(\''+ticker+'\')">RETRY</button>';
-    var re=card.querySelector('.reason-txt');re.textContent=e.message;re.style.color='var(--red)';
+    var re=card.querySelector('.reason-txt');re.textContent=e.message;re.style.color='var(--red)';re.style.display='';
   }
 }
 
@@ -194,9 +185,11 @@ function renderCardResult(ticker,data){
     actionEl.innerHTML='<div class="verdict-container" onclick="resetCard(\u0027'+ticker+'\u0027)"><span class="verdict-hold">HOLD</span><span class="verdict-lbl-hold">WAIT &amp; WATCH</span></div>';
   }
 
-  // Reason text
+  // Reason text is intentionally not shown here — it duplicates the
+  // Gate Breakdown dropdown. The element stays in the DOM (hidden) so the
+  // error path above can still surface fetch failures in the same spot.
   var re=card.querySelector('.reason-txt');
-  re.textContent=data.reason||'';re.style.color='var(--white)';
+  re.textContent='';re.style.display='none';
 
   // Badges
   var badgesEl=card.querySelector('.card-badges');badgesEl.innerHTML='';
@@ -213,13 +206,13 @@ function renderCardResult(ticker,data){
     logEl.style.display='block';
   }
 
-  // Pre-Gate + Sector Proxy — merged, front-and-center on the card header.
-  // Uses the ticker's actual sector proxy (Gate 5), not the broad SPY/QQQ
-  // market gate, so this note stays specific to what the company does.
+  // Gate 5 (sector proxy) status dot only — front-and-center on the card
+  // header. No label/note text; the full note is in the Gate Breakdown
+  // dropdown below.
   var pgEl=card.querySelector('.pregate-strip');
   if(pgEl&&data.gates){
-    var merged=mergePreGateSector(data.gates.pre_gate,data.gates.g5_korea);
-    pgEl.innerHTML='<div class="pregate-dot" style="background:'+sigColor(merged.status)+'"></div><div class="pregate-content"><div class="pregate-header"><span class="pregate-lbl">PRE-GATE / SECTOR</span></div>'+(merged.note?'<div class="pregate-note">'+merged.note+'</div>':'')+'</div>';
+    var g5=data.gates.g5_korea||{};
+    pgEl.innerHTML='<div class="pregate-dot" style="background:'+sigColor(g5.status)+'"></div>';
     pgEl.style.display='flex';
   }
 
@@ -257,7 +250,8 @@ export function resetCard(ticker){
   card.querySelector('.ticker-name').classList.remove('up','down','flat');
   var pe=card.querySelector('.ticker-price');if(pe)pe.classList.remove('up','down','flat');
   card.querySelector('.card-action').innerHTML='<button class="analyze-btn" onclick="analyzeTicker(\''+ticker+'\')">ANALYZE</button>';
-  card.querySelector('.reason-txt').textContent='';card.querySelector('.card-badges').innerHTML='';
+  var reReset2=card.querySelector('.reason-txt');reReset2.textContent='';reReset2.style.display='none';
+  card.querySelector('.card-badges').innerHTML='';
   var gs=card.querySelector('.gate-section');gs.innerHTML='';gs.style.display='none';
   var pgs=card.querySelector('.pregate-strip');if(pgs){pgs.innerHTML='';pgs.style.display='none';}
   var ls=card.querySelector('.log-section');if(ls){ls.innerHTML='';ls.style.display='none';}

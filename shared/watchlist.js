@@ -76,7 +76,7 @@ export function renderWatchlist(){
       +'<div class="pregate-strip" id="pregate-'+ticker+'" style="display:none"></div>'
       +'<div class="news-line" style="display:none"></div>'
       +'<div class="phase-strip"></div>'
-      +'<div class="reason-txt"></div>'
+      +'<div class="reason-txt" style="display:none"></div>'
       +'<div class="card-badges"></div>'
       +'</div>'
       +'<div class="card-right">'
