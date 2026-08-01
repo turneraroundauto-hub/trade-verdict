@@ -35,6 +35,15 @@ function isMarketClosed(){
 }
 
 function sigColor(s){return{GREEN:'var(--green)',RED:'var(--red)',YELLOW:'var(--amber)','N/A':'var(--dim)'}[s]||'var(--dim)'}
+function mergePreGateSector(pg,sec){
+  pg=pg||{};sec=sec||{};
+  var rank={RED:2,YELLOW:1,GREEN:0};
+  var status=(rank[pg.status]||0)>=(rank[sec.status]||0)?(pg.status||'GREEN'):(sec.status||'GREEN');
+  var notes=[];
+  if(pg.note)notes.push('Thesis: '+pg.note);
+  if(sec.note)notes.push('Sector: '+sec.note);
+  return{status:status,note:notes.join('  •  ')};
+}
 function dirColor(d){return{green:'var(--green)',red:'var(--red)',flat:'var(--amber)'}[d]||'var(--white)'}
 
 function startClock(){
@@ -120,6 +129,7 @@ export async function analyzeTicker(ticker){
   var pe=card.querySelector('.ticker-price');if(pe)pe.classList.remove('up','down','flat');
   card.querySelector('.card-badges').innerHTML='';
   var gs=card.querySelector('.gate-section');gs.innerHTML='';gs.style.display='none';
+  var pgs=card.querySelector('.pregate-strip');if(pgs){pgs.innerHTML='';pgs.style.display='none';}
   var ls=card.querySelector('.log-section');if(ls){ls.innerHTML='';ls.style.display='none';}
   // Await ticker data FIRST so newsData, openingBar, proxyRule are available
   var td=await fetchTickerData(ticker);
@@ -206,10 +216,18 @@ function renderCardResult(ticker,data){
     logEl.style.display='block';
   }
 
+  // Pre-Gate + Sector — merged, front-and-center on the card header
+  var pgEl=card.querySelector('.pregate-strip');
+  if(pgEl&&data.gates){
+    var merged=mergePreGateSector(data.gates.pre_gate,data.gates.sector);
+    pgEl.innerHTML='<div class="pregate-dot" style="background:'+sigColor(merged.status)+'"></div><div class="pregate-content"><div class="pregate-header"><span class="pregate-lbl">PRE-GATE / SECTOR</span><span class="pregate-stat" style="color:'+sigColor(merged.status)+'">'+(merged.status||'')+'</span></div>'+(merged.note?'<div class="pregate-note">'+merged.note+'</div>':'')+'</div>';
+    pgEl.style.display='flex';
+  }
+
   // Gate breakdown
   var gateEl=card.querySelector('.gate-section');
   if(data.gates){
-    var gates=[['PRE-GATE  THESIS',data.gates.pre_gate],['SECTOR  SPY/QQQ',data.gates.sector],['G1  PRE-WINDOW 14D',data.gates.g1_prewindow],['G2  CATALYST',data.gates.g2_catalyst],['G3  OPENING BAR',data.gates.g3_openbar],['G4  PHASE',data.gates.g4_phase],['G5  SECTOR PROXY',data.gates.g5_korea]];
+    var gates=[['G1  PRE-WINDOW 14D',data.gates.g1_prewindow],['G2  CATALYST',data.gates.g2_catalyst],['G3  OPENING BAR',data.gates.g3_openbar],['G4  PHASE',data.gates.g4_phase],['G5  SECTOR PROXY',data.gates.g5_korea]];
     var cc=data.confidence==='HIGH'?'var(--green)':data.confidence==='MEDIUM'?'var(--amber)':'var(--red)';
     var gHtml='<button class="expand-btn" onclick="toggleGates(\u0027'+ticker+'\u0027)"><span>GATE BREAKDOWN</span><span id="arrow-'+ticker+'">\u25bc</span></button><div class="gate-list" id="gates-'+ticker+'" style="display:none">';
     gates.forEach(function(g){
@@ -235,6 +253,7 @@ export function resetCard(ticker){
   card.querySelector('.card-action').innerHTML='<button class="analyze-btn" onclick="analyzeTicker(\''+ticker+'\')">ANALYZE</button>';
   card.querySelector('.reason-txt').textContent='';card.querySelector('.card-badges').innerHTML='';
   var gs=card.querySelector('.gate-section');gs.innerHTML='';gs.style.display='none';
+  var pgs=card.querySelector('.pregate-strip');if(pgs){pgs.innerHTML='';pgs.style.display='none';}
   var ls=card.querySelector('.log-section');if(ls){ls.innerHTML='';ls.style.display='none';}
 }
 

@@ -73,6 +73,7 @@ export function renderWatchlist(){
       +'<div class="card-head">'
       +'<div class="card-left">'
       +'<div class="ticker-row"><span class="ticker-name">'+ticker+'</span><span class="ticker-price">&mdash;</span></div>'
+      +'<div class="pregate-strip" id="pregate-'+ticker+'" style="display:none"></div>'
       +'<div class="news-line" style="display:none"></div>'
       +'<div class="phase-strip"></div>'
       +'<div class="reason-txt"></div>'
