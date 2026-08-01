@@ -11,6 +11,28 @@ try{
   }
 }catch(e){}
 
+// Recognize a signed-in session (tv_session is shared across all tiers on
+// this origin, so a "free" session bounced back from the Starter login
+// still shows up here) and swap the header button to SIGN OUT instead of
+// SIGN UP / SIGN IN.
+function getStoredSession(){try{return JSON.parse(localStorage.getItem('tv_session')||'null');}catch(e){return null;}}
+function isSessionValid(s){if(!s||!s.token)return false;if(s.expiresAt&&Date.now()/1000>s.expiresAt-60)return false;return true;}
+function updateAuthButton(){
+  var btn=document.getElementById('auth-action-btn');if(!btn)return;
+  if(isSessionValid(getStoredSession())){
+    btn.textContent='SIGN OUT';
+    btn.href='javascript:void(0)';
+    btn.onclick=function(e){e.preventDefault();localStorage.removeItem('tv_session');updateAuthButton();};
+    btn.style.color='var(--dim)';btn.style.background='none';btn.style.borderColor='var(--border)';
+  }else{
+    btn.innerHTML='&#128274; SIGN UP / SIGN IN';
+    btn.href='https://turneraroundauto-hub.github.io/trade-verdict/starter/';
+    btn.onclick=null;
+    btn.style.color='#40c4ff';btn.style.background='rgba(64,196,255,.1)';btn.style.borderColor='rgba(64,196,255,.4)';
+  }
+}
+updateAuthButton();
+
 const API_URL='https://tra-zacg.onrender.com';
 const TIER={
   name:'Free',maxTickers:3,pulse:false,tracker:false,alpaca:false,
