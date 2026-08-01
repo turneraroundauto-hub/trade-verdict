@@ -21,8 +21,21 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 
 /* HEADER */
 .header{background:var(--card);border-bottom:1px solid var(--border);padding:12px 16px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:200}
-.header h1{font-family:monospace;font-size:18px;font-weight:700;color:var(--white);letter-spacing:1px}
+.header h1{font-family:monospace;font-size:18px;font-weight:700;color:var(--white);letter-spacing:1px;white-space:nowrap}
 .header p{font-size:var(--fs-sm);color:var(--dim);margin-top:2px;font-family:monospace}
+.header-brand{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.header-logo{height:26px;width:auto;flex-shrink:0}
+.header-title-wrap{min-width:0}
+.header h1{overflow:hidden;text-overflow:ellipsis}
+.header-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end;position:relative}
+.profile-wrap{position:relative}
+.profile-btn{width:26px;height:26px;border-radius:50%;background:rgba(64,196,255,.15);border:1px solid rgba(64,196,255,.4);color:var(--blue);font-family:monospace;font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;-webkit-tap-highlight-color:transparent}
+.profile-menu{display:none;position:absolute;top:32px;right:0;min-width:170px;background:var(--card);border:1px solid var(--border);border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.5);z-index:300;overflow:hidden}
+.profile-menu.open{display:block}
+.profile-menu-email{padding:9px 12px;font-family:monospace;font-size:10px;color:var(--dim);word-break:break-all;border-bottom:1px solid var(--border)}
+.profile-menu-item{display:block;width:100%;text-align:left;background:none;border:none;color:var(--white);font-family:monospace;font-size:11px;padding:9px 12px;cursor:pointer;text-decoration:none;box-sizing:border-box}
+.profile-menu-item:hover{background:rgba(255,255,255,.05)}
+.profile-menu-item.danger{color:var(--red)}
 .analyze-all-btn{height:var(--btn-h);background:rgba(0,230,118,.12);border:1px solid rgba(0,230,118,.4);color:var(--green);border-radius:6px;padding:0 16px;font-family:monospace;font-size:var(--fs-sm);font-weight:700;cursor:pointer;letter-spacing:.05em}
 
 /* SECTOR BAR */
@@ -277,19 +290,28 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 <div class="safe-top"></div>
 
 <div class="header">
-  <div>
-  <h1>TRADE VERDICT</h1>
-  <div style="display:flex;align-items:center;gap:8px;margin-top:2px;flex-wrap:wrap">
-    <p id="ticker-count" style="font-family:monospace;font-size:var(--fs-sm);color:var(--dim)">CRF &middot; 7 TICKERS</p>
-    <span style="font-family:monospace;font-size:9px;font-weight:700;color:#40c4ff;background:#40c4ff18;border:1px solid #40c4ff44;border-radius:3px;padding:1px 6px;letter-spacing:.08em">STARTER</span>
-    <span id="credit-display" style="font-family:monospace;font-size:9px;color:var(--dim)"></span>
-    <span id="user-email-display" style="font-family:monospace;font-size:9px;color:var(--dim)"></span>
+  <div class="header-brand">
+    <img src="../shared/assets/logo-mark.png" alt="" class="header-logo">
+    <div class="header-title-wrap">
+    <h1>TRADE VERDICT</h1>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:2px;flex-wrap:wrap">
+      <p id="ticker-count" style="font-family:monospace;font-size:var(--fs-sm);color:var(--dim)">CRF &middot; 7 TICKERS</p>
+      <span style="font-family:monospace;font-size:9px;font-weight:700;color:#40c4ff;background:#40c4ff18;border:1px solid #40c4ff44;border-radius:3px;padding:1px 6px;letter-spacing:.08em">STARTER</span>
+    </div>
   </div>
 </div>
-<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-  <a href="https://buy.stripe.com/3cI3cwacxarJ8txb3z3VC00" target="_blank" style="font-family:monospace;font-size:9px;font-weight:700;color:var(--amber);background:rgba(255,171,0,.1);border:1px solid rgba(255,171,0,.3);border-radius:4px;padding:4px 8px;text-decoration:none">+ CREDITS</a>
+<div class="header-actions">
+  <a id="credits-btn" href="https://buy.stripe.com/3cI3cwacxarJ8txb3z3VC00" target="_blank" style="font-family:monospace;font-size:9px;font-weight:700;color:var(--amber);background:rgba(255,171,0,.1);border:1px solid rgba(255,171,0,.3);border-radius:4px;padding:4px 8px;text-decoration:none">+ CREDITS</a>
   <a href="https://buy.stripe.com/6oU4gA98t57p4dh2x33VC02" target="_blank" style="font-family:monospace;font-size:9px;font-weight:700;color:#40c4ff;background:#40c4ff18;border:1px solid #40c4ff44;border-radius:4px;padding:4px 8px;text-decoration:none;white-space:nowrap">UPGRADE &rarr; Pro</a>
-  <button type="button" onclick="authLogout()" style="font-family:monospace;font-size:9px;color:var(--dim);background:none;border:1px solid var(--border);border-radius:4px;padding:4px 8px;cursor:pointer">SIGN OUT</button>
+  <div class="profile-wrap">
+    <button type="button" class="profile-btn" id="profile-btn" onclick="toggleProfileMenu(event)">?</button>
+    <div class="profile-menu" id="profile-menu">
+      <div class="profile-menu-email" id="profile-menu-email"></div>
+      <a class="profile-menu-item" href="https://buy.stripe.com/6oU4gA98t57p4dh2x33VC02" target="_blank">UPGRADE &rarr; Pro</a>
+      <button type="button" class="profile-menu-item" onclick="promptLogResults()">LOG RESULTS</button>
+      <button type="button" class="profile-menu-item danger" onclick="authLogout()">SIGN OUT</button>
+    </div>
+  </div>
 </div>
 </div>
 

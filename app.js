@@ -377,10 +377,9 @@ async function fetchCreditStatus(){
   try{
     var res=await fetch(API_URL+'/status?secret='+encodeURIComponent(APP_SECRET));
     var data=await res.json();
-    var el=document.getElementById('credit-display');
+    var el=document.getElementById('credits-btn');
     if(el&&data.totalCredits!==undefined){
-      el.textContent=data.totalCredits+' credits';
-      el.style.color=data.totalCredits<5?'var(--red)':data.totalCredits<15?'var(--amber)':'var(--dim)';
+      el.textContent=(data.totalCredits>0?data.totalCredits:'+')+' CREDITS';
     }
   }catch(e){}
 }
