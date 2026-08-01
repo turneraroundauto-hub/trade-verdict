@@ -205,7 +205,7 @@ function renderCardResult(ticker,data){
   // Gate breakdown
   var gateEl=card.querySelector('.gate-section');
   if(data.gates){
-    var gates=[['SECTOR  SPY/QQQ',data.gates.sector],['G1  PRE-WINDOW 14D',data.gates.g1_prewindow],['G2  CATALYST',data.gates.g2_catalyst],['G3  OPENING BAR',data.gates.g3_openbar],['G4  PHASE',data.gates.g4_phase],['G5  SECTOR PROXY',data.gates.g5_korea]];
+    var gates=[['PRE-GATE  THESIS',data.gates.pre_gate],['SECTOR  SPY/QQQ',data.gates.sector],['G1  PRE-WINDOW 14D',data.gates.g1_prewindow],['G2  CATALYST',data.gates.g2_catalyst],['G3  OPENING BAR',data.gates.g3_openbar],['G4  PHASE',data.gates.g4_phase],['G5  SECTOR PROXY',data.gates.g5_korea]];
     var cc=data.confidence==='HIGH'?'var(--green)':data.confidence==='MEDIUM'?'var(--amber)':'var(--red)';
     var gHtml='<button class="expand-btn" onclick="toggleGates(\u0027'+ticker+'\u0027)"><span>GATE BREAKDOWN</span><span id="arrow-'+ticker+'">\u25bc</span></button><div class="gate-list" id="gates-'+ticker+'" style="display:none">';
     gates.forEach(function(g){
