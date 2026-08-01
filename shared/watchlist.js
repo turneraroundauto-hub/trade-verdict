@@ -1,4 +1,4 @@
-import { fetchTickerData } from './ticker-cache.js';
+import { fetchTickerData } from './ticker-cache.js?v=2';
 
 export let watchlist = [];
 let maxTickers = 3;
