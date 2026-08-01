@@ -824,6 +824,7 @@ function logResult(ticker,verdict,correct,rowEl){
   var log=getLog();
   log.push({ticker:ticker,verdict:verdict,correct:correct,ts:new Date().toISOString(),
     session:new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})});
+  if(log.length>200)log=log.slice(-200);
   saveLog(log);
   var color=correct?'var(--green)':'var(--red)';
   var label=correct?'\u2713 LOGGED RIGHT':'\u2717 LOGGED WRONG';
