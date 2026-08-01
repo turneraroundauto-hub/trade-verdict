@@ -209,13 +209,13 @@ function renderCardResult(ticker,data){
     logEl.style.display='block';
   }
 
-  // Gate 5 (sector proxy) status dot only — front-and-center on the card
-  // header. No label/note text; the full note is in the Gate Breakdown
-  // dropdown below.
+  // Gate 5 (sector proxy) status dot + note — front-and-center on the card
+  // header. No label/title above it; Pre-Gate and Gate 5 also get their own
+  // rows in the Gate Breakdown dropdown below.
   var pgEl=card.querySelector('.pregate-strip');
   if(pgEl&&data.gates){
     var g5=data.gates.g5_korea||{};
-    pgEl.innerHTML='<div class="pregate-dot" style="background:'+sigColor(g5.status)+'"></div>';
+    pgEl.innerHTML='<div class="pregate-dot" style="background:'+sigColor(g5.status)+'"></div>'+(g5.note?'<div class="pregate-note">'+g5.note+'</div>':'');
     pgEl.style.display='flex';
   }
 
@@ -229,7 +229,7 @@ function renderCardResult(ticker,data){
     else if(g1s==='YELLOW')card.classList.add('rim-yellow');
     else if(g1s==='RED')card.classList.add('rim-red');
 
-    var gates=[['G1  PRE-WINDOW 14D',data.gates.g1_prewindow],['G2  CATALYST',data.gates.g2_catalyst],['G3  OPENING BAR',data.gates.g3_openbar],['G4  PHASE',data.gates.g4_phase]];
+    var gates=[['PRE-GATE  THESIS',data.gates.pre_gate],['G1  PRE-WINDOW 14D',data.gates.g1_prewindow],['G2  CATALYST',data.gates.g2_catalyst],['G3  OPENING BAR',data.gates.g3_openbar],['G4  PHASE',data.gates.g4_phase],['G5  SECTOR PROXY',data.gates.g5_korea]];
     var cc=data.confidence==='HIGH'?'var(--green)':data.confidence==='MEDIUM'?'var(--amber)':'var(--red)';
     var gHtml='<button class="expand-btn" onclick="toggleGates(\u0027'+ticker+'\u0027)"><span>GATE BREAKDOWN</span><span id="arrow-'+ticker+'">\u25bc</span></button><div class="gate-list" id="gates-'+ticker+'" style="display:none">';
     gates.forEach(function(g){
