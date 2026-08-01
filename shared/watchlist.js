@@ -128,7 +128,11 @@ export function renderWatchlist(){
 // --- Drag-to-reorder + swipe-to-delete gestures ---
 
 var ACTIVE=null;
-var MOVE_THRESHOLD=8;
+// 8px was too tight for real touch input: a natural thumb swipe rarely
+// starts perfectly horizontal, and locking direction that early on
+// slight vertical drift permanently abandons the gesture to page-scroll
+// for the rest of that touch, with no way to recover mid-swipe.
+var MOVE_THRESHOLD=14;
 
 function bindGestures(){
   if(gesturesBound)return;
@@ -277,3 +281,8 @@ function endGesture(){
   document.removeEventListener('pointerup',onPointerUp);
   document.removeEventListener('pointercancel',onPointerUp);
 }
+
+// The "ADD TICKER" button's onclick="addTickers()" is an inline HTML
+// attribute, which resolves against the global scope — module-level
+// imports/exports aren't visible there, so this needs an explicit bridge.
+window.addTickers = addTickers;
