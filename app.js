@@ -403,8 +403,9 @@ function enforceMarketState(){
 
 // Purchasing credits requires attributing the Stripe payment to an
 // account (server.js keys the purchase webhook off email), so the buy
-// link only makes sense for logged-in visitors. Anonymous visitors just
-// see their remaining weekly count.
+// link only makes sense for logged-in visitors. Anonymous visitors see
+// their remaining weekly count as a link to sign in instead — never a
+// dead, unclickable button.
 async function fetchCreditStatus(){
   try{
     var res=await fetch(addSecret(API_URL+'/status'),{headers:authH()});
@@ -416,11 +417,13 @@ async function fetchCreditStatus(){
     if(loggedIn){
       el.textContent=label;
       el.href=TIER.creditsLink;
+      el.target='_blank';
       el.style.pointerEvents='';el.style.opacity='';
     }else{
       el.textContent=label+' · WK';
-      el.removeAttribute('href');
-      el.style.pointerEvents='none';el.style.opacity='.7';
+      el.href='https://turneraroundauto-hub.github.io/trade-verdict/starter/';
+      el.removeAttribute('target');
+      el.style.pointerEvents='';el.style.opacity='';
     }
   }catch(e){}
 }
