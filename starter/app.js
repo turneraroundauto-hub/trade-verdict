@@ -1,5 +1,5 @@
 import { initTickerCache, fetchTickerData } from '../shared/ticker-cache.js';
-import { initWatchlist, watchlist, addTickers, removeTicker, moveCard, renderWatchlist, updateCardMeta } from '../shared/watchlist.js';
+import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta } from '../shared/watchlist.js';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache.js';
 import { renderTrackRecord } from '../shared/track-record.js';
 
