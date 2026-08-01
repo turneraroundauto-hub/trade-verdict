@@ -202,17 +202,19 @@ function renderCardResult(ticker,data){
   // Log buttons
   var logEl=card.querySelector('.log-section');
   if(logEl){
-    logEl.innerHTML='<div class="log-row"><span class="log-prompt">WAS IT RIGHT?</span><button class="log-btn log-btn-right" onclick="logResult(\u0027'+ticker+'\u0027,\u0027'+v+'\u0027,true,this.closest(\u0027.log-row\u0027))">\u2713 RIGHT</button><button class="log-btn log-btn-wrong" onclick="logResult(\u0027'+ticker+'\u0027,\u0027'+v+'\u0027,false,this.closest(\u0027.log-row\u0027))">\u2717 WRONG</button><button class="log-btn log-btn-skip" onclick="this.closest(\u0027.log-row\u0027).style.display=\u0027none\u0027">SKIP</button></div>';
+    logEl.innerHTML='<div class="log-row"><span class="log-prompt">TRACK RECORD</span><a class="log-upgrade-btn" href="https://buy.stripe.com/6oU4gA98t57p4dh2x33VC02" target="_blank">UPGRADE \u2192 Pro to log results</a></div>';
     logEl.style.display='block';
   }
 
-  // Gate 5 (sector proxy) status dot only — front-and-center on the card
-  // header. No label/note text; the full note is in the Gate Breakdown
-  // dropdown below.
+  // Gate 5 (sector proxy) status dot, front-and-center on the card header.
+  // Text next to the dot is the WAIT FOR guidance (same language previously
+  // shown as its own boxed banner at the bottom of the dropdown) — Pre-Gate
+  // and Gate 5 both have their own rows in the Gate Breakdown dropdown below.
   var pgEl=card.querySelector('.pregate-strip');
   if(pgEl&&data.gates){
     var g5=data.gates.g5_korea||{};
-    pgEl.innerHTML='<div class="pregate-dot" style="background:'+sigColor(g5.status)+'"></div>';
+    var waitText=(data.wait_for&&data.wait_for!=='null')?data.wait_for:'';
+    pgEl.innerHTML='<div class="pregate-dot" style="background:'+sigColor(g5.status)+'"></div>'+(waitText?'<div class="pregate-note"><span class="wait-lbl">WAIT FOR </span><span class="wait-txt">'+waitText+'</span></div>':'');
     pgEl.style.display='flex';
   }
 
@@ -226,14 +228,13 @@ function renderCardResult(ticker,data){
     else if(g1s==='YELLOW')card.classList.add('rim-yellow');
     else if(g1s==='RED')card.classList.add('rim-red');
 
-    var gates=[['G1  PRE-WINDOW 14D',data.gates.g1_prewindow],['G2  CATALYST',data.gates.g2_catalyst],['G3  OPENING BAR',data.gates.g3_openbar],['G4  PHASE',data.gates.g4_phase]];
+    var gates=[['PRE-GATE  THESIS',data.gates.pre_gate],['G1  PRE-WINDOW 14D',data.gates.g1_prewindow],['G2  CATALYST',data.gates.g2_catalyst],['G3  OPENING BAR',data.gates.g3_openbar],['G4  PHASE',data.gates.g4_phase],['G5  SECTOR PROXY',data.gates.g5_korea]];
     var cc=data.confidence==='HIGH'?'var(--green)':data.confidence==='MEDIUM'?'var(--amber)':'var(--red)';
     var gHtml='<button class="expand-btn" onclick="toggleGates(\u0027'+ticker+'\u0027)"><span>GATE BREAKDOWN</span><span id="arrow-'+ticker+'">\u25bc</span></button><div class="gate-list" id="gates-'+ticker+'" style="display:none">';
     gates.forEach(function(g){
       var lbl=g[0],gate=g[1]||{};
       gHtml+='<div class="gate-row"><div class="gate-dot-sm" style="background:'+sigColor(gate.status)+'"></div><div class="gate-content"><div class="gate-header"><span class="gate-lbl">'+lbl+'</span><span class="gate-stat" style="color:'+sigColor(gate.status)+'">'+(gate.status||'')+'</span></div>'+(gate.note?'<div class="gate-note-txt">'+gate.note+'</div>':'')+'</div></div>';
     });
-    if(data.wait_for&&data.wait_for!=='null')gHtml+='<div class="wait-box"><span class="wait-lbl">WAIT FOR </span><span class="wait-txt">'+data.wait_for+'</span></div>';
     gHtml+='<div class="conf-row"><span class="conf-lbl">CONFIDENCE</span><span class="conf-val" style="color:'+cc+'">'+data.confidence+'</span></div></div>';
     gateEl.innerHTML=gHtml;gateEl.style.display='block';
   }
