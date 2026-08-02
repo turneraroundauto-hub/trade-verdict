@@ -4,10 +4,21 @@ import { cleanLS, cacheVerdict, getCachedVerdict } from './shared/analysis-cache
 import { renderTrackRecord } from './shared/track-record.js?v=3';
 import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from './shared/watchlist-sync.js?v=3';
 
-// If user has a paid session in localStorage from paid tier, redirect them
+// If user has a paid session in localStorage from paid tier, redirect them.
+// window.location.href doesn't halt script execution -- the rest of this
+// module (including initWatchlist/pullWatchlistFromServer below) would
+// otherwise keep running for the fraction of a second before navigation
+// actually happens. tv_wl is the SAME localStorage key every tier reads
+// from, so Free's maxTickers:3 cap silently truncating it in that window
+// -- and a same-account pullWatchlistFromServer() persisting that
+// truncated list locally -- can leave a paid tier's real watchlist
+// clobbered to 3 tickers on the very next load. Guard everything below
+// that touches watchlist state behind this flag instead.
+var redirectingToPaidTier=false;
 try{
   var stored=JSON.parse(localStorage.getItem('tv_session')||'null');
   if(stored&&stored.tier&&stored.tier!=='free'&&stored.redirectUrl){
+    redirectingToPaidTier=true;
     window.location.href=stored.redirectUrl;
   }
 }catch(e){}
@@ -54,18 +65,20 @@ let market=null;
 function authH(){return sbSession&&sbSession.token?{'Content-Type':'application/json','x-supabase-token':sbSession.token}:{'Content-Type':'application/json','x-app-secret':APP_SECRET};}
 function addSecret(url){var sep=url.includes('?')?'&':'?';if(sbSession&&sbSession.token)return url+sep+'supabase_token='+encodeURIComponent(sbSession.token);return url+sep+'secret='+encodeURIComponent(APP_SECRET);}
 
-initWatchlist({defaultTickers:['MU','IREN','ALAB'], maxTickers:3, upgradeMessage:'Free tier supports up to 3 tickers.\n\nUpgrade to Starter for more.'});
-initTickerCache({API_URL:API_URL, authH:authH, addSecret:addSecret});
+if(!redirectingToPaidTier){
+  initWatchlist({defaultTickers:['MU','IREN','ALAB'], maxTickers:3, upgradeMessage:'Free tier supports up to 3 tickers.\n\nUpgrade to Starter for more.'});
+  initTickerCache({API_URL:API_URL, authH:authH, addSecret:addSecret});
 
-// Signed-in-but-free is the lapsed-subscriber case (or a free signup that
-// created an account) — sync their watchlist so a Starter/Pro/Shark lapse
-// doesn't wipe it, and so it survives a browser cache/cookie clear. Purely
-// anonymous visitors have no account to key cloud storage to, so this
-// stays fully local for them, same as before.
-if(sbSession&&sbSession.token){
-  initWatchlistSync({API_URL:API_URL, authH:authH, addSecret:addSecret});
-  onWatchlistSave(schedulePushWatchlist);
-  pullWatchlistFromServer();
+  // Signed-in-but-free is the lapsed-subscriber case (or a free signup that
+  // created an account) — sync their watchlist so a Starter/Pro/Shark lapse
+  // doesn't wipe it, and so it survives a browser cache/cookie clear. Purely
+  // anonymous visitors have no account to key cloud storage to, so this
+  // stays fully local for them, same as before.
+  if(sbSession&&sbSession.token){
+    initWatchlistSync({API_URL:API_URL, authH:authH, addSecret:addSecret});
+    onWatchlistSave(schedulePushWatchlist);
+    pullWatchlistFromServer();
+  }
 }
 
 function isMarketClosed(){
@@ -479,12 +492,14 @@ function handleNoCredits(card,ticker){
   startComebackTimer();
 }
 
-cleanLS();
-document.getElementById('ticker-count').textContent='CRF \u00b7 '+watchlist.length+' TICKERS';
-renderWatchlist();renderTrackRecord();startClock();
-fetchMarket();setTimeout(fetchCreditStatus,2000);
-setInterval(function(){fetchMarket()},4*60*1000);
-enforceMarketState();setInterval(enforceMarketState,60*1000);
+if(!redirectingToPaidTier){
+  cleanLS();
+  document.getElementById('ticker-count').textContent='CRF \u00b7 '+watchlist.length+' TICKERS';
+  renderWatchlist();renderTrackRecord();startClock();
+  fetchMarket();setTimeout(fetchCreditStatus,2000);
+  setInterval(function(){fetchMarket()},4*60*1000);
+  enforceMarketState();setInterval(enforceMarketState,60*1000);
+}
 
 window.fetchMarket = fetchMarket;
 window.analyzeAll = analyzeAll;
