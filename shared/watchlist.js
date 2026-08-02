@@ -176,8 +176,27 @@ export function renderWatchlist(){
       +'</div>'
       +'</div>';
   }).join('');
-  list.forEach(function(t){fetchTickerData(t).then(function(d){if(d)updateCardMeta(t,d)})});
+  hydrateCards(list);
   if(postRenderHook)postRenderHook();
+}
+
+// Populates each rendered card's price/52W/news strip via a free (no
+// /analyze, no credit) fetchTickerData + updateCardMeta pairing, so a
+// ticker shows real data before the user ever taps ANALYZE. Batched in
+// small groups instead of firing every card's request simultaneously —
+// a render can cover the whole card window at once, and bursting that
+// many concurrent /ticker/:symbol requests together is exactly the kind
+// of spike that can trip an upstream provider's rate limit and leave
+// every card silently blank (fetchTickerData swallows its own errors and
+// resolves null on failure, so a burst failure shows as nothing, not an
+// error). Fire-and-forget relative to the render itself, same as before.
+var HYDRATE_BATCH=5;
+async function hydrateCards(list){
+  for(var i=0;i<list.length;i+=HYDRATE_BATCH){
+    await Promise.all(list.slice(i,i+HYDRATE_BATCH).map(function(t){
+      return fetchTickerData(t).then(function(d){if(d)updateCardMeta(t,d)});
+    }));
+  }
 }
 
 // --- Drag-to-reorder + swipe-to-delete gestures ---
