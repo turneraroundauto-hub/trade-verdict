@@ -85,8 +85,9 @@ function startClock(){
     var now=new Date(),et=new Date(now.toLocaleString('en-US',{timeZone:'America/New_York'}));
     var h=et.getHours(),m=et.getMinutes(),s=et.getSeconds();
     var p=function(n){return String(n).padStart(2,'0')};
+    var h12=h%12||12,ampm=h<12?'AM':'PM';
     var cl=document.getElementById('live-clock');
-    if(cl)cl.textContent=p(h)+':'+p(m)+':'+p(s)+' ET';
+    if(cl)cl.textContent=h12+':'+p(m)+':'+p(s)+' '+ampm+' ET';
   }
   tick();setInterval(tick,1000);
 }
@@ -123,7 +124,7 @@ async function fetchMarket(force){
     var tsmEl=document.getElementById('tsm-warning');
     if(data.tsmWarning){tsmEl.style.display='block';tsmEl.textContent=data.tsmWarning}else tsmEl.style.display='none';
     if(data.timestamp){
-      var t=new Date(data.timestamp).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+      var t=new Date(data.timestamp).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});
       document.getElementById('ts').textContent=(data.cached?'\u26a1 Cached':'\ud83d\udd34 Live')+' \u00b7 Updated '+t;
     }
     var pulseEl=document.getElementById('pulse-text');
