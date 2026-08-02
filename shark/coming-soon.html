@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Shark — Coming Soon | Trade Verdict</title>
+<style>
+:root{
+  --bg:#080c12;--card:#0f1923;--border:#1a2840;
+  --green:#00e676;--white:#ffffff;--dim:#607d8b;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px}
+.wrap{width:100%;max-width:360px;text-align:center}
+.shark-emoji-wrap{position:relative;width:130px;height:130px;margin:0 auto 8px}
+.shark-emoji{font-size:104px;line-height:1;display:block;transform:scaleX(-1)}
+.shades-emoji{position:absolute;top:10px;right:22px;font-size:36px;transform:rotate(8deg)}
+h1{font-family:monospace;font-size:20px;letter-spacing:.12em;color:var(--green);margin:8px 0 6px}
+.tagline{font-family:monospace;font-size:11px;color:var(--dim);line-height:1.7;margin-bottom:24px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px}
+.card-lbl{font-family:monospace;font-size:9px;font-weight:700;color:var(--dim);letter-spacing:.1em;margin-bottom:10px;text-align:left}
+.email-row{display:flex;gap:8px}
+.email-input{flex:1;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:5px;padding:10px 12px;color:var(--white);font-family:monospace;font-size:13px;min-width:0}
+.notify-btn{background:rgba(0,230,118,.12);border:1px solid rgba(0,230,118,.4);color:var(--green);border-radius:6px;padding:0 16px;font-family:monospace;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;-webkit-tap-highlight-color:transparent}
+.notify-btn:disabled{opacity:.5;cursor:default}
+.status-msg{font-family:monospace;font-size:11px;margin-top:12px;min-height:14px}
+.status-msg.ok{color:var(--green)}
+.status-msg.err{color:#ff1744}
+.back-link{display:inline-block;margin-top:24px;font-family:monospace;font-size:11px;color:var(--dim);text-decoration:none;border-bottom:1px solid var(--border)}
+.back-link:hover{color:var(--white)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="shark-emoji-wrap">
+    <span class="shark-emoji">&#129416;</span>
+    <span class="shades-emoji">&#128526;</span>
+  </div>
+  <h1>SHARK — COMING SOON</h1>
+  <p class="tagline">Real-time Alpaca data, deeper proxy analytics, and tick-level<br>intraday heat maps. We're building it right — not shipping it broken.</p>
+  <div class="card">
+    <div class="card-lbl">GET NOTIFIED AT LAUNCH</div>
+    <div class="email-row">
+      <input id="wl-email" class="email-input" type="email" placeholder="your@email.com" autocomplete="email">
+      <button id="wl-btn" class="notify-btn" type="button" onclick="joinWaitlist()">NOTIFY ME</button>
+    </div>
+    <div id="wl-status" class="status-msg"></div>
+  </div>
+  <a class="back-link" href="../pro/">&larr; Back to Pro</a>
+</div>
+<script>
+const SUPABASE_URL='https://oinomcikdyisrbfeeirp.supabase.co';
+const SUPABASE_ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9pbm9tY2lrZHlpc3JiZmVlaXJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ2NzM3NzgsImV4cCI6MjEwMDI0OTc3OH0.PiMDYsSZjNd4Iw-0wbQH4niDvUmW8ymycmiyb5Raf1w';
+
+async function joinWaitlist(){
+  var input=document.getElementById('wl-email');
+  var btn=document.getElementById('wl-btn');
+  var status=document.getElementById('wl-status');
+  var email=(input.value||'').trim();
+  if(!email||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
+    status.className='status-msg err';status.textContent='Enter a valid email.';return;
+  }
+  btn.disabled=true;status.className='status-msg';status.textContent='';
+  try{
+    var res=await fetch(SUPABASE_URL+'/rest/v1/shark_waitlist',{
+      method:'POST',
+      headers:{
+        'apikey':SUPABASE_ANON,
+        'Authorization':'Bearer '+SUPABASE_ANON,
+        'Content-Type':'application/json',
+        'Prefer':'return=minimal'
+      },
+      body:JSON.stringify({email:email})
+    });
+    if(res.ok||res.status===409){
+      status.className='status-msg ok';status.textContent="You're on the list — we'll email you at launch.";
+      input.value='';
+    }else{
+      status.className='status-msg err';status.textContent='Something went wrong. Try again later.';
+      btn.disabled=false;
+    }
+  }catch(e){
+    status.className='status-msg err';status.textContent='Something went wrong. Try again later.';
+    btn.disabled=false;
+  }
+}
+document.getElementById('wl-email').addEventListener('keydown',function(e){if(e.key==='Enter')joinWaitlist()});
+</script>
+</body>
+</html>
