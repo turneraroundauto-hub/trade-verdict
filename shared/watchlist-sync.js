@@ -24,10 +24,16 @@ export async function pullWatchlistFromServer(){
       setWatchlist(data.tickers);
       pulling=false;
     }else if(watchlist.length){
-      // Nothing saved for this account yet — seed the server with whatever
-      // is already local (tier defaults, or anything built before this
-      // login) instead of starting from an empty cloud copy.
-      pushWatchlistToServer();
+      // GET came back with nothing for this account. That's ambiguous — it
+      // can mean a genuinely new account, but it can just as easily mean a
+      // transient read failure, a race, or (formerly) an email-casing miss,
+      // and the client can't tell those apart from here. Push what's
+      // already local (tier defaults, or anything built before this login)
+      // as a *seed* rather than a normal save: the server only inserts if
+      // no row exists yet (see the `seed` handling in server.js's POST
+      // /watchlist) so this can never stomp real saved data that GET simply
+      // failed to find.
+      pushWatchlistToServer(true);
     }
   }catch(e){}
 }
@@ -38,12 +44,12 @@ var pushTimer=null;
 export function schedulePushWatchlist(){
   if(!cfg||pulling)return;
   clearTimeout(pushTimer);
-  pushTimer=setTimeout(pushWatchlistToServer,1200);
+  pushTimer=setTimeout(function(){pushWatchlistToServer(false);},1200);
 }
 
-async function pushWatchlistToServer(){
+async function pushWatchlistToServer(seed){
   if(!cfg)return;
   try{
-    await fetch(cfg.addSecret(cfg.API_URL+'/watchlist'),{method:'POST',headers:cfg.authH(),body:JSON.stringify({tickers:watchlist})});
+    await fetch(cfg.addSecret(cfg.API_URL+'/watchlist'),{method:'POST',headers:cfg.authH(),body:JSON.stringify({tickers:watchlist,seed:!!seed})});
   }catch(e){}
 }
