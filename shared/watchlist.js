@@ -5,6 +5,23 @@ let maxTickers = 3;
 let upgradeMessage = '';
 let gesturesBound = false;
 
+// Pro-only card/watchlist split: when set, renderWatchlist() only renders
+// the first N tickers as full `.card-wrap` cards (into #watchlist) instead
+// of the whole list — everything past that stays out of the DOM here. Other
+// tiers never call setRenderScope(), so renderScope stays null and every
+// existing render/gesture/undo code path below is byte-for-byte unchanged
+// for them (list = watchlist, same as before this was added).
+let renderScope = null;
+let postRenderHook = null;
+export function setRenderScope(n){renderScope=n;}
+export function getOverflow(){return renderScope!=null?watchlist.slice(renderScope):[];}
+// Fires at the end of every renderWatchlist() call, from any trigger (add,
+// remove, undo, setWatchlist, drag-reorder does NOT call this since it
+// mutates the DOM directly without a full re-render). Lets a tier that owns
+// a second list view (Pro's compact overflow rows) stay in sync without
+// needing to know every internal call site that can change `watchlist`.
+export function onRenderWatchlist(cb){postRenderHook=cb;}
+
 export function initWatchlist(config){
   maxTickers = config.maxTickers;
   upgradeMessage = config.upgradeMessage;
@@ -117,7 +134,8 @@ function hideUndoToast(){
 
 export function renderWatchlist(){
   var wl=document.getElementById('watchlist');
-  wl.innerHTML=watchlist.map(function(ticker){
+  var list=renderScope!=null?watchlist.slice(0,renderScope):watchlist;
+  wl.innerHTML=list.map(function(ticker){
     return '<div class="card-wrap" data-ticker="'+ticker+'">'
       +'<div class="swipe-bg"><span class="swipe-icon">&#128465;</span><span class="swipe-label">DELETE</span></div>'
       +'<div class="card" id="card-'+ticker+'">'
@@ -139,7 +157,8 @@ export function renderWatchlist(){
       +'</div>'
       +'</div>';
   }).join('');
-  watchlist.forEach(function(t){fetchTickerData(t).then(function(d){if(d)updateCardMeta(t,d)})});
+  list.forEach(function(t){fetchTickerData(t).then(function(d){if(d)updateCardMeta(t,d)})});
+  if(postRenderHook)postRenderHook();
 }
 
 // --- Drag-to-reorder + swipe-to-delete gestures ---

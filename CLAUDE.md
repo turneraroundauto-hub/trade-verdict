@@ -70,7 +70,7 @@ grep -rn "shared/<file>.js?v=" --include=*.js --include=*.html .
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current |
 | Starter | `starter/index.html` + `starter/app.js` | Rebuilt, on shared modules, current |
-| Pro | `pro/index.html` + `pro/app.js` | Rebuilt Aug 2, 2026 (trade-verdict PRs #23, #24) — on shared modules, plus Pro-exclusive Analyst View, Proxy Resolution Explorer + live coherence strip, Sector Heat Map, Watchlist Tools (export/import/presets), and trigger/ticker track-record breakdowns |
+| Pro | `pro/index.html` + `pro/app.js` | Rebuilt Aug 2, 2026 (trade-verdict PRs #23, #24) — on shared modules, plus Pro-exclusive Analyst View, Proxy Resolution Explorer + live coherence strip, Sector Heat Map, Watchlist Tools (export/import/presets), trigger/ticker track-record breakdowns, and a card/watchlist split: only the first 15 tickers (in list order) render as full analysis cards, the rest render as compact price/%chg/news rows with no ANALYZE button and no credit cost — `analyzeAll()` scopes to the 15-card window only (max 5 credits) |
 | Shark | `shark/index.html` (no separate `app.js` — still monolithic) | **NOT rebuilt.** Still the pre-Aug-1 single-file version — same gap Pro just closed, likely carries the same reorder/log-button bugs Pro had before its rebuild (shared original template) |
 
 Tier config (ticker cap, cache TTL, credits, tracker) is enforced **server-side**
@@ -87,12 +87,27 @@ There's no test suite. What's actually been useful:
   its `app.js` (every `getElementById('x')` has a matching `id="x"`; every
   inline `onclick="fn(...)"` has a matching `window.fn = fn`).
 - A headless-Chromium smoke pass (Playwright, pre-installed at
-  `/opt/pw-browsers/chromium`) — load the page, bypass auth by forcing
-  `#app-root` visible via `page.evaluate`, exercise the new code paths,
-  check for console/page errors. There is no reachable backend from most
-  sandboxes, so network calls to `tra-zacg.onrender.com` will fail/hang —
-  that's expected; the point is confirming the new code degrades gracefully
-  instead of throwing.
+  `/opt/pw-browsers/chromium`) — load the page, bypass auth, exercise the
+  new code paths, check for console/page errors. There is no reachable
+  backend from most sandboxes, so network calls to `tra-zacg.onrender.com`
+  will fail/hang — that's expected; the point is confirming the new code
+  degrades gracefully instead of throwing.
+  - **CSS-toggling `#app-root` visible is not a real auth bypass on
+    Starter/Pro/Shark.** `initApp()` (which calls `renderWatchlist()`) only
+    runs from `checkTierAccess()`, which only runs if `checkAuth()` finds a
+    valid `tv_session` in localStorage — forcing `#app-root` display without
+    that leaves the watchlist genuinely empty (no errors, just nothing
+    rendered), which reads like a bug but isn't one. Prime a fake-but-valid
+    session first: `localStorage.setItem('tv_session', JSON.stringify({token:'x',
+    tier:'pro', expiresAt: Math.floor(Date.now()/1000)+3600}))`, then reload.
+    Free tier doesn't need this — its `app.js` calls `renderWatchlist()`
+    unconditionally at module load, no session gate.
+  - **`page.route('**/analyze')`-style exact-suffix patterns silently match
+    zero requests here.** Every API call goes through `addSecret()`, which
+    appends `?supabase_token=...` (or nothing, pre-login) to the URL — route
+    against a substring (`url.includes('/analyze')`) instead of an exact
+    suffix, or the intercept quietly no-ops and looks like "no requests
+    fired" (a false-positive bug report, not a real one).
 - None of the above substitutes for a real login against the live backend —
   flag that as unverified rather than implying it was checked.
 

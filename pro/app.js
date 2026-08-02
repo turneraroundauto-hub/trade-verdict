@@ -1,5 +1,5 @@
 import { initTickerCache, fetchTickerData } from '../shared/ticker-cache.js?v=3';
-import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, setWatchlist } from '../shared/watchlist.js?v=4';
+import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, setWatchlist, removeTicker, setRenderScope, getOverflow, onRenderWatchlist } from '../shared/watchlist.js?v=5';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache.js?v=2';
 import { renderTrackRecord, logResult, getAccuracyLog, clearLog } from '../shared/track-record.js?v=3';
 
@@ -21,6 +21,13 @@ const TIER = {
   creditsLink:  'https://buy.stripe.com/3cI3cwacxarJ8txb3z3VC00',
   badgeColor:   '#ce93d8',
 };
+
+// Pro's card/watchlist split: watchlist itself stays unlimited (maxTickers
+// below), but only the first CARD_CAP tickers, in watchlist order, ever
+// render as full analysis cards — the rest render as compact price/%chg
+// rows with no ANALYZE button and no credit cost. See setRenderScope() in
+// shared/watchlist.js.
+const CARD_CAP=15;
 
 let market=null;
 // Last /analyze result per ticker — kept so the Analyst View panel and the
@@ -154,7 +161,11 @@ export async function analyzeTicker(ticker){
   }
 }
 
-export function analyzeAll(){watchlist.forEach(function(t){analyzeTicker(t)})}
+// Analyze All only ever hits the card window (max CARD_CAP), never the full
+// unlimited watchlist — at 3 analyses/credit that caps the cost of one tap
+// at CARD_CAP/3 credits (5, at the current 15-card cap), and keeps it
+// predictable regardless of how many tickers are tracked in total.
+export function analyzeAll(){watchlist.slice(0,CARD_CAP).forEach(function(t){analyzeTicker(t)})}
 
 // ── PRO — trigger classification ────────────────────────────────────
 // Mirrors the exact override-authority reason prefixes server.js writes to
@@ -355,6 +366,142 @@ export function resetCard(ticker){
   var pgs=card.querySelector('.pregate-strip');if(pgs){pgs.innerHTML='';pgs.style.display='none';}
   var ls=card.querySelector('.log-section');if(ls){ls.innerHTML='';ls.style.display='none';}
   var as=card.querySelector('.analyst-section');if(as){as.innerHTML='';as.style.display='none';}
+}
+
+// ── PRO — Compact watchlist (tickers beyond the CARD_CAP window) ────
+// Price + today's %-change + a short news link, no ANALYZE button and no
+// credit cost — this is the "unlimited, unanalyzed" half of the watchlist.
+// Rendering is driven entirely by shared/watchlist.js's postRenderHook, so
+// it stays correct after any add/remove/undo/import/preset-load without
+// this file needing to know every place `watchlist` can change.
+export function renderCompactList(){
+  var el=document.getElementById('watchlist-compact');
+  if(!el)return;
+  var overflow=getOverflow();
+  var cardCountEl=document.getElementById('card-count');
+  if(cardCountEl)cardCountEl.textContent=Math.min(watchlist.length,CARD_CAP)+'/'+CARD_CAP;
+  var compactCountEl=document.getElementById('compact-count');
+  if(compactCountEl)compactCountEl.textContent=overflow.length;
+  if(!overflow.length){el.innerHTML='<div class="track-empty">Everything tracked fits in cards above.</div>';return}
+  el.innerHTML=overflow.map(function(t){
+    return '<div class="compact-row-wrap" data-ticker="'+t+'">'
+      +'<div class="compact-swipe-bg"><span class="swipe-icon">&#128465;</span><span class="swipe-label">DELETE</span></div>'
+      +'<div class="compact-row" id="compact-'+t+'">'
+      +'<div class="compact-row-main">'
+      +'<div class="compact-row-top"><span class="compact-ticker">'+t+'</span><span class="compact-price" id="compact-price-'+t+'">&mdash;</span><span class="compact-pct" id="compact-pct-'+t+'">&mdash;</span></div>'
+      +'<div class="compact-news" id="compact-news-'+t+'" style="display:none"></div>'
+      +'</div>'
+      +'<button type="button" class="compact-plus-btn" title="Add as card" onclick="promoteToCard(\''+t+'\')">+</button>'
+      +'</div></div>';
+  }).join('');
+  bindCompactGestures();
+  overflow.forEach(function(t){fetchTickerData(t).then(function(td){if(td)updateCompactRow(t,td)})});
+}
+
+function updateCompactRow(ticker,td){
+  var priceEl=document.getElementById('compact-price-'+ticker);
+  var pctEl=document.getElementById('compact-pct-'+ticker);
+  var newsEl=document.getElementById('compact-news-'+ticker);
+  if(priceEl&&td.metrics&&td.metrics.price)priceEl.textContent='$'+parseFloat(td.metrics.price).toFixed(2);
+  if(pctEl&&td.metrics&&typeof td.metrics.pct==='number'){pctEl.textContent=fmtPct(td.metrics.pct);pctEl.style.color=pctColor(td.metrics.pct);}
+  if(newsEl){
+    if(td.news&&td.news.ageHours<=300){newsEl.style.display='block';newsEl.innerHTML='<a href="'+td.news.url+'" target="_blank">'+td.news.headline+'</a>';}
+    else newsEl.style.display='none';
+  }
+}
+
+// Moves a compact-row ticker into the last card slot (index CARD_CAP-1).
+// Whatever was already there shifts to index CARD_CAP — i.e. becomes the
+// new top compact row — which is the "swap the bottom card into the
+// watchlist" behavior, achieved by reordering the one underlying array
+// setWatchlist() already validates/persists/re-renders.
+export function promoteToCard(ticker){
+  var idx=watchlist.indexOf(ticker);
+  if(idx<0||idx<CARD_CAP)return;
+  var arr=watchlist.slice();
+  arr.splice(idx,1);
+  arr.splice(CARD_CAP-1,0,ticker);
+  setWatchlist(arr);
+}
+
+// Swipe-to-delete only — no drag-reorder, since position among non-card
+// rows isn't meaningful. Deletion reuses shared's exported removeTicker()
+// directly: same undo-toast, same postRenderHook re-sync, for free.
+var COMPACT_MOVE_THRESHOLD=14;
+var compactActive=null;
+var compactGesturesBound=false;
+
+function bindCompactGestures(){
+  if(compactGesturesBound)return;
+  var el=document.getElementById('watchlist-compact');
+  if(!el)return;
+  compactGesturesBound=true;
+  el.addEventListener('pointerdown',onCompactPointerDown);
+}
+
+function onCompactPointerDown(e){
+  if(compactActive)return;
+  if(e.pointerType==='mouse'&&e.button!==0)return;
+  if(e.target.closest('button,a'))return;
+  var wrap=e.target.closest('.compact-row-wrap');
+  if(!wrap)return;
+  var row=wrap.querySelector('.compact-row');
+  if(!row)return;
+  compactActive={pointerId:e.pointerId,wrap:wrap,row:row,ticker:wrap.dataset.ticker,startX:e.clientX,startY:e.clientY,dragging:false,pendingDx:0,swipeBg:wrap.querySelector('.compact-swipe-bg')};
+  document.addEventListener('pointermove',onCompactPointerMove,{passive:false});
+  document.addEventListener('pointerup',onCompactPointerUp);
+  document.addEventListener('pointercancel',onCompactPointerUp);
+}
+
+function compactDeleteThreshold(wrap){return Math.min(120,wrap.getBoundingClientRect().width*0.35)}
+
+function onCompactPointerMove(e){
+  var g=compactActive;if(!g||e.pointerId!==g.pointerId)return;
+  var dx=e.clientX-g.startX,dy=e.clientY-g.startY;
+  if(!g.dragging){
+    if(Math.abs(dx)>COMPACT_MOVE_THRESHOLD&&Math.abs(dx)>Math.abs(dy)){
+      g.dragging=true;
+      try{g.wrap.setPointerCapture(e.pointerId)}catch(err){}
+      g.row.style.transition='none';
+      g.wrap.classList.add('swiping');
+    }else if(Math.abs(dy)>COMPACT_MOVE_THRESHOLD){endCompactGesture();return}
+    else return;
+  }
+  e.preventDefault();
+  var clamped=Math.min(0,Math.max(dx,-g.wrap.getBoundingClientRect().width));
+  g.row.style.transform='translateX('+clamped+'px)';
+  var progress=Math.min(Math.abs(clamped)/compactDeleteThreshold(g.wrap),1);
+  g.swipeBg.style.opacity=String(progress);
+  g.pendingDx=clamped;
+}
+
+function onCompactPointerUp(e){
+  var g=compactActive;if(!g||e.pointerId!==g.pointerId)return;
+  var threshold=compactDeleteThreshold(g.wrap);
+  if(g.dragging&&Math.abs(g.pendingDx)>=threshold){
+    var wrap=g.wrap,ticker=g.ticker,w=wrap.getBoundingClientRect().width;
+    g.row.style.transition='transform .18s ease-in';
+    g.row.style.transform='translateX(-'+(w+40)+'px)';
+    wrap.style.overflow='hidden';
+    wrap.style.transition='max-height .2s ease .12s,opacity .2s ease .12s,margin .2s ease .12s';
+    requestAnimationFrame(function(){wrap.style.maxHeight='0px';wrap.style.opacity='0';wrap.style.marginTop='0px';wrap.style.marginBottom='0px';});
+    setTimeout(function(){removeTicker(ticker)},220);
+  }else if(g.dragging){
+    g.row.style.transition='transform .18s ease';
+    g.row.style.transform='translateX(0)';
+    g.swipeBg.style.opacity='0';
+    g.wrap.classList.remove('swiping');
+  }
+  endCompactGesture();
+}
+
+function endCompactGesture(){
+  var g=compactActive;
+  if(g){try{g.wrap.releasePointerCapture(g.pointerId)}catch(err){}}
+  compactActive=null;
+  document.removeEventListener('pointermove',onCompactPointerMove);
+  document.removeEventListener('pointerup',onCompactPointerUp);
+  document.removeEventListener('pointercancel',onCompactPointerUp);
 }
 
 // ── PRO — Proxy Resolution Explorer ─────────────────────────────────
@@ -841,6 +988,8 @@ async function checkAuth(){
 
 initWatchlist({defaultTickers:['SMMT','VCYT','TWST','IMVT','IREN','ALAB','MU'], maxTickers:999, upgradeMessage:'Pro supports unlimited tickers already — this cap should never be hit.'});
 initTickerCache({API_URL:API_URL, authH:authH, addSecret:addSecret});
+setRenderScope(CARD_CAP);
+onRenderWatchlist(renderCompactList);
 
 checkAuth();
 
@@ -867,6 +1016,7 @@ window.saveCurrentPreset = saveCurrentPreset;
 window.loadPreset = loadPreset;
 window.deletePreset = deletePreset;
 window.toggleWatchlistTools = toggleWatchlistTools;
+window.promoteToCard = promoteToCard;
 // track-record.js sets window.clearLog itself on import — override here so
 // clearing the log also refreshes Pro's gate-attribution breakdown, which
 // the shared module has no knowledge of.
