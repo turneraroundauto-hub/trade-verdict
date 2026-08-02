@@ -493,6 +493,9 @@ IMPORTANT RULES:
 - Gate 5 proxy is PRE-DETERMINED by the server. Copy exactly. Never override.
 - Temperature is 0 — be deterministic. Same data = same verdict every time.
 - News headlines provided ARE potential catalysts — treat them as Gate 2 evidence.
+- Market pulse is background sector-rotation color shared across every ticker
+  analyzed this cycle — use it to inform Gate 2 congruency, never to override
+  Pre-Gate/Gate 0/Gate 1/Gate 5.
 - Always check congruency between gates before assigning verdict.
 
 ═══ GATE DEFINITIONS ═══
@@ -1400,6 +1403,14 @@ Current price: $${metricsData.price || "?"}
 `;
   }
 
+  // ── MARKET PULSE ─────────────────────────────────────────────────
+  // Single AI-generated sector-rotation summary, produced once per market
+  // cache cycle by generatePulse() and shared across every ticker analyzed
+  // in that window (see /market). Informational framing for Gate 2 only —
+  // it never overrides Pre-Gate/Gate 0/Gate 1/Gate 5, which are computed
+  // deterministically above and passed to the LLM as fixed facts.
+  const pulseContext = marketCache?.pulse || "Not yet generated for this market cycle.";
+
   const userMessage = `
 Analyze ${ticker.toUpperCase()}.
 
@@ -1427,6 +1438,9 @@ TSM ${sectorContext?.tsm||"?"}, MSFT ${sectorContext?.msft||"?"}
 GLD ${sectorContext?.gld||"?"}, USO ${sectorContext?.uso||"?"}
 BTC signal: ${sectorContext?.btcSignal||"neutral"}
 Today: ${new Date().toLocaleDateString("en-US",{weekday:"long",month:"short",day:"numeric",year:"numeric"})}
+
+Market pulse (AI sector-rotation summary, shared across all tickers analyzed this cycle — informational context for Gate 2 only, does not override the gate statuses above):
+${pulseContext}
 
 Ticker metrics: ${metricsContext}
 News context: ${newsContext}

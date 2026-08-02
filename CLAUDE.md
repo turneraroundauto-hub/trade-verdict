@@ -126,6 +126,20 @@ the extended module explicitly documents itself as "additive, no edits
 required to existing server.js internals," so new gate behavior tends to be
 added there and wired into `server.js` rather than rewritten in place.
 
+### Market Pulse → per-ticker analysis
+
+`generatePulse()` (~line 1078) makes one AI call per market-cache cycle
+(`CACHE_MS`, 4 minutes) over broad market data (SPY/QQQ/XBI/TSM/etc.) to
+produce a 2-sentence sector-rotation summary, cached on `marketCache.pulse`.
+`/analyze` reads that same cached string and includes it in every ticker's
+prompt, labeled explicitly as informational Gate 2 context that must not
+override Pre-Gate/Gate 0/Gate 1/Gate 5 (both in the user message and as a
+rule in `SYSTEM_PROMPT`). This means every ticker analyzed within the same
+4-minute window — including a whole "Analyze All" batch — references the
+identical AI market read, instead of each `/analyze` call reasoning about
+the market independently. It's separate from `marketContext`, which is
+still the free-text box the user can type into client-side.
+
 ### Credits (`credits.js`)
 
 - Storage is Supabase (`public.credits` table + atomic RPC functions) when
