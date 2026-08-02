@@ -166,7 +166,20 @@ export async function analyzeTicker(ticker){
 // unlimited watchlist — at 3 analyses/credit that caps the cost of one tap
 // at CARD_CAP/3 credits (5, at the current 15-card cap), and keeps it
 // predictable regardless of how many tickers are tracked in total.
-export function analyzeAll(){watchlist.slice(0,CARD_CAP).forEach(function(t){analyzeTicker(t)})}
+//
+// Runs in small batches (4 at a time) instead of firing all CARD_CAP calls
+// simultaneously — a full burst means that many concurrent /ticker/:symbol
+// cache-miss chains hitting Finnhub/Alpaca/SEC at once, which is exactly
+// the kind of spike that trips a provider's rate limiter (SEC's full-text
+// search especially) and shows up as slow or timed-out individual tickers.
+// Batching trades a little total wall-clock time for reliability.
+var ANALYZE_ALL_BATCH = 4;
+export async function analyzeAll(){
+  var tickers=watchlist.slice(0,CARD_CAP);
+  for(var i=0;i<tickers.length;i+=ANALYZE_ALL_BATCH){
+    await Promise.all(tickers.slice(i,i+ANALYZE_ALL_BATCH).map(function(t){return analyzeTicker(t)}));
+  }
+}
 
 // ── PRO — trigger classification ────────────────────────────────────
 // Mirrors the exact override-authority reason prefixes server.js writes to
