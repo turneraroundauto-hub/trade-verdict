@@ -76,7 +76,15 @@ function parseTickers(raw){return raw.toUpperCase().replace(/[$#]/g,'').split(/[
 export function updateCardMeta(ticker,td){
   var card=document.getElementById('card-'+ticker);if(!card)return;
   var priceEl=card.querySelector('.ticker-price');
-  if(priceEl&&td&&td.metrics&&td.metrics.price)priceEl.textContent='$'+parseFloat(td.metrics.price).toFixed(2);
+  // td itself being non-null means the fetch succeeded — a symbol with no
+  // usable metrics (e.g. VIX: Finnhub's /quote has no price for an index,
+  // only regular equities) still gets a response, just with metrics:null.
+  // That's a real "no data for this symbol" case, not a pending/failed
+  // fetch, and needs to look different from the plain pre-fetch dash or it
+  // reads as broken instead of as an answer.
+  if(priceEl&&td){
+    priceEl.textContent=td.metrics&&td.metrics.price?'$'+parseFloat(td.metrics.price).toFixed(2):'N/A';
+  }
   var phaseEl=card.querySelector('.phase-strip');
   if(phaseEl&&td&&td.metrics){
     var m=td.metrics;
@@ -90,6 +98,8 @@ export function updateCardMeta(ticker,td){
       +'<div class="phase-item"><span class="phase-lbl">PHASE</span><span class="phase-val" style="color:'+phColor+'">'+ph.replace('PHASE_','')+'</span></div>'
       +'<div class="phase-item"><span class="phase-lbl">β</span><span class="phase-val">'+betaStr+'</span></div>'
       +(proxyShort?'<div class="phase-item"><span class="phase-lbl">PROXY</span><span class="phase-val" style="color:var(--blue);font-size:9px">'+proxyShort+'</span></div>':'');
+  }else if(phaseEl&&td){
+    phaseEl.innerHTML='<div class="phase-item"><span class="phase-val" style="color:var(--dim);font-size:9px">No market data for this symbol (index/unsupported ticker)</span></div>';
   }
   var newsEl=card.querySelector('.news-line');
   var news=td&&td.news;
