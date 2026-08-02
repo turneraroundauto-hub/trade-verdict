@@ -541,7 +541,15 @@ var PRESETS_KEY='tv_pro_presets';
 function getPresets(){try{return JSON.parse(localStorage.getItem(PRESETS_KEY)||'[]')}catch(e){return[]}}
 function savePresets(list){localStorage.setItem(PRESETS_KEY,JSON.stringify(list))}
 
-function parseTickerList(raw){return raw.toUpperCase().replace(/[$#]/g,'').split(/[\s,;|\n]+/).map(function(t){return t.trim()}).filter(function(t){return/^[A-Z]{1,6}$/.test(t)})}
+// Returns {valid, invalid} instead of just the valid list — doImportWatchlist
+// needs the rejects too, so a garbage paste actually tells the user what got
+// dropped instead of just silently shrinking the count.
+function parseTickerList(raw){
+  var tokens=raw.toUpperCase().replace(/[$#]/g,'').split(/[\s,;|\n]+/).map(function(t){return t.trim()}).filter(Boolean);
+  var valid=[],invalid=[];
+  tokens.forEach(function(t){(/^[A-Z]{1,6}$/.test(t)?valid:invalid).push(t)});
+  return{valid:valid,invalid:invalid};
+}
 
 export function exportWatchlist(btnEl){
   var text=watchlist.join(',');
@@ -557,13 +565,14 @@ export function toggleImportBox(){
 
 export function doImportWatchlist(){
   var ta=document.getElementById('import-input');if(!ta)return;
-  var tickers=parseTickerList(ta.value);
-  if(!tickers.length)return alert('No valid tickers found. Try: AAPL, MU, NVDA');
-  if(!confirm('Replace your current '+watchlist.length+'-ticker watchlist with these '+tickers.length+'?'))return;
-  var dropped=setWatchlist(tickers);
+  var parsed=parseTickerList(ta.value);
+  if(!parsed.valid.length)return alert('No valid tickers found. Try: AAPL, MU, NVDA');
+  if(!confirm('Replace your current '+watchlist.length+'-ticker watchlist with these '+parsed.valid.length+'?'))return;
+  var droppedOverCap=setWatchlist(parsed.valid);
   ta.value='';
   document.getElementById('import-box').style.display='none';
-  if(dropped.length)alert('Imported. Skipped (invalid or over the tier limit): '+dropped.join(', '));
+  var allDropped=parsed.invalid.concat(droppedOverCap);
+  if(allDropped.length)alert('Imported. Skipped (invalid or over the tier limit): '+allDropped.join(', '));
 }
 
 function renderPresetList(){
