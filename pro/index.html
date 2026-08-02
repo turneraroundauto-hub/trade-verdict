@@ -79,6 +79,7 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 .tile-btn{height:var(--btn-h);border-radius:5px;font-family:monospace;font-size:var(--fs-sm);font-weight:700;cursor:pointer;letter-spacing:.08em;border:1px solid;white-space:nowrap;padding:0 16px}
 .tile-btn-blue{background:rgba(64,196,255,.12);border-color:rgba(64,196,255,.4);color:var(--blue)}
 .tile-btn-amber{background:rgba(255,171,0,.12);border-color:rgba(255,171,0,.4);color:var(--amber)}
+.tile-btn-purple{background:rgba(206,147,216,.12);border-color:rgba(206,147,216,.4);color:var(--purple);width:100%}
 
 /* VERDICTS */
 @keyframes thumbUp{0%{transform:scale(0) rotate(-30deg);opacity:0}60%{transform:scale(1.35) rotate(10deg)}80%{transform:scale(.92) rotate(-4deg)}100%{transform:scale(1) rotate(0);opacity:1}}
@@ -253,16 +254,6 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 .heat-tile-empty{background:rgba(255,255,255,.02);border-color:var(--border)}
 .heat-tile-empty .heat-tile-val{color:var(--dim)}
 
-/* WATCHLIST TOOLS (Pro-only) */
-.wl-tools-body{padding:12px 14px}
-.wl-tools-row{display:flex;gap:8px;flex-wrap:wrap}
-.preset-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:var(--fs-sm)}
-.preset-row:last-child{border-bottom:none}
-.preset-name{font-family:monospace;font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.preset-count{font-family:monospace;font-size:9px;color:var(--dim);white-space:nowrap}
-.preset-btn{height:26px;border:1px solid var(--border);border-radius:4px;padding:0 8px;font-family:monospace;font-size:9px;font-weight:700;cursor:pointer;background:transparent;color:var(--blue)}
-.preset-btn-danger{color:var(--red);border-color:rgba(255,23,68,.3)}
-
 /* TRACK RECORD */
 .track-section{margin:10px 16px 0;padding:14px;background:rgba(206,147,216,.05);border:1px solid rgba(206,147,216,.2);border-radius:8px}
 .track-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
@@ -434,16 +425,20 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
     <button class="tile-btn tile-btn-amber" onclick="analyzeAll()">ANALYZE ALL</button>
     <span style="font-family:monospace;font-size:9px;color:var(--dim)">Context auto-included in every analysis &middot; Analyze All runs the 15 cards only, up to 5 credits</span>
   </div>
-  <!-- ADD TICKER tile -->
+  <!-- IMPORT tile (was ADD TICKER — same input/handler, renamed since a
+       paste of a comma/newline-separated list already just adds every
+       valid ticker in it, never replaces the list) -->
   <div class="tile">
-    <span class="tile-label tile-label-blue">ADD TICKER</span>
+    <span class="tile-label tile-label-blue">IMPORT</span>
     <div class="tile-input-row">
       <input class="tile-input" id="ticker-input" type="text"
         placeholder="AAPL, $MU, NVDA... (unlimited on Pro)"
         style="text-transform:uppercase"
         onkeydown="if(event.key==='Enter')addTickers()">
-      <button class="tile-btn tile-btn-blue" onclick="addTickers()">ADD TICKER</button>
+      <button class="tile-btn tile-btn-blue" onclick="addTickers()">IMPORT</button>
     </div>
+    <button type="button" class="tile-btn tile-btn-purple" id="export-csv-btn" onclick="exportWatchlistCSV(this)">EXPORT CSV</button>
+    <span style="font-family:monospace;font-size:9px;color:var(--dim)">Downloads price + change% for cards and watchlist together &middot; IV column is N/A until a data source is wired</span>
   </div>
 </div>
 
@@ -454,32 +449,6 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 <!-- COMPACT WATCHLIST (unlimited, unanalyzed — tap + to promote to a card) -->
 <div class="wl-section-hdr"><span>WATCHLIST</span><span class="wl-section-count" id="compact-count">0</span></div>
 <div class="compact-list" id="watchlist-compact"></div>
-
-<!-- WATCHLIST TOOLS: export / import / presets (Pro-only) -->
-<div class="glossary-tile-wrap">
-  <div class="glossary-tile">
-    <div class="glossary-tile-header" id="wl-tools-header" onclick="toggleWatchlistTools()">
-      <span class="glossary-tile-title">&#128203; WATCHLIST TOOLS</span>
-      <span class="glossary-tile-arrow" id="wl-tools-arrow">&#9660;</span>
-    </div>
-    <div class="glossary-panel" id="wl-tools-panel">
-      <div class="wl-tools-body">
-        <div class="wl-tools-row">
-          <button type="button" class="tile-btn tile-btn-blue" style="height:34px" onclick="exportWatchlist(this)">EXPORT LIST</button>
-          <button type="button" class="tile-btn tile-btn-blue" style="height:34px" onclick="toggleImportBox()">IMPORT LIST</button>
-          <button type="button" class="tile-btn tile-btn-amber" style="height:34px" onclick="saveCurrentPreset()">SAVE AS PRESET</button>
-        </div>
-        <div id="import-box" style="display:none;margin-top:10px">
-          <textarea class="tile-input" id="import-input" rows="2" placeholder="Paste tickers — AAPL, MU, NVDA or one per line"></textarea>
-          <button type="button" class="tile-btn tile-btn-blue" style="margin-top:8px" onclick="doImportWatchlist()">REPLACE WATCHLIST</button>
-          <div style="font-family:monospace;font-size:9px;color:var(--dim);margin-top:4px">Import replaces your current watchlist — export first if you want to keep it.</div>
-        </div>
-        <div class="track-log-title" style="margin-top:14px">SAVED PRESETS</div>
-        <div id="preset-list"></div>
-      </div>
-    </div>
-  </div>
-</div>
 
 <!-- PROXY RESOLUTION EXPLORER (Pro-only) -->
 <div class="glossary-tile-wrap" id="proxy-explorer-section">
@@ -562,7 +531,7 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 
 <div class="footer">Trade Verdict v4.0 &middot; CRF Pattern Analysis &middot; August 2026<br>Not financial advice &middot; Do your own research &middot; Trade at your own risk</div>
 
-<script type="module" src="./app.js?v=4"></script>
+<script type="module" src="./app.js?v=5"></script>
 </div><!-- /app-root -->
 </body>
 </html>
