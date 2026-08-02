@@ -1,4 +1,4 @@
-import { fetchTickerData } from './ticker-cache.js?v=2';
+import { fetchTickerData } from './ticker-cache.js?v=3';
 
 export let watchlist = [];
 let maxTickers = 3;
@@ -15,6 +15,23 @@ export function initWatchlist(config){
 }
 
 function saveWL(){localStorage.setItem('tv_wl',JSON.stringify(watchlist));document.getElementById('ticker-count').textContent='CRF · '+watchlist.length+' TICKERS'}
+
+// Replaces the whole watchlist at once (import, presets) — same
+// validate/dedupe/cap rules as addTickers(), just wholesale instead of
+// additive. Returns the tickers that were dropped for being invalid or
+// over the tier cap, so the caller can tell the user what didn't make it.
+export function setWatchlist(tickers){
+  var clean=[],dropped=[];
+  tickers.forEach(function(t){
+    var u=String(t).toUpperCase().trim();
+    if(/^[A-Z]{1,6}$/.test(u)){if(!clean.includes(u))clean.push(u);}
+    else if(u)dropped.push(u);
+  });
+  if(clean.length>maxTickers){dropped=dropped.concat(clean.slice(maxTickers));clean=clean.slice(0,maxTickers);}
+  watchlist=clean;
+  saveWL();renderWatchlist();
+  return dropped;
+}
 
 
 function parseTickers(raw){return raw.toUpperCase().replace(/[$#]/g,'').split(/[\s,;|\n]+/).map(t=>t.trim()).filter(t=>/^[A-Z]{1,6}$/.test(t))}

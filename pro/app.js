@@ -1,5 +1,5 @@
-import { initTickerCache, fetchTickerData } from '../shared/ticker-cache.js?v=2';
-import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta } from '../shared/watchlist.js?v=3';
+import { initTickerCache, fetchTickerData } from '../shared/ticker-cache.js?v=3';
+import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, setWatchlist } from '../shared/watchlist.js?v=4';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache.js?v=2';
 import { renderTrackRecord, logResult, getAccuracyLog, clearLog } from '../shared/track-record.js?v=3';
 
@@ -179,6 +179,7 @@ export function logResultUI(ticker,verdict,correct,btnEl){
   var meta={trigger:classifyTrigger(lastAnalysis[ticker])};
   logResult(ticker,verdict,correct,rowEl,meta);
   renderGateAttribution();
+  renderTickerAccuracy();
 }
 
 function renderCardResult(ticker,data,td){
@@ -357,31 +358,74 @@ export function resetCard(ticker){
 }
 
 // ── PRO — Proxy Resolution Explorer ─────────────────────────────────
-// Lists every watchlisted ticker's resolved Dynamic Proxy Resolution result.
-// fetchTickerData() memoizes per symbol, so calling it again here (the
-// watchlist render already triggered it) never issues a second network
-// request — it just returns the same cached object.
-export async function renderProxyExplorer(){
+// Lists every watchlisted ticker's resolved Dynamic Proxy Resolution result,
+// plus a live coherence strip: the ticker's today %-change next to its
+// resolved proxy's today %-change, so a decoupling is visible before Gate 5
+// ever flags it. Proxy symbols are always drawn from the same tracked-symbol
+// set /market already returns (SPY/QQQ/IWM/XBI/SOXX/TSM/MSFT/GLD/USO/BTC) —
+// confirmed against every PROXY_RULES entry and DEFAULT_PROXY in server.js —
+// except LMT (Defense), IBB (Biotech's secondary leg), and KOSPI (AI/Semi's
+// documented gap, see server.js's forceDown-authority comment), none of
+// which /market tracks; those render "no live feed" instead of guessing.
+
+// Mirrors the case thresholds gates-extended.js's proxyCoherenceCheck() uses
+// for the fixed Korea/Taiwan check — reused here purely as a display
+// heuristic across ALL resolved proxies, not as an enforcement rule. The
+// actual verdict-affecting coherence check still only runs server-side.
+var COHERENCE_FLAT_BAND_PCT=1.0;
+var COHERENCE_DECOUPLE_PCT=2.0;
+function classifyCoherence(tickerPct,proxyPct){
+  if(Math.abs(tickerPct)<=COHERENCE_FLAT_BAND_PCT)return{label:'LAG RISK',color:'var(--amber)'};
+  var proxyDown=proxyPct<0;
+  var opposite=(proxyDown&&tickerPct>0)||(!proxyDown&&tickerPct<0);
+  if(opposite&&Math.abs(tickerPct)>=COHERENCE_DECOUPLE_PCT)return{label:'DECOUPLING',color:'var(--red)'};
+  return{label:'TRACKING',color:'var(--green)'};
+}
+
+function pctColor(p){return p>0?'var(--green)':p<0?'var(--red)':'var(--dim)'}
+function fmtPct(p){return(p>0?'+':'')+p.toFixed(2)+'%'}
+
+export async function renderProxyExplorer(force){
   var body=document.getElementById('proxy-explorer-body');if(!body)return;
   if(!watchlist.length){body.innerHTML='<div class="track-empty">Watchlist is empty.</div>';return}
   body.innerHTML='<div class="track-empty">Loading proxy resolutions…</div>';
   var rows=await Promise.all(watchlist.map(async function(t){
-    var td=await fetchTickerData(t);
-    return{ticker:t,rule:td&&td.proxyRule};
+    var td=await fetchTickerData(t,force);
+    return{ticker:t,rule:td&&td.proxyRule,tickerPct:td&&td.metrics?td.metrics.pct:null};
   }));
   var tierColor={'primary':'var(--green)','secondary':'var(--amber)','fundamentals-confirmed':'var(--blue)','fundamentals-speculative':'var(--red)'};
   body.innerHTML=rows.map(function(r){
     if(!r.rule||!r.rule.proxy)return'<div class="proxy-item"><div class="proxy-item-head"><span class="proxy-ticker">'+r.ticker+'</span><span class="analyst-val" style="color:var(--dim)">unavailable</span></div></div>';
     var tier=r.rule.tier||'primary';
     var tc=tierColor[tier]||'var(--dim)';
+
+    var liveSymbols=(r.rule.proxy.symbols||[]).filter(function(s){return market&&market[s.toLowerCase()]&&typeof market[s.toLowerCase()].pct==='number'});
+    var coherenceHtml;
+    if(typeof r.tickerPct!=='number'||!liveSymbols.length){
+      coherenceHtml='<div class="proxy-coherence"><span class="analyst-lbl">LIVE COHERENCE</span><span class="analyst-val" style="color:var(--dim)">no live feed for this proxy</span></div>';
+    }else{
+      var proxyPcts=liveSymbols.map(function(s){return market[s.toLowerCase()].pct});
+      var avgProxyPct=proxyPcts.reduce(function(a,b){return a+b},0)/proxyPcts.length;
+      var coh=classifyCoherence(r.tickerPct,avgProxyPct);
+      var chips=liveSymbols.map(function(s){var p=market[s.toLowerCase()].pct;return'<span class="proxy-live-chip">'+s+' <b style="color:'+pctColor(p)+'">'+fmtPct(p)+'</b></span>'}).join('');
+      coherenceHtml='<div class="proxy-coherence">'
+        +'<div class="analyst-row" style="padding:0"><span class="analyst-lbl">LIVE COHERENCE</span><span class="proxy-tier-badge" style="color:'+coh.color+';border-color:'+coh.color+'55;background:'+coh.color+'11">'+coh.label+'</span></div>'
+        +'<div class="proxy-live-row"><span class="proxy-live-chip">'+r.ticker+' <b style="color:'+pctColor(r.tickerPct)+'">'+fmtPct(r.tickerPct)+'</b></span>'+chips+'</div>'
+        +'</div>';
+    }
+
     return'<div class="proxy-item"><div class="proxy-item-head"><span class="proxy-ticker">'+r.ticker+'</span>'
       +'<span class="proxy-tier-badge" style="color:'+tc+';border-color:'+tc+'55;background:'+tc+'11">'+tier.toUpperCase().replace(/-/g,' ')+'</span></div>'
       +'<div class="proxy-detail">'+r.rule.proxy.name+'</div>'
       +'<div class="proxy-detail" style="color:var(--dim)">'+(r.rule.category||'')+(r.rule.dynamicallyResolved?' · dynamically resolved (quarterly recompute)':' · fixed sector proxy')+'</div>'
       +(r.rule.proxy.rationale?'<div class="proxy-detail">'+r.rule.proxy.rationale+'</div>':'')
+      +coherenceHtml
       +'</div>';
-  }).join('');
+  }).join('')
+  +'<div class="proxy-shark-tease"><a href="'+TIER.stripeLink+'" target="_blank">&#9889; SHARK &mdash; real-time Alpaca data &amp; deeper proxy analytics &rarr;</a></div>';
 }
+
+export function refreshProxyExplorer(){renderProxyExplorer(true)}
 
 export function toggleProxyExplorer(){
   var panel=document.getElementById('proxy-explorer-panel');
@@ -423,6 +467,155 @@ function renderGateAttribution(){
     return'<div class="trigger-row"><span class="trigger-lbl">'+TRIGGER_LABELS[k]+'</span><span class="trigger-val" style="color:'+color+'">'+rate+'%</span><span class="trigger-sub">'+s.c+'/'+s.t+'</span></div>';
   }).join('');
   el.innerHTML='<div class="track-log-title" style="margin-top:12px">ACCURACY BY TRIGGER</div>'+rows;
+}
+
+// Same log, grouped by ticker instead of trigger — "TOP TICKERS" in the
+// shared summary only shows the top 3 as a single inline line; this is the
+// full breakdown, sorted by most-logged first.
+function renderTickerAccuracy(){
+  var el=document.getElementById('track-ticker-breakdown');if(!el)return;
+  var log=getAccuracyLog();
+  if(!log.length){el.innerHTML='';return}
+  var by={};
+  log.forEach(function(e){
+    if(!by[e.ticker])by[e.ticker]={c:0,t:0};
+    by[e.ticker].t++;if(e.correct)by[e.ticker].c++;
+  });
+  var rows=Object.entries(by).sort(function(a,b){return b[1].t-a[1].t}).map(function(entry){
+    var ticker=entry[0],s=entry[1];var rate=Math.round((s.c/s.t)*100);
+    var color=rate>=65?'var(--green)':rate>=50?'var(--amber)':'var(--red)';
+    return'<div class="trigger-row"><span class="trigger-lbl">'+ticker+'</span><span class="trigger-val" style="color:'+color+'">'+rate+'%</span><span class="trigger-sub">'+s.c+'/'+s.t+'</span></div>';
+  }).join('');
+  el.innerHTML='<div class="track-log-title" style="margin-top:12px">ACCURACY BY TICKER</div>'+rows;
+}
+
+// ── PRO — Sector Heat Map ───────────────────────────────────────────
+// Same /market data the sector bar already displays as plain colored text —
+// this renders it (plus each watchlisted ticker's own %-change) as tiles
+// whose background intensity scales with the size of the move, so a scan
+// of the grid reads the day at a glance instead of reading ten numbers.
+var HEATMAP_SECTORS=[['spy','SPY'],['qqq','QQQ'],['iwm','IWM'],['xbi','XBI'],['soxx','SOXX'],['tsm','TSM'],['msft','MSFT'],['btc','BTC'],['gld','GLD'],['uso','USO']];
+var HEATMAP_MAX_PCT=3; // %-move that reaches full tile-color intensity
+
+function heatTileHtml(label,pct){
+  if(typeof pct!=='number')return'<div class="heat-tile heat-tile-empty"><span class="heat-tile-lbl">'+label+'</span><span class="heat-tile-val">?</span></div>';
+  var intensity=Math.min(Math.abs(pct)/HEATMAP_MAX_PCT,1);
+  var rgb=pct>=0?'0,230,118':pct<0?'255,23,68':'96,125,139';
+  var bg='rgba('+rgb+','+(0.08+intensity*0.32).toFixed(2)+')';
+  var border='rgba('+rgb+','+(0.25+intensity*0.5).toFixed(2)+')';
+  return'<div class="heat-tile" style="background:'+bg+';border-color:'+border+'"><span class="heat-tile-lbl">'+label+'</span><span class="heat-tile-val">'+fmtPct(pct)+'</span></div>';
+}
+
+export async function renderHeatMap(force){
+  var sectorEl=document.getElementById('heatmap-sectors');
+  var wlEl=document.getElementById('heatmap-watchlist');
+  if(!sectorEl||!wlEl)return;
+  sectorEl.innerHTML=HEATMAP_SECTORS.map(function(s){
+    var d=market&&market[s[0]];
+    return heatTileHtml(s[1],d&&typeof d.pct==='number'?d.pct:null);
+  }).join('');
+  if(!watchlist.length){wlEl.innerHTML='<div class="track-empty">Watchlist is empty.</div>';return}
+  wlEl.innerHTML=watchlist.map(function(t){return heatTileHtml(t,null)}).join('');
+  var pcts=await Promise.all(watchlist.map(async function(t){var td=await fetchTickerData(t,force);return td&&td.metrics?td.metrics.pct:null}));
+  wlEl.innerHTML=watchlist.map(function(t,i){return heatTileHtml(t,typeof pcts[i]==='number'?pcts[i]:null)}).join('');
+}
+
+export function refreshHeatMap(){renderHeatMap(true)}
+
+export function toggleHeatMap(){
+  var panel=document.getElementById('heatmap-panel');
+  var arrow=document.getElementById('heatmap-arrow');
+  var header=document.getElementById('heatmap-header');
+  var open=panel.classList.toggle('open');
+  arrow.classList.toggle('open',open);
+  header.classList.toggle('open',open);
+  if(open)renderHeatMap();
+}
+
+// ── PRO — Watchlist Tools: export / import / presets ────────────────
+// Presets are stored as {name, tickers, createdAt}[] under one localStorage
+// key. Kept behind get/save helpers (rather than reading/writing localStorage
+// inline everywhere below) so a later move to a per-user Supabase table only
+// means changing these two functions, not every call site.
+var PRESETS_KEY='tv_pro_presets';
+function getPresets(){try{return JSON.parse(localStorage.getItem(PRESETS_KEY)||'[]')}catch(e){return[]}}
+function savePresets(list){localStorage.setItem(PRESETS_KEY,JSON.stringify(list))}
+
+// Returns {valid, invalid} instead of just the valid list — doImportWatchlist
+// needs the rejects too, so a garbage paste actually tells the user what got
+// dropped instead of just silently shrinking the count.
+function parseTickerList(raw){
+  var tokens=raw.toUpperCase().replace(/[$#]/g,'').split(/[\s,;|\n]+/).map(function(t){return t.trim()}).filter(Boolean);
+  var valid=[],invalid=[];
+  tokens.forEach(function(t){(/^[A-Z]{1,6}$/.test(t)?valid:invalid).push(t)});
+  return{valid:valid,invalid:invalid};
+}
+
+export function exportWatchlist(btnEl){
+  var text=watchlist.join(',');
+  var done=function(){var old=btnEl.textContent;btnEl.textContent='COPIED!';setTimeout(function(){btnEl.textContent=old},1400)};
+  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(text).then(done).catch(function(){prompt('Copy your watchlist:',text)});
+  else prompt('Copy your watchlist:',text);
+}
+
+export function toggleImportBox(){
+  var box=document.getElementById('import-box');if(!box)return;
+  box.style.display=box.style.display==='none'?'block':'none';
+}
+
+export function doImportWatchlist(){
+  var ta=document.getElementById('import-input');if(!ta)return;
+  var parsed=parseTickerList(ta.value);
+  if(!parsed.valid.length)return alert('No valid tickers found. Try: AAPL, MU, NVDA');
+  if(!confirm('Replace your current '+watchlist.length+'-ticker watchlist with these '+parsed.valid.length+'?'))return;
+  var droppedOverCap=setWatchlist(parsed.valid);
+  ta.value='';
+  document.getElementById('import-box').style.display='none';
+  var allDropped=parsed.invalid.concat(droppedOverCap);
+  if(allDropped.length)alert('Imported. Skipped (invalid or over the tier limit): '+allDropped.join(', '));
+}
+
+function renderPresetList(){
+  var el=document.getElementById('preset-list');if(!el)return;
+  var presets=getPresets();
+  if(!presets.length){el.innerHTML='<div class="track-empty" style="padding:8px 0">No saved presets yet.</div>';return}
+  el.innerHTML=presets.map(function(p,i){
+    return'<div class="preset-row"><span class="preset-name">'+p.name+'</span><span class="preset-count">'+p.tickers.length+' tickers</span>'
+      +'<button type="button" class="preset-btn" onclick="loadPreset('+i+')">LOAD</button>'
+      +'<button type="button" class="preset-btn preset-btn-danger" onclick="deletePreset('+i+')">DEL</button></div>';
+  }).join('');
+}
+
+export function saveCurrentPreset(){
+  var name=prompt('Name this preset (e.g. "Biotech Core"):');
+  if(!name)return;
+  var presets=getPresets();
+  presets=presets.filter(function(p){return p.name!==name});
+  presets.push({name:name,tickers:watchlist.slice(),createdAt:new Date().toISOString()});
+  savePresets(presets);
+  renderPresetList();
+}
+
+export function loadPreset(i){
+  var presets=getPresets();var p=presets[i];if(!p)return;
+  if(!confirm('Replace your current watchlist with preset "'+p.name+'" ('+p.tickers.length+' tickers)?'))return;
+  setWatchlist(p.tickers);
+}
+
+export function deletePreset(i){
+  var presets=getPresets();var p=presets[i];if(!p)return;
+  if(!confirm('Delete preset "'+p.name+'"?'))return;
+  presets.splice(i,1);savePresets(presets);renderPresetList();
+}
+
+export function toggleWatchlistTools(){
+  var panel=document.getElementById('wl-tools-panel');
+  var arrow=document.getElementById('wl-tools-arrow');
+  var header=document.getElementById('wl-tools-header');
+  var open=panel.classList.toggle('open');
+  arrow.classList.toggle('open',open);
+  header.classList.toggle('open',open);
+  if(open)renderPresetList();
 }
 
 var GLOSSARY=[
@@ -598,7 +791,7 @@ function toggleAuthMode(mode){authMode=mode||(authMode==='login'?'signup':'login
 async function handleLogin(){var email=document.getElementById('auth-email').value.trim(),password=document.getElementById('auth-password').value,btn=document.getElementById('auth-btn'),err=document.getElementById('auth-error');err.textContent='';btn.disabled=true;btn.textContent='SIGNING IN...';try{var r=await fetch(API_URL+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});if(!r.ok){var e=await r.json();throw new Error(e.error||'Login failed');}var session=await r.json();storeSession(session);sbSession=session;btn.textContent='SIGN IN';btn.disabled=false;checkTierAccess(session);}catch(e){err.textContent=e.message;btn.textContent='SIGN IN';btn.disabled=false;}}
 async function handleSignup(){var email=document.getElementById('auth-email').value.trim(),password=document.getElementById('auth-password').value,btn=document.getElementById('auth-btn'),err=document.getElementById('auth-error');err.textContent='';err.style.color='var(--red)';if(!email||!password){err.textContent='Email and password required';return;}if(password.length<6){err.textContent='Password must be at least 6 characters';return;}btn.disabled=true;btn.textContent='CREATING...';try{var r=await fetch(API_URL+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});if(!r.ok){var e=await r.json();throw new Error(e.error||'Signup failed');}err.style.color='var(--green)';err.textContent='Account created! Check your email to confirm, then sign in.';btn.textContent='SIGN IN';btn.disabled=false;toggleAuthMode('login');}catch(e){err.textContent=e.message;btn.textContent='CREATE ACCOUNT';btn.disabled=false;}}
 
-function initApp(){cleanLS();document.getElementById('ticker-count').textContent='CRF · '+watchlist.length+' TICKERS';renderWatchlist();renderTrackRecord();renderGateAttribution();startClock();fetchMarket();setTimeout(fetchCreditStatus,2000);setInterval(function(){fetchMarket()},4*60*1000);enforceMarketState();setInterval(enforceMarketState,60*1000);if(sbSession&&sbSession.email){var pb=document.getElementById('profile-btn');if(pb)pb.textContent=sbSession.email.charAt(0).toUpperCase();var pme=document.getElementById('profile-menu-email');if(pme)pme.textContent=sbSession.email;}}
+function initApp(){cleanLS();document.getElementById('ticker-count').textContent='CRF · '+watchlist.length+' TICKERS';renderWatchlist();renderTrackRecord();renderGateAttribution();renderTickerAccuracy();startClock();fetchMarket();setTimeout(fetchCreditStatus,2000);setInterval(function(){fetchMarket();var pep=document.getElementById('proxy-explorer-panel');if(pep&&pep.classList.contains('open'))renderProxyExplorer();var hep=document.getElementById('heatmap-panel');if(hep&&hep.classList.contains('open'))renderHeatMap();},4*60*1000);enforceMarketState();setInterval(enforceMarketState,60*1000);if(sbSession&&sbSession.email){var pb=document.getElementById('profile-btn');if(pb)pb.textContent=sbSession.email.charAt(0).toUpperCase();var pme=document.getElementById('profile-menu-email');if(pme)pme.textContent=sbSession.email;}}
 function checkTierAccess(session){
   var expectedTier='pro';
   var err=document.getElementById('auth-error');
@@ -663,8 +856,18 @@ window.authLogout = authLogout;
 window.toggleProfileMenu = toggleProfileMenu;
 window.toggleProxyExplorer = toggleProxyExplorer;
 window.openProxyExplorer = openProxyExplorer;
+window.refreshProxyExplorer = refreshProxyExplorer;
 window.logResultUI = logResultUI;
+window.toggleHeatMap = toggleHeatMap;
+window.refreshHeatMap = refreshHeatMap;
+window.exportWatchlist = exportWatchlist;
+window.toggleImportBox = toggleImportBox;
+window.doImportWatchlist = doImportWatchlist;
+window.saveCurrentPreset = saveCurrentPreset;
+window.loadPreset = loadPreset;
+window.deletePreset = deletePreset;
+window.toggleWatchlistTools = toggleWatchlistTools;
 // track-record.js sets window.clearLog itself on import — override here so
 // clearing the log also refreshes Pro's gate-attribution breakdown, which
 // the shared module has no knowledge of.
-window.clearLog = function(){clearLog();renderGateAttribution();};
+window.clearLog = function(){clearLog();renderGateAttribution();renderTickerAccuracy();};
