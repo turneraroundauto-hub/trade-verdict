@@ -752,6 +752,70 @@ async function fetchOpeningBar(symbol) {
   }
 }
 
+// ─── IMPLIED VOLATILITY (Pro + Shark, gated by tierConfig.iv) ──────
+// IV isn't a stock metric — it's derived from options prices, and
+// Finnhub's free tier (this app's main data provider) doesn't offer it at
+// all, at any tier. Alpaca's options snapshot endpoint returns per-contract
+// impliedVolatility directly, no Black-Scholes math needed here, IF the
+// account has an options market-data subscription — a persistent null/403
+// here almost certainly means the Alpaca plan lacks that entitlement, not a
+// bug in this function. Deliberately kept OFF the shared Alpaca key check
+// pattern used by fetchOpeningBar above — this is gated by its own
+// tierConfig.iv flag (Pro + Shark) so Pro can get IV without also picking
+// up Shark's other Alpaca-only surface (Gate 3 SWING_LEVEL, future deep
+// analytics).
+//
+// UNVERIFIED AGAINST A LIVE ALPACA OPTIONS SUBSCRIPTION — written from the
+// documented v1beta1 options snapshot shape and OCC symbol format; there is
+// no way to test this against real options-data-entitled credentials from
+// a sandbox. NOTE: this repo's server.js is a mirrored copy, not what's
+// deployed — the authoritative version of this function lives in
+// turneraroundauto-hub/Tra (PR #5). Confirm there against a real account
+// before trusting it in production.
+function pickRepresentativeIV(snapshots, price) {
+  let best = null, bestScore = Infinity;
+  for (const [occSymbol, snap] of Object.entries(snapshots || {})) {
+    const iv = snap?.impliedVolatility ?? snap?.greeks?.impliedVolatility;
+    if (typeof iv !== "number" || iv <= 0) continue;
+    // OCC symbol: {root}{YYMMDD}{C|P}{strike * 1000, zero-padded to 8 digits}
+    const m = /^[A-Z]+(\d{2})(\d{2})(\d{2})[CP](\d{8})$/.exec(occSymbol);
+    if (!m) continue;
+    const [, yy, mm, dd, strike8] = m;
+    const expiration = new Date(`20${yy}-${mm}-${dd}T00:00:00Z`);
+    const daysOut = (expiration.getTime() - Date.now()) / 86400000;
+    if (daysOut < 0) continue; // expired/stale contract in the snapshot — skip
+    const strike = parseInt(strike8, 10) / 1000;
+    // Prefer near-the-money strikes first, nearer expirations as a tiebreak —
+    // the same "one headline IV number" convention most retail platforms use
+    // (an ATM, near-term contract), not an average across the whole chain.
+    const score = (Math.abs(strike - price) / price) * 100 + daysOut * 0.05;
+    if (score < bestScore) { bestScore = score; best = iv; }
+  }
+  return best; // fraction, e.g. 0.42 for 42% IV — caller formats as a percent
+}
+
+async function fetchImpliedVolatility(symbol, price) {
+  const key    = process.env.ALPACA_KEY;
+  const secret = process.env.ALPACA_SECRET;
+  if (!key || !secret || !price) return null;
+  try {
+    const url = `https://data.alpaca.markets/v1beta1/options/snapshots/${symbol}?limit=200&feed=indicative`;
+    const res = await fetch(url, {
+      headers: {
+        "APCA-API-KEY-ID":     key,
+        "APCA-API-SECRET-KEY": secret,
+      }
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data?.snapshots) return null;
+    return pickRepresentativeIV(data.snapshots, price);
+  } catch(e) {
+    console.error(`fetchImpliedVolatility ${symbol}:`, e.message);
+    return null;
+  }
+}
+
 // ─── FINNHUB HELPERS ──────────────────────────────────────────────
 const FH_KEY = () => process.env.FINNHUB_KEY;
 
@@ -1264,7 +1328,13 @@ app.get("/ticker/:symbol", async (req, res) => {
     // Server-enforced Gate 1 — computed once here, passed through untouched by /analyze
     const gate1 = evaluateGate1(dailyCloses);
 
-    res.json({ symbol, metrics, news, openingBar, proxyRule, gate1, preGate, timestamp: new Date().toISOString() });
+    // IV — Pro + Shark only (tierConfig.iv), needs metrics.price to pick a
+    // representative contract so it can't run in the Promise.allSettled
+    // batch above; the extra sequential await only happens for the two
+    // tiers that use it, everyone else pays nothing for this.
+    const iv = req.tierConfig?.iv ? await fetchImpliedVolatility(symbol, metrics?.price) : null;
+
+    res.json({ symbol, metrics, news, openingBar, proxyRule, gate1, preGate, iv, timestamp: new Date().toISOString() });
   } catch(err) {
     res.status(500).json({ error: err.message });
   }
