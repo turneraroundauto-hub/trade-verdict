@@ -215,6 +215,32 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 .proxy-item-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .proxy-ticker{font-family:monospace;font-size:var(--fs-lg);font-weight:700}
 .proxy-detail{font-size:var(--fs-sm);color:var(--white);line-height:1.5;margin-top:4px}
+.proxy-refresh-btn{width:22px;height:22px;border:1px solid rgba(64,196,255,.4);border-radius:5px;background:rgba(64,196,255,.08);color:var(--blue);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;-webkit-tap-highlight-color:transparent}
+.proxy-coherence{margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+.proxy-live-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.proxy-live-chip{font-family:monospace;font-size:9px;color:var(--dim);background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:4px;padding:3px 7px}
+.proxy-live-chip b{font-weight:700}
+.proxy-shark-tease{padding:10px 14px;text-align:center;border-top:1px solid var(--border)}
+.proxy-shark-tease a{font-family:monospace;font-size:9px;font-weight:700;color:var(--dim);text-decoration:none;letter-spacing:.04em}
+
+/* SECTOR HEAT MAP (Pro-only) */
+.heatmap-body{padding-bottom:4px}
+.heat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:6px;padding:6px 14px 4px}
+.heat-tile{border:1px solid;border-radius:6px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;gap:2px;transition:background .3s,border-color .3s}
+.heat-tile-lbl{font-family:monospace;font-size:9px;font-weight:700;color:var(--white);letter-spacing:.04em}
+.heat-tile-val{font-family:monospace;font-size:11px;font-weight:700;color:var(--white)}
+.heat-tile-empty{background:rgba(255,255,255,.02);border-color:var(--border)}
+.heat-tile-empty .heat-tile-val{color:var(--dim)}
+
+/* WATCHLIST TOOLS (Pro-only) */
+.wl-tools-body{padding:12px 14px}
+.wl-tools-row{display:flex;gap:8px;flex-wrap:wrap}
+.preset-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:var(--fs-sm)}
+.preset-row:last-child{border-bottom:none}
+.preset-name{font-family:monospace;font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.preset-count{font-family:monospace;font-size:9px;color:var(--dim);white-space:nowrap}
+.preset-btn{height:26px;border:1px solid var(--border);border-radius:4px;padding:0 8px;font-family:monospace;font-size:9px;font-weight:700;cursor:pointer;background:transparent;color:var(--blue)}
+.preset-btn-danger{color:var(--red);border-color:rgba(255,23,68,.3)}
 
 /* TRACK RECORD */
 .track-section{margin:10px 16px 0;padding:14px;background:rgba(206,147,216,.05);border:1px solid rgba(206,147,216,.2);border-radius:8px}
@@ -403,16 +429,67 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 <!-- WATCHLIST -->
 <div class="watchlist" id="watchlist"></div>
 
+<!-- WATCHLIST TOOLS: export / import / presets (Pro-only) -->
+<div class="glossary-tile-wrap">
+  <div class="glossary-tile">
+    <div class="glossary-tile-header" id="wl-tools-header" onclick="toggleWatchlistTools()">
+      <span class="glossary-tile-title">&#128203; WATCHLIST TOOLS</span>
+      <span class="glossary-tile-arrow" id="wl-tools-arrow">&#9660;</span>
+    </div>
+    <div class="glossary-panel" id="wl-tools-panel">
+      <div class="wl-tools-body">
+        <div class="wl-tools-row">
+          <button type="button" class="tile-btn tile-btn-blue" style="height:34px" onclick="exportWatchlist(this)">EXPORT LIST</button>
+          <button type="button" class="tile-btn tile-btn-blue" style="height:34px" onclick="toggleImportBox()">IMPORT LIST</button>
+          <button type="button" class="tile-btn tile-btn-amber" style="height:34px" onclick="saveCurrentPreset()">SAVE AS PRESET</button>
+        </div>
+        <div id="import-box" style="display:none;margin-top:10px">
+          <textarea class="tile-input" id="import-input" rows="2" placeholder="Paste tickers — AAPL, MU, NVDA or one per line"></textarea>
+          <button type="button" class="tile-btn tile-btn-blue" style="margin-top:8px" onclick="doImportWatchlist()">REPLACE WATCHLIST</button>
+          <div style="font-family:monospace;font-size:9px;color:var(--dim);margin-top:4px">Import replaces your current watchlist — export first if you want to keep it.</div>
+        </div>
+        <div class="track-log-title" style="margin-top:14px">SAVED PRESETS</div>
+        <div id="preset-list"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- PROXY RESOLUTION EXPLORER (Pro-only) -->
 <div class="glossary-tile-wrap" id="proxy-explorer-section">
   <div class="glossary-tile">
     <div class="glossary-tile-header" id="proxy-explorer-header" onclick="toggleProxyExplorer()">
       <span class="glossary-tile-title">&#128300; PROXY RESOLUTION EXPLORER</span>
-      <span class="glossary-tile-arrow" id="proxy-explorer-arrow">&#9660;</span>
+      <span style="display:flex;align-items:center;gap:8px">
+        <button type="button" class="proxy-refresh-btn" title="Refresh live coherence" onclick="event.stopPropagation();refreshProxyExplorer()">&#8635;</button>
+        <span class="glossary-tile-arrow" id="proxy-explorer-arrow">&#9660;</span>
+      </span>
     </div>
     <div class="glossary-panel" id="proxy-explorer-panel">
       <div id="proxy-explorer-body">
         <div class="track-empty">Open to load each watchlisted ticker's Gate 5 proxy resolution.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SECTOR HEAT MAP (Pro-only) -->
+<div class="glossary-tile-wrap">
+  <div class="glossary-tile">
+    <div class="glossary-tile-header" id="heatmap-header" onclick="toggleHeatMap()">
+      <span class="glossary-tile-title">&#128293; SECTOR HEAT MAP</span>
+      <span style="display:flex;align-items:center;gap:8px">
+        <button type="button" class="proxy-refresh-btn" title="Refresh heat map" onclick="event.stopPropagation();refreshHeatMap()">&#8635;</button>
+        <span class="glossary-tile-arrow" id="heatmap-arrow">&#9660;</span>
+      </span>
+    </div>
+    <div class="glossary-panel" id="heatmap-panel">
+      <div class="heatmap-body">
+        <div class="track-log-title" style="padding:10px 14px 0">SECTORS</div>
+        <div class="heat-grid" id="heatmap-sectors"></div>
+        <div class="track-log-title" style="padding:10px 14px 0">YOUR WATCHLIST</div>
+        <div class="heat-grid" id="heatmap-watchlist"></div>
+        <div class="proxy-shark-tease"><a href="https://buy.stripe.com/14A8wQdoJ7fx6lpb3z3VC01" target="_blank">&#9889; SHARK &mdash; live tick-level intraday heat map &rarr;</a></div>
       </div>
     </div>
   </div>
@@ -447,6 +524,7 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
     <div class="track-empty">No trades logged yet. After each verdict tap &#10003; RIGHT or &#10007; WRONG.</div>
   </div>
   <div id="track-gate-breakdown"></div>
+  <div id="track-ticker-breakdown"></div>
 </div>
 
 <div class="disclaimer-section">
@@ -458,7 +536,7 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 
 <div class="footer">Trade Verdict v4.0 &middot; CRF Pattern Analysis &middot; August 2026<br>Not financial advice &middot; Do your own research &middot; Trade at your own risk</div>
 
-<script type="module" src="./app.js?v=1"></script>
+<script type="module" src="./app.js?v=3"></script>
 </div><!-- /app-root -->
 </body>
 </html>

@@ -9,8 +9,8 @@ export function initTickerCache(config){
   addSecret = config.addSecret;
 }
 
-export async function fetchTickerData(symbol){
-  if(tickerCache[symbol])return tickerCache[symbol];
+export async function fetchTickerData(symbol,force){
+  if(tickerCache[symbol]&&!force)return tickerCache[symbol];
   try{
     var res=await fetch(addSecret(API_URL+'/ticker/'+symbol),{headers:authH()});
     var data=await res.json();
