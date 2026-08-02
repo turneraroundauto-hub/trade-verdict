@@ -2,10 +2,12 @@ var LOG_KEY='tv_accuracy_log';
 function getLog(){try{return JSON.parse(localStorage.getItem(LOG_KEY)||'[]')}catch(e){return[]}}
 function saveLog(log){localStorage.setItem(LOG_KEY,JSON.stringify(log))}
 
-export function logResult(ticker,verdict,correct,rowEl){
+export function logResult(ticker,verdict,correct,rowEl,meta){
   var log=getLog();
-  log.push({ticker:ticker,verdict:verdict,correct:correct,ts:new Date().toISOString(),
-    session:new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})});
+  var entry={ticker:ticker,verdict:verdict,correct:correct,ts:new Date().toISOString(),
+    session:new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})};
+  if(meta&&meta.trigger)entry.trigger=meta.trigger;
+  log.push(entry);
   if(log.length>200)log=log.slice(-200);
   saveLog(log);
   var color=correct?'var(--green)':'var(--red)';
@@ -15,6 +17,11 @@ export function logResult(ticker,verdict,correct,rowEl){
 }
 
 export function clearLog(){if(!confirm('Clear all logged trades?'))return;saveLog([]);renderTrackRecord()}
+
+// Raw log entries, newest-last \u2014 used by tiers that build extra analytics
+// (e.g. Pro's gate-attribution breakdown) on top of the same tv_accuracy_log
+// this module already owns, without duplicating the localStorage read/parse.
+export function getAccuracyLog(){return getLog();}
 
 export function renderTrackRecord(){
   var log=getLog();
