@@ -86,6 +86,7 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 @keyframes holdPulse{0%{transform:scale(1);box-shadow:0 0 0 0 rgba(255,171,0,.6)}50%{transform:scale(1.06);box-shadow:0 0 0 10px rgba(255,171,0,0)}100%{transform:scale(1);box-shadow:0 0 0 0 rgba(255,171,0,0)}}
 @keyframes greenGlow{0%{box-shadow:0 0 0 0 rgba(0,230,118,.5)}70%{box-shadow:0 0 0 14px rgba(0,230,118,0)}100%{box-shadow:0 0 0 0 rgba(0,230,118,0)}}
 @keyframes redGlow{0%{box-shadow:0 0 0 0 rgba(255,23,68,.5)}70%{box-shadow:0 0 0 14px rgba(255,23,68,0)}100%{box-shadow:0 0 0 0 rgba(255,23,68,0)}}
+@keyframes loadingPulse{0%{box-shadow:0 0 0 0 rgba(64,196,255,.5)}70%{box-shadow:0 0 0 10px rgba(64,196,255,0)}100%{box-shadow:0 0 0 0 rgba(64,196,255,0)}}
 @keyframes spin{to{transform:rotate(360deg)}}
 .verdict-container{display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer}
 .verdict-up{font-size:44px;display:block;animation:thumbUp .5s cubic-bezier(.175,.885,.32,1.275) forwards;filter:drop-shadow(0 0 10px rgba(0,230,118,.9))}
@@ -107,6 +108,7 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 .card.dragging{box-shadow:0 10px 28px rgba(0,0,0,.45);border-color:var(--blue)}
 .card.up{animation:greenGlow 1s ease-out}
 .card.down{animation:redGlow 1s ease-out}
+.card.loading{animation:loadingPulse 1.6s ease-out infinite}
 .card.rim-green{border-left-color:var(--green);border-color:rgba(0,230,118,.3)}
 .card.rim-yellow{border-left-color:var(--amber);border-color:rgba(255,171,0,.3)}
 .card.rim-red{border-left-color:var(--red);border-color:rgba(255,23,68,.3)}
@@ -425,7 +427,7 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 
 <div class="footer">Trade Verdict v4.0 &middot; CRF Pattern Analysis &middot; July 2026<br>Not financial advice &middot; Do your own research &middot; Trade at your own risk</div>
 
-<script type="module" src="./app.js?v=14"></script>
+<script type="module" src="./app.js?v=15"></script>
 </div><!-- /app-root -->
 </body>
 </html>

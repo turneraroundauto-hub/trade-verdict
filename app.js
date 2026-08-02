@@ -1,5 +1,5 @@
 import { initTickerCache, fetchTickerData } from './shared/ticker-cache.js?v=3';
-import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, onWatchlistSave } from './shared/watchlist.js?v=10';
+import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, onWatchlistSave } from './shared/watchlist.js?v=11';
 import { cleanLS, cacheVerdict, getCachedVerdict } from './shared/analysis-cache.js?v=2';
 import { renderTrackRecord } from './shared/track-record.js?v=3';
 import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from './shared/watchlist-sync.js?v=3';
@@ -159,7 +159,7 @@ export async function analyzeTicker(ticker){
   };
   card.querySelector('.card-action').innerHTML='<div style="display:flex;flex-direction:column;align-items:center;gap:2px"><div class="spinner"></div><span class="spinner-label">RUNNING</span></div>';
   var reReset=card.querySelector('.reason-txt');reReset.textContent='';reReset.style.display='none';
-  card.classList.remove('up','down','flat','rim-green','rim-yellow','rim-red');
+  card.classList.remove('up','down','flat','rim-green','rim-yellow','rim-red','loading');
   card.querySelector('.ticker-name').classList.remove('up','down','flat');
   var pe=card.querySelector('.ticker-price');if(pe)pe.classList.remove('up','down','flat');
   card.querySelector('.card-badges').innerHTML='';
@@ -288,7 +288,7 @@ export function toggleGates(ticker){
 
 export function resetCard(ticker){
   var card=document.getElementById('card-'+ticker);if(!card)return;
-  card.classList.remove('up','down','flat','rim-green','rim-yellow','rim-red');
+  card.classList.remove('up','down','flat','rim-green','rim-yellow','rim-red','loading');
   card.querySelector('.ticker-name').classList.remove('up','down','flat');
   var pe=card.querySelector('.ticker-price');if(pe)pe.classList.remove('up','down','flat');
   card.querySelector('.card-action').innerHTML='<button class="analyze-btn" onclick="analyzeTicker(\''+ticker+'\')">ANALYZE</button>';

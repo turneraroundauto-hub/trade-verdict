@@ -73,10 +73,10 @@ async function joinWaitlist(){
       input.value='';
     }else{
       status.className='status-msg err';status.textContent='Something went wrong. Try again later.';
-      btn.disabled=false;
     }
   }catch(e){
     status.className='status-msg err';status.textContent='Something went wrong. Try again later.';
+  }finally{
     btn.disabled=false;
   }
 }
