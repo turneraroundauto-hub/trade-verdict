@@ -1,7 +1,8 @@
 import { initTickerCache, fetchTickerData } from '../shared/ticker-cache.js?v=3';
-import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta } from '../shared/watchlist.js?v=6';
+import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, onWatchlistSave } from '../shared/watchlist.js?v=8';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache.js?v=2';
 import { renderTrackRecord } from '../shared/track-record.js?v=3';
+import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=1';
 
 const API_URL='https://tra-zacg.onrender.com';
 const SUPABASE_URL='https://oinomcikdyisrbfeeirp.supabase.co';
@@ -444,7 +445,7 @@ async function handleLogin(){var email=document.getElementById('auth-email').val
 async function handleSignup(){var email=document.getElementById('auth-email').value.trim(),password=document.getElementById('auth-password').value,btn=document.getElementById('auth-btn'),err=document.getElementById('auth-error');err.textContent='';err.style.color='var(--red)';if(!email||!password){err.textContent='Email and password required';return;}if(password.length<6){err.textContent='Password must be at least 6 characters';return;}btn.disabled=true;btn.textContent='CREATING...';try{var r=await fetch(API_URL+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});if(!r.ok){var e=await r.json();throw new Error(e.error||'Signup failed');}err.style.color='var(--green)';err.textContent='Account created! Check your email to confirm, then sign in.';btn.textContent='SIGN IN';btn.disabled=false;toggleAuthMode('login');}catch(e){err.textContent=e.message;btn.textContent='CREATE ACCOUNT';btn.disabled=false;}}
 
 function initApp(){cleanLS();document.getElementById('ticker-count').textContent='CRF \u00b7 '+watchlist.length+' TICKERS';renderWatchlist();renderTrackRecord();startClock();fetchMarket();setTimeout(fetchCreditStatus,2000);setInterval(function(){fetchMarket()},4*60*1000);enforceMarketState();setInterval(enforceMarketState,60*1000);if(sbSession&&sbSession.email){var pb=document.getElementById('profile-btn');if(pb)pb.textContent=sbSession.email.charAt(0).toUpperCase();var pme=document.getElementById('profile-menu-email');if(pme)pme.textContent=sbSession.email;}}
-function checkTierAccess(session){
+async function checkTierAccess(session){
   var expectedTier='starter';
   var err=document.getElementById('auth-error');
   if(session.tier!==expectedTier){
@@ -468,6 +469,9 @@ function checkTierAccess(session){
     },1500);
     return false;
   }
+  initWatchlistSync({API_URL:API_URL, authH:authH, addSecret:addSecret});
+  onWatchlistSave(schedulePushWatchlist);
+  await pullWatchlistFromServer();
   showScreen('app-root');initApp();
   return true;
 }

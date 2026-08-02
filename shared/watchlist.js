@@ -22,6 +22,15 @@ export function getOverflow(){return renderScope!=null?watchlist.slice(renderSco
 // needing to know every internal call site that can change `watchlist`.
 export function onRenderWatchlist(cb){postRenderHook=cb;}
 
+// Fires from saveWL() itself — every mutation path (add, remove, undo,
+// setWatchlist, AND drag-reorder's swapTickers, which calls saveWL()
+// directly without a full renderWatchlist()) goes through here, so this is
+// the one reliable hook point for "the watchlist changed, go persist it
+// somewhere else too" (used for server-side sync — see
+// shared/watchlist-sync.js). Tiers that never register one pay nothing.
+let saveHook = null;
+export function onWatchlistSave(cb){saveHook=cb;}
+
 export function initWatchlist(config){
   maxTickers = config.maxTickers;
   upgradeMessage = config.upgradeMessage;
@@ -31,7 +40,7 @@ export function initWatchlist(config){
   bindGestures();
 }
 
-function saveWL(){localStorage.setItem('tv_wl',JSON.stringify(watchlist));document.getElementById('ticker-count').textContent='CRF · '+watchlist.length+' TICKERS'}
+function saveWL(){localStorage.setItem('tv_wl',JSON.stringify(watchlist));document.getElementById('ticker-count').textContent='CRF · '+watchlist.length+' TICKERS';if(saveHook)saveHook();}
 
 // Replaces the whole watchlist at once (import, presets) — same
 // validate/dedupe/cap rules as addTickers(), just wholesale instead of
@@ -45,6 +54,16 @@ export function setWatchlist(tickers){
     else if(u)dropped.push(u);
   });
   if(clean.length>maxTickers){dropped=dropped.concat(clean.slice(maxTickers));clean=clean.slice(0,maxTickers);}
+  // A non-empty input that filtered down to nothing is a data problem, not
+  // an intentional "clear my watchlist" — refuse to wipe the current list
+  // to empty over it (the sync feature can call this with untrusted
+  // server data; a malformed row shouldn't silently blank a user's whole
+  // watchlist). An explicitly empty `tickers` array IS honored — that's
+  // the one legitimate way to end up with clean.length===0 here.
+  if(tickers.length&&!clean.length){
+    console.error('setWatchlist: all '+tickers.length+' provided ticker(s) failed validation, keeping existing watchlist unchanged:',tickers);
+    return dropped;
+  }
   watchlist=clean;
   saveWL();renderWatchlist();
   return dropped;
