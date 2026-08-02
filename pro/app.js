@@ -687,10 +687,14 @@ export function toggleHeatMap(){
 // One file across both lists — cards and the compact watchlist are just two
 // windows over the same underlying array, so the export doesn't split them
 // into separate files, just tags each row so it's still clear which side a
-// ticker was on. IV has no wired data source anywhere in this app (Finnhub's
-// free tier doesn't provide it — flagged in the build log's outstanding
-// items); the column is included so the format is stable once a source
-// exists, filled with N/A until then rather than fabricating a number.
+// ticker was on. IV comes from td.iv (server-side /ticker, Pro+Shark only —
+// see Tra's tierConfig.iv / fetchImpliedVolatility, sourced from Alpaca
+// options snapshots since Finnhub's free tier has no IV data at all). It's
+// UNVERIFIED against a live Alpaca options subscription as of this writing —
+// td.iv may legitimately be null for tickers with no listed options, or for
+// every ticker if the Alpaca account lacks options-data entitlement, in
+// which case this still falls back to N/A rather than showing a stale/wrong
+// number.
 export async function exportWatchlistCSV(btnEl){
   if(!watchlist.length)return alert('Watchlist is empty — nothing to export.');
   if(btnEl){var old=btnEl.textContent;btnEl.textContent='EXPORTING…';btnEl.disabled=true;}
@@ -698,7 +702,8 @@ export async function exportWatchlistCSV(btnEl){
     var td=await fetchTickerData(t);
     var price=td&&td.metrics&&td.metrics.price!=null?td.metrics.price:'';
     var pct=td&&td.metrics&&typeof td.metrics.pct==='number'?td.metrics.pct.toFixed(2):'';
-    return[t,i<CARD_CAP?'CARD':'WATCHLIST',price,'N/A',pct];
+    var iv=td&&typeof td.iv==='number'?(td.iv*100).toFixed(1)+'%':'N/A';
+    return[t,i<CARD_CAP?'CARD':'WATCHLIST',price,iv,pct];
   }));
   var csvEsc=function(v){var s=String(v);return/[",\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s};
   var csv=[['Ticker','List','Price','IV','Change%']].concat(rows)
