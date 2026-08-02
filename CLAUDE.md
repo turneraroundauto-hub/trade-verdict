@@ -140,6 +140,12 @@ identical AI market read, instead of each `/analyze` call reasoning about
 the market independently. It's separate from `marketContext`, which is
 still the free-text box the user can type into client-side.
 
+Paid-tier-only, gated server-side on `credits.TIERS[req.userTier].pulse`
+(`false` for Free, `true` for Starter/Pro/Shark — the same flag each
+frontend's `TIER` config uses to decide whether to render the Sector Pulse
+UI widget). A Free-tier `/analyze` call gets `"Not available on this tier."`
+in that prompt slot instead of the cached summary.
+
 ### Credits (`credits.js`)
 
 - Storage is Supabase (`public.credits` table + atomic RPC functions) when

@@ -1403,13 +1403,18 @@ Current price: $${metricsData.price || "?"}
 `;
   }
 
-  // ── MARKET PULSE ─────────────────────────────────────────────────
+  // ── MARKET PULSE (paid tiers only) ─────────────────────────────────
   // Single AI-generated sector-rotation summary, produced once per market
   // cache cycle by generatePulse() and shared across every ticker analyzed
   // in that window (see /market). Informational framing for Gate 2 only —
   // it never overrides Pre-Gate/Gate 0/Gate 1/Gate 5, which are computed
   // deterministically above and passed to the LLM as fixed facts.
-  const pulseContext = marketCache?.pulse || "Not yet generated for this market cycle.";
+  // Gated on credits.TIERS[tier].pulse, the same flag that controls whether
+  // each frontend renders the Sector Pulse widget (false on Free).
+  const pulseEnabled = credits.TIERS[req.userTier]?.pulse === true;
+  const pulseContext  = !pulseEnabled
+    ? "Not available on this tier."
+    : (marketCache?.pulse || "Not yet generated for this market cycle.");
 
   const userMessage = `
 Analyze ${ticker.toUpperCase()}.
