@@ -374,7 +374,23 @@ export function resetCard(ticker){
 // Rendering is driven entirely by shared/watchlist.js's postRenderHook, so
 // it stays correct after any add/remove/undo/promote without this file
 // needing to know every place `watchlist` can change.
-export function renderCompactList(){
+//
+// Sortable by %-change (compactSortDir, toggled via the arrow button in the
+// section header) — this needs every row's data available before building
+// HTML, so unlike the old skeleton-then-fill version this awaits all of
+// them first. fetchTickerData() is memoized per symbol, so on any re-render
+// after the first (toggling sort, a promote/import elsewhere) this resolves
+// instantly from cache rather than re-hitting the network.
+var compactSortDir=1; // 1 = ascending (lowest→highest), -1 = descending
+
+export function toggleCompactSort(){
+  compactSortDir=-compactSortDir;
+  var btn=document.getElementById('compact-sort-btn');
+  if(btn)btn.textContent=compactSortDir===1?'▲':'▼';
+  renderCompactList();
+}
+
+export async function renderCompactList(){
   var el=document.getElementById('watchlist-compact');
   if(!el)return;
   var overflow=getOverflow();
@@ -383,31 +399,39 @@ export function renderCompactList(){
   var compactCountEl=document.getElementById('compact-count');
   if(compactCountEl)compactCountEl.textContent=overflow.length;
   if(!overflow.length){el.innerHTML='<div class="track-empty">Everything tracked fits in cards above.</div>';return}
-  el.innerHTML=overflow.map(function(t){
+  el.innerHTML='<div class="track-empty">Loading watchlist…</div>';
+  var rows=await Promise.all(overflow.map(async function(t){
+    var td=await fetchTickerData(t);
+    return{
+      ticker:t,
+      price:td&&td.metrics&&td.metrics.price!=null?td.metrics.price:null,
+      pct:td&&td.metrics&&typeof td.metrics.pct==='number'?td.metrics.pct:null,
+      news:td&&td.news,
+    };
+  }));
+  // Rows with no live pct sort to the end regardless of direction — an
+  // unknown value isn't meaningfully "low" or "high".
+  rows.sort(function(a,b){
+    var pa=a.pct==null?(compactSortDir===1?Infinity:-Infinity):a.pct;
+    var pb=b.pct==null?(compactSortDir===1?Infinity:-Infinity):b.pct;
+    return(pa-pb)*compactSortDir;
+  });
+  el.innerHTML=rows.map(function(r){
+    var t=r.ticker;
+    var hasNews=r.news&&r.news.ageHours<=300;
     return '<div class="compact-row-wrap" data-ticker="'+t+'">'
       +'<div class="compact-swipe-bg"><span class="swipe-icon">&#128465;</span><span class="swipe-label">DELETE</span></div>'
       +'<div class="compact-row" id="compact-'+t+'">'
       +'<div class="compact-row-main">'
-      +'<div class="compact-row-top"><span class="compact-ticker">'+t+'</span><span class="compact-price" id="compact-price-'+t+'">&mdash;</span><span class="compact-pct" id="compact-pct-'+t+'">&mdash;</span></div>'
-      +'<div class="compact-news" id="compact-news-'+t+'" style="display:none"></div>'
+      +'<div class="compact-row-top"><span class="compact-ticker">'+t+'</span>'
+      +'<span class="compact-price">'+(r.price!=null?'$'+parseFloat(r.price).toFixed(2):'&mdash;')+'</span>'
+      +'<span class="compact-pct" style="color:'+(r.pct!=null?pctColor(r.pct):'var(--dim)')+'">'+(r.pct!=null?fmtPct(r.pct):'&mdash;')+'</span></div>'
+      +'<div class="compact-news"'+(hasNews?'':' style="display:none"')+'>'+(hasNews?'<a href="'+r.news.url+'" target="_blank">'+r.news.headline+'</a>':'')+'</div>'
       +'</div>'
       +'<button type="button" class="compact-plus-btn" title="Add as card" onclick="promoteToCard(\''+t+'\')">+</button>'
       +'</div></div>';
   }).join('');
   bindCompactGestures();
-  overflow.forEach(function(t){fetchTickerData(t).then(function(td){if(td)updateCompactRow(t,td)})});
-}
-
-function updateCompactRow(ticker,td){
-  var priceEl=document.getElementById('compact-price-'+ticker);
-  var pctEl=document.getElementById('compact-pct-'+ticker);
-  var newsEl=document.getElementById('compact-news-'+ticker);
-  if(priceEl&&td.metrics&&td.metrics.price)priceEl.textContent='$'+parseFloat(td.metrics.price).toFixed(2);
-  if(pctEl&&td.metrics&&typeof td.metrics.pct==='number'){pctEl.textContent=fmtPct(td.metrics.pct);pctEl.style.color=pctColor(td.metrics.pct);}
-  if(newsEl){
-    if(td.news&&td.news.ageHours<=300){newsEl.style.display='block';newsEl.innerHTML='<a href="'+td.news.url+'" target="_blank">'+td.news.headline+'</a>';}
-    else newsEl.style.display='none';
-  }
 }
 
 // Moves a compact-row ticker into the last card slot (index CARD_CAP-1).
@@ -536,40 +560,97 @@ function classifyCoherence(tickerPct,proxyPct){
 function pctColor(p){return p>0?'var(--green)':p<0?'var(--red)':'var(--dim)'}
 function fmtPct(p){return(p>0?'+':'')+p.toFixed(2)+'%'}
 
+// Every ticker/proxy symbol shown gets a live link out to its own quote
+// page — the point isn't Yahoo specifically, it's that every number this
+// panel asserts (price, %change, the proxy relationship itself) has a
+// one-click way to independently check it rather than just trusting the
+// app's own math.
+function tickerLink(symbol){return'<a href="https://finance.yahoo.com/quote/'+encodeURIComponent(symbol)+'" target="_blank" class="proxy-verify-link">'+symbol+'</a>'}
+
+var TIER_RANK={'primary':0,'secondary':1,'fundamentals-confirmed':2,'fundamentals-speculative':3};
+var COHERENCE_RANK={'TRACKING':0,'LAG RISK':1,'DECOUPLING':2};
+// key: null (insertion order) | 'level' | 'coherence'. dir: 1 = ascending, -1 = descending.
+var proxySort={key:null,dir:1};
+
+export function setProxySort(key){
+  if(proxySort.key===key)proxySort.dir=-proxySort.dir;
+  else{proxySort.key=key;proxySort.dir=1;}
+  updateProxySortButtons();
+  renderProxyExplorer();
+}
+
+function updateProxySortButtons(){
+  ['level','coherence'].forEach(function(k){
+    var btn=document.getElementById('proxy-sort-'+k);if(!btn)return;
+    var active=proxySort.key===k;
+    var arrow=btn.querySelector('.sort-arrow');
+    if(arrow)arrow.textContent=active?(proxySort.dir===1?'▲':'▼'):'⇅';
+    btn.classList.toggle('sort-btn-active',active);
+  });
+}
+
 export async function renderProxyExplorer(force){
   var body=document.getElementById('proxy-explorer-body');if(!body)return;
   if(!watchlist.length){body.innerHTML='<div class="track-empty">Watchlist is empty.</div>';return}
   body.innerHTML='<div class="track-empty">Loading proxy resolutions…</div>';
   var rows=await Promise.all(watchlist.map(async function(t){
     var td=await fetchTickerData(t,force);
-    return{ticker:t,rule:td&&td.proxyRule,tickerPct:td&&td.metrics?td.metrics.pct:null};
-  }));
-  var tierColor={'primary':'var(--green)','secondary':'var(--amber)','fundamentals-confirmed':'var(--blue)','fundamentals-speculative':'var(--red)'};
-  body.innerHTML=rows.map(function(r){
-    if(!r.rule||!r.rule.proxy)return'<div class="proxy-item"><div class="proxy-item-head"><span class="proxy-ticker">'+r.ticker+'</span><span class="analyst-val" style="color:var(--dim)">unavailable</span></div></div>';
-    var tier=r.rule.tier||'primary';
-    var tc=tierColor[tier]||'var(--dim)';
-
-    var liveSymbols=(r.rule.proxy.symbols||[]).filter(function(s){return market&&market[s.toLowerCase()]&&typeof market[s.toLowerCase()].pct==='number'});
-    var coherenceHtml;
-    if(typeof r.tickerPct!=='number'||!liveSymbols.length){
-      coherenceHtml='<div class="proxy-coherence"><span class="analyst-lbl">LIVE COHERENCE</span><span class="analyst-val" style="color:var(--dim)">no live feed for this proxy</span></div>';
-    }else{
+    var rule=td&&td.proxyRule;
+    var tickerPct=td&&td.metrics?td.metrics.pct:null;
+    var liveSymbols=rule&&rule.proxy?(rule.proxy.symbols||[]).filter(function(s){return market&&market[s.toLowerCase()]&&typeof market[s.toLowerCase()].pct==='number'}):[];
+    var coherence=null;
+    if(rule&&rule.proxy&&typeof tickerPct==='number'&&liveSymbols.length){
       var proxyPcts=liveSymbols.map(function(s){return market[s.toLowerCase()].pct});
       var avgProxyPct=proxyPcts.reduce(function(a,b){return a+b},0)/proxyPcts.length;
-      var coh=classifyCoherence(r.tickerPct,avgProxyPct);
-      var chips=liveSymbols.map(function(s){var p=market[s.toLowerCase()].pct;return'<span class="proxy-live-chip">'+s+' <b style="color:'+pctColor(p)+'">'+fmtPct(p)+'</b></span>'}).join('');
+      coherence=classifyCoherence(tickerPct,avgProxyPct);
+    }
+    return{ticker:t,rule:rule,tickerPct:tickerPct,tier:rule?rule.tier||'primary':null,liveSymbols:liveSymbols,coherence:coherence};
+  }));
+
+  // Items with no rank (no proxyRule at all, or no live coherence feed) sort
+  // last UNCONDITIONALLY — multiplying a sentinel rank by `dir` was the bug
+  // here: it pushed them to the FRONT in descending order instead, since a
+  // large sentinel times -1 becomes the smallest value. Missing data isn't
+  // "highest" or "lowest," so direction shouldn't touch it at all.
+  function sortByRank(rows,rankFn,dir){
+    rows.sort(function(a,b){
+      var ra=rankFn(a),rb=rankFn(b);
+      if(ra==null&&rb==null)return 0;
+      if(ra==null)return 1;
+      if(rb==null)return -1;
+      return(ra-rb)*dir;
+    });
+  }
+  if(proxySort.key==='level'){
+    sortByRank(rows,function(r){return r.tier!=null?TIER_RANK[r.tier]:null},proxySort.dir);
+  }else if(proxySort.key==='coherence'){
+    sortByRank(rows,function(r){return r.coherence?COHERENCE_RANK[r.coherence.label]:null},proxySort.dir);
+  }
+
+  var tierColor={'primary':'var(--green)','secondary':'var(--amber)','fundamentals-confirmed':'var(--blue)','fundamentals-speculative':'var(--red)'};
+  body.innerHTML=rows.map(function(r){
+    if(!r.rule||!r.rule.proxy)return'<div class="proxy-item"><div class="proxy-item-head"><span class="proxy-ticker">'+tickerLink(r.ticker)+'</span><span class="analyst-val" style="color:var(--dim)">unavailable</span></div></div>';
+    var tier=r.tier||'primary';
+    var tc=tierColor[tier]||'var(--dim)';
+    var verifyLinks=[tickerLink(r.ticker)].concat((r.rule.proxy.symbols||[]).map(tickerLink)).join(' &middot; ');
+
+    var coherenceHtml;
+    if(!r.coherence){
+      coherenceHtml='<div class="proxy-coherence"><span class="analyst-lbl">LIVE COHERENCE</span><span class="analyst-val" style="color:var(--dim)">no live feed for this proxy</span></div>';
+    }else{
+      var chips=r.liveSymbols.map(function(s){var p=market[s.toLowerCase()].pct;return'<span class="proxy-live-chip">'+tickerLink(s)+' <b style="color:'+pctColor(p)+'">'+fmtPct(p)+'</b></span>'}).join('');
       coherenceHtml='<div class="proxy-coherence">'
-        +'<div class="analyst-row" style="padding:0"><span class="analyst-lbl">LIVE COHERENCE</span><span class="proxy-tier-badge" style="color:'+coh.color+';border-color:'+coh.color+'55;background:'+coh.color+'11">'+coh.label+'</span></div>'
-        +'<div class="proxy-live-row"><span class="proxy-live-chip">'+r.ticker+' <b style="color:'+pctColor(r.tickerPct)+'">'+fmtPct(r.tickerPct)+'</b></span>'+chips+'</div>'
+        +'<div class="analyst-row" style="padding:0"><span class="analyst-lbl">LIVE COHERENCE</span><span class="proxy-tier-badge" style="color:'+r.coherence.color+';border-color:'+r.coherence.color+'55;background:'+r.coherence.color+'11">'+r.coherence.label+'</span></div>'
+        +'<div class="proxy-live-row"><span class="proxy-live-chip">'+tickerLink(r.ticker)+' <b style="color:'+pctColor(r.tickerPct)+'">'+fmtPct(r.tickerPct)+'</b></span>'+chips+'</div>'
         +'</div>';
     }
 
-    return'<div class="proxy-item"><div class="proxy-item-head"><span class="proxy-ticker">'+r.ticker+'</span>'
+    return'<div class="proxy-item"><div class="proxy-item-head"><span class="proxy-ticker">'+tickerLink(r.ticker)+'</span>'
       +'<span class="proxy-tier-badge" style="color:'+tc+';border-color:'+tc+'55;background:'+tc+'11">'+tier.toUpperCase().replace(/-/g,' ')+'</span></div>'
       +'<div class="proxy-detail">'+r.rule.proxy.name+'</div>'
       +'<div class="proxy-detail" style="color:var(--dim)">'+(r.rule.category||'')+(r.rule.dynamicallyResolved?' · dynamically resolved (quarterly recompute)':' · fixed sector proxy')+'</div>'
       +(r.rule.proxy.rationale?'<div class="proxy-detail">'+r.rule.proxy.rationale+'</div>':'')
+      +'<div class="proxy-verify-row"><span class="analyst-lbl">VERIFY</span>'+verifyLinks+'</div>'
       +coherenceHtml
       +'</div>';
   }).join('')
@@ -963,6 +1044,8 @@ window.toggleHeatMap = toggleHeatMap;
 window.refreshHeatMap = refreshHeatMap;
 window.exportWatchlistCSV = exportWatchlistCSV;
 window.promoteToCard = promoteToCard;
+window.setProxySort = setProxySort;
+window.toggleCompactSort = toggleCompactSort;
 // track-record.js sets window.clearLog itself on import — override here so
 // clearing the log also refreshes Pro's gate-attribution breakdown, which
 // the shared module has no knowledge of.
