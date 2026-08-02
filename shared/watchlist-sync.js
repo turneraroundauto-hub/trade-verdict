@@ -1,4 +1,4 @@
-import { watchlist, setWatchlist } from './watchlist.js?v=8';
+import { watchlist, setWatchlist } from './watchlist.js?v=10';
 
 // Syncs the watchlist to the account via GET/POST /watchlist (server.js —
 // gated on being signed in, any tier, so it also covers a lapsed paid
@@ -13,12 +13,28 @@ export function initWatchlistSync(config){cfg=config;}
 // Called once, right after a session is confirmed valid, before the tier's
 // own initApp()/renderWatchlist() runs — so the synced list is in place
 // before the first paint instead of flashing the local/default one first.
+//
+// Retries on a network error or non-2xx response (Render's free tier can
+// take the first request after inactivity to fail outright while the
+// service cold-starts) — a single silent failure here used to just leave
+// whatever local state initWatchlist() already set (tier defaults, or a
+// stale earlier list) on screen with no indication anything was wrong and
+// no second chance to get the real data. `cache:'no-store'` rules out a
+// stale cached response being served for what should always be a fresh
+// read. A genuinely successful response (even an empty one) is NOT
+// retried — that's real data, not a failure.
+var PULL_RETRY_DELAYS_MS=[0,1500,4000];
 export async function pullWatchlistFromServer(){
   if(!cfg)return;
-  try{
-    var res=await fetch(cfg.addSecret(cfg.API_URL+'/watchlist'),{headers:cfg.authH()});
-    if(!res.ok)return;
-    var data=await res.json();
+  var data=null;
+  for(var i=0;i<PULL_RETRY_DELAYS_MS.length&&!data;i++){
+    if(PULL_RETRY_DELAYS_MS[i])await new Promise(function(r){setTimeout(r,PULL_RETRY_DELAYS_MS[i]);});
+    try{
+      var res=await fetch(cfg.addSecret(cfg.API_URL+'/watchlist'),{headers:cfg.authH(),cache:'no-store'});
+      if(res.ok)data=await res.json();
+    }catch(e){}
+  }
+  if(data){
     if(data.tickers&&data.tickers.length){
       pulling=true;
       setWatchlist(data.tickers);
@@ -35,7 +51,7 @@ export async function pullWatchlistFromServer(){
       // failed to find.
       pushWatchlistToServer(true);
     }
-  }catch(e){}
+  }
 }
 
 var pushTimer=null;
