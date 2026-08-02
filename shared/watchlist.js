@@ -181,7 +181,13 @@ function bindGestures(){
 function onPointerDown(e){
   if(ACTIVE)return;
   if(e.pointerType==='mouse'&&e.button!==0)return;
-  if(e.target.closest('button,a,input,.expand-btn,.verdict-container'))return;
+  // No target-type exclusion here on purpose: onPointerMove only calls
+  // preventDefault()/starts intercepting once movement clears MOVE_THRESHOLD
+  // and reads as horizontal, so a plain tap on a button/link/expand-btn
+  // still fires its native click untouched. Excluding those targets here
+  // used to block a swipe from ever registering if it merely *started* over
+  // a news link, an ANALYZE/log button, or the verdict thumbs — which on a
+  // real card is most of the tile's surface area.
   var wrap=e.target.closest('.card-wrap');
   if(!wrap)return;
   var card=wrap.querySelector('.card');

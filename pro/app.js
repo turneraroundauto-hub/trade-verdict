@@ -1,5 +1,5 @@
 import { initTickerCache, fetchTickerData } from '../shared/ticker-cache.js?v=3';
-import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, setWatchlist, removeTicker, setRenderScope, getOverflow, onRenderWatchlist } from '../shared/watchlist.js?v=5';
+import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, setWatchlist, removeTicker, setRenderScope, getOverflow, onRenderWatchlist } from '../shared/watchlist.js?v=6';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache.js?v=2';
 import { renderTrackRecord, logResult, getAccuracyLog, clearLog } from '../shared/track-record.js?v=3';
 
@@ -372,8 +372,8 @@ export function resetCard(ticker){
 // Price + today's %-change + a short news link, no ANALYZE button and no
 // credit cost — this is the "unlimited, unanalyzed" half of the watchlist.
 // Rendering is driven entirely by shared/watchlist.js's postRenderHook, so
-// it stays correct after any add/remove/undo/import/preset-load without
-// this file needing to know every place `watchlist` can change.
+// it stays correct after any add/remove/undo/promote without this file
+// needing to know every place `watchlist` can change.
 export function renderCompactList(){
   var el=document.getElementById('watchlist-compact');
   if(!el)return;
@@ -442,7 +442,11 @@ function bindCompactGestures(){
 function onCompactPointerDown(e){
   if(compactActive)return;
   if(e.pointerType==='mouse'&&e.button!==0)return;
-  if(e.target.closest('button,a'))return;
+  // Same fix as shared/watchlist.js's card gesture: don't exclude by target
+  // type here — onCompactPointerMove only intercepts once movement clears
+  // COMPACT_MOVE_THRESHOLD, so a tap on the + button still fires its click
+  // untouched, but a swipe can now start from anywhere on the row,
+  // including on top of the news link.
   var wrap=e.target.closest('.compact-row-wrap');
   if(!wrap)return;
   var row=wrap.querySelector('.compact-row');
@@ -679,90 +683,33 @@ export function toggleHeatMap(){
   if(open)renderHeatMap();
 }
 
-// ── PRO — Watchlist Tools: export / import / presets ────────────────
-// Presets are stored as {name, tickers, createdAt}[] under one localStorage
-// key. Kept behind get/save helpers (rather than reading/writing localStorage
-// inline everywhere below) so a later move to a per-user Supabase table only
-// means changing these two functions, not every call site.
-var PRESETS_KEY='tv_pro_presets';
-function getPresets(){try{return JSON.parse(localStorage.getItem(PRESETS_KEY)||'[]')}catch(e){return[]}}
-function savePresets(list){localStorage.setItem(PRESETS_KEY,JSON.stringify(list))}
-
-// Returns {valid, invalid} instead of just the valid list — doImportWatchlist
-// needs the rejects too, so a garbage paste actually tells the user what got
-// dropped instead of just silently shrinking the count.
-function parseTickerList(raw){
-  var tokens=raw.toUpperCase().replace(/[$#]/g,'').split(/[\s,;|\n]+/).map(function(t){return t.trim()}).filter(Boolean);
-  var valid=[],invalid=[];
-  tokens.forEach(function(t){(/^[A-Z]{1,6}$/.test(t)?valid:invalid).push(t)});
-  return{valid:valid,invalid:invalid};
-}
-
-export function exportWatchlist(btnEl){
-  var text=watchlist.join(',');
-  var done=function(){var old=btnEl.textContent;btnEl.textContent='COPIED!';setTimeout(function(){btnEl.textContent=old},1400)};
-  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(text).then(done).catch(function(){prompt('Copy your watchlist:',text)});
-  else prompt('Copy your watchlist:',text);
-}
-
-export function toggleImportBox(){
-  var box=document.getElementById('import-box');if(!box)return;
-  box.style.display=box.style.display==='none'?'block':'none';
-}
-
-export function doImportWatchlist(){
-  var ta=document.getElementById('import-input');if(!ta)return;
-  var parsed=parseTickerList(ta.value);
-  if(!parsed.valid.length)return alert('No valid tickers found. Try: AAPL, MU, NVDA');
-  if(!confirm('Replace your current '+watchlist.length+'-ticker watchlist with these '+parsed.valid.length+'?'))return;
-  var droppedOverCap=setWatchlist(parsed.valid);
-  ta.value='';
-  document.getElementById('import-box').style.display='none';
-  var allDropped=parsed.invalid.concat(droppedOverCap);
-  if(allDropped.length)alert('Imported. Skipped (invalid or over the tier limit): '+allDropped.join(', '));
-}
-
-function renderPresetList(){
-  var el=document.getElementById('preset-list');if(!el)return;
-  var presets=getPresets();
-  if(!presets.length){el.innerHTML='<div class="track-empty" style="padding:8px 0">No saved presets yet.</div>';return}
-  el.innerHTML=presets.map(function(p,i){
-    return'<div class="preset-row"><span class="preset-name">'+p.name+'</span><span class="preset-count">'+p.tickers.length+' tickers</span>'
-      +'<button type="button" class="preset-btn" onclick="loadPreset('+i+')">LOAD</button>'
-      +'<button type="button" class="preset-btn preset-btn-danger" onclick="deletePreset('+i+')">DEL</button></div>';
-  }).join('');
-}
-
-export function saveCurrentPreset(){
-  var name=prompt('Name this preset (e.g. "Biotech Core"):');
-  if(!name)return;
-  var presets=getPresets();
-  presets=presets.filter(function(p){return p.name!==name});
-  presets.push({name:name,tickers:watchlist.slice(),createdAt:new Date().toISOString()});
-  savePresets(presets);
-  renderPresetList();
-}
-
-export function loadPreset(i){
-  var presets=getPresets();var p=presets[i];if(!p)return;
-  if(!confirm('Replace your current watchlist with preset "'+p.name+'" ('+p.tickers.length+' tickers)?'))return;
-  setWatchlist(p.tickers);
-}
-
-export function deletePreset(i){
-  var presets=getPresets();var p=presets[i];if(!p)return;
-  if(!confirm('Delete preset "'+p.name+'"?'))return;
-  presets.splice(i,1);savePresets(presets);renderPresetList();
-}
-
-export function toggleWatchlistTools(){
-  var panel=document.getElementById('wl-tools-panel');
-  var arrow=document.getElementById('wl-tools-arrow');
-  var header=document.getElementById('wl-tools-header');
-  var open=panel.classList.toggle('open');
-  arrow.classList.toggle('open',open);
-  header.classList.toggle('open',open);
-  if(open)renderPresetList();
+// ── PRO — Export watchlist + cards as one CSV ────────────────────────
+// One file across both lists — cards and the compact watchlist are just two
+// windows over the same underlying array, so the export doesn't split them
+// into separate files, just tags each row so it's still clear which side a
+// ticker was on. IV has no wired data source anywhere in this app (Finnhub's
+// free tier doesn't provide it — flagged in the build log's outstanding
+// items); the column is included so the format is stable once a source
+// exists, filled with N/A until then rather than fabricating a number.
+export async function exportWatchlistCSV(btnEl){
+  if(!watchlist.length)return alert('Watchlist is empty — nothing to export.');
+  if(btnEl){var old=btnEl.textContent;btnEl.textContent='EXPORTING…';btnEl.disabled=true;}
+  var rows=await Promise.all(watchlist.map(async function(t,i){
+    var td=await fetchTickerData(t);
+    var price=td&&td.metrics&&td.metrics.price!=null?td.metrics.price:'';
+    var pct=td&&td.metrics&&typeof td.metrics.pct==='number'?td.metrics.pct.toFixed(2):'';
+    return[t,i<CARD_CAP?'CARD':'WATCHLIST',price,'N/A',pct];
+  }));
+  var csvEsc=function(v){var s=String(v);return/[",\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s};
+  var csv=[['Ticker','List','Price','IV','Change%']].concat(rows)
+    .map(function(r){return r.map(csvEsc).join(',')}).join('\r\n');
+  var blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download='trade-verdict-watchlist-'+new Date().toISOString().slice(0,10)+'.csv';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  if(btnEl){btnEl.textContent=old;btnEl.disabled=false;}
 }
 
 var GLOSSARY=[
@@ -1009,13 +956,7 @@ window.refreshProxyExplorer = refreshProxyExplorer;
 window.logResultUI = logResultUI;
 window.toggleHeatMap = toggleHeatMap;
 window.refreshHeatMap = refreshHeatMap;
-window.exportWatchlist = exportWatchlist;
-window.toggleImportBox = toggleImportBox;
-window.doImportWatchlist = doImportWatchlist;
-window.saveCurrentPreset = saveCurrentPreset;
-window.loadPreset = loadPreset;
-window.deletePreset = deletePreset;
-window.toggleWatchlistTools = toggleWatchlistTools;
+window.exportWatchlistCSV = exportWatchlistCSV;
 window.promoteToCard = promoteToCard;
 // track-record.js sets window.clearLog itself on import — override here so
 // clearing the log also refreshes Pro's gate-attribution breakdown, which
