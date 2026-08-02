@@ -1,7 +1,8 @@
 import { initTickerCache, fetchTickerData } from './shared/ticker-cache.js?v=3';
-import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta } from './shared/watchlist.js?v=6';
+import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, onWatchlistSave } from './shared/watchlist.js?v=8';
 import { cleanLS, cacheVerdict, getCachedVerdict } from './shared/analysis-cache.js?v=2';
 import { renderTrackRecord } from './shared/track-record.js?v=3';
+import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from './shared/watchlist-sync.js?v=1';
 
 // If user has a paid session in localStorage from paid tier, redirect them
 try{
@@ -55,6 +56,17 @@ function addSecret(url){var sep=url.includes('?')?'&':'?';if(sbSession&&sbSessio
 
 initWatchlist({defaultTickers:['MU','IREN','ALAB'], maxTickers:3, upgradeMessage:'Free tier supports up to 3 tickers.\n\nUpgrade to Starter for more.'});
 initTickerCache({API_URL:API_URL, authH:authH, addSecret:addSecret});
+
+// Signed-in-but-free is the lapsed-subscriber case (or a free signup that
+// created an account) — sync their watchlist so a Starter/Pro/Shark lapse
+// doesn't wipe it, and so it survives a browser cache/cookie clear. Purely
+// anonymous visitors have no account to key cloud storage to, so this
+// stays fully local for them, same as before.
+if(sbSession&&sbSession.token){
+  initWatchlistSync({API_URL:API_URL, authH:authH, addSecret:addSecret});
+  onWatchlistSave(schedulePushWatchlist);
+  pullWatchlistFromServer();
+}
 
 function isMarketClosed(){
   var now=new Date();
