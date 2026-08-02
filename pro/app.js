@@ -1,8 +1,24 @@
 import { initTickerCache, fetchTickerData } from '../shared/ticker-cache.js?v=3';
-import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, setWatchlist, removeTicker, setRenderScope, getOverflow, onRenderWatchlist, onWatchlistSave } from '../shared/watchlist.js?v=8';
+import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, setWatchlist, removeTicker, setRenderScope, getOverflow, onRenderWatchlist, onWatchlistSave } from '../shared/watchlist.js?v=9';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache.js?v=2';
 import { renderTrackRecord, logResult, getAccuracyLog, clearLog } from '../shared/track-record.js?v=3';
 import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=2';
+
+// Concurrency-limited Promise.all: runs `fn` over `items` in batches of
+// `size` instead of firing them all simultaneously, but still returns
+// results in the original order like Promise.all would. Bursting many
+// concurrent /ticker/:symbol requests (one full watchlist render, or a
+// panel covering the whole list) is exactly the kind of spike that can
+// trip an upstream provider's rate limit and leave results silently blank
+// (fetchTickerData swallows its own errors and resolves null on failure).
+async function mapBatched(items,size,fn){
+  var out=[];
+  for(var i=0;i<items.length;i+=size){
+    var batch=await Promise.all(items.slice(i,i+size).map(fn));
+    out=out.concat(batch);
+  }
+  return out;
+}
 
 const API_URL='https://tra-zacg.onrender.com';
 const SUPABASE_URL='https://oinomcikdyisrbfeeirp.supabase.co';
@@ -414,7 +430,7 @@ export async function renderCompactList(){
   if(compactCountEl)compactCountEl.textContent=overflow.length;
   if(!overflow.length){el.innerHTML='<div class="track-empty">Everything tracked fits in cards above.</div>';return}
   el.innerHTML='<div class="track-empty">Loading watchlist…</div>';
-  var rows=await Promise.all(overflow.map(async function(t){
+  var rows=await mapBatched(overflow,5,async function(t){
     var td=await fetchTickerData(t);
     return{
       ticker:t,
@@ -422,7 +438,7 @@ export async function renderCompactList(){
       pct:td&&td.metrics&&typeof td.metrics.pct==='number'?td.metrics.pct:null,
       news:td&&td.news,
     };
-  }));
+  });
   // Rows with no live pct sort to the end regardless of direction — an
   // unknown value isn't meaningfully "low" or "high".
   rows.sort(function(a,b){
