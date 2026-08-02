@@ -21,9 +21,21 @@ both when you finish meaningful work here.
   `trade-verdict` will look correct in the diff and do nothing in
   production. This has cost real debugging time before (Aug 1, 2026 —
   confirmed by diffing deployed commit SHAs). If you're asked to change
-  backend behavior, that work has to land in `Tra`, which is likely outside
-  whatever session's repo scope you have here — say so rather than silently
-  editing `trade-verdict/server.js` and calling it done.
+  backend behavior, that work has to land in `Tra`. If `Tra` isn't already
+  in your session's repo scope, **ask to have it added** (e.g. via
+  `add_repo`) rather than assuming it's unreachable — this has worked before
+  (Aug 2, 2026, the Pro IV export: `Tra` was added mid-session, cloned, and
+  a real PR opened and merged there). Only fall back to "say so and stop" if
+  adding it is actually refused or unavailable in your environment. Either
+  way, never silently edit `trade-verdict/server.js` as a substitute for the
+  real change and call it done — that file is a mirror, not the deploy
+  target, and editing it alone ships nothing.
+- When you do land a change in `Tra`, mirror it into this repo's
+  `server.js`/`credits.js`/`gates-extended.js` too (same pattern, same
+  function names) so the mirror doesn't silently drift further out of sync
+  — it's already happened once before (Aug 1, 2026) and cost real time to
+  untangle. The mirror update is cosmetic/historical only; `Tra` is what
+  actually needs to merge and deploy for anything to go live.
 
 ## Frontend architecture
 
@@ -70,13 +82,33 @@ grep -rn "shared/<file>.js?v=" --include=*.js --include=*.html .
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current |
 | Starter | `starter/index.html` + `starter/app.js` | Rebuilt, on shared modules, current |
-| Pro | `pro/index.html` + `pro/app.js` | Rebuilt Aug 2, 2026 (trade-verdict PRs #23, #24) — on shared modules, plus Pro-exclusive Analyst View, Proxy Resolution Explorer + live coherence strip, Sector Heat Map, Watchlist Tools (export/import/presets), trigger/ticker track-record breakdowns, and a card/watchlist split: only the first 15 tickers (in list order) render as full analysis cards, the rest render as compact price/%chg/news rows with no ANALYZE button and no credit cost — `analyzeAll()` scopes to the 15-card window only (max 5 credits) |
-| Shark | `shark/index.html` (no separate `app.js` — still monolithic) | **NOT rebuilt.** Still the pre-Aug-1 single-file version — same gap Pro just closed, likely carries the same reorder/log-button bugs Pro had before its rebuild (shared original template) |
+| Pro | `pro/index.html` + `pro/app.js` | Rebuilt Aug 2, 2026 (trade-verdict PRs #23, #24, #26, #27, #28 + `Tra` PR #5) — on shared modules, plus Pro-exclusive Analyst View, Proxy Resolution Explorer + live coherence strip, Sector Heat Map, a CSV export (Ticker/List/Price/IV/Change%, real IV via Alpaca options snapshots), trigger/ticker track-record breakdowns, and a card/watchlist split: only the first 15 tickers (in list order) render as full analysis cards, the rest render as compact price/%chg/news rows with no ANALYZE button and no credit cost — `analyzeAll()` scopes to the 15-card window only (max 5 credits). **Confirmed working live by Mr. T**, including the IV export. |
+| Shark | `shark/index.html` (no separate `app.js` — still monolithic) | **NOT rebuilt — deliberately deferred as of Aug 2, 2026, not a backlog gap.** Mr. T wants Shark's eventual rebuild to lean on more Alpaca-driven visuals, likely after upgrading to Alpaca's "Plus" data plan first. Don't pick this up proactively without checking that's still the plan — it still carries the same reorder/log-button bugs Pro had before its rebuild (shared original template) whenever it does happen. |
 
-Tier config (ticker cap, cache TTL, credits, tracker) is enforced **server-side**
-in `Tra`'s `credits.js` `TIERS` object — check there before assuming a
-tier limit needs client-side enforcement; usually it just needs reflecting
-in the UI.
+Tier config (ticker cap, cache TTL, credits, tracker, `alpaca`, `iv`) is
+enforced **server-side** in `Tra`'s `credits.js` `TIERS` object — check
+there before assuming a tier limit needs client-side enforcement; usually
+it just needs reflecting in the UI.
+
+### `tierConfig.alpaca` vs `tierConfig.iv` — don't conflate these
+
+Both gate access to the same Alpaca credentials (`ALPACA_KEY`/`ALPACA_SECRET`
+in `Tra`), but they're deliberately separate flags for separate surfaces:
+- `alpaca` (`true` only for Shark) gates Shark's Gate 3 SWING_LEVEL mode and
+  is explicitly earmarked in `Tra`'s server.js (see the comment on
+  `alpacaKeys()`) for future Shark-exclusive "deep analytics" (extended/
+  granular bars, more options/greeks surface).
+- `iv` (`true` for Pro + Shark, added Aug 2, 2026) gates ONLY the single
+  representative implied-volatility figure computed in
+  `fetchImpliedVolatility()`, used by Pro's CSV export.
+
+**If you add a new Alpaca-backed feature, give it its own tier flag like
+`iv` did — don't just check `tierConfig.alpaca`.** That flag was deliberately
+scoped to Shark; reusing it for something new is how a feature meant to stay
+Shark-exclusive quietly leaks into Pro (or vice versa). This was a real
+decision point, not an oversight — flagged to and confirmed by Mr. T before
+`iv` shipped, precisely because it crosses a pricing/differentiation
+boundary, not just a technical one.
 
 ## Verifying changes before you claim done
 
@@ -110,6 +142,14 @@ There's no test suite. What's actually been useful:
     fired" (a false-positive bug report, not a real one).
 - None of the above substitutes for a real login against the live backend —
   flag that as unverified rather than implying it was checked.
+- The same applies, harder, to any new third-party API integration in `Tra`
+  (e.g. Alpaca's options-snapshot endpoint for IV, added Aug 2, 2026) — there
+  is no way to test against real, entitlement-gated credentials from a
+  sandbox at all. Write it to fail safe (catch everything, return null/a
+  clear placeholder, never throw into the response), say explicitly in the
+  PR that it's unverified against live credentials, and say what a human
+  should check after deploy (e.g. "confirm the Alpaca plan actually has
+  options-data entitlement, spot-check one known-liquid ticker's value").
 
 ## Terminology rule
 
