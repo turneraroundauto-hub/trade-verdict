@@ -167,7 +167,7 @@ export function renderWatchlist(){
   wl.innerHTML=list.map(function(ticker){
     return '<div class="card-wrap" data-ticker="'+ticker+'">'
       +'<div class="swipe-bg"><span class="swipe-icon">&#128465;</span><span class="swipe-label">DELETE</span></div>'
-      +'<div class="card" id="card-'+ticker+'">'
+      +'<div class="card loading" id="card-'+ticker+'">'
       +'<div class="card-head">'
       +'<div class="card-left">'
       +'<div class="ticker-row"><span class="ticker-name">'+ticker+'</span><span class="ticker-price">&mdash;</span></div>'
@@ -204,7 +204,15 @@ var HYDRATE_BATCH=5;
 async function hydrateCards(list){
   for(var i=0;i<list.length;i+=HYDRATE_BATCH){
     await Promise.all(list.slice(i,i+HYDRATE_BATCH).map(function(t){
-      return fetchTickerData(t).then(function(d){if(d)updateCardMeta(t,d)});
+      return fetchTickerData(t).then(function(d){
+        if(d)updateCardMeta(t,d);
+        // Fetch attempt settled either way — stop pulsing regardless of
+        // outcome, same as updateCardMeta's own success/no-data/silent-
+        // failure paths above (this isn't a retry indicator, just "still
+        // waiting on the first answer").
+        var card=document.getElementById('card-'+t);
+        if(card)card.classList.remove('loading');
+      });
     }));
   }
 }
