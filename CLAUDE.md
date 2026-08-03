@@ -37,6 +37,28 @@ both when you finish meaningful work here.
   untangle. The mirror update is cosmetic/historical only; `Tra` is what
   actually needs to merge and deploy for anything to go live.
 
+## Backend: Finnhub call budget (Aug 3, 2026)
+
+Every `finnhubGet()` call in `Tra`'s server.js now goes through a shared
+55-calls/min rolling-window queue (`finnhubThrottle()`) with retry-with-
+backoff on 429 — a cold `symbolMarketCache` (fresh deploy, or any ticker's
+first request of the day) used to fire enough unthrottled Finnhub calls at
+once to blow past the free-tier 60/min limit and fail nearly everything
+with "No quote." If you add a new Finnhub-backed feature, it rides this
+same queue automatically as long as it goes through `finnhubGet()` —
+don't call `fetch()` against Finnhub directly.
+
+Slow-changing fundamentals (52W high/low, beta, market cap, IPO date, avg
+volume) live in their own 24h cache (`symbolFundamentalsCache`,
+`fetchTickerFundamentals()`), fully decoupled from the price-refresh
+clock — they used to re-fetch on every price refresh (as tight as every
+minute on Pro) for numbers that hadn't changed since yesterday, which was
+most of the call volume tripping the limiter above. **Known trade-off,
+confirmed with Mr. T:** 52-week high/low can lag up to 24h on a fresh
+intraday high/low — accepted because Gate 1's forceDown (fresh Alpaca
+60-day data, untouched by this cache) independently catches most of the
+cases where that would actually matter.
+
 ## Frontend architecture
 
 Four independent tier HTMLs, each pairing with its own `app.js`
@@ -71,19 +93,34 @@ code that silently disagrees with a freshly-loaded sibling module (e.g. two
 different `ticker-cache.js` instances with independently-initialized state,
 one of which never got `initTickerCache()` called on it).
 
-When you touch a shared file, grep for every importer before you're done:
+**This isn't hypothetical — it shipped and cost real hours (Aug 2-3, 2026).**
+`shared/watchlist.js` got bumped in `app.js`/`pro/app.js`/`starter/app.js`
+but NOT in `shared/watchlist-sync.js`'s own internal import, because that
+one uses a relative path (`./watchlist.js?v=N`) instead of the
+`shared/watchlist.js?v=N` pattern every external importer uses — so a
+path-anchored grep for the latter silently skipped it. Two separate module
+instances resulted; the server-sync code was writing to one, the UI
+rendered from the other, and a real 47-ticker watchlist appeared to
+shrink to 3-7 tickers on reload. **When you bump any shared file's
+version, grep unanchored** (`<file>.js?v=`, no `shared/` prefix, no
+leading path) so it also catches sibling files' own relative internal
+imports — not just `grep -rn "shared/<file>.js?v=" ...`:
 ```
-grep -rn "shared/<file>.js?v=" --include=*.js --include=*.html .
+grep -rn "<file>\.js?v=" --include=*.js --include=*.html .
 ```
+Then trace the cascade: if a shared file's version bump changes another
+shared file's content (its import line), that file's OWN version needs
+bumping too, and so on up through every `app.js` to each tier's
+`<script>` tag — check every hop, not just the first one.
 
-## Tier status (as of Aug 2, 2026)
+## Tier status (as of Aug 3, 2026)
 
 | Tier | Files | Status |
 |---|---|---|
-| Free | `index.html` + `app.js` | Rebuilt, on shared modules, current |
+| Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
 | Starter | `starter/index.html` + `starter/app.js` | Rebuilt, on shared modules, current |
-| Pro | `pro/index.html` + `pro/app.js` | Rebuilt Aug 2, 2026 (trade-verdict PRs #23, #24, #26, #27, #28 + `Tra` PR #5) — on shared modules, plus Pro-exclusive Analyst View, Proxy Resolution Explorer + live coherence strip, Sector Heat Map, a CSV export (Ticker/List/Price/IV/Change%, real IV via Alpaca options snapshots), trigger/ticker track-record breakdowns, and a card/watchlist split: only the first 15 tickers (in list order) render as full analysis cards, the rest render as compact price/%chg/news rows with no ANALYZE button and no credit cost — `analyzeAll()` scopes to the 15-card window only (max 5 credits). **Confirmed working live by Mr. T**, including the IV export. |
-| Shark | `shark/index.html` (no separate `app.js` — still monolithic) | **NOT rebuilt — deliberately deferred as of Aug 2, 2026, not a backlog gap.** Mr. T wants Shark's eventual rebuild to lean on more Alpaca-driven visuals, likely after upgrading to Alpaca's "Plus" data plan first. Don't pick this up proactively without checking that's still the plan — it still carries the same reorder/log-button bugs Pro had before its rebuild (shared original template) whenever it does happen. |
+| Pro | `pro/index.html` + `pro/app.js` | Rebuilt Aug 2, 2026 (trade-verdict PRs #23, #24, #26, #27, #28 + `Tra` PR #5) — on shared modules, plus Pro-exclusive Analyst View, Proxy Resolution Explorer + live coherence strip, Sector Heat Map, a CSV export (Ticker/List/Price/IV/Change%, real IV via Alpaca options snapshots), trigger/ticker track-record breakdowns, and a card/watchlist split: only the first 15 tickers (in list order) render as full analysis cards, the rest render as compact price/%chg/news rows with no ANALYZE button and no credit cost — `analyzeAll()` scopes to the 15-card window only (max 5 credits). **Confirmed working live by Mr. T**, including the IV export. Its two Shark upsell teases (Proxy Explorer, Heat Map) link to `shark/coming-soon.html` (see Shark row), not straight to Stripe checkout. |
+| Shark | `shark/index.html` (no separate `app.js` — still monolithic) | **NOT rebuilt — deliberately deferred as of Aug 2, 2026, not a backlog gap.** Mr. T wants Shark's eventual rebuild to lean on more Alpaca-driven visuals, likely after upgrading to Alpaca's "Plus" data plan first. Don't pick this up proactively without checking that's still the plan — it still carries the same reorder/log-button bugs Pro had before its rebuild (shared original template) whenever it does happen. A separate, standalone `shark/coming-soon.html` splash (added Aug 2, 2026, licensed mascot art at `shared/assets/shark-mascot.png`) exists alongside it — email waitlist writes directly to Supabase's `shark_waitlist` table (anon insert-only via RLS) from the browser, no backend involvement. |
 
 Tier config (ticker cap, cache TTL, credits, tracker, `alpaca`, `iv`) is
 enforced **server-side** in `Tra`'s `credits.js` `TIERS` object — check
@@ -132,8 +169,16 @@ There's no test suite. What's actually been useful:
     rendered), which reads like a bug but isn't one. Prime a fake-but-valid
     session first: `localStorage.setItem('tv_session', JSON.stringify({token:'x',
     tier:'pro', expiresAt: Math.floor(Date.now()/1000)+3600}))`, then reload.
-    Free tier doesn't need this — its `app.js` calls `renderWatchlist()`
-    unconditionally at module load, no session gate.
+    Free tier doesn't need this for a genuinely free/anonymous test session
+    — its `app.js` still calls `renderWatchlist()` unconditionally at module
+    load, no session gate. But if you're priming a **paid** `tv_session`
+    (tier !== 'free') to test something else and happen to load the Free
+    tier page too, its redirect-away check now correctly skips
+    `initWatchlist`/`pullWatchlistFromServer` entirely
+    (`redirectingToPaidTier`, Aug 3, 2026) — don't "fix" that guard away
+    thinking it's dead code blocking a test; it's why a paid account's real
+    watchlist doesn't get silently truncated to Free's 3-ticker cap and
+    written back to the shared `tv_wl` localStorage key.
   - **`page.route('**/analyze')`-style exact-suffix patterns silently match
     zero requests here.** Every API call goes through `addSecret()`, which
     appends `?supabase_token=...` (or nothing, pre-login) to the URL — route
