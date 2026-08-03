@@ -1,4 +1,4 @@
-import { watchlist, setWatchlist } from './watchlist.js?v=11';
+import { watchlist, setWatchlist } from './watchlist.js?v=12';
 
 // Syncs the watchlist to the account via GET/POST /watchlist (server.js —
 // gated on being signed in, any tier, so it also covers a lapsed paid
