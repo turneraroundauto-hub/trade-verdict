@@ -1,14 +1,36 @@
-# Trade Verdict — CLAUDE.md
+# Trade Tribunal — CLAUDE.md
 
-Trade Verdict is a systematic day-trading decision app (the Catalyst Response
-Framework — Pre-Gate + Gates 0-5) built by Mr. T, running as a Node.js
-backend + a four-tier GitHub Pages frontend, with Supabase auth/credits and
-Stripe subscriptions.
+Trade Tribunal (renamed from "Trade Verdict" on Aug 4, 2026 — see the
+domain/naming note below) is a systematic day-trading decision app (the
+Catalyst Response Framework — Pre-Gate + Gates 0-5) built by Mr. T, running
+as a Node.js backend + a four-tier GitHub Pages frontend, with Supabase
+auth/credits and Stripe subscriptions.
 
 **Full history, architecture rationale, and the debug playbook live in
-Notion — "Trade Verdict — Full Build Log".** This file is a fast-orientation
-map for working in this repo; the Notion doc is the source of truth. Update
-both when you finish meaningful work here.
+Notion — still titled "Trade Verdict — Full Build Log" as of the rename;
+update that title too when you get a chance.** This file is a
+fast-orientation map for working in this repo; the Notion doc is the source
+of truth. Update both when you finish meaningful work here.
+
+## Naming: Trade Verdict → Trade Tribunal (Aug 4, 2026)
+
+Renamed after discovering a live, unrelated competitor already using
+"TradeVerdict"/"theverdict.app" for a near-identical AI trade-evaluation
+pitch, plus `tradeverdict.com`/`.io` were already taken by them — kept
+looking bad for SEO/brand-confusion reasons even though legal risk was low
+(no registered trademark found, no Play Store presence). Custom domain
+`tradetribunal.app` (`CNAME` file in repo root) replaces the org's default
+`turneraroundauto-hub.github.io` Pages URL going forward — GitHub
+auto-redirects the old URL so existing links/bookmarks keep working.
+
+This was a **cosmetic-only** rename (page titles, in-app headers/footers,
+comments, user-agent strings) in both this repo and `Tra`. Explicitly NOT
+touched: the `tv_*` identifiers (`tv_session`, `tv_wl`, `tv_accuracy_log`,
+Supabase table/column names) — renaming those is a real breaking data
+migration for existing users and needs its own deliberate pass, not a
+side effect of a branding change. The GitHub repo itself is also still
+named `trade-verdict` — renaming that is a separate, bigger decision
+(breaks existing clone URLs/CI references) not covered by this pass.
 
 ## The two-repo trap — read this first
 

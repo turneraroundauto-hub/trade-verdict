@@ -1,4 +1,4 @@
--- Trade Verdict — Patch 7 (Shark "coming soon" email waitlist)
+-- Trade Tribunal — Patch 7 (Shark "coming soon" email waitlist)
 -- Run manually in the Supabase SQL editor. No backend deploy needed —
 -- shark/coming-soon.html writes to this table directly from the browser
 -- using the anon key already embedded in every tier's frontend.

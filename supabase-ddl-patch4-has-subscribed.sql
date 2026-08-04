@@ -1,4 +1,4 @@
--- Trade Verdict — Patch 4 (subscription history tracking)
+-- Trade Tribunal — Patch 4 (subscription history tracking)
 -- Run manually in the Supabase SQL editor before deploying this server.js
 -- to Render.
 --

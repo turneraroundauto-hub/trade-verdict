@@ -1,4 +1,4 @@
--- Trade Verdict — Patch 6 (server-side watchlist sync)
+-- Trade Tribunal — Patch 6 (server-side watchlist sync)
 -- Run manually in the Supabase SQL editor before deploying this server.js
 -- to Render. Matches the existing subscribers/credits tables' style
 -- documented in the Build Log (RLS disabled, service-role-only access).
