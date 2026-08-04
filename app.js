@@ -39,7 +39,7 @@ function updateAuthButton(){
     btn.style.color='var(--dim)';btn.style.background='none';btn.style.borderColor='var(--border)';
   }else{
     btn.innerHTML='&#128274; SIGN UP / SIGN IN';
-    btn.href='https://turneraroundauto-hub.github.io/trade-verdict/starter/';
+    btn.href='https://tradetribunal.app/starter/';
     btn.onclick=null;
     btn.style.color='#40c4ff';btn.style.background='rgba(64,196,255,.1)';btn.style.borderColor='rgba(64,196,255,.4)';
   }
@@ -447,7 +447,7 @@ async function fetchCreditStatus(){
       el.style.pointerEvents='';el.style.opacity='';
     }else{
       el.textContent=label+' · WK';
-      el.href='https://turneraroundauto-hub.github.io/trade-verdict/starter/';
+      el.href='https://tradetribunal.app/starter/';
       el.removeAttribute('target');
       el.style.pointerEvents='';el.style.opacity='';
     }
@@ -484,7 +484,7 @@ function handleNoCredits(card,ticker){
       buyBtn.href='https://buy.stripe.com/3cI3cwacxarJ8txb3z3VC00';
     }else{
       buyBtn.textContent='SIGN IN TO ADD CREDITS';
-      buyBtn.href='https://turneraroundauto-hub.github.io/trade-verdict/starter/';
+      buyBtn.href='https://tradetribunal.app/starter/';
       buyBtn.removeAttribute('target');
     }
   }

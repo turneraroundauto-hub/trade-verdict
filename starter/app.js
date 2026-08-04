@@ -466,7 +466,7 @@ async function checkTierAccess(session){
     }
     setTimeout(function(){
       if(session.redirectUrl){window.location.href=session.redirectUrl;}
-      else{window.location.href='https://turneraroundauto-hub.github.io/trade-verdict/';}
+      else{window.location.href='https://tradetribunal.app/';}
     },1500);
     return false;
   }
@@ -490,7 +490,7 @@ async function checkAuth(){
         stored.tier=fresh.tier;
         stored.hasSubscribed=!!fresh.hasSubscribed;
         // Rebuild redirectUrl based on fresh tier
-        var URLS={free:'https://turneraroundauto-hub.github.io/trade-verdict/',starter:'https://turneraroundauto-hub.github.io/trade-verdict/starter/',pro:'https://turneraroundauto-hub.github.io/trade-verdict/pro/',shark:'https://turneraroundauto-hub.github.io/trade-verdict/shark/'};
+        var URLS={free:'https://tradetribunal.app/',starter:'https://tradetribunal.app/starter/',pro:'https://tradetribunal.app/pro/',shark:'https://tradetribunal.app/shark/'};
         stored.redirectUrl=URLS[fresh.tier]||URLS.free;
         storeSession(stored);
         sbSession=stored;
