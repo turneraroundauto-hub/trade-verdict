@@ -52,7 +52,7 @@ const TIER={
   credits:'3 credits/week',cache:'15 min cache',
   nextTier:'Starter',nextPrice:'$9.99/mo',
   stripeLink:'https://buy.stripe.com/eVq3cw84pczR6lp0oV3VC03',creditsLink:'https://buy.stripe.com/3cI3cwacxarJ8txb3z3VC00',
-  badgeColor:'#607d8b',
+  badgeColor:'#8da4b0',
 };
 const APP_SECRET='Holysmoke42!';
 let market=null;
