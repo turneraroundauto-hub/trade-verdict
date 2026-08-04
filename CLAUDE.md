@@ -8,11 +8,12 @@ auth/credits and Stripe subscriptions.
 
 **Full history, architecture rationale, and the debug playbook live in
 Notion — still titled "Trade Verdict — Full Build Log" as of the rename;
-update that title too when you get a chance.** This file is a
-fast-orientation map for working in this repo; the Notion doc is the source
-of truth. Update both when you finish meaningful work here.
+still needs updating there, not yet done (last checked Aug 4, 2026).**
+This file is a fast-orientation map for working in this repo; the Notion
+doc is the source of truth. Update both when you finish meaningful work
+here.
 
-## Naming: Trade Verdict → Trade Tribunal (Aug 4, 2026)
+## Naming: Trade Verdict → Trade Tribunal (Aug 4, 2026) — DONE
 
 Renamed after discovering a live, unrelated competitor already using
 "TradeVerdict"/"theverdict.app" for a near-identical AI trade-evaluation
@@ -23,14 +24,31 @@ looking bad for SEO/brand-confusion reasons even though legal risk was low
 `turneraroundauto-hub.github.io` Pages URL going forward — GitHub
 auto-redirects the old URL so existing links/bookmarks keep working.
 
-This was a **cosmetic-only** rename (page titles, in-app headers/footers,
-comments, user-agent strings) in both this repo and `Tra`. Explicitly NOT
-touched: the `tv_*` identifiers (`tv_session`, `tv_wl`, `tv_accuracy_log`,
-Supabase table/column names) — renaming those is a real breaking data
-migration for existing users and needs its own deliberate pass, not a
-side effect of a branding change. The GitHub repo itself is also still
-named `trade-verdict` — renaming that is a separate, bigger decision
-(breaks existing clone URLs/CI references) not covered by this pass.
+Landed in two passes, both merged in `trade-verdict` and `Tra`:
+1. **Cosmetic** (`trade-verdict` PR #47, `Tra` PR #15): page titles, in-app
+   headers/footers, comments, user-agent strings.
+2. **Functional redirect URLs** (`trade-verdict` PR #48, `Tra` PR #16):
+   the hardcoded `turneraroundauto-hub.github.io/trade-verdict` links used
+   for cross-tier sign-up/sign-in redirects, the backend `TIER_URLS` map,
+   and the Supabase auth `redirectTo` — all repointed at `tradetribunal.app`.
+   This required adding `https://tradetribunal.app/reset` to Supabase's
+   Auth → URL Configuration → Redirect URLs allowlist first (done, confirmed
+   by Mr. T Aug 4, 2026) — skipping that step would have broken password
+   reset for existing users the moment it deployed.
+
+Stripe product names (Starter/Pro/Shark/Credits) also updated to "Trade
+Tribunal ..." directly in the Stripe dashboard by Mr. T (Aug 4, 2026) —
+`Tra`'s `STRIPE_SETUP.md` doc text was already updated to match in the
+cosmetic pass.
+
+Explicitly NOT touched, still open: the `tv_*` identifiers (`tv_session`,
+`tv_wl`, `tv_accuracy_log`, Supabase table/column names) — renaming those
+is a real breaking data migration for existing users and needs its own
+deliberate pass, not a side effect of a branding change. The GitHub repo
+itself is also still named `trade-verdict` — renaming that is a separate,
+bigger decision (breaks existing clone URLs/CI references) not covered by
+this pass. The Notion "Full Build Log" doc title is also still unchanged
+(see note above) — low priority per Mr. T as of Aug 4, 2026.
 
 ## The two-repo trap — read this first
 
