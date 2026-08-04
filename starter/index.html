@@ -8,12 +8,15 @@
 <meta name="theme-color" content="#0f1923">
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate">
 <title>Trade Tribunal — Starter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@800&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{
   --bg:#080c12;--card:#0f1923;--border:#1a2840;
   --green:#00e676;--red:#ff1744;--amber:#ffab00;
-  --blue:#40c4ff;--purple:#ce93d8;--white:#ffffff;--dim:#607d8b;
+  --blue:#40c4ff;--purple:#ce93d8;--white:#ffffff;--dim:#8da4b0;
   --fs-lg:14px;--fs-sm:11px;--btn-h:40px;
 }
 body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:var(--fs-lg);min-height:100vh;padding-bottom:60px}
@@ -21,7 +24,27 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 
 /* HEADER */
 .header{background:var(--card);border-bottom:1px solid var(--border);padding:12px 16px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:200}
-.header h1{font-family:monospace;font-size:18px;font-weight:700;color:var(--white);letter-spacing:1px;white-space:nowrap}
+.header h1{font-family:'Playfair Display',serif;font-size:20px;font-weight:800;color:var(--white);letter-spacing:.3px;white-space:nowrap}
+.header h1 .t1,.auth-wordmark .t1{color:var(--green)}
+.header h1 .t2,.auth-wordmark .t2{color:var(--red)}
+.auth-wordmark{font-family:'Playfair Display',serif;font-size:22px;font-weight:800;margin-bottom:4px;transform-origin:50% 0%;transform:translateY(-460px) scale(3);opacity:0;animation:dropShrinkIn 950ms cubic-bezier(.22,.68,.36,1) forwards}
+.auth-sub{opacity:0;animation:fadeUp 450ms ease-out 780ms forwards}
+.auth-card{opacity:0;animation:fadeUp 450ms ease-out 900ms forwards}
+@keyframes dropShrinkIn{
+  0%{transform:translateY(-460px) scale(3);opacity:1}
+  65%{transform:translateY(0) scale(1);opacity:1}
+  78%{transform:translateY(-10px) scale(1)}
+  90%{transform:translateY(3px) scale(1)}
+  100%{transform:translateY(0) scale(1);opacity:1}
+}
+@keyframes fadeUp{
+  from{opacity:0;transform:translateY(10px)}
+  to{opacity:1;transform:translateY(0)}
+}
+@media (prefers-reduced-motion: reduce){
+  .auth-wordmark{animation:none;opacity:1;transform:none}
+  .auth-sub,.auth-card{animation:none;opacity:1;transform:none}
+}
 .header p{font-size:var(--fs-sm);color:var(--dim);margin-top:2px;font-family:monospace}
 .header-brand{display:flex;align-items:center;gap:10px;flex-shrink:0}
 .header-logo{height:26px;width:auto;flex-shrink:0}
@@ -236,9 +259,9 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 <!-- AUTH SCREEN -->
 <div id="auth-screen" style="display:none;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;background:var(--bg)">
   <div style="width:100%;max-width:340px">
-    <h1 style="font-family:monospace;font-size:20px;color:var(--white);margin-bottom:4px">TRADE TRIBUNAL</h1>
-    <p style="font-family:monospace;font-size:11px;color:var(--dim);margin-bottom:28px">CRF Pattern Analysis</p>
-    <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px">
+    <h1 class="auth-wordmark"><span class="t1">TRADE</span> <span class="t2">TRIBUNAL</span></h1>
+    <p class="auth-sub" style="font-family:monospace;font-size:11px;color:var(--dim);margin-bottom:28px">CRF Pattern Analysis</p>
+    <div class="auth-card" style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px">
       <div id="auth-title" style="font-family:monospace;font-size:13px;font-weight:700;color:var(--blue);letter-spacing:.1em;margin-bottom:16px">SIGN IN</div>
       <label style="font-family:monospace;font-size:9px;color:var(--dim);display:block;margin-bottom:4px">EMAIL</label>
       <input id="auth-email" type="email" autocomplete="email" placeholder="your@email.com"
@@ -295,7 +318,7 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
   <div class="header-brand">
     <img src="../shared/assets/logo-mark.png" alt="" class="header-logo">
     <div class="header-title-wrap">
-    <h1>TRADE TRIBUNAL</h1>
+    <h1><span class="t1">TRADE</span> <span class="t2">TRIBUNAL</span></h1>
     <div style="display:flex;align-items:center;gap:8px;margin-top:2px;flex-wrap:wrap">
       <p id="ticker-count" style="font-family:monospace;font-size:var(--fs-sm);color:var(--dim)">CRF &middot; 7 TICKERS</p>
       <span style="font-family:monospace;font-size:9px;font-weight:700;color:#40c4ff;background:#40c4ff18;border:1px solid #40c4ff44;border-radius:3px;padding:1px 6px;letter-spacing:.08em">STARTER</span>
