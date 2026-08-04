@@ -1,4 +1,4 @@
--- Trade Verdict — Patch 5 (Supabase-backed credits storage)
+-- Trade Tribunal — Patch 5 (Supabase-backed credits storage)
 -- Run manually in the Supabase SQL editor before deploying this
 -- server.js/credits.js to Render.
 --

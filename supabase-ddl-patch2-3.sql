@@ -1,4 +1,4 @@
--- Trade Verdict — Patch 2 (Dynamic Proxy) + Patch 3 (Pre-Gate) new tables
+-- Trade Tribunal — Patch 2 (Dynamic Proxy) + Patch 3 (Pre-Gate) new tables
 -- Run manually in the Supabase SQL editor before deploying this server.js
 -- to Render. Matches the existing subscribers/credits tables' style
 -- documented in the Build Log (bigint id, created_at default now()).
