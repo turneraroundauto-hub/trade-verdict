@@ -27,7 +27,24 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 .header h1{font-family:'Playfair Display',serif;font-size:20px;font-weight:800;color:var(--white);letter-spacing:.3px;white-space:nowrap}
 .header h1 .t1,.auth-wordmark .t1{color:var(--green)}
 .header h1 .t2,.auth-wordmark .t2{color:var(--red)}
-.auth-wordmark{font-family:'Playfair Display',serif;font-size:22px;font-weight:800;margin-bottom:4px}
+.auth-wordmark{font-family:'Playfair Display',serif;font-size:22px;font-weight:800;margin-bottom:4px;transform-origin:50% 0%;transform:translateY(-460px) scale(3);opacity:0;animation:dropShrinkIn 950ms cubic-bezier(.22,.68,.36,1) forwards}
+.auth-sub{opacity:0;animation:fadeUp 450ms ease-out 780ms forwards}
+.auth-card{opacity:0;animation:fadeUp 450ms ease-out 900ms forwards}
+@keyframes dropShrinkIn{
+  0%{transform:translateY(-460px) scale(3);opacity:1}
+  65%{transform:translateY(0) scale(1);opacity:1}
+  78%{transform:translateY(-10px) scale(1)}
+  90%{transform:translateY(3px) scale(1)}
+  100%{transform:translateY(0) scale(1);opacity:1}
+}
+@keyframes fadeUp{
+  from{opacity:0;transform:translateY(10px)}
+  to{opacity:1;transform:translateY(0)}
+}
+@media (prefers-reduced-motion: reduce){
+  .auth-wordmark{animation:none;opacity:1;transform:none}
+  .auth-sub,.auth-card{animation:none;opacity:1;transform:none}
+}
 .header p{font-size:var(--fs-sm);color:var(--dim);margin-top:2px;font-family:monospace}
 .header-brand{display:flex;align-items:center;gap:10px;flex-shrink:0}
 .header-logo{height:26px;width:auto;flex-shrink:0}
@@ -315,8 +332,8 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 <div id="auth-screen" style="display:none;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;background:var(--bg)">
   <div style="width:100%;max-width:340px">
     <h1 class="auth-wordmark"><span class="t1">TRADE</span> <span class="t2">TRIBUNAL</span></h1>
-    <p style="font-family:monospace;font-size:11px;color:var(--dim);margin-bottom:28px">CRF Pattern Analysis</p>
-    <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px">
+    <p class="auth-sub" style="font-family:monospace;font-size:11px;color:var(--dim);margin-bottom:28px">CRF Pattern Analysis</p>
+    <div class="auth-card" style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px">
       <div id="auth-title" style="font-family:monospace;font-size:13px;font-weight:700;color:var(--purple);letter-spacing:.1em;margin-bottom:16px">SIGN IN</div>
       <label style="font-family:monospace;font-size:9px;color:var(--dim);display:block;margin-bottom:4px">EMAIL</label>
       <input id="auth-email" type="email" autocomplete="email" placeholder="your@email.com"
