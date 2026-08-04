@@ -732,11 +732,59 @@ No bullets. No labels. Plain sentences only. Return only the text.
 
 
 // ─── ALPACA OHLCV ─────────────────────────────────────────────────
-async function fetchOpeningBar(symbol) {
+// Alpaca's free plan allows 200 requests/minute. fetchOpeningBar,
+// fetchExtendedHoursPrice, and fetchImpliedVolatility below each used to
+// fire their own unthrottled fetch — a full watchlist's worth of tickers
+// firing 2-3 Alpaca calls each blows past 200/min in seconds. Confirmed
+// live on Tra (Aug 4, 2026): a burst of 429s across all three, several for
+// the same symbol within milliseconds of each other — not just slow, a
+// correctness problem, since a failed fetchOpeningBar/IV call fails safe to
+// null rather than erroring loudly. Same fix as Finnhub's throttle: one
+// shared rolling-window limiter plus retry-with-backoff on 429, centralized
+// in alpacaGet() so all three call sites share it. NOTE: fetchDailyCloses
+// below still uses Finnhub's /stock/candle in this mirror (pre-dates Tra's
+// Aug 1, 2026 migration of Gate 1 to Alpaca) — not touched by this throttle,
+// separate pre-existing drift from Tra worth reconciling on its own.
+const ALPACA_MAX_PER_MIN = 180;
+const alpacaCallTimes = [];
+let alpacaQueue = Promise.resolve();
+
+function alpacaThrottle() {
+  const turn = alpacaQueue.then(async () => {
+    for (;;) {
+      const now = Date.now();
+      while (alpacaCallTimes.length && now - alpacaCallTimes[0] > 60000) alpacaCallTimes.shift();
+      if (alpacaCallTimes.length < ALPACA_MAX_PER_MIN) {
+        alpacaCallTimes.push(now);
+        return;
+      }
+      await new Promise(r => setTimeout(r, 60000 - (now - alpacaCallTimes[0]) + 50));
+    }
+  });
+  alpacaQueue = turn.catch(() => {}); // one slow/failed turn must not wedge the queue for everyone behind it
+  return turn;
+}
+
+async function alpacaGet(url, attempt = 0) {
   const key    = process.env.ALPACA_KEY;
   const secret = process.env.ALPACA_SECRET;
   if (!key || !secret) return null;
+  await alpacaThrottle();
+  const res = await fetchWithTimeout(url, {
+    headers: {
+      "APCA-API-KEY-ID":     key,
+      "APCA-API-SECRET-KEY": secret,
+    }
+  }, 8000);
+  if (res.status === 429 && attempt < 2) {
+    const retryAfterMs = Number(res.headers.get("retry-after")) * 1000 || 2000 * (attempt + 1);
+    await new Promise(r => setTimeout(r, retryAfterMs));
+    return alpacaGet(url, attempt + 1);
+  }
+  return res;
+}
 
+async function fetchOpeningBar(symbol) {
   try {
     // Get today's date in ET
     const now = new Date();
@@ -745,13 +793,8 @@ async function fetchOpeningBar(symbol) {
 
     // Fetch 15-min bars for today — first bar is the opening bar
     const url = `https://data.alpaca.markets/v2/stocks/${symbol}/bars?timeframe=15Min&start=${today}T09:30:00-04:00&limit=5&feed=iex`;
-    const res = await fetchWithTimeout(url, {
-      headers: {
-        "APCA-API-KEY-ID":     key,
-        "APCA-API-SECRET-KEY": secret,
-      }
-    }, 8000);
-    if (!res.ok) return null;
+    const res = await alpacaGet(url);
+    if (!res || !res.ok) return null;
     const data = await res.json();
     const bars = data.bars || [];
     if (!bars.length) return null;
@@ -788,18 +831,10 @@ async function fetchOpeningBar(symbol) {
 // no recent IEX print, or if Alpaca isn't configured — callers fall back to
 // Finnhub's value in that case.
 async function fetchExtendedHoursPrice(symbol) {
-  const key    = process.env.ALPACA_KEY;
-  const secret = process.env.ALPACA_SECRET;
-  if (!key || !secret) return null;
   try {
     const url = `https://data.alpaca.markets/v2/stocks/${symbol}/trades/latest?feed=iex`;
-    const res = await fetchWithTimeout(url, {
-      headers: {
-        "APCA-API-KEY-ID":     key,
-        "APCA-API-SECRET-KEY": secret,
-      }
-    }, 8000);
-    if (!res.ok) return null;
+    const res = await alpacaGet(url);
+    if (!res || !res.ok) return null;
     const data  = await res.json();
     const trade = data.trade;
     if (!trade || typeof trade.p !== "number") return null;
@@ -853,18 +888,11 @@ function pickRepresentativeIV(snapshots, price) {
 }
 
 async function fetchImpliedVolatility(symbol, price) {
-  const key    = process.env.ALPACA_KEY;
-  const secret = process.env.ALPACA_SECRET;
-  if (!key || !secret || !price) return null;
+  if (!price) return null;
   try {
     const url = `https://data.alpaca.markets/v1beta1/options/snapshots/${symbol}?limit=200&feed=indicative`;
-    const res = await fetchWithTimeout(url, {
-      headers: {
-        "APCA-API-KEY-ID":     key,
-        "APCA-API-SECRET-KEY": secret,
-      }
-    }, 8000);
-    if (!res.ok) return null;
+    const res = await alpacaGet(url);
+    if (!res || !res.ok) return null;
     const data = await res.json();
     if (!data?.snapshots) return null;
     return pickRepresentativeIV(data.snapshots, price);
