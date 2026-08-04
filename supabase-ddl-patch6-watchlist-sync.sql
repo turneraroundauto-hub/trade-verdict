@@ -30,6 +30,14 @@ create index if not exists watchlists_email_idx on public.watchlists (email);
 -- access via the service_role key.
 alter table public.watchlists disable row level security;
 
+-- "RLS disabled" alone is NOT sufficient on this project — confirmed Aug 4,
+-- 2026 (patches 2-3/5's tables) that anon/authenticated can end up with
+-- full SELECT/INSERT/UPDATE/DELETE grants despite RLS being off, unless
+-- explicitly revoked. This table happened to already have no such grants
+-- when checked, but this revoke makes that guaranteed rather than
+-- coincidental, and keeps this patch reproducible on a fresh project.
+revoke all on public.watchlists from anon, authenticated;
+
 -- Must be added to Data API -> Exposed tables in the Supabase dashboard
 -- (same Apr 2026 breaking change documented in the Build Log for every
 -- other table here — new tables are opt-in unless "Automatically expose

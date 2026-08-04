@@ -61,6 +61,16 @@ alter table public.credits add column if not exists pending_analyses integer not
 -- for this table). No-op if already disabled.
 alter table public.credits disable row level security;
 
+-- "RLS disabled" alone is NOT sufficient on this project — confirmed Aug 4,
+-- 2026 that anon/authenticated had full SELECT/INSERT/UPDATE/DELETE on this
+-- table despite RLS being off (their default grants, never explicitly
+-- revoked). That meant anyone with the public anon key could rewrite their
+-- own (or anyone's) credit balance directly via the REST API, bypassing
+-- Stripe and the backend entirely. This revoke is what actually closes it
+-- — disabling RLS alone does nothing if the grants are still open
+-- underneath it. No-op if already revoked.
+revoke all on public.credits from anon, authenticated;
+
 -- ── get_or_create_user_credits ──────────────────────────────────────
 -- Ensures a row exists for p_key, applies the weekly (free) or monthly
 -- (paid) reset if due, keeps tier in sync with the authoritative tier

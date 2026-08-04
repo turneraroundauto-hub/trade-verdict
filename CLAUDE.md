@@ -99,6 +99,54 @@ intraday high/low — accepted because Gate 1's forceDown (fresh Alpaca
 60-day data, untouched by this cache) independently catches most of the
 cases where that would actually matter.
 
+## Supabase tables: "RLS disabled" ≠ "access blocked" (Aug 4, 2026)
+
+Every service-role-only table in this project (`subscribers`, `credits`,
+`proxy_resolution`, `pre_gate_triggers`, `watchlists`, `accuracy_log`) is
+documented as "RLS disabled, server-only access via the service_role key."
+**That description is incomplete and was actively dangerous:** disabling
+RLS just means Postgres stops filtering rows by policy — it does nothing
+about the underlying `anon`/`authenticated` role GRANTs. Supabase's
+Security Advisor flagged `public.subscribers` as CRITICAL ("Policy Exists
+RLS Disabled"), which led to actually checking every table's real grants
+via `information_schema.role_table_grants` — and `credits`,
+`accuracy_log`, and `proxy_resolution` all had full `anon` **and**
+`authenticated` SELECT/INSERT/UPDATE/DELETE, unrevoked, this whole time.
+Anyone with the public anon key (sitting in every tier's page source)
+could have rewritten their own credit balance, tampered with any user's
+track record, or corrupted the proxy-resolution cache directly via the
+REST API — no backend, no auth, no rate limit. `subscribers` and
+`watchlists` happened to already have no such grants (likely a Supabase
+project-default-privileges quirk at table-creation time, not anything
+this repo did intentionally) — that was luck, not design.
+
+**Fixed (Aug 4, 2026):** `revoke all on <table> from anon, authenticated;`
+run against `credits`, `accuracy_log`, `proxy_resolution` — confirmed
+closed via the same grants query returning zero rows afterward.
+
+**Rule for every future service-role-only table:** `disable row level
+security` is not sufficient by itself. Always pair it with an explicit
+`revoke all on public.<table> from anon, authenticated;`, and verify with:
+```sql
+select grantee, table_name, privilege_type
+from information_schema.role_table_grants
+where table_schema = 'public' and table_name = '<table>'
+  and grantee in ('anon','authenticated');
+```
+Zero rows back is the only thing that actually confirms it — "RLS shows
+disabled in the dashboard" does not. All `supabase-ddl-patch*.sql` files
+for existing service-role-only tables now include this revoke; any new
+patch creating one must too.
+
+Separately, unrelated to the grants issue: on this project, bundling
+`alter table ... disable row level security` in the *same* SQL editor
+run as the `create table` it follows did not reliably stick (patch8,
+`accuracy_log` — the table still showed RLS-enabled after running the
+combined script). Running it as its own separate execution, after the
+table already exists, is what actually worked. Structure future patches
+as explicit separate steps rather than assuming one combined run is
+equivalent.
+
 ## Frontend architecture
 
 Four independent tier HTMLs, each pairing with its own `app.js`
