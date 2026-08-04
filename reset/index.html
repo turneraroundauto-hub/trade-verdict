@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate">
 <title>Trade Tribunal — Reset Password</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@800&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{
@@ -14,7 +17,9 @@
 }
 body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px}
 .wrap{width:100%;max-width:340px}
-h1{font-family:monospace;font-size:20px;color:var(--white);margin-bottom:4px}
+h1{font-family:'Playfair Display',serif;font-size:22px;font-weight:800;color:var(--white);margin-bottom:4px}
+h1 .t1{color:var(--green)}
+h1 .t2{color:var(--red)}
 .sub{font-family:monospace;font-size:11px;color:var(--dim);margin-bottom:28px}
 .card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px}
 .title{font-family:monospace;font-size:13px;font-weight:700;color:var(--blue);letter-spacing:.1em;margin-bottom:16px}
@@ -31,7 +36,7 @@ a.back{display:block;text-align:center;margin-top:16px;font-family:monospace;fon
 </head>
 <body>
 <div class="wrap">
-  <h1>TRADE TRIBUNAL</h1>
+  <h1><span class="t1">TRADE</span> <span class="t2">TRIBUNAL</span></h1>
   <p class="sub">Reset Password</p>
   <div class="card">
     <div class="title" id="title">SET NEW PASSWORD</div>

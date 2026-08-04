@@ -8,6 +8,9 @@
 <meta name="theme-color" content="#0f1923">
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate">
 <title>Trade Tribunal — Free</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@800&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{
@@ -21,7 +24,9 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 
 /* HEADER */
 .header{background:var(--card);border-bottom:1px solid var(--border);padding:12px 16px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:200}
-.header h1{font-family:monospace;font-size:18px;font-weight:700;color:var(--white);letter-spacing:1px;white-space:nowrap}
+.header h1{font-family:'Playfair Display',serif;font-size:20px;font-weight:800;color:var(--white);letter-spacing:.3px;white-space:nowrap}
+.header h1 .t1{color:var(--green)}
+.header h1 .t2{color:var(--red)}
 .header p{font-size:var(--fs-sm);color:var(--dim);margin-top:2px;font-family:monospace}
 .header-brand{display:flex;align-items:center;gap:10px;flex-shrink:0}
 .header-logo{height:26px;width:auto;flex-shrink:0}
@@ -247,7 +252,7 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
   <div class="header-brand">
     <img src="./shared/assets/logo-mark.png" alt="" class="header-logo">
     <div class="header-title-wrap">
-    <h1>TRADE TRIBUNAL</h1>
+    <h1><span class="t1">TRADE</span> <span class="t2">TRIBUNAL</span></h1>
     <div style="display:flex;align-items:center;gap:8px;margin-top:2px;flex-wrap:wrap">
       <p id="ticker-count" style="font-family:monospace;font-size:var(--fs-sm);color:var(--dim)">CRF &middot; 3 TICKERS</p>
       <span style="font-family:monospace;font-size:9px;font-weight:700;color:#8da4b0;background:#8da4b018;border:1px solid #8da4b044;border-radius:3px;padding:1px 6px;letter-spacing:.08em">FREE</span>
