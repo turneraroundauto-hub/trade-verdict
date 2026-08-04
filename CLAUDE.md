@@ -99,6 +99,83 @@ intraday high/low — accepted because Gate 1's forceDown (fresh Alpaca
 60-day data, untouched by this cache) independently catches most of the
 cases where that would actually matter.
 
+## Backend: Alpaca call budget, extended-hours pricing, dual-source news (Aug 4, 2026)
+
+Same shape of problem as the Finnhub throttle above, found the same way
+(live 429s in Render logs) and fixed the same way: every `fetchOpeningBar`/
+`fetchDailyCloses`/`fetchImpliedVolatility`/`fetchExtendedHoursPrice` call
+now goes through `alpacaGet()`, which has its own shared 180-calls/min
+rolling-window queue (`alpacaThrottle()`, Alpaca's free-plan limit is
+200/min) with retry-with-backoff on 429. Before this, a full watchlist load
+(main cards + Proxy Resolution Explorer + Heat Map each independently
+triggering `/ticker/:symbol`) fired 2-3 unthrottled Alpaca calls per
+ticker, burst well past 200/min, and a chunk of them 429'd — not just
+slow, a correctness bug: `fetchDailyCloses` failing to `null` on a 429
+silently degrades Gate 1's evaluation instead of visibly erroring. If you
+add a new Alpaca-backed feature, route it through `alpacaGet()` — don't
+call `fetch()` against `data.alpaca.markets` directly.
+
+**Pre/post-market pricing now comes from Alpaca, not Finnhub, during
+`isExtendedHoursWindow()` (8-9:30am / 4-8pm ET).** Finnhub's free `/quote`
+`c` field doesn't track pre/post-market trades — it holds the last
+regular-session price until 9:30am, confirmed live (CIFR showing $24.16
+pre-market against a real $21.80). First attempt narrowed
+`isMarketDataWindow()` to 9:30am-8pm to just stop refreshing during that
+gap, on the wrong assumption that Alpaca's free IEX feed couldn't cover it
+either. It can: IEX Exchange runs its own formal pre-market
+(4:00am-9:30am ET) and post-market (4:00pm-8:00pm ET) sessions, and
+Alpaca's `feed=iex` bars/latest-trade endpoints include those prints by
+default (no extra param needed — confirmed via a GitHub issue on Alpaca's
+Python client where users were asking to *exclude* extended-hours bars).
+So the window stayed at 8am-8pm, and `fetchExtendedHoursPrice()`
+(Alpaca latest-trade) substitutes for Finnhub's frozen price during that
+sub-window, recomputing %change against Finnhub's `pc` (previous close,
+reliable at any hour). Thinner liquidity than the regular consolidated
+tape — a real but imprecise read, not equivalent to a regular-session
+quote, but a large improvement over silently re-serving a stale value.
+
+**News is now sourced from Finnhub *and* Alpaca (`/v1beta1/news`,
+Benzinga) concurrently, using whichever headline is actually more
+recent — not "fall back to Alpaca only when Finnhub is empty."**
+Root-caused via BB (Aug 4, 2026): Finnhub's `/company-news` returned a
+real, non-empty article that was simply 313.5 hours old against the app's
+300-hour cutoff — a materially newer BB story the user had seen elsewhere
+wasn't in Finnhub's feed for that ticker at all. An empty-only fallback
+wouldn't have caught that, since Finnhub's result wasn't empty, just
+stale. **UNVERIFIED AGAINST LIVE ALPACA NEWS ENTITLEMENT** — same posture
+as the IV feature below: written from Alpaca's documented response shape,
+fails safe to Finnhub-only behavior on any error (including a 403 if the
+account lacks the entitlement), never confirmed against a real response.
+Check Render logs for `fetchAlpacaNews` errors, or watch for a card whose
+news source shows "Benzinga" to confirm it's actually working.
+
+**Market-open cache warm** (`setInterval`, this codebase's first): fires
+once per trading day in a 9:30-9:35am ET window, refreshing the fixed
+tracked-symbol list (`marketCache`, via `warmTrackedMarketCache()`,
+shared with the existing boot-time warm) and every symbol currently in
+`symbolMarketCache` (via `refreshMarketEntry()`, shared with
+`/ticker/:symbol`'s own staleness check) — so the bell ringing itself
+triggers the refresh instead of whoever loads their watchlist first after
+open eating the cost alone.
+
+**Known follow-ups, not yet built:**
+- `fetchDailyCloses` refetches all 130 days of Alpaca bars on every price
+  refresh (as often as every 1 min on Pro), even though only the
+  most-recent day's bar can actually change. Fundamentals got decoupled
+  into their own 24h cache for exactly this reason (see above) — daily
+  closes never did. Real, low-risk win for reducing steady-state Alpaca
+  call volume, not just the throttled-burst case.
+- Proxy Resolution Explorer and Sector Heat Map (Pro) both still iterate
+  the *entire* watchlist, not just the 15-card window the main cards use
+  — proposed scoping both to top-15 (matches the credit-cost boundary
+  already established for cards) but never confirmed/built. Tradeoff:
+  loses live proxy-coherence/heat visibility for tickers 16+.
+- No in-flight de-duplication: cards, PRE, and Heat Map can each
+  independently trigger a fetch for the *same* symbol within milliseconds
+  of each other (observed live in the 429 burst — e.g. `GLD` fetched
+  twice within ~0.4s). The Alpaca/Finnhub throttles absorb this now, but
+  it's still wasted call volume against both providers' budgets.
+
 ## Supabase tables: "RLS disabled" ≠ "access blocked" (Aug 4, 2026)
 
 Every service-role-only table in this project (`subscribers`, `credits`,
@@ -147,6 +224,34 @@ table already exists, is what actually worked. Structure future patches
 as explicit separate steps rather than assuming one combined run is
 equivalent.
 
+**⚠️ OPEN, NOT RESOLVED (Aug 4, 2026): `credits` currently has its
+`anon`/`authenticated` grants back — the vulnerability above is
+re-opened on this one table as a live stopgap.** Revoking `credits`'
+grants broke real production traffic within minutes — `credits.
+get_or_create_user_credits failed: permission denied for table
+credits` in Render logs. Diagnosed as far as: `service_role` itself is
+fine (`set role service_role; select * from
+public.get_or_create_user_credits(...)` succeeds cleanly from the SQL
+editor, and `information_schema.role_table_grants` shows `service_role`
+has full privileges on every one of these tables, `credits` included).
+So the table/function side is provably not the problem — which means
+`Tra`'s live Supabase client is, for some reason, not actually
+authenticating as `service_role` for this call path, despite
+`SUPABASE_SERVICE_KEY` being the env var name in `server.js`. Root
+cause was never confirmed (candidate: `SUPABASE_SERVICE_KEY` in
+Render's environment may not actually hold the real service_role
+secret — never verified via a direct JWT-payload check against
+Supabase's dashboard-labeled keys, which is the one test that would
+settle it). Re-granting `anon`/`authenticated` on `credits` was the
+fix that actually restored service — meaning whatever role these
+calls run as, it isn't blocked by that grant, consistent with the
+"wrong key" theory but not confirmed. **Before touching `credits`'
+grants again: decode `SUPABASE_SERVICE_KEY`'s JWT payload (`role`
+claim) and compare against Supabase dashboard → Settings → API's two
+labeled keys.** `accuracy_log`, `proxy_resolution`, `pre_gate_triggers`,
+and `watchlists` are still properly revoked and were not affected —
+only `credits` is currently exposed again.
+
 ## Frontend architecture
 
 Four independent tier HTMLs, each pairing with its own `app.js`
@@ -162,6 +267,19 @@ single-file version — see Tier status below). All non-free tiers share:
 - `shared/track-record.js` — the `tv_accuracy_log` (capped 200 entries):
   `logResult(ticker, verdict, correct, rowEl, meta?)`, `renderTrackRecord()`,
   `getAccuracyLog()`, `clearLog()`.
+- `shared/track-record-sync.js` (added Aug 4, 2026, **Pro only** — only
+  `pro/app.js` wires it up) — syncs `tv_accuracy_log` to the account via the
+  new `GET`/`POST /track` endpoints in `Tra`, structurally identical to
+  `watchlist-sync.js`/`GET`/`POST /watchlist`: same debounced push, same
+  seed/`ignoreDuplicates` write on an ambiguous empty pull. Free/Starter/
+  Shark are untouched, still localStorage-only. Backing table:
+  `public.accuracy_log` (`supabase-ddl-patch8-track-record-sync.sql`).
+
+`shared/watchlist.js`'s `hydrateCards()` (populates each card's price/52W/
+news strip) fires every card's fetch concurrently rather than in gated
+batches of 5 (removed Aug 4, 2026) — the batching predated `Tra`'s Finnhub
+throttle and is now redundant with it; keeping it only added tail latency
+(a slow ticker blocked the *next* batch from even starting).
 
 ### The cache-busting rule — this is not optional
 
@@ -201,13 +319,13 @@ shared file's content (its import line), that file's OWN version needs
 bumping too, and so on up through every `app.js` to each tier's
 `<script>` tag — check every hop, not just the first one.
 
-## Tier status (as of Aug 3, 2026)
+## Tier status (as of Aug 4, 2026)
 
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
 | Starter | `starter/index.html` + `starter/app.js` | Rebuilt, on shared modules, current |
-| Pro | `pro/index.html` + `pro/app.js` | Rebuilt Aug 2, 2026 (trade-verdict PRs #23, #24, #26, #27, #28 + `Tra` PR #5) — on shared modules, plus Pro-exclusive Analyst View, Proxy Resolution Explorer + live coherence strip, Sector Heat Map, a CSV export (Ticker/List/Price/IV/Change%, real IV via Alpaca options snapshots), trigger/ticker track-record breakdowns, and a card/watchlist split: only the first 15 tickers (in list order) render as full analysis cards, the rest render as compact price/%chg/news rows with no ANALYZE button and no credit cost — `analyzeAll()` scopes to the 15-card window only (max 5 credits). **Confirmed working live by Mr. T**, including the IV export. Its two Shark upsell teases (Proxy Explorer, Heat Map) link to `shark/coming-soon.html` (see Shark row), not straight to Stripe checkout. |
+| Pro | `pro/index.html` + `pro/app.js` | Rebuilt Aug 2, 2026 (trade-verdict PRs #23, #24, #26, #27, #28 + `Tra` PR #5) — on shared modules, plus Pro-exclusive Analyst View, Proxy Resolution Explorer + live coherence strip, Sector Heat Map, a CSV export (Ticker/List/Price/IV/Change%, real IV via Alpaca options snapshots), trigger/ticker track-record breakdowns, server-synced track record (Aug 4, 2026, see Frontend architecture above — Pro only), and a card/watchlist split: only the first 15 tickers (in list order) render as full analysis cards, the rest render as compact price/%chg/news rows with no ANALYZE button and no credit cost — `analyzeAll()` scopes to the 15-card window only (max 5 credits). **Confirmed working live by Mr. T**, including the IV export. Its two Shark upsell teases (Proxy Explorer, Heat Map) link to `shark/coming-soon.html` (see Shark row), not straight to Stripe checkout. Proxy Resolution Explorer and Heat Map both still iterate the full watchlist, not the 15-card window — see the Alpaca section's "known follow-ups" above. |
 | Shark | `shark/index.html` (no separate `app.js` — still monolithic) | **NOT rebuilt — deliberately deferred as of Aug 2, 2026, not a backlog gap.** Mr. T wants Shark's eventual rebuild to lean on more Alpaca-driven visuals, likely after upgrading to Alpaca's "Plus" data plan first. Don't pick this up proactively without checking that's still the plan — it still carries the same reorder/log-button bugs Pro had before its rebuild (shared original template) whenever it does happen. A separate, standalone `shark/coming-soon.html` splash (added Aug 2, 2026, licensed mascot art at `shared/assets/shark-mascot.png`) exists alongside it — email waitlist writes directly to Supabase's `shark_waitlist` table (anon insert-only via RLS) from the browser, no backend involvement. |
 
 Tier config (ticker cap, cache TTL, credits, tracker, `alpaca`, `iv`) is
