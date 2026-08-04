@@ -2328,11 +2328,11 @@ app.post("/auth/reset-confirm", async (req, res) => {
   try {
     let userId = null;
     if (accessToken) {
-      const { data, error } = await supabase.auth.getUser(accessToken);
+      const { data, error } = await authClient().auth.getUser(accessToken);
       if (error || !data?.user) return res.status(401).json({ error: "This reset link is invalid or has expired" });
       userId = data.user.id;
     } else {
-      const { data, error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: "recovery" });
+      const { data, error } = await authClient().auth.verifyOtp({ token_hash: tokenHash, type: "recovery" });
       if (error || !data?.user) return res.status(401).json({ error: "This reset link is invalid or has expired" });
       userId = data.user.id;
     }
