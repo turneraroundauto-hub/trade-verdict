@@ -30,6 +30,15 @@ create table if not exists public.proxy_resolution (
 -- upserts and provides no value for a service-role-only table).
 alter table public.proxy_resolution disable row level security;
 
+-- "RLS disabled" alone is NOT sufficient on this project — confirmed Aug 4,
+-- 2026 that anon/authenticated had full SELECT/INSERT/UPDATE/DELETE on this
+-- table despite RLS being off (their default grants, never explicitly
+-- revoked). That means anyone with the public anon key could read/write
+-- this table directly via the REST API. This revoke is what actually
+-- closes it — disabling RLS alone does nothing if the grants are still
+-- open underneath it.
+revoke all on public.proxy_resolution from anon, authenticated;
+
 -- ── PATCH 3 — Pre-Gate soft-trigger escalation history ──────────────
 -- One row per detected soft trigger (dilution / guidance-cut language found
 -- in a SEC filing). 2+ rows for the same ticker within a rolling 30 days
@@ -50,6 +59,10 @@ create index if not exists pre_gate_triggers_ticker_detected_idx
   on public.pre_gate_triggers (ticker, detected_at);
 
 alter table public.pre_gate_triggers disable row level security;
+
+-- Same open-grants gap as proxy_resolution above, same fix — see that
+-- comment for why "RLS disabled" alone isn't enough on this project.
+revoke all on public.pre_gate_triggers from anon, authenticated;
 
 -- Both tables must be added to Data API -> Exposed tables in the Supabase
 -- dashboard (same Apr 2026 breaking change documented in the Build Log for
