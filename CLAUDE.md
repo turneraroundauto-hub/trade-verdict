@@ -224,33 +224,51 @@ table already exists, is what actually worked. Structure future patches
 as explicit separate steps rather than assuming one combined run is
 equivalent.
 
-**⚠️ OPEN, NOT RESOLVED (Aug 4, 2026): `credits` currently has its
-`anon`/`authenticated` grants back — the vulnerability above is
-re-opened on this one table as a live stopgap.** Revoking `credits`'
+**Root cause confirmed (Aug 4, 2026) — fix up as `Tra` PR #22, not yet
+merged/deployed.** `credits` currently still has its `anon`/`authenticated`
+grants back as a live stopgap (the vulnerability above is re-opened on
+this one table until the fix below deploys and holds). Revoking `credits`'
 grants broke real production traffic within minutes — `credits.
 get_or_create_user_credits failed: permission denied for table
-credits` in Render logs. Diagnosed as far as: `service_role` itself is
-fine (`set role service_role; select * from
-public.get_or_create_user_credits(...)` succeeds cleanly from the SQL
-editor, and `information_schema.role_table_grants` shows `service_role`
-has full privileges on every one of these tables, `credits` included).
-So the table/function side is provably not the problem — which means
-`Tra`'s live Supabase client is, for some reason, not actually
-authenticating as `service_role` for this call path, despite
-`SUPABASE_SERVICE_KEY` being the env var name in `server.js`. Root
-cause was never confirmed (candidate: `SUPABASE_SERVICE_KEY` in
-Render's environment may not actually hold the real service_role
-secret — never verified via a direct JWT-payload check against
-Supabase's dashboard-labeled keys, which is the one test that would
-settle it). Re-granting `anon`/`authenticated` on `credits` was the
-fix that actually restored service — meaning whatever role these
-calls run as, it isn't blocked by that grant, consistent with the
-"wrong key" theory but not confirmed. **Before touching `credits`'
-grants again: decode `SUPABASE_SERVICE_KEY`'s JWT payload (`role`
-claim) and compare against Supabase dashboard → Settings → API's two
-labeled keys.** `accuracy_log`, `proxy_resolution`, `pre_gate_triggers`,
-and `watchlists` are still properly revoked and were not affected —
-only `credits` is currently exposed again.
+credits` in Render logs — even though `service_role` provably had full
+grants on every one of these tables (`set role service_role; select * from
+public.get_or_create_user_credits(...)` succeeded cleanly from the SQL
+editor).
+
+Actual cause: none of `credits`' RPC functions
+(`get_or_create_user_credits`, `deduct_user_credit`, etc., in
+`supabase-ddl-patch5-credits.sql`) are `SECURITY DEFINER` — Postgres
+defaults to `SECURITY INVOKER`, so each one runs with whatever role the
+*calling* request resolves to, not `service_role` automatically. `Tra`'s
+`server.js` used one module-level Supabase client (built with
+`SUPABASE_SERVICE_KEY`) for everything, including `/auth/login` and
+`/auth/signup`, which call `signInWithPassword`/`signUp` — and in
+`@supabase/supabase-js` v2, those calls persist a session onto whatever
+client instance they're called on, after which that instance's own
+`.from()/.rpc()` calls send the *session's* access token instead of the
+key it was constructed with. So the moment any user logged in, the shared
+client's session flipped to that user's `authenticated`-role JWT, and
+every other concurrent/subsequent request's privileged calls (`credits`
+included) silently started executing as `authenticated` instead of
+`service_role` — until the next login/signup overwrote it again. This
+also explains why it wasn't 100% reproducible: it only manifests once a
+login/signup has happened recently in that server process. The same
+shared-client pattern affects `upsertSubscriber`/watchlist/track-record
+sync too, just not caught yet since those didn't have their grants
+tightened to expose it.
+
+**Fix (PR #22, `Tra`):** the admin client now sets `persistSession:
+false`, and `/auth/login`/`/auth/signup` call `signInWithPassword`/
+`signUp` on a fresh, throwaway anon-key client instead of the shared
+admin one — so a login/signup can no longer contaminate the client used
+for `service_role` work. Mirrored into this repo's `server.js` too (same
+`authClient()` pattern). **Once this deploys and holds under real
+traffic for a few days, `credits`' `anon`/`authenticated` grants can
+likely be safely re-revoked** — do that as its own follow-up, not in the
+same change, so a regression is easy to isolate. `accuracy_log`,
+`proxy_resolution`, `pre_gate_triggers`, and `watchlists` are still
+properly revoked and were never affected — only `credits` is currently
+exposed.
 
 ## Frontend architecture
 
