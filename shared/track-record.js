@@ -1,6 +1,8 @@
 var LOG_KEY='tv_accuracy_log';
 function getLog(){try{return JSON.parse(localStorage.getItem(LOG_KEY)||'[]')}catch(e){return[]}}
-function saveLog(log){localStorage.setItem(LOG_KEY,JSON.stringify(log))}
+let saveHook=null;
+export function onLogSave(cb){saveHook=cb;}
+function saveLog(log){localStorage.setItem(LOG_KEY,JSON.stringify(log));if(saveHook)saveHook();}
 
 export function logResult(ticker,verdict,correct,rowEl,meta){
   var log=getLog();
@@ -17,6 +19,11 @@ export function logResult(ticker,verdict,correct,rowEl,meta){
 }
 
 export function clearLog(){if(!confirm('Clear all logged trades?'))return;saveLog([]);renderTrackRecord()}
+
+// Overwrites the log wholesale — used to hydrate from the server on login
+// (shared/track-record-sync.js), same role setWatchlist() plays for the
+// watchlist. Not used by any local mutation path.
+export function replaceLog(entries){saveLog(entries);renderTrackRecord()}
 
 // Raw log entries, newest-last \u2014 used by tiers that build extra analytics
 // (e.g. Pro's gate-attribution breakdown) on top of the same tv_accuracy_log

@@ -1,7 +1,8 @@
 import { initTickerCache, fetchTickerData } from '../shared/ticker-cache.js?v=4';
 import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, setWatchlist, removeTicker, setRenderScope, getOverflow, onRenderWatchlist, onWatchlistSave } from '../shared/watchlist.js?v=13';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache.js?v=2';
-import { renderTrackRecord, logResult, getAccuracyLog, clearLog } from '../shared/track-record.js?v=3';
+import { renderTrackRecord, logResult, getAccuracyLog, clearLog, onLogSave } from '../shared/track-record.js?v=4';
+import { initTrackRecordSync, pullTrackRecordFromServer, schedulePushTrackRecord } from '../shared/track-record-sync.js?v=1';
 import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=6';
 
 // Concurrency-limited Promise.all: runs `fn` over `items` in batches of
@@ -1026,6 +1027,9 @@ async function checkTierAccess(session){
   initWatchlistSync({API_URL:API_URL, authH:authH, addSecret:addSecret});
   onWatchlistSave(schedulePushWatchlist);
   await pullWatchlistFromServer();
+  initTrackRecordSync({API_URL:API_URL, authH:authH, addSecret:addSecret});
+  onLogSave(schedulePushTrackRecord);
+  await pullTrackRecordFromServer();
   showScreen('app-root');initApp();
   return true;
 }
