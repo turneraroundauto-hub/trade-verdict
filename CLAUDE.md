@@ -219,6 +219,31 @@ so a stale in-flight paint from a superseded render (panel closed/
 reopened, sort changed) can't clobber a newer one. Nothing scoped away —
 tickers 16+ still get full coverage, just not gating on it.
 
+**Follow-up, same day: none of the above actually fixed it.** Reported
+back live — top-15 cards were still slow, "loading with everything
+else," no perceptible improvement from any of the three fixes above.
+Root cause was a fourth, bigger one those three didn't touch:
+`evaluatePreGate()` (SEC EDGAR full-text search, runs inside *every*
+`/ticker/:symbol` request, not just Analyze) had **no throttle at all**,
+unlike Finnhub/Alpaca. Worse, both the per-symbol Pre-Gate result cache
+and the ticker→CIK map it depends on are plain in-memory state that goes
+cold on every deploy — and the auth-stampede fix just above had, minutes
+earlier, forced exactly that deploy. So the very fix meant to help
+instead guaranteed a fully-cold Pre-Gate cache for the next test: every
+ticker, including the top 15, now needed a fresh unthrottled SEC call
+before its `/ticker/:symbol` response could return at all, and a burst of
+concurrent different-symbol requests right after a cold start could
+plausibly get slowed or rate-limited by SEC itself with nothing local
+pacing them. Fixed with `secThrottle()` (8 req/sec rolling window, same
+shape as `finnhubThrottle`) wrapping both the CIK map fetch and the
+full-text search call, plus an in-flight-promise guard
+(`tickerCikInFlight`) on the CIK map's own cold-cache population so a
+burst landing while it's null doesn't each independently re-fetch and
+re-parse the entire SEC ticker list. **Unverified against a live deploy
+as of this writing** — reasoned from code (this is the one path with
+zero rate-limiting protection, on the one deploy that would have gone in
+completely cold), not confirmed by watching Render logs post-deploy.
+
 ## Supabase tables: "RLS disabled" ≠ "access blocked" (Aug 4, 2026)
 
 Every service-role-only table in this project (`subscribers`, `credits`,
