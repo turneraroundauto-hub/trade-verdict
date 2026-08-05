@@ -1,3 +1,7 @@
+// See shared/watchlist.js's own copy of this same helper for the reasoning
+// — every visible ticker symbol links out to its Yahoo Finance quote page.
+function tickerHref(t){return'https://finance.yahoo.com/quote/'+encodeURIComponent(t)}
+
 var LOG_KEY='tv_accuracy_log';
 function getLog(){try{return JSON.parse(localStorage.getItem(LOG_KEY)||'[]')}catch(e){return[]}}
 let saveHook=null;
@@ -42,7 +46,7 @@ export function renderTrackRecord(){
   var typeRate=function(v){return byType[v].t?Math.round((byType[v].c/byType[v].t)*100)+'%':'&mdash;'};
   var byTicker={};
   log.forEach(function(e){if(!byTicker[e.ticker])byTicker[e.ticker]={c:0,t:0};byTicker[e.ticker].t++;if(e.correct)byTicker[e.ticker].c++});
-  var topTickers=Object.entries(byTicker).sort(function(a,b){return b[1].t-a[1].t}).slice(0,3).map(function(x){return x[0]+' '+Math.round((x[1].c/x[1].t)*100)+'%'}).join(' \u00b7 ')||'&mdash;';
+  var topTickers=Object.entries(byTicker).sort(function(a,b){return b[1].t-a[1].t}).slice(0,3).map(function(x){return'<a class="ticker-a" href="'+tickerHref(x[0])+'" target="_blank">'+x[0]+'</a> '+Math.round((x[1].c/x[1].t)*100)+'%'}).join(' \u00b7 ')||'&mdash;';
   var streak=0,streakType=null;
   for(var i=log.length-1;i>=0;i--){if(streakType===null)streakType=log[i].correct;if(log[i].correct===streakType)streak++;else break}
   var streakLabel=streak>1?streak+' '+(streakType?'\u2713':'\u2717')+' streak':'&mdash;';
@@ -53,7 +57,7 @@ export function renderTrackRecord(){
     var vColor=e.verdict==='UP'?'var(--green)':e.verdict==='DOWN'?'var(--red)':'var(--amber)';
     var rColor=e.correct?'var(--green)':'var(--red)';
     var t=new Date(e.ts).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
-    return'<div class="track-log-item"><span class="tli-ticker">'+e.ticker+'</span><span class="tli-verdict" style="color:'+vColor+'">'+e.verdict+'</span><span class="tli-result" style="color:'+rColor+'">'+(e.correct?'\u2713 RIGHT':'\u2717 WRONG')+'</span><span class="tli-time">'+e.session+' '+t+'</span></div>';
+    return'<div class="track-log-item"><span class="tli-ticker"><a class="ticker-a" href="'+tickerHref(e.ticker)+'" target="_blank">'+e.ticker+'</a></span><span class="tli-verdict" style="color:'+vColor+'">'+e.verdict+'</span><span class="tli-result" style="color:'+rColor+'">'+(e.correct?'\u2713 RIGHT':'\u2717 WRONG')+'</span><span class="tli-time">'+e.session+' '+t+'</span></div>';
   }).join('');
   body.innerHTML='<div class="track-rate"><span class="track-rate-num" style="color:'+rateColor+'">'+rate+'%</span><div><div class="track-rate-label">HIT RATE</div><div class="track-rate-count">'+correct+' right of '+total+' logged</div></div></div>'
     +'<div class="track-grid"><div class="track-stat"><span class="track-stat-lbl">\ud83d\udc4d UP</span><span class="track-stat-val">'+typeRate('UP')+'</span><span class="track-stat-sub">'+byType.UP.c+'/'+byType.UP.t+'</span></div><div class="track-stat"><span class="track-stat-lbl">\ud83d\udc4e DOWN</span><span class="track-stat-val">'+typeRate('DOWN')+'</span><span class="track-stat-sub">'+byType.DOWN.c+'/'+byType.DOWN.t+'</span></div><div class="track-stat"><span class="track-stat-lbl">HOLD</span><span class="track-stat-val">'+typeRate('FLAT')+'</span><span class="track-stat-sub">'+byType.FLAT.c+'/'+byType.FLAT.t+'</span></div></div>'

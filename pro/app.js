@@ -1,9 +1,9 @@
 import { initTickerCache, fetchTickerData } from '../shared/ticker-cache.js?v=4';
-import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, setWatchlist, removeTicker, setRenderScope, getOverflow, onRenderWatchlist, onWatchlistSave, cardsReady } from '../shared/watchlist.js?v=14';
+import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, setWatchlist, removeTicker, setRenderScope, getOverflow, onRenderWatchlist, onWatchlistSave, cardsReady } from '../shared/watchlist.js?v=15';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache.js?v=2';
-import { renderTrackRecord, logResult, getAccuracyLog, clearLog, onLogSave } from '../shared/track-record.js?v=4';
-import { initTrackRecordSync, pullTrackRecordFromServer, schedulePushTrackRecord } from '../shared/track-record-sync.js?v=1';
-import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=7';
+import { renderTrackRecord, logResult, getAccuracyLog, clearLog, onLogSave } from '../shared/track-record.js?v=5';
+import { initTrackRecordSync, pullTrackRecordFromServer, schedulePushTrackRecord } from '../shared/track-record-sync.js?v=2';
+import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=8';
 
 const API_URL='https://tra-zacg.onrender.com';
 const SUPABASE_URL='https://oinomcikdyisrbfeeirp.supabase.co';
@@ -446,7 +446,7 @@ export async function renderCompactList(){
       +'<div class="compact-swipe-bg"><span class="swipe-icon">&#128465;</span><span class="swipe-label">DELETE</span></div>'
       +'<div class="compact-row" id="compact-'+t+'">'
       +'<div class="compact-row-main">'
-      +'<div class="compact-row-top"><span class="compact-ticker">'+t+'</span>'
+      +'<div class="compact-row-top"><span class="compact-ticker"><a class="ticker-a" href="'+tickerHref(t)+'" target="_blank">'+t+'</a></span>'
       +'<span class="compact-price">'+(r.price!=null?'$'+parseFloat(r.price).toFixed(2):'&mdash;')+'</span>'
       +'<span class="compact-pct" style="color:'+(r.pct!=null?pctColor(r.pct):'var(--dim)')+'">'+(r.pct!=null?fmtPct(r.pct):'&mdash;')+'</span></div>'
       +'<div class="compact-news"'+(hasNews?'':' style="display:none"')+'>'+(hasNews?'<a href="'+r.news.url+'" target="_blank">'+r.news.headline+'</a>':'')+'</div>'
@@ -589,6 +589,13 @@ function fmtPct(p){return(p>0?'+':'')+p.toFixed(2)+'%'}
 // one-click way to independently check it rather than just trusting the
 // app's own math.
 function tickerLink(symbol){return'<a href="https://finance.yahoo.com/quote/'+encodeURIComponent(symbol)+'" target="_blank" class="proxy-verify-link">'+symbol+'</a>'}
+// Same Yahoo Finance link as tickerLink() above, but color:inherit instead
+// of the Proxy Explorer's distinct blue — for spots (compact list, Heat
+// Map tiles, ticker-accuracy breakdown) where the ticker text already
+// carries its own meaningful color (price direction, etc.) that a link
+// shouldn't override. Matches shared/watchlist.js and
+// shared/track-record.js's own copy of this same helper.
+function tickerHref(symbol){return'https://finance.yahoo.com/quote/'+encodeURIComponent(symbol)}
 
 var TIER_RANK={'primary':0,'secondary':1,'fundamentals-confirmed':2,'fundamentals-speculative':3};
 var COHERENCE_RANK={'TRACKING':0,'LAG RISK':1,'DECOUPLING':2};
@@ -772,7 +779,7 @@ function renderTickerAccuracy(){
   var rows=Object.entries(by).sort(function(a,b){return b[1].t-a[1].t}).map(function(entry){
     var ticker=entry[0],s=entry[1];var rate=Math.round((s.c/s.t)*100);
     var color=rate>=65?'var(--green)':rate>=50?'var(--amber)':'var(--red)';
-    return'<div class="trigger-row"><span class="trigger-lbl">'+ticker+'</span><span class="trigger-val" style="color:'+color+'">'+rate+'%</span><span class="trigger-sub">'+s.c+'/'+s.t+'</span></div>';
+    return'<div class="trigger-row"><span class="trigger-lbl"><a class="ticker-a" href="'+tickerHref(ticker)+'" target="_blank">'+ticker+'</a></span><span class="trigger-val" style="color:'+color+'">'+rate+'%</span><span class="trigger-sub">'+s.c+'/'+s.t+'</span></div>';
   }).join('');
   el.innerHTML='<div class="track-log-title" style="margin-top:12px">ACCURACY BY TICKER</div>'+rows;
 }
@@ -787,12 +794,12 @@ var HEATMAP_MAX_PCT=3; // %-move that reaches full tile-color intensity
 
 function heatTileHtml(label,pct,ticker){
   var tagAttr=ticker?' data-ticker="'+ticker+'"':'';
-  if(typeof pct!=='number')return'<div class="heat-tile heat-tile-empty"'+tagAttr+'><span class="heat-tile-lbl">'+label+'</span><span class="heat-tile-val">?</span></div>';
+  if(typeof pct!=='number')return'<div class="heat-tile heat-tile-empty"'+tagAttr+'><span class="heat-tile-lbl"><a class="ticker-a" href="'+tickerHref(label)+'" target="_blank">'+label+'</a></span><span class="heat-tile-val">?</span></div>';
   var intensity=Math.min(Math.abs(pct)/HEATMAP_MAX_PCT,1);
   var rgb=pct>=0?'0,230,118':pct<0?'255,23,68':'96,125,139';
   var bg='rgba('+rgb+','+(0.08+intensity*0.32).toFixed(2)+')';
   var border='rgba('+rgb+','+(0.25+intensity*0.5).toFixed(2)+')';
-  return'<div class="heat-tile" style="background:'+bg+';border-color:'+border+'"'+tagAttr+'><span class="heat-tile-lbl">'+label+'</span><span class="heat-tile-val">'+fmtPct(pct)+'</span></div>';
+  return'<div class="heat-tile" style="background:'+bg+';border-color:'+border+'"'+tagAttr+'><span class="heat-tile-lbl"><a class="ticker-a" href="'+tickerHref(label)+'" target="_blank">'+label+'</a></span><span class="heat-tile-val">'+fmtPct(pct)+'</span></div>';
 }
 
 var heatMapGen=0;

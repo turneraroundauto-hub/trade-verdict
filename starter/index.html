@@ -140,6 +140,7 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 .card-left{flex:1;min-width:0}
 .ticker-row{display:flex;align-items:baseline;gap:8px;margin-bottom:3px}
 .ticker-name{font-family:monospace;font-size:20px;font-weight:700;letter-spacing:1px;color:var(--white);transition:color .3s}
+.ticker-a{color:inherit;text-decoration:none;border-bottom:1px dotted currentColor}
 .ticker-name.up{color:var(--green)}.ticker-name.down{color:var(--red)}.ticker-name.flat{color:var(--amber)}
 .ticker-price{font-family:monospace;font-size:var(--fs-sm);font-weight:700;color:var(--white)}
 .ticker-price.up{color:var(--green)}.ticker-price.down{color:var(--red)}.ticker-price.flat{color:var(--amber)}
@@ -350,19 +351,19 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
   </div>
   <div class="session-note">Pre/post-market prices are IEX-only and may vary from the full consolidated tape. Built for regular-session (9:30am&ndash;4pm ET) analysis.</div>
   <div class="sector-grid">
-    <div class="sector-cell"><label>SPY</label><span id="spy-val" style="color:var(--dim)">...</span></div>
-    <div class="sector-cell"><label>QQQ</label><span id="qqq-val" style="color:var(--dim)">...</span></div>
-    <div class="sector-cell"><label>BTC</label><span id="btc-val" style="color:var(--dim)">...</span></div>
-    <div class="sector-cell"><label>SOXX</label><span id="soxx-val" style="color:var(--dim)">...</span></div>
-    <div class="sector-cell"><label>XBI</label><span id="xbi-val" style="color:var(--dim)">...</span></div>
-    <div class="sector-cell"><label>IWM</label><span id="iwm-val" style="color:var(--dim)">...</span></div>
+    <div class="sector-cell"><label><a class="ticker-a" href="https://finance.yahoo.com/quote/SPY" target="_blank">SPY</a></label><span id="spy-val" style="color:var(--dim)">...</span></div>
+    <div class="sector-cell"><label><a class="ticker-a" href="https://finance.yahoo.com/quote/QQQ" target="_blank">QQQ</a></label><span id="qqq-val" style="color:var(--dim)">...</span></div>
+    <div class="sector-cell"><label><a class="ticker-a" href="https://finance.yahoo.com/quote/BTC-USD" target="_blank">BTC</a></label><span id="btc-val" style="color:var(--dim)">...</span></div>
+    <div class="sector-cell"><label><a class="ticker-a" href="https://finance.yahoo.com/quote/SOXX" target="_blank">SOXX</a></label><span id="soxx-val" style="color:var(--dim)">...</span></div>
+    <div class="sector-cell"><label><a class="ticker-a" href="https://finance.yahoo.com/quote/XBI" target="_blank">XBI</a></label><span id="xbi-val" style="color:var(--dim)">...</span></div>
+    <div class="sector-cell"><label><a class="ticker-a" href="https://finance.yahoo.com/quote/IWM" target="_blank">IWM</a></label><span id="iwm-val" style="color:var(--dim)">...</span></div>
   </div>
   <div class="sector-divider"></div>
   <div class="commodity-row">
-    <div class="sector-cell"><label>GLD</label><span id="gld-val" style="color:var(--dim)">...</span></div>
-    <div class="sector-cell"><label>USO</label><span id="uso-val" style="color:var(--dim)">...</span></div>
-    <div class="sector-cell"><label>TSM</label><span id="tsm-val" style="color:var(--dim)">...</span></div>
-    <div class="sector-cell"><label>MSFT</label><span id="msft-val" style="color:var(--dim)">...</span></div>
+    <div class="sector-cell"><label><a class="ticker-a" href="https://finance.yahoo.com/quote/GLD" target="_blank">GLD</a></label><span id="gld-val" style="color:var(--dim)">...</span></div>
+    <div class="sector-cell"><label><a class="ticker-a" href="https://finance.yahoo.com/quote/USO" target="_blank">USO</a></label><span id="uso-val" style="color:var(--dim)">...</span></div>
+    <div class="sector-cell"><label><a class="ticker-a" href="https://finance.yahoo.com/quote/TSM" target="_blank">TSM</a></label><span id="tsm-val" style="color:var(--dim)">...</span></div>
+    <div class="sector-cell"><label><a class="ticker-a" href="https://finance.yahoo.com/quote/MSFT" target="_blank">MSFT</a></label><span id="msft-val" style="color:var(--dim)">...</span></div>
   </div>
   <div class="gate-note-bar" id="gate-note">Fetching live data...</div>
   <div class="btc-signal" id="btc-signal" style="display:none"></div>
@@ -452,7 +453,7 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 
 <div class="footer">Trade Tribunal v4.0 &middot; CRF Pattern Analysis &middot; July 2026<br>Not financial advice &middot; Do your own research &middot; Trade at your own risk</div>
 
-<script type="module" src="./app.js?v=24"></script>
+<script type="module" src="./app.js?v=25"></script>
 </div><!-- /app-root -->
 </body>
 </html>
