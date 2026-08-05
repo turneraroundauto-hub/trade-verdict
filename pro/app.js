@@ -5,22 +5,6 @@ import { renderTrackRecord, logResult, getAccuracyLog, clearLog, onLogSave } fro
 import { initTrackRecordSync, pullTrackRecordFromServer, schedulePushTrackRecord } from '../shared/track-record-sync.js?v=1';
 import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=6';
 
-// Concurrency-limited Promise.all: runs `fn` over `items` in batches of
-// `size` instead of firing them all simultaneously, but still returns
-// results in the original order like Promise.all would. Bursting many
-// concurrent /ticker/:symbol requests (one full watchlist render, or a
-// panel covering the whole list) is exactly the kind of spike that can
-// trip an upstream provider's rate limit and leave results silently blank
-// (fetchTickerData swallows its own errors and resolves null on failure).
-async function mapBatched(items,size,fn){
-  var out=[];
-  for(var i=0;i<items.length;i+=size){
-    var batch=await Promise.all(items.slice(i,i+size).map(fn));
-    out=out.concat(batch);
-  }
-  return out;
-}
-
 const API_URL='https://tra-zacg.onrender.com';
 const SUPABASE_URL='https://oinomcikdyisrbfeeirp.supabase.co';
 const SUPABASE_ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9pbm9tY2lrZHlpc3JiZmVlaXJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ2NzM3NzgsImV4cCI6MjEwMDI0OTc3OH0.PiMDYsSZjNd4Iw-0wbQH4niDvUmW8ymycmiyb5Raf1w';
@@ -413,6 +397,13 @@ export function resetCard(ticker){
 // them first. fetchTickerData() is memoized per symbol, so on any re-render
 // after the first (toggling sort, a promote/import elsewhere) this resolves
 // instantly from cache rather than re-hitting the network.
+//
+// Fires every row's fetch concurrently rather than in gated batches of 5
+// (removed Aug 5, 2026) — same reasoning as hydrateCards()'s batching
+// removal: it predated Tra's Finnhub/Alpaca throttles and the ticker-cache
+// in-flight de-dupe, and was left stacking artificial wall-clock delay on
+// top of both once they existed. A 33-ticker overflow list was serializing
+// into 7 sequential waves of 5, each gated on that wave's slowest ticker.
 var compactSortDir=1; // 1 = ascending (lowest→highest), -1 = descending
 
 export function toggleCompactSort(){
@@ -432,7 +423,7 @@ export async function renderCompactList(){
   if(compactCountEl)compactCountEl.textContent=overflow.length;
   if(!overflow.length){el.innerHTML='<div class="track-empty">Everything tracked fits in cards above.</div>';return}
   el.innerHTML='<div class="track-empty">Loading watchlist…</div>';
-  var rows=await mapBatched(overflow,5,async function(t){
+  var rows=await Promise.all(overflow.map(async function(t){
     var td=await fetchTickerData(t);
     return{
       ticker:t,
@@ -440,7 +431,7 @@ export async function renderCompactList(){
       pct:td&&td.metrics&&typeof td.metrics.pct==='number'?td.metrics.pct:null,
       news:td&&td.news,
     };
-  });
+  }));
   // Rows with no live pct sort to the end regardless of direction — an
   // unknown value isn't meaningfully "low" or "high".
   rows.sort(function(a,b){
