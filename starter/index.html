@@ -72,6 +72,7 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 .clock-item{font-family:monospace;font-size:9px;color:var(--dim)}
 .clock-item span{color:var(--white);font-weight:700}
 
+.session-note{font-family:monospace;font-size:9px;color:var(--dim);line-height:1.4;margin:2px 0 8px}
 .sector-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px 8px;margin-bottom:6px}
 .commodity-row{display:grid;grid-template-columns:repeat(4,1fr);gap:4px 8px}
 .sector-cell label{font-family:monospace;font-size:9px;color:var(--dim);display:block;text-transform:uppercase}
@@ -347,6 +348,7 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
     </div>
     <button class="refresh-btn" onclick="fetchMarket(true)" title="Refresh market data">&#8635;</button>
   </div>
+  <div class="session-note">Pre/post-market prices are IEX-only and may vary from the full consolidated tape. Built for regular-session (9:30am&ndash;4pm ET) analysis.</div>
   <div class="sector-grid">
     <div class="sector-cell"><label>SPY</label><span id="spy-val" style="color:var(--dim)">...</span></div>
     <div class="sector-cell"><label>QQQ</label><span id="qqq-val" style="color:var(--dim)">...</span></div>
