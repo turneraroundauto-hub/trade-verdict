@@ -165,16 +165,59 @@ open eating the cost alone.
   into their own 24h cache for exactly this reason (see above) — daily
   closes never did. Real, low-risk win for reducing steady-state Alpaca
   call volume, not just the throttled-burst case.
-- Proxy Resolution Explorer and Sector Heat Map (Pro) both still iterate
-  the *entire* watchlist, not just the 15-card window the main cards use
-  — proposed scoping both to top-15 (matches the credit-cost boundary
-  already established for cards) but never confirmed/built. Tradeoff:
-  loses live proxy-coherence/heat visibility for tickers 16+.
-- No in-flight de-duplication: cards, PRE, and Heat Map can each
-  independently trigger a fetch for the *same* symbol within milliseconds
-  of each other (observed live in the 429 burst — e.g. `GLD` fetched
-  twice within ~0.4s). The Alpaca/Finnhub throttles absorb this now, but
-  it's still wasted call volume against both providers' budgets.
+
+**Resolved:**
+- ~~No in-flight de-duplication~~ — fixed: `shared/ticker-cache.js`'s
+  `fetchTickerData()` tracks an in-flight promise per symbol, so
+  concurrent callers (cards, PRE, Heat Map) asking for the same symbol
+  within milliseconds of each other share one request instead of each
+  firing their own.
+- ~~Proxy Resolution Explorer and Sector Heat Map iterate the entire
+  watchlist~~ — see "Watchlist load-time fixes" below (Aug 5, 2026):
+  rebuilt as priority-first + progressive rather than scoped to top-15
+  only, so large watchlists stay fully visible in both panels.
+
+## Backend: watchlist load-time fixes (Aug 5, 2026)
+
+Reported live: a Pro watchlist was taking 2+ minutes to populate even
+after everything else on the page had loaded, with Render logs showing
+repeated `[SUB LOOKUP]` entries all resolving to the same tier. Two
+compounding causes, both fixed:
+
+**Auth-lookup stampede.** `resolveAuth()`'s existing time-based cache
+(`authCache`, 60s TTL) only helps a request that lands *after* an earlier
+one already finished and populated it. A burst of concurrent requests
+carrying the identical token — exactly what card hydration, the compact
+overflow list, and (when open) PRE/Heat Map all produce simultaneously on
+a large watchlist — all check the cache before any of them has had time
+to fill it, so every single one independently re-ran both Supabase round
+trips (`validateSupabaseToken` + `getSubscriber`). Fixed in `Tra`'s
+server.js (mirrored into this repo's `server.js`) with an in-flight-
+promise map (`authInFlight`), the same pattern `shared/ticker-cache.js`
+already used for per-symbol de-duplication — concurrent callers now share
+one real lookup instead of each starting their own.
+
+**Compact-list batching, still there after the cards were fixed.** The
+Aug 4 batching removal (see Frontend architecture below) only touched
+`hydrateCards()` for the main 15 cards. `renderCompactList()` — the
+overflow list covering everything beyond the card window — still ran its
+fetches 5-at-a-time through a `mapBatched()` helper, serializing a
+33-ticker overflow list (on a 48-ticker watchlist) into 7 sequential
+waves. Removed; now a plain `Promise.all`, same reasoning as the cards'
+fix (redundant now that Tra's Finnhub/Alpaca throttles and the ticker-
+cache in-flight de-dupe exist).
+
+**Proxy Resolution Explorer and Sector Heat Map now load priority-first.**
+Both used to block their entire render on `Promise.all` over the *full*
+watchlist — on a large watchlist, one slow ticker anywhere in the list
+held up every row/tile, including the ones for the top 15 tickers users
+actually look at first. Both now resolve and paint the card-window
+(top 15) tickers first, then stream in the rest as each one's own fetch
+completes — PRE re-sorts and repaints as each additional result arrives,
+Heat Map updates each tile in place. Both use a render-generation counter
+so a stale in-flight paint from a superseded render (panel closed/
+reopened, sort changed) can't clobber a newer one. Nothing scoped away —
+tickers 16+ still get full coverage, just not gating on it.
 
 ## Supabase tables: "RLS disabled" ≠ "access blocked" (Aug 4, 2026)
 
