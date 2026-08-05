@@ -22,6 +22,20 @@ export function getOverflow(){return renderScope!=null?watchlist.slice(renderSco
 // needing to know every internal call site that can change `watchlist`.
 export function onRenderWatchlist(cb){postRenderHook=cb;}
 
+// Resolves once the CURRENT renderWatchlist() call's card hydration has
+// finished. Was previously not awaited at all: renderWatchlist() fired
+// hydrateCards() and called postRenderHook() (Pro's compact overflow list)
+// in the same tick, so the overflow list's fetches for tickers 16+ started
+// racing the card window's own fetches for the same shared, rate-limited
+// backend queues instead of waiting their turn — the top 15 tickers users
+// actually look at first were competing with everything past them for the
+// same Finnhub/SEC throttle budget. cardsReady() lets anything else that
+// wants watchlist data (PRE, Heat Map) wait for the card window to actually
+// finish before firing its own fetches, on top of renderWatchlist() itself
+// now sequencing hydration before the compact-list hook below.
+let cardsReadyPromise = new Promise(function(res){/* resolved by the first renderWatchlist() call */});
+export function cardsReady(){return cardsReadyPromise;}
+
 // Fires from saveWL() itself — every mutation path (add, remove, undo,
 // setWatchlist, AND drag-reorder's swapTickers, which calls saveWL()
 // directly without a full renderWatchlist()) goes through here, so this is
@@ -186,8 +200,12 @@ export function renderWatchlist(){
       +'</div>'
       +'</div>';
   }).join('');
-  hydrateCards(list);
-  if(postRenderHook)postRenderHook();
+  var resolveThisRender;
+  cardsReadyPromise=new Promise(function(res){resolveThisRender=res});
+  hydrateCards(list).then(function(){
+    resolveThisRender();
+    if(postRenderHook)postRenderHook();
+  });
 }
 
 // Populates each rendered card's price/52W/news strip via a free (no

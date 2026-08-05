@@ -1,9 +1,9 @@
 import { initTickerCache, fetchTickerData } from '../shared/ticker-cache.js?v=4';
-import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, setWatchlist, removeTicker, setRenderScope, getOverflow, onRenderWatchlist, onWatchlistSave } from '../shared/watchlist.js?v=13';
+import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, setWatchlist, removeTicker, setRenderScope, getOverflow, onRenderWatchlist, onWatchlistSave, cardsReady } from '../shared/watchlist.js?v=14';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache.js?v=2';
 import { renderTrackRecord, logResult, getAccuracyLog, clearLog, onLogSave } from '../shared/track-record.js?v=4';
 import { initTrackRecordSync, pullTrackRecordFromServer, schedulePushTrackRecord } from '../shared/track-record-sync.js?v=1';
-import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=6';
+import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=7';
 
 const API_URL='https://tra-zacg.onrender.com';
 const SUPABASE_URL='https://oinomcikdyisrbfeeirp.supabase.co';
@@ -633,6 +633,16 @@ export async function renderProxyExplorer(force){
   if(!watchlist.length){body.innerHTML='<div class="track-empty">Watchlist is empty.</div>';return}
   body.innerHTML='<div class="track-empty">Loading proxy resolutions…</div>';
 
+  // Wait for the card window's own hydration to finish before firing any
+  // fetch of our own — opening this panel while cards are still loading
+  // used to throw PRE's fetches (up to the full watchlist) straight into
+  // the same rate-limited backend queues the cards were relying on,
+  // slowing down the 15 tickers users actually look at first. No-op once
+  // cards have already finished (the common case — most panel opens
+  // happen well after initial load).
+  await cardsReady();
+  if(!watchlist.length)return; // watchlist could have emptied while we waited
+
   // Card window (top CARD_CAP) resolves and paints first; anything beyond
   // that streams in as each ticker's own fetch finishes instead of the
   // whole panel blocking on the slowest ticker in a large watchlist.
@@ -809,6 +819,12 @@ export async function renderHeatMap(force){
     if(!el)return;
     el.outerHTML=heatTileHtml(t,pct,t);
   }
+
+  // Wait for the card window's own hydration to finish before firing any
+  // fetch of our own — see the matching comment in renderProxyExplorer.
+  // Tiles stay visible as "?" placeholders while this waits.
+  await cardsReady();
+  if(myGen!==heatMapGen)return; // a newer render started while we waited
 
   var priority=watchlist.slice(0,CARD_CAP);
   var rest=watchlist.slice(CARD_CAP);
