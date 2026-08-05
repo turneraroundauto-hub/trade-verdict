@@ -612,11 +612,36 @@ function updateProxySortButtons(){
   });
 }
 
+// Items with no rank (no proxyRule at all, or no live coherence feed) sort
+// last UNCONDITIONALLY — multiplying a sentinel rank by `dir` was the bug
+// here: it pushed them to the FRONT in descending order instead, since a
+// large sentinel times -1 becomes the smallest value. Missing data isn't
+// "highest" or "lowest," so direction shouldn't touch it at all.
+function sortByRank(rows,rankFn,dir){
+  rows.sort(function(a,b){
+    var ra=rankFn(a),rb=rankFn(b);
+    if(ra==null&&rb==null)return 0;
+    if(ra==null)return 1;
+    if(rb==null)return -1;
+    return(ra-rb)*dir;
+  });
+}
+
+var proxyExplorerGen=0;
 export async function renderProxyExplorer(force){
   var body=document.getElementById('proxy-explorer-body');if(!body)return;
   if(!watchlist.length){body.innerHTML='<div class="track-empty">Watchlist is empty.</div>';return}
   body.innerHTML='<div class="track-empty">Loading proxy resolutions…</div>';
-  var rows=await Promise.all(watchlist.map(async function(t){
+
+  // Card window (top CARD_CAP) resolves and paints first; anything beyond
+  // that streams in as each ticker's own fetch finishes instead of the
+  // whole panel blocking on the slowest ticker in a large watchlist.
+  var myGen=++proxyExplorerGen;
+  var priority=watchlist.slice(0,CARD_CAP);
+  var rest=watchlist.slice(CARD_CAP);
+  var resultsByTicker={};
+
+  async function buildRow(t){
     var td=await fetchTickerData(t,force);
     var rule=td&&td.proxyRule;
     var tickerPct=td&&td.metrics?td.metrics.pct:null;
@@ -628,56 +653,54 @@ export async function renderProxyExplorer(force){
       coherence=classifyCoherence(tickerPct,avgProxyPct);
     }
     return{ticker:t,rule:rule,tickerPct:tickerPct,tier:rule?rule.tier||'primary':null,liveSymbols:liveSymbols,coherence:coherence};
-  }));
-
-  // Items with no rank (no proxyRule at all, or no live coherence feed) sort
-  // last UNCONDITIONALLY — multiplying a sentinel rank by `dir` was the bug
-  // here: it pushed them to the FRONT in descending order instead, since a
-  // large sentinel times -1 becomes the smallest value. Missing data isn't
-  // "highest" or "lowest," so direction shouldn't touch it at all.
-  function sortByRank(rows,rankFn,dir){
-    rows.sort(function(a,b){
-      var ra=rankFn(a),rb=rankFn(b);
-      if(ra==null&&rb==null)return 0;
-      if(ra==null)return 1;
-      if(rb==null)return -1;
-      return(ra-rb)*dir;
-    });
-  }
-  if(proxySort.key==='level'){
-    sortByRank(rows,function(r){return r.tier!=null?TIER_RANK[r.tier]:null},proxySort.dir);
-  }else if(proxySort.key==='coherence'){
-    sortByRank(rows,function(r){return r.coherence?COHERENCE_RANK[r.coherence.label]:null},proxySort.dir);
   }
 
-  var tierColor={'primary':'var(--green)','secondary':'var(--amber)','fundamentals-confirmed':'var(--blue)','fundamentals-speculative':'var(--red)'};
-  body.innerHTML=rows.map(function(r){
-    if(!r.rule||!r.rule.proxy)return'<div class="proxy-item"><div class="proxy-item-head"><span class="proxy-ticker">'+tickerLink(r.ticker)+'</span><span class="analyst-val" style="color:var(--dim)">unavailable</span></div></div>';
-    var tier=r.tier||'primary';
-    var tc=tierColor[tier]||'var(--dim)';
-    var verifyLinks=[tickerLink(r.ticker)].concat((r.rule.proxy.symbols||[]).map(tickerLink)).join(' &middot; ');
-
-    var coherenceHtml;
-    if(!r.coherence){
-      coherenceHtml='<div class="proxy-coherence"><span class="analyst-lbl">LIVE COHERENCE</span><span class="analyst-val" style="color:var(--dim)">no live feed for this proxy</span></div>';
-    }else{
-      var chips=r.liveSymbols.map(function(s){var p=market[s.toLowerCase()].pct;return'<span class="proxy-live-chip">'+tickerLink(s)+' <b style="color:'+pctColor(p)+'">'+fmtPct(p)+'</b></span>'}).join('');
-      coherenceHtml='<div class="proxy-coherence">'
-        +'<div class="analyst-row" style="padding:0"><span class="analyst-lbl">LIVE COHERENCE</span><span class="proxy-tier-badge" style="color:'+r.coherence.color+';border-color:'+r.coherence.color+'55;background:'+r.coherence.color+'11">'+r.coherence.label+'</span></div>'
-        +'<div class="proxy-live-row"><span class="proxy-live-chip">'+tickerLink(r.ticker)+' <b style="color:'+pctColor(r.tickerPct)+'">'+fmtPct(r.tickerPct)+'</b></span>'+chips+'</div>'
-        +'</div>';
+  function paint(){
+    if(myGen!==proxyExplorerGen)return; // a newer render superseded this one
+    var rows=watchlist.filter(function(t){return resultsByTicker[t]}).map(function(t){return resultsByTicker[t]});
+    if(proxySort.key==='level'){
+      sortByRank(rows,function(r){return r.tier!=null?TIER_RANK[r.tier]:null},proxySort.dir);
+    }else if(proxySort.key==='coherence'){
+      sortByRank(rows,function(r){return r.coherence?COHERENCE_RANK[r.coherence.label]:null},proxySort.dir);
     }
 
-    return'<div class="proxy-item"><div class="proxy-item-head"><span class="proxy-ticker">'+tickerLink(r.ticker)+'</span>'
-      +'<span class="proxy-tier-badge" style="color:'+tc+';border-color:'+tc+'55;background:'+tc+'11">'+tier.toUpperCase().replace(/-/g,' ')+'</span></div>'
-      +'<div class="proxy-detail">'+r.rule.proxy.name+'</div>'
-      +'<div class="proxy-detail" style="color:var(--dim)">'+(r.rule.category||'')+(r.rule.dynamicallyResolved?' · dynamically resolved (quarterly recompute)':' · fixed sector proxy')+'</div>'
-      +(r.rule.proxy.rationale?'<div class="proxy-detail">'+r.rule.proxy.rationale+'</div>':'')
-      +'<div class="proxy-verify-row"><span class="analyst-lbl">VERIFY</span>'+verifyLinks+'</div>'
-      +coherenceHtml
-      +'</div>';
-  }).join('')
-  +'<div class="proxy-shark-tease"><a href="../shark/coming-soon.html">&#9889; SHARK &mdash; real-time Alpaca data &amp; deeper proxy analytics &rarr;</a></div>';
+    var tierColor={'primary':'var(--green)','secondary':'var(--amber)','fundamentals-confirmed':'var(--blue)','fundamentals-speculative':'var(--red)'};
+    body.innerHTML=rows.map(function(r){
+      if(!r.rule||!r.rule.proxy)return'<div class="proxy-item"><div class="proxy-item-head"><span class="proxy-ticker">'+tickerLink(r.ticker)+'</span><span class="analyst-val" style="color:var(--dim)">unavailable</span></div></div>';
+      var tier=r.tier||'primary';
+      var tc=tierColor[tier]||'var(--dim)';
+      var verifyLinks=[tickerLink(r.ticker)].concat((r.rule.proxy.symbols||[]).map(tickerLink)).join(' &middot; ');
+
+      var coherenceHtml;
+      if(!r.coherence){
+        coherenceHtml='<div class="proxy-coherence"><span class="analyst-lbl">LIVE COHERENCE</span><span class="analyst-val" style="color:var(--dim)">no live feed for this proxy</span></div>';
+      }else{
+        var chips=r.liveSymbols.map(function(s){var p=market[s.toLowerCase()].pct;return'<span class="proxy-live-chip">'+tickerLink(s)+' <b style="color:'+pctColor(p)+'">'+fmtPct(p)+'</b></span>'}).join('');
+        coherenceHtml='<div class="proxy-coherence">'
+          +'<div class="analyst-row" style="padding:0"><span class="analyst-lbl">LIVE COHERENCE</span><span class="proxy-tier-badge" style="color:'+r.coherence.color+';border-color:'+r.coherence.color+'55;background:'+r.coherence.color+'11">'+r.coherence.label+'</span></div>'
+          +'<div class="proxy-live-row"><span class="proxy-live-chip">'+tickerLink(r.ticker)+' <b style="color:'+pctColor(r.tickerPct)+'">'+fmtPct(r.tickerPct)+'</b></span>'+chips+'</div>'
+          +'</div>';
+      }
+
+      return'<div class="proxy-item"><div class="proxy-item-head"><span class="proxy-ticker">'+tickerLink(r.ticker)+'</span>'
+        +'<span class="proxy-tier-badge" style="color:'+tc+';border-color:'+tc+'55;background:'+tc+'11">'+tier.toUpperCase().replace(/-/g,' ')+'</span></div>'
+        +'<div class="proxy-detail">'+r.rule.proxy.name+'</div>'
+        +'<div class="proxy-detail" style="color:var(--dim)">'+(r.rule.category||'')+(r.rule.dynamicallyResolved?' · dynamically resolved (quarterly recompute)':' · fixed sector proxy')+'</div>'
+        +(r.rule.proxy.rationale?'<div class="proxy-detail">'+r.rule.proxy.rationale+'</div>':'')
+        +'<div class="proxy-verify-row"><span class="analyst-lbl">VERIFY</span>'+verifyLinks+'</div>'
+        +coherenceHtml
+        +'</div>';
+    }).join('')
+    +(rest.length&&rows.length<watchlist.length?'<div class="track-empty">Loading '+(watchlist.length-rows.length)+' more…</div>':'')
+    +'<div class="proxy-shark-tease"><a href="../shark/coming-soon.html">&#9889; SHARK &mdash; real-time Alpaca data &amp; deeper proxy analytics &rarr;</a></div>';
+  }
+
+  await Promise.all(priority.map(async function(t){resultsByTicker[t]=await buildRow(t);}));
+  paint();
+
+  rest.forEach(function(t){
+    buildRow(t).then(function(row){resultsByTicker[t]=row;paint();});
+  });
 }
 
 export function refreshProxyExplorer(){renderProxyExplorer(true)}
@@ -752,15 +775,17 @@ function renderTickerAccuracy(){
 var HEATMAP_SECTORS=[['spy','SPY'],['qqq','QQQ'],['iwm','IWM'],['xbi','XBI'],['soxx','SOXX'],['tsm','TSM'],['msft','MSFT'],['btc','BTC'],['gld','GLD'],['uso','USO']];
 var HEATMAP_MAX_PCT=3; // %-move that reaches full tile-color intensity
 
-function heatTileHtml(label,pct){
-  if(typeof pct!=='number')return'<div class="heat-tile heat-tile-empty"><span class="heat-tile-lbl">'+label+'</span><span class="heat-tile-val">?</span></div>';
+function heatTileHtml(label,pct,ticker){
+  var tagAttr=ticker?' data-ticker="'+ticker+'"':'';
+  if(typeof pct!=='number')return'<div class="heat-tile heat-tile-empty"'+tagAttr+'><span class="heat-tile-lbl">'+label+'</span><span class="heat-tile-val">?</span></div>';
   var intensity=Math.min(Math.abs(pct)/HEATMAP_MAX_PCT,1);
   var rgb=pct>=0?'0,230,118':pct<0?'255,23,68':'96,125,139';
   var bg='rgba('+rgb+','+(0.08+intensity*0.32).toFixed(2)+')';
   var border='rgba('+rgb+','+(0.25+intensity*0.5).toFixed(2)+')';
-  return'<div class="heat-tile" style="background:'+bg+';border-color:'+border+'"><span class="heat-tile-lbl">'+label+'</span><span class="heat-tile-val">'+fmtPct(pct)+'</span></div>';
+  return'<div class="heat-tile" style="background:'+bg+';border-color:'+border+'"'+tagAttr+'><span class="heat-tile-lbl">'+label+'</span><span class="heat-tile-val">'+fmtPct(pct)+'</span></div>';
 }
 
+var heatMapGen=0;
 export async function renderHeatMap(force){
   var sectorEl=document.getElementById('heatmap-sectors');
   var wlEl=document.getElementById('heatmap-watchlist');
@@ -770,9 +795,34 @@ export async function renderHeatMap(force){
     return heatTileHtml(s[1],d&&typeof d.pct==='number'?d.pct:null);
   }).join('');
   if(!watchlist.length){wlEl.innerHTML='<div class="track-empty">Watchlist is empty.</div>';return}
-  wlEl.innerHTML=watchlist.map(function(t){return heatTileHtml(t,null)}).join('');
-  var pcts=await Promise.all(watchlist.map(async function(t){var td=await fetchTickerData(t,force);return td&&td.metrics?td.metrics.pct:null}));
-  wlEl.innerHTML=watchlist.map(function(t,i){return heatTileHtml(t,typeof pcts[i]==='number'?pcts[i]:null)}).join('');
+
+  // Card window (top CARD_CAP) resolves first; the rest update their own
+  // tile in place as each ticker's own fetch finishes, instead of every
+  // tile sitting on "?" until the slowest ticker in a large watchlist
+  // finally comes back.
+  var myGen=++heatMapGen;
+  wlEl.innerHTML=watchlist.map(function(t){return heatTileHtml(t,null,t)}).join('');
+
+  function paintTile(t,pct){
+    if(myGen!==heatMapGen)return; // a newer render superseded this one
+    var el=wlEl.querySelector('[data-ticker="'+t+'"]');
+    if(!el)return;
+    el.outerHTML=heatTileHtml(t,pct,t);
+  }
+
+  var priority=watchlist.slice(0,CARD_CAP);
+  var rest=watchlist.slice(CARD_CAP);
+
+  await Promise.all(priority.map(async function(t){
+    var td=await fetchTickerData(t,force);
+    paintTile(t,td&&td.metrics?td.metrics.pct:null);
+  }));
+
+  rest.forEach(function(t){
+    fetchTickerData(t,force).then(function(td){
+      paintTile(t,td&&td.metrics?td.metrics.pct:null);
+    });
+  });
 }
 
 export function refreshHeatMap(){renderHeatMap(true)}
