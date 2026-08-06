@@ -239,10 +239,40 @@ shape as `finnhubThrottle`) wrapping both the CIK map fetch and the
 full-text search call, plus an in-flight-promise guard
 (`tickerCikInFlight`) on the CIK map's own cold-cache population so a
 burst landing while it's null doesn't each independently re-fetch and
-re-parse the entire SEC ticker list. **Unverified against a live deploy
-as of this writing** — reasoned from code (this is the one path with
-zero rate-limiting protection, on the one deploy that would have gone in
-completely cold), not confirmed by watching Render logs post-deploy.
+re-parse the entire SEC ticker list.
+
+**Second follow-up, same day: the SEC throttle deployed and *still*
+wasn't the whole story.** Reported again live — top-15 cards still slow.
+The actual remaining bug was in this repo's own frontend, not any backend
+queue: `renderWatchlist()` (`shared/watchlist.js`) fired `hydrateCards()`
+for the card window *without awaiting it*, then called `postRenderHook()`
+(Pro's compact overflow list) on the very next line — so tickers 16+
+started racing the top-15 cards for the same shared, rate-limited
+Finnhub/SEC queues from tick one instead of after. Every earlier fix in
+this section (auth-stampede dedupe, SEC throttle, PRE/Heat Map's own
+internal priority-then-stream ordering) made each queue individually more
+efficient but never stopped cards and everything-else from *competing*
+for those queues at the same time. Fixed by making `renderWatchlist()`
+`await hydrateCards()` before calling `postRenderHook()`, and adding an
+exported `cardsReady()` (a promise that resolves once the current
+render's card hydration finishes) so anything else wanting watchlist data
+can wait its turn — `pro/app.js`'s `renderProxyExplorer()` and
+`renderHeatMap()` now await it before firing their own fetches
+(placeholder/"Loading…" UI still renders immediately). Verified via a
+headless render with `fetch` instrumented to log call timing: overflow/
+PRE/Heat-Map requests no longer fire until every card-window request has
+been initiated and `hydrateCards()` has settled. This is the fix that
+actually closed out the watchlist-load-time saga above — treat the SEC
+throttle as necessary but not, on its own, sufficient.
+
+**Separately, mirrored from `Tra` the same day:** `server.js`'s per-ticker
+News fetch and Pre-Gate evaluation were awaited one after the other
+despite neither depending on the other — a cold, SEC-throttled Pre-Gate
+cache was delaying News for no reason, and both were delaying market-data
+fetching from even starting. Now run concurrently; market data's real
+dependency (`preGate.hardTrigger`, which can force a DOWN verdict) still
+waits for Pre-Gate's fully-resolved value before using it — pure
+reordering, no change to Pre-Gate's authority.
 
 ## Supabase tables: "RLS disabled" ≠ "access blocked" (Aug 4, 2026)
 
@@ -366,6 +396,33 @@ news strip) fires every card's fetch concurrently rather than in gated
 batches of 5 (removed Aug 4, 2026) — the batching predated `Tra`'s Finnhub
 throttle and is now redundant with it; keeping it only added tail latency
 (a slow ticker blocked the *next* batch from even starting).
+`renderWatchlist()` now `await`s `hydrateCards()` before running
+`postRenderHook()` (Pro's compact overflow list) and exports
+`cardsReady()` so PRE/Heat Map can wait on it too (Aug 5, 2026 — see the
+Alpaca/watchlist-load-time section above) — the card window's own fetches
+still all fire concurrently among themselves, but nothing outside the
+card window starts competing for the same queues until they've all been
+initiated.
+
+Every visible ticker symbol — cards, compact-list rows, track-record log/
+top-tickers, Pro's Heat Map tiles and ticker-accuracy breakdown, and the
+static sector-grid/commodity labels in each tier's `index.html` — links
+out to its own Yahoo Finance quote page (`tickerHref()` /
+`https://finance.yahoo.com/quote/<symbol>`, opens in a new tab), so a user
+can one-click cross-check any number the app shows against an independent
+source (Aug 5, 2026, Free/Starter/Pro only — Shark untouched, see Tier
+status). Same reasoning as Pro's existing `tickerLink()` for the Proxy
+Resolution Explorer, now extended everywhere else a ticker appears.
+
+Each tier's Sector Gate panel (below the GREEN/YELLOW/RED gate status,
+above the SPY/QQQ/BTC grid) now carries a short disclaimer that pre/post-
+market prices come from IEX only and can vary from the full consolidated
+tape, and that the app is built for regular-session (9:30am-4pm ET)
+analysis — surfacing the tradeoff documented in the extended-hours
+pricing section above directly in the UI (Aug 5, 2026). **Free, Starter,
+and Pro only — deliberately reverted on Shark same-day:** Shark's rebuild
+is still deferred (see Tier status below), and this was judged a UI
+change that shouldn't land there as a side effect of an unrelated pass.
 
 ### The cache-busting rule — this is not optional
 
@@ -405,7 +462,7 @@ shared file's content (its import line), that file's OWN version needs
 bumping too, and so on up through every `app.js` to each tier's
 `<script>` tag — check every hop, not just the first one.
 
-## Tier status (as of Aug 4, 2026)
+## Tier status (as of Aug 5, 2026)
 
 | Tier | Files | Status |
 |---|---|---|
