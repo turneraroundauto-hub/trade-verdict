@@ -40,23 +40,34 @@ const TZ_KEY = 'tv_tz_pref';
 const LINK_KEY = 'tv_link_site_pref';
 const listeners = [];
 
+// Free has no Settings UI and always shows ET / Yahoo Finance — but
+// localStorage is shared across every tier on the same origin, so without
+// this a Free visitor who'd previously set MT/TradingView on Starter or
+// Pro (same browser, same domain) would silently inherit it on Free too.
+// Free's app.js calls this once at startup to pin both prefs to their
+// defaults regardless of what's in storage; Starter/Pro never call it.
+let forced = false;
+export function forceDefaults(){ forced = true; }
+
 export function getTzPref(){
+  if(forced) return 'ET';
   var v = localStorage.getItem(TZ_KEY);
   return TIMEZONES[v] ? v : 'ET';
 }
 export function setTzPref(tz){
-  if(!TIMEZONES[tz])return;
+  if(forced || !TIMEZONES[tz])return;
   localStorage.setItem(TZ_KEY, tz);
   listeners.forEach(function(cb){cb();});
 }
 export function getTzIana(){ return TIMEZONES[getTzPref()].iana; }
 
 export function getLinkSitePref(){
+  if(forced) return 'yahoo';
   var v = localStorage.getItem(LINK_KEY);
   return LINK_SITES[v] ? v : 'yahoo';
 }
 export function setLinkSitePref(site){
-  if(!LINK_SITES[site])return;
+  if(forced || !LINK_SITES[site])return;
   localStorage.setItem(LINK_KEY, site);
   listeners.forEach(function(cb){cb();});
 }

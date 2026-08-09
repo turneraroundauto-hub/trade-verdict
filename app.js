@@ -3,8 +3,10 @@ import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, 
 import { cleanLS, cacheVerdict, getCachedVerdict } from './shared/analysis-cache.js?v=2';
 import { renderTrackRecord } from './shared/track-record.js?v=7';
 import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from './shared/watchlist-sync.js?v=9';
-import { getTzPref, getTzIana, onPrefsChange, refreshTickerLinks } from './shared/prefs.js?v=1';
-import './shared/settings-modal.js?v=1';
+import { getTzPref, getTzIana, forceDefaults } from './shared/prefs.js?v=1';
+// Free has no Settings UI (see prefs.js) — always ET / Yahoo Finance,
+// regardless of a preference set on Starter/Pro in this same browser.
+forceDefaults();
 
 // If user has a paid session in localStorage from paid tier, redirect them.
 // window.location.href doesn't halt script execution -- the rest of this
@@ -519,8 +521,6 @@ if(!redirectingToPaidTier){
   cleanLS();
   document.getElementById('ticker-count').textContent='CRF \u00b7 '+watchlist.length+' TICKERS';
   renderWatchlist();renderTrackRecord();startClock();
-  refreshTickerLinks();
-  onPrefsChange(function(){renderWatchlist();renderTrackRecord();renderMarketTs();refreshTickerLinks();});
   fetchMarket();setTimeout(fetchCreditStatus,2000);
   setInterval(function(){fetchMarket()},4*60*1000);
   enforceMarketState();setInterval(enforceMarketState,60*1000);
