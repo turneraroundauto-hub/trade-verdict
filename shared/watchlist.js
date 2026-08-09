@@ -1,4 +1,5 @@
 import { fetchTickerData } from './ticker-cache.js?v=4';
+import { tickerHref } from './prefs.js?v=1';
 
 export let watchlist = [];
 let maxTickers = 3;
@@ -169,13 +170,6 @@ function showUndoToast(ticker,idx){
   };
   undoTimer=setTimeout(hideUndoToast,4000);
 }
-// Every visible ticker symbol in the app links out to its own Yahoo Finance
-// quote page — a one-click way to cross-check any number this app shows
-// against an independent source, same reasoning as pro/app.js's own
-// tickerLink() for the Proxy Resolution Explorer. color:inherit so it never
-// fights the verdict/price coloring already applied to the element around it.
-function tickerHref(t){return'https://finance.yahoo.com/quote/'+encodeURIComponent(t)}
-
 function hideUndoToast(){
   var el=document.getElementById('undo-toast');
   if(el){el.style.opacity='0';el.style.pointerEvents='none';}
