@@ -1,8 +1,10 @@
 import { initTickerCache, fetchTickerData } from './shared/ticker-cache.js?v=4';
-import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, onWatchlistSave } from './shared/watchlist.js?v=15';
+import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, onWatchlistSave } from './shared/watchlist.js?v=16';
 import { cleanLS, cacheVerdict, getCachedVerdict } from './shared/analysis-cache.js?v=2';
-import { renderTrackRecord } from './shared/track-record.js?v=5';
-import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from './shared/watchlist-sync.js?v=8';
+import { renderTrackRecord } from './shared/track-record.js?v=7';
+import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from './shared/watchlist-sync.js?v=9';
+import { getTzPref, getTzIana, onPrefsChange, refreshTickerLinks } from './shared/prefs.js?v=1';
+import './shared/settings-modal.js?v=1';
 
 // If user has a paid session in localStorage from paid tier, redirect them.
 // window.location.href doesn't halt script execution -- the rest of this
@@ -95,14 +97,20 @@ function dirColor(d){return{green:'var(--green)',red:'var(--red)',flat:'var(--am
 
 function startClock(){
   function tick(){
-    var now=new Date(),et=new Date(now.toLocaleString('en-US',{timeZone:'America/New_York'}));
-    var h=et.getHours(),m=et.getMinutes(),s=et.getSeconds();
+    var now=new Date(),tz=new Date(now.toLocaleString('en-US',{timeZone:getTzIana()}));
+    var h=tz.getHours(),m=tz.getMinutes(),s=tz.getSeconds();
     var p=function(n){return String(n).padStart(2,'0')};
     var h12=h%12||12,ampm=h<12?'AM':'PM';
     var cl=document.getElementById('live-clock');
-    if(cl)cl.textContent=h12+':'+p(m)+':'+p(s)+' '+ampm+' ET';
+    if(cl)cl.textContent=h12+':'+p(m)+':'+p(s)+' '+ampm+' '+getTzPref();
   }
   tick();setInterval(tick,1000);
+}
+
+function renderMarketTs(){
+  if(!market||!market.timestamp)return;
+  var t=new Date(market.timestamp).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:getTzIana()});
+  document.getElementById('ts').textContent=(market.cached?'⚡ Cached':'🔴 Live')+' · Updated '+t+' '+getTzPref();
 }
 
 async function fetchMarket(force){
@@ -136,10 +144,7 @@ async function fetchMarket(force){
     }else btcEl.style.display='none';
     var tsmEl=document.getElementById('tsm-warning');
     if(data.tsmWarning){tsmEl.style.display='block';tsmEl.textContent=data.tsmWarning}else tsmEl.style.display='none';
-    if(data.timestamp){
-      var t=new Date(data.timestamp).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});
-      document.getElementById('ts').textContent=(data.cached?'\u26a1 Cached':'\ud83d\udd34 Live')+' \u00b7 Updated '+t;
-    }
+    renderMarketTs();
     var pulseEl=document.getElementById('pulse-text');
     if(data.pulse){pulseEl.className='pulse-text';pulseEl.textContent=data.pulse}
     else{pulseEl.className='pulse-loading';pulseEl.textContent='Generating pulse...'}
@@ -514,6 +519,8 @@ if(!redirectingToPaidTier){
   cleanLS();
   document.getElementById('ticker-count').textContent='CRF \u00b7 '+watchlist.length+' TICKERS';
   renderWatchlist();renderTrackRecord();startClock();
+  refreshTickerLinks();
+  onPrefsChange(function(){renderWatchlist();renderTrackRecord();renderMarketTs();refreshTickerLinks();});
   fetchMarket();setTimeout(fetchCreditStatus,2000);
   setInterval(function(){fetchMarket()},4*60*1000);
   enforceMarketState();setInterval(enforceMarketState,60*1000);

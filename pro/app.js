@@ -1,9 +1,11 @@
 import { initTickerCache, fetchTickerData } from '../shared/ticker-cache.js?v=4';
-import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, setWatchlist, removeTicker, setRenderScope, getOverflow, onRenderWatchlist, onWatchlistSave, cardsReady } from '../shared/watchlist.js?v=15';
+import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, setWatchlist, removeTicker, setRenderScope, getOverflow, onRenderWatchlist, onWatchlistSave, cardsReady } from '../shared/watchlist.js?v=16';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache.js?v=2';
-import { renderTrackRecord, logResult, getAccuracyLog, clearLog, onLogSave } from '../shared/track-record.js?v=5';
-import { initTrackRecordSync, pullTrackRecordFromServer, schedulePushTrackRecord } from '../shared/track-record-sync.js?v=2';
-import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=8';
+import { renderTrackRecord, logResult, getAccuracyLog, clearLog, onLogSave } from '../shared/track-record.js?v=7';
+import { initTrackRecordSync, pullTrackRecordFromServer, schedulePushTrackRecord } from '../shared/track-record-sync.js?v=4';
+import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=9';
+import { tickerHref, getTzPref, getTzIana, onPrefsChange, refreshTickerLinks } from '../shared/prefs.js?v=1';
+import '../shared/settings-modal.js?v=1';
 
 const API_URL='https://tra-zacg.onrender.com';
 const SUPABASE_URL='https://oinomcikdyisrbfeeirp.supabase.co';
@@ -50,14 +52,20 @@ function dirColor(d){return{green:'var(--green)',red:'var(--red)',flat:'var(--am
 
 function startClock(){
   function tick(){
-    var now=new Date(),et=new Date(now.toLocaleString('en-US',{timeZone:'America/New_York'}));
-    var h=et.getHours(),m=et.getMinutes(),s=et.getSeconds();
+    var now=new Date(),tz=new Date(now.toLocaleString('en-US',{timeZone:getTzIana()}));
+    var h=tz.getHours(),m=tz.getMinutes(),s=tz.getSeconds();
     var p=function(n){return String(n).padStart(2,'0')};
     var h12=h%12||12,ampm=h<12?'AM':'PM';
     var cl=document.getElementById('live-clock');
-    if(cl)cl.textContent=h12+':'+p(m)+':'+p(s)+' '+ampm+' ET';
+    if(cl)cl.textContent=h12+':'+p(m)+':'+p(s)+' '+ampm+' '+getTzPref();
   }
   tick();setInterval(tick,1000);
+}
+
+function renderMarketTs(){
+  if(!market||!market.timestamp)return;
+  var t=new Date(market.timestamp).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:getTzIana()});
+  document.getElementById('ts').textContent=(market.cached?'⚡ Cached':'🔴 Live')+' · Updated '+t+' '+getTzPref();
 }
 
 async function fetchMarket(force){
@@ -91,10 +99,7 @@ async function fetchMarket(force){
     }else btcEl.style.display='none';
     var tsmEl=document.getElementById('tsm-warning');
     if(data.tsmWarning){tsmEl.style.display='block';tsmEl.textContent=data.tsmWarning}else tsmEl.style.display='none';
-    if(data.timestamp){
-      var t=new Date(data.timestamp).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});
-      document.getElementById('ts').textContent=(data.cached?'⚡ Cached':'🔴 Live')+' · Updated '+t;
-    }
+    renderMarketTs();
     var pulseEl=document.getElementById('pulse-text');
     if(data.pulse){pulseEl.className='pulse-text';pulseEl.textContent=data.pulse}
     else{pulseEl.className='pulse-loading';pulseEl.textContent='Generating pulse...'}
@@ -584,18 +589,11 @@ function pctColor(p){return p>0?'var(--green)':p<0?'var(--red)':'var(--dim)'}
 function fmtPct(p){return(p>0?'+':'')+p.toFixed(2)+'%'}
 
 // Every ticker/proxy symbol shown gets a live link out to its own quote
-// page — the point isn't Yahoo specifically, it's that every number this
+// page — the point isn't the specific site, it's that every number this
 // panel asserts (price, %change, the proxy relationship itself) has a
 // one-click way to independently check it rather than just trusting the
-// app's own math.
-function tickerLink(symbol){return'<a href="https://finance.yahoo.com/quote/'+encodeURIComponent(symbol)+'" target="_blank" class="proxy-verify-link">'+symbol+'</a>'}
-// Same Yahoo Finance link as tickerLink() above, but color:inherit instead
-// of the Proxy Explorer's distinct blue — for spots (compact list, Heat
-// Map tiles, ticker-accuracy breakdown) where the ticker text already
-// carries its own meaningful color (price direction, etc.) that a link
-// shouldn't override. Matches shared/watchlist.js and
-// shared/track-record.js's own copy of this same helper.
-function tickerHref(symbol){return'https://finance.yahoo.com/quote/'+encodeURIComponent(symbol)}
+// app's own math. Site is user-selectable (Settings) via shared/prefs.js.
+function tickerLink(symbol){return'<a href="'+tickerHref(symbol)+'" target="_blank" class="proxy-verify-link">'+symbol+'</a>'}
 
 var TIER_RANK={'primary':0,'secondary':1,'fundamentals-confirmed':2,'fundamentals-speculative':3};
 var COHERENCE_RANK={'TRACKING':0,'LAG RISK':1,'DECOUPLING':2};
@@ -1086,7 +1084,7 @@ function toggleAuthMode(mode){authMode=mode||(authMode==='login'?'signup':'login
 async function handleLogin(){var email=document.getElementById('auth-email').value.trim(),password=document.getElementById('auth-password').value,btn=document.getElementById('auth-btn'),err=document.getElementById('auth-error');err.textContent='';btn.disabled=true;btn.textContent='SIGNING IN...';try{var r=await fetch(API_URL+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});if(!r.ok){var e=await r.json();throw new Error(e.error||'Login failed');}var session=await r.json();storeSession(session);sbSession=session;btn.textContent='SIGN IN';btn.disabled=false;checkTierAccess(session);}catch(e){err.textContent=e.message;btn.textContent='SIGN IN';btn.disabled=false;}}
 async function handleSignup(){var email=document.getElementById('auth-email').value.trim(),password=document.getElementById('auth-password').value,btn=document.getElementById('auth-btn'),err=document.getElementById('auth-error');err.textContent='';err.style.color='var(--red)';if(!email||!password){err.textContent='Email and password required';return;}if(password.length<6){err.textContent='Password must be at least 6 characters';return;}btn.disabled=true;btn.textContent='CREATING...';try{var r=await fetch(API_URL+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});if(!r.ok){var e=await r.json();throw new Error(e.error||'Signup failed');}err.style.color='var(--green)';err.textContent='Account created! Check your email to confirm, then sign in.';btn.textContent='SIGN IN';btn.disabled=false;toggleAuthMode('login');}catch(e){err.textContent=e.message;btn.textContent='CREATE ACCOUNT';btn.disabled=false;}}
 
-function initApp(){cleanLS();document.getElementById('ticker-count').textContent='CRF · '+watchlist.length+' TICKERS';renderWatchlist();renderTrackRecord();renderGateAttribution();renderTickerAccuracy();startClock();fetchMarket();setTimeout(fetchCreditStatus,2000);setInterval(function(){fetchMarket();var pep=document.getElementById('proxy-explorer-panel');if(pep&&pep.classList.contains('open'))renderProxyExplorer();var hep=document.getElementById('heatmap-panel');if(hep&&hep.classList.contains('open'))renderHeatMap();},4*60*1000);enforceMarketState();setInterval(enforceMarketState,60*1000);if(sbSession&&sbSession.email){var pb=document.getElementById('profile-btn');if(pb)pb.textContent=sbSession.email.charAt(0).toUpperCase();var pme=document.getElementById('profile-menu-email');if(pme)pme.textContent=sbSession.email;}}
+function initApp(){cleanLS();document.getElementById('ticker-count').textContent='CRF · '+watchlist.length+' TICKERS';renderWatchlist();renderTrackRecord();renderGateAttribution();renderTickerAccuracy();startClock();refreshTickerLinks();onPrefsChange(function(){renderWatchlist();renderTrackRecord();renderGateAttribution();renderTickerAccuracy();renderMarketTs();refreshTickerLinks();});fetchMarket();setTimeout(fetchCreditStatus,2000);setInterval(function(){fetchMarket();var pep=document.getElementById('proxy-explorer-panel');if(pep&&pep.classList.contains('open'))renderProxyExplorer();var hep=document.getElementById('heatmap-panel');if(hep&&hep.classList.contains('open'))renderHeatMap();},4*60*1000);enforceMarketState();setInterval(enforceMarketState,60*1000);if(sbSession&&sbSession.email){var pb=document.getElementById('profile-btn');if(pb)pb.textContent=sbSession.email.charAt(0).toUpperCase();var pme=document.getElementById('profile-menu-email');if(pme)pme.textContent=sbSession.email;}}
 async function checkTierAccess(session){
   var expectedTier='pro';
   var err=document.getElementById('auth-error');

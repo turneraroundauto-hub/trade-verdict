@@ -501,8 +501,8 @@ async function fetchMarket(force){
     var tsmEl=document.getElementById('tsm-warning');
     if(data.tsmWarning){tsmEl.style.display='block';tsmEl.textContent=data.tsmWarning}else tsmEl.style.display='none';
     if(data.timestamp){
-      var t=new Date(data.timestamp).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});
-      document.getElementById('ts').textContent=(data.cached?'\u26a1 Cached':'\ud83d\udd34 Live')+' \u00b7 Updated '+t;
+      var t=new Date(data.timestamp).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:'America/New_York'});
+      document.getElementById('ts').textContent=(data.cached?'\u26a1 Cached':'\ud83d\udd34 Live')+' \u00b7 Updated '+t+' ET';
     }
     var pulseEl=document.getElementById('pulse-text');
     if(data.pulse){pulseEl.className='pulse-text';pulseEl.textContent=data.pulse}
@@ -852,7 +852,7 @@ function saveLog(log){localStorage.setItem(LOG_KEY,JSON.stringify(log))}
 function logResult(ticker,verdict,correct,rowEl){
   var log=getLog();
   log.push({ticker:ticker,verdict:verdict,correct:correct,ts:new Date().toISOString(),
-    session:new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})});
+    session:new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'America/New_York'})});
   saveLog(log);
   var color=correct?'var(--green)':'var(--red)';
   var label=correct?'\u2713 LOGGED RIGHT':'\u2717 LOGGED WRONG';
@@ -884,8 +884,8 @@ function renderTrackRecord(){
   var recent8=[].concat(log).reverse().slice(0,8).map(function(e){
     var vColor=e.verdict==='UP'?'var(--green)':e.verdict==='DOWN'?'var(--red)':'var(--amber)';
     var rColor=e.correct?'var(--green)':'var(--red)';
-    var t=new Date(e.ts).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
-    return'<div class="track-log-item"><span class="tli-ticker">'+e.ticker+'</span><span class="tli-verdict" style="color:'+vColor+'">'+e.verdict+'</span><span class="tli-result" style="color:'+rColor+'">'+(e.correct?'\u2713 RIGHT':'\u2717 WRONG')+'</span><span class="tli-time">'+e.session+' '+t+'</span></div>';
+    var t=new Date(e.ts).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZone:'America/New_York'});
+    return'<div class="track-log-item"><span class="tli-ticker">'+e.ticker+'</span><span class="tli-verdict" style="color:'+vColor+'">'+e.verdict+'</span><span class="tli-result" style="color:'+rColor+'">'+(e.correct?'\u2713 RIGHT':'\u2717 WRONG')+'</span><span class="tli-time">'+e.session+' '+t+' ET</span></div>';
   }).join('');
   body.innerHTML='<div class="track-rate"><span class="track-rate-num" style="color:'+rateColor+'">'+rate+'%</span><div><div class="track-rate-label">HIT RATE</div><div class="track-rate-count">'+correct+' right of '+total+' logged</div></div></div>'
     +'<div class="track-grid"><div class="track-stat"><span class="track-stat-lbl">\ud83d\udc4d UP</span><span class="track-stat-val">'+typeRate('UP')+'</span><span class="track-stat-sub">'+byType.UP.c+'/'+byType.UP.t+'</span></div><div class="track-stat"><span class="track-stat-lbl">\ud83d\udc4e DOWN</span><span class="track-stat-val">'+typeRate('DOWN')+'</span><span class="track-stat-sub">'+byType.DOWN.c+'/'+byType.DOWN.t+'</span></div><div class="track-stat"><span class="track-stat-lbl">HOLD</span><span class="track-stat-val">'+typeRate('FLAT')+'</span><span class="track-stat-sub">'+byType.FLAT.c+'/'+byType.FLAT.t+'</span></div></div>'

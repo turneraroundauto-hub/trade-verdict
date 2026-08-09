@@ -1,6 +1,4 @@
-// See shared/watchlist.js's own copy of this same helper for the reasoning
-// — every visible ticker symbol links out to its Yahoo Finance quote page.
-function tickerHref(t){return'https://finance.yahoo.com/quote/'+encodeURIComponent(t)}
+import { tickerHref } from './prefs.js?v=1';
 
 var LOG_KEY='tv_accuracy_log';
 function getLog(){try{return JSON.parse(localStorage.getItem(LOG_KEY)||'[]')}catch(e){return[]}}
@@ -11,7 +9,7 @@ function saveLog(log){localStorage.setItem(LOG_KEY,JSON.stringify(log));if(saveH
 export function logResult(ticker,verdict,correct,rowEl,meta){
   var log=getLog();
   var entry={ticker:ticker,verdict:verdict,correct:correct,ts:new Date().toISOString(),
-    session:new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})};
+    session:new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'America/New_York'})};
   if(meta&&meta.trigger)entry.trigger=meta.trigger;
   log.push(entry);
   if(log.length>200)log=log.slice(-200);
@@ -56,8 +54,8 @@ export function renderTrackRecord(){
   var recent8=[].concat(log).reverse().slice(0,8).map(function(e){
     var vColor=e.verdict==='UP'?'var(--green)':e.verdict==='DOWN'?'var(--red)':'var(--amber)';
     var rColor=e.correct?'var(--green)':'var(--red)';
-    var t=new Date(e.ts).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
-    return'<div class="track-log-item"><span class="tli-ticker"><a class="ticker-a" href="'+tickerHref(e.ticker)+'" target="_blank">'+e.ticker+'</a></span><span class="tli-verdict" style="color:'+vColor+'">'+e.verdict+'</span><span class="tli-result" style="color:'+rColor+'">'+(e.correct?'\u2713 RIGHT':'\u2717 WRONG')+'</span><span class="tli-time">'+e.session+' '+t+'</span></div>';
+    var t=new Date(e.ts).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZone:'America/New_York'});
+    return'<div class="track-log-item"><span class="tli-ticker"><a class="ticker-a" href="'+tickerHref(e.ticker)+'" target="_blank">'+e.ticker+'</a></span><span class="tli-verdict" style="color:'+vColor+'">'+e.verdict+'</span><span class="tli-result" style="color:'+rColor+'">'+(e.correct?'\u2713 RIGHT':'\u2717 WRONG')+'</span><span class="tli-time">'+e.session+' '+t+' ET</span></div>';
   }).join('');
   body.innerHTML='<div class="track-rate"><span class="track-rate-num" style="color:'+rateColor+'">'+rate+'%</span><div><div class="track-rate-label">HIT RATE</div><div class="track-rate-count">'+correct+' right of '+total+' logged</div></div></div>'
     +'<div class="track-grid"><div class="track-stat"><span class="track-stat-lbl">\ud83d\udc4d UP</span><span class="track-stat-val">'+typeRate('UP')+'</span><span class="track-stat-sub">'+byType.UP.c+'/'+byType.UP.t+'</span></div><div class="track-stat"><span class="track-stat-lbl">\ud83d\udc4e DOWN</span><span class="track-stat-val">'+typeRate('DOWN')+'</span><span class="track-stat-sub">'+byType.DOWN.c+'/'+byType.DOWN.t+'</span></div><div class="track-stat"><span class="track-stat-lbl">HOLD</span><span class="track-stat-val">'+typeRate('FLAT')+'</span><span class="track-stat-sub">'+byType.FLAT.c+'/'+byType.FLAT.t+'</span></div></div>'
