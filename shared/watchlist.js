@@ -1,5 +1,5 @@
 import { fetchTickerData } from './ticker-cache.js?v=4';
-import { tickerHref, newsHref } from './prefs.js?v=2';
+import { tickerHref, newsHref } from './prefs.js?v=3';
 
 export let watchlist = [];
 let maxTickers = 3;

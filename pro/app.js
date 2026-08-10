@@ -1,11 +1,11 @@
 import { initTickerCache, fetchTickerData } from '../shared/ticker-cache.js?v=4';
-import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, setWatchlist, removeTicker, setRenderScope, getOverflow, onRenderWatchlist, onWatchlistSave, cardsReady } from '../shared/watchlist.js?v=17';
+import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, setWatchlist, removeTicker, setRenderScope, getOverflow, onRenderWatchlist, onWatchlistSave, cardsReady } from '../shared/watchlist.js?v=18';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache.js?v=2';
-import { renderTrackRecord, logResult, getAccuracyLog, clearLog, onLogSave } from '../shared/track-record.js?v=7';
-import { initTrackRecordSync, pullTrackRecordFromServer, schedulePushTrackRecord } from '../shared/track-record-sync.js?v=4';
-import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=10';
-import { tickerHref, newsHref, getTzPref, getTzIana, onPrefsChange, refreshTickerLinks } from '../shared/prefs.js?v=2';
-import '../shared/settings-modal.js?v=3';
+import { renderTrackRecord, logResult, getAccuracyLog, clearLog, onLogSave } from '../shared/track-record.js?v=8';
+import { initTrackRecordSync, pullTrackRecordFromServer, schedulePushTrackRecord } from '../shared/track-record-sync.js?v=5';
+import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=11';
+import { tickerHref, newsHref, getTzPref, getTzIana, onPrefsChange, refreshTickerLinks } from '../shared/prefs.js?v=3';
+import '../shared/settings-modal.js?v=4';
 
 const API_URL='https://tra-zacg.onrender.com';
 const SUPABASE_URL='https://oinomcikdyisrbfeeirp.supabase.co';
