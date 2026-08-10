@@ -1,4 +1,4 @@
-import { getAccuracyLog, replaceLog } from './track-record.js?v=13';
+import { getAccuracyLog, replaceLog } from './track-record.js?v=14';
 
 // Syncs the track record to the account via GET/POST /track (server.js —
 // gated on being signed in, Pro only for now: only pro/app.js calls

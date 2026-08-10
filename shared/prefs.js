@@ -14,13 +14,15 @@ export const TIMEZONES = {
 // href() takes the symbol as it appears in the watchlist/UI (e.g. 'AAPL',
 // or 'BTC-USD' for the header's crypto tile) and returns the outbound link
 // for that site. Google Finance's direct quote pages require an exchange
-// suffix (AAPL:NASDAQ) that this app has no reliable way to know per-symbol,
-// so this routes through Google Finance's own search (google.com/finance/beta/?q=)
-// instead of a direct quote page — always resolves, never a broken link, and
-// (unlike routing through a plain google.com web search) lands the user
-// inside Google Finance itself. UNVERIFIED LIVE: this sandbox's network
-// egress blocks google.com entirely, so the exact query-param behavior of
-// the beta search couldn't be tested — spot-check after deploy.
+// suffix (AAPL:NASDAQ) that this app has no reliable way to know per-symbol.
+// A prior version of this routed the bare ticker through Google Finance's
+// own beta search (google.com/finance/beta/?q={TICKER}) to land inside
+// Google Finance itself instead of a plain web search — confirmed live
+// (Aug 10, 2026) to misresolve ambiguous tickers to the wrong country's
+// listing (ARCC → Egypt's EGX-listed Arabian Cement instead of NASDAQ's
+// Ares Capital), since the bare symbol carries no market context. Reverted
+// to a plain google.com web search with " stock" appended — the same
+// approach used before that change, with no such failures reported.
 //
 // newsHref() is optional, used only for the news-headline link (see
 // newsHref() below) — sites with a dedicated per-ticker news page (Yahoo,
@@ -51,7 +53,7 @@ export const LINK_SITES = {
   },
   google: {
     label: 'Google Finance',
-    href: function(t){ return 'https://www.google.com/finance/beta/?q=' + encodeURIComponent(t); },
+    href: function(t){ return 'https://www.google.com/search?q=' + encodeURIComponent(t.replace('-USD',' USD') + ' stock'); },
     newsHref: function(t){ return 'https://news.google.com/search?q=' + encodeURIComponent(t.replace('-USD',' USD') + ' stock'); },
   },
   robinhood: {
