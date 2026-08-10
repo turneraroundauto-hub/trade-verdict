@@ -1,8 +1,8 @@
 import { initTickerCache, fetchTickerData } from './shared/ticker-cache.js?v=4';
-import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, onWatchlistSave } from './shared/watchlist.js?v=19';
+import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, onWatchlistSave, refreshNewsHighlights } from './shared/watchlist.js?v=20';
 import { cleanLS, cacheVerdict, getCachedVerdict } from './shared/analysis-cache.js?v=2';
 import { renderTrackRecord } from './shared/track-record.js?v=9';
-import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from './shared/watchlist-sync.js?v=12';
+import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from './shared/watchlist-sync.js?v=13';
 import { getTzPref, getTzIana, forceDefaults } from './shared/prefs.js?v=4';
 // Free has no Settings UI (see prefs.js) — always ET / Yahoo Finance,
 // regardless of a preference set on Starter/Pro in this same browser.
@@ -521,6 +521,14 @@ if(!redirectingToPaidTier){
   cleanLS();
   document.getElementById('ticker-count').textContent='CRF \u00b7 '+watchlist.length+' TICKERS';
   renderWatchlist();renderTrackRecord();startClock();
+  var ctxInputEl=document.getElementById('context-input');
+  if(ctxInputEl){
+    var ctxDebounce=null;
+    ctxInputEl.addEventListener('input',function(){
+      clearTimeout(ctxDebounce);
+      ctxDebounce=setTimeout(refreshNewsHighlights,250);
+    });
+  }
   fetchMarket();setTimeout(fetchCreditStatus,2000);
   setInterval(function(){fetchMarket()},4*60*1000);
   enforceMarketState();setInterval(enforceMarketState,60*1000);

@@ -1,5 +1,6 @@
 import { fetchTickerData } from './ticker-cache.js?v=4';
 import { tickerHref, newsHref } from './prefs.js?v=4';
+import { highlightContextMatches } from './context-highlight.js?v=1';
 
 export let watchlist = [];
 let maxTickers = 3;
@@ -88,6 +89,19 @@ export function setWatchlist(tickers){
 function parseTickers(raw){return raw.toUpperCase().replace(/[$#]/g,'').split(/[\s,;|\n]+/).map(t=>t.trim()).filter(t=>/^[A-Z]{1,6}$/.test(t))}
 
 
+// Re-renders every currently-rendered card's news line from already-
+// cached ticker data — no new network calls. Used when Session Context
+// changes: the news data itself hasn't changed, only which words in it
+// should be highlighted. updateCardMeta() is a no-op for any ticker
+// without a rendered card (e.g. Pro's compact-list overflow), so it's
+// safe to sweep the whole watchlist rather than tracking which subset
+// is actually on screen.
+export function refreshNewsHighlights(){
+  watchlist.forEach(function(t){
+    fetchTickerData(t).then(function(d){ if(d) updateCardMeta(t,d); });
+  });
+}
+
 export function updateCardMeta(ticker,td){
   var card=document.getElementById('card-'+ticker);if(!card)return;
   var priceEl=card.querySelector('.ticker-price');
@@ -121,7 +135,9 @@ export function updateCardMeta(ticker,td){
   if(newsEl){
     if(news&&news.ageHours<=300){
       newsEl.style.display='block';
-      newsEl.innerHTML='<a href="'+newsHref(ticker)+'" target="_blank">'+news.headline+'</a><span class="news-age">'+news.ageLabel+'</span>';
+      var ctxEl=document.getElementById('context-input');
+      var headlineHtml=highlightContextMatches(news.headline,ctxEl?ctxEl.value:'');
+      newsEl.innerHTML='<a href="'+newsHref(ticker)+'" target="_blank">'+headlineHtml+'</a><span class="news-age">'+news.ageLabel+'</span>';
     }else newsEl.style.display='none';
   }
 }

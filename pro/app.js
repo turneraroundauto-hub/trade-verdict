@@ -1,11 +1,12 @@
 import { initTickerCache, fetchTickerData } from '../shared/ticker-cache.js?v=4';
-import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, setWatchlist, removeTicker, setRenderScope, getOverflow, onRenderWatchlist, onWatchlistSave, cardsReady } from '../shared/watchlist.js?v=19';
+import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, setWatchlist, removeTicker, setRenderScope, getOverflow, onRenderWatchlist, onWatchlistSave, cardsReady, refreshNewsHighlights } from '../shared/watchlist.js?v=20';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache.js?v=2';
 import { renderTrackRecord, logResult, getAccuracyLog, clearLog, onLogSave } from '../shared/track-record.js?v=9';
 import { initTrackRecordSync, pullTrackRecordFromServer, schedulePushTrackRecord } from '../shared/track-record-sync.js?v=6';
-import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=12';
+import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=13';
 import { tickerHref, newsHref, getTzPref, getTzIana, onPrefsChange, refreshTickerLinks } from '../shared/prefs.js?v=4';
 import '../shared/settings-modal.js?v=5';
+import { highlightContextMatches } from '../shared/context-highlight.js?v=1';
 
 const API_URL='https://tra-zacg.onrender.com';
 const SUPABASE_URL='https://oinomcikdyisrbfeeirp.supabase.co';
@@ -444,6 +445,8 @@ export async function renderCompactList(){
     var pb=b.pct==null?(compactSortDir===1?Infinity:-Infinity):b.pct;
     return(pa-pb)*compactSortDir;
   });
+  var ctxEl=document.getElementById('context-input');
+  var ctxVal=ctxEl?ctxEl.value:'';
   el.innerHTML=rows.map(function(r){
     var t=r.ticker;
     var hasNews=r.news&&r.news.ageHours<=300;
@@ -454,7 +457,7 @@ export async function renderCompactList(){
       +'<div class="compact-row-top"><span class="compact-ticker"><a class="ticker-a" href="'+tickerHref(t)+'" target="_blank">'+t+'</a></span>'
       +'<span class="compact-price">'+(r.price!=null?'$'+parseFloat(r.price).toFixed(2):'&mdash;')+'</span>'
       +'<span class="compact-pct" style="color:'+(r.pct!=null?pctColor(r.pct):'var(--dim)')+'">'+(r.pct!=null?fmtPct(r.pct):'&mdash;')+'</span></div>'
-      +'<div class="compact-news"'+(hasNews?'':' style="display:none"')+'>'+(hasNews?'<a href="'+newsHref(t)+'" target="_blank">'+r.news.headline+'</a>':'')+'</div>'
+      +'<div class="compact-news"'+(hasNews?'':' style="display:none"')+'>'+(hasNews?'<a href="'+newsHref(t)+'" target="_blank">'+highlightContextMatches(r.news.headline,ctxVal)+'</a>':'')+'</div>'
       +'</div>'
       +'<button type="button" class="compact-plus-btn" title="Add as card" onclick="promoteToCard(\''+t+'\')">+</button>'
       +'</div></div>';
@@ -1084,7 +1087,16 @@ function toggleAuthMode(mode){authMode=mode||(authMode==='login'?'signup':'login
 async function handleLogin(){var email=document.getElementById('auth-email').value.trim(),password=document.getElementById('auth-password').value,btn=document.getElementById('auth-btn'),err=document.getElementById('auth-error');err.textContent='';btn.disabled=true;btn.textContent='SIGNING IN...';try{var r=await fetch(API_URL+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});if(!r.ok){var e=await r.json();throw new Error(e.error||'Login failed');}var session=await r.json();storeSession(session);sbSession=session;btn.textContent='SIGN IN';btn.disabled=false;checkTierAccess(session);}catch(e){err.textContent=e.message;btn.textContent='SIGN IN';btn.disabled=false;}}
 async function handleSignup(){var email=document.getElementById('auth-email').value.trim(),password=document.getElementById('auth-password').value,btn=document.getElementById('auth-btn'),err=document.getElementById('auth-error');err.textContent='';err.style.color='var(--red)';if(!email||!password){err.textContent='Email and password required';return;}if(password.length<6){err.textContent='Password must be at least 6 characters';return;}btn.disabled=true;btn.textContent='CREATING...';try{var r=await fetch(API_URL+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});if(!r.ok){var e=await r.json();throw new Error(e.error||'Signup failed');}err.style.color='var(--green)';err.textContent='Account created! Check your email to confirm, then sign in.';btn.textContent='SIGN IN';btn.disabled=false;toggleAuthMode('login');}catch(e){err.textContent=e.message;btn.textContent='CREATE ACCOUNT';btn.disabled=false;}}
 
-function initApp(){cleanLS();document.getElementById('ticker-count').textContent='CRF · '+watchlist.length+' TICKERS';renderWatchlist();renderTrackRecord();renderGateAttribution();renderTickerAccuracy();startClock();refreshTickerLinks();onPrefsChange(function(){renderWatchlist();renderTrackRecord();renderGateAttribution();renderTickerAccuracy();renderMarketTs();refreshTickerLinks();});fetchMarket();setTimeout(fetchCreditStatus,2000);setInterval(function(){fetchMarket();var pep=document.getElementById('proxy-explorer-panel');if(pep&&pep.classList.contains('open'))renderProxyExplorer();var hep=document.getElementById('heatmap-panel');if(hep&&hep.classList.contains('open'))renderHeatMap();},4*60*1000);enforceMarketState();setInterval(enforceMarketState,60*1000);if(sbSession&&sbSession.email){var pb=document.getElementById('profile-btn');if(pb)pb.textContent=sbSession.email.charAt(0).toUpperCase();var pme=document.getElementById('profile-menu-email');if(pme)pme.textContent=sbSession.email;}}
+var ctxDebounce=null;
+function wireContextHighlight(){
+  var ctxInputEl=document.getElementById('context-input');
+  if(!ctxInputEl)return;
+  ctxInputEl.addEventListener('input',function(){
+    clearTimeout(ctxDebounce);
+    ctxDebounce=setTimeout(function(){refreshNewsHighlights();renderCompactList();},250);
+  });
+}
+function initApp(){cleanLS();document.getElementById('ticker-count').textContent='CRF · '+watchlist.length+' TICKERS';renderWatchlist();renderTrackRecord();renderGateAttribution();renderTickerAccuracy();startClock();refreshTickerLinks();wireContextHighlight();onPrefsChange(function(){renderWatchlist();renderTrackRecord();renderGateAttribution();renderTickerAccuracy();renderMarketTs();refreshTickerLinks();});fetchMarket();setTimeout(fetchCreditStatus,2000);setInterval(function(){fetchMarket();var pep=document.getElementById('proxy-explorer-panel');if(pep&&pep.classList.contains('open'))renderProxyExplorer();var hep=document.getElementById('heatmap-panel');if(hep&&hep.classList.contains('open'))renderHeatMap();},4*60*1000);enforceMarketState();setInterval(enforceMarketState,60*1000);if(sbSession&&sbSession.email){var pb=document.getElementById('profile-btn');if(pb)pb.textContent=sbSession.email.charAt(0).toUpperCase();var pme=document.getElementById('profile-menu-email');if(pme)pme.textContent=sbSession.email;}}
 async function checkTierAccess(session){
   var expectedTier='pro';
   var err=document.getElementById('auth-error');
