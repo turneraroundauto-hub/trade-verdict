@@ -1,10 +1,10 @@
 import { initTickerCache, fetchTickerData } from '../shared/ticker-cache.js?v=4';
-import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, onWatchlistSave, refreshNewsHighlights } from '../shared/watchlist.js?v=22';
+import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, onWatchlistSave, refreshNewsHighlights } from '../shared/watchlist.js?v=23';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache.js?v=2';
-import { renderTrackRecord } from '../shared/track-record.js?v=10';
-import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=15';
-import { getTzPref, getTzIana, onPrefsChange, refreshTickerLinks } from '../shared/prefs.js?v=5';
-import '../shared/settings-modal.js?v=8';
+import { renderTrackRecord } from '../shared/track-record.js?v=11';
+import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=16';
+import { getTzPref, getTzIana, onPrefsChange, refreshTickerLinks } from '../shared/prefs.js?v=6';
+import '../shared/settings-modal.js?v=9';
 
 const API_URL='https://tra-zacg.onrender.com';
 const SUPABASE_URL='https://oinomcikdyisrbfeeirp.supabase.co';
