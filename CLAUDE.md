@@ -7,11 +7,10 @@ as a Node.js backend + a four-tier GitHub Pages frontend, with Supabase
 auth/credits and Stripe subscriptions.
 
 **Full history, architecture rationale, and the debug playbook live in
-Notion — still titled "Trade Verdict — Full Build Log" as of the rename;
-still needs updating there, not yet done (last checked Aug 4, 2026).**
-This file is a fast-orientation map for working in this repo; the Notion
-doc is the source of truth. Update both when you finish meaningful work
-here.
+Notion, "Trade Tribunal — Full Build Log" (renamed to match, confirmed
+current as of Aug 10, 2026).** This file is a fast-orientation map for
+working in this repo; the Notion doc is the source of truth. Update both
+when you finish meaningful work here.
 
 ## Naming: Trade Verdict → Trade Tribunal (Aug 4, 2026) — DONE
 
@@ -360,6 +359,9 @@ single-file version — see Tier status below). All non-free tiers share:
   seed/`ignoreDuplicates` write on an ambiguous empty pull. Free/Starter/
   Shark are untouched, still localStorage-only. Backing table:
   `public.accuracy_log` (`supabase-ddl-patch8-track-record-sync.sql`).
+- `shared/prefs.js` / `shared/settings-modal.js` / `shared/context-highlight.js`
+  (added Aug 9-10, 2026, **Starter + Pro only**) — see "Frontend: user
+  preferences" below.
 
 `shared/watchlist.js`'s `hydrateCards()` (populates each card's price/52W/
 news strip) fires every card's fetch concurrently rather than in gated
@@ -404,6 +406,86 @@ Then trace the cascade: if a shared file's version bump changes another
 shared file's content (its import line), that file's OWN version needs
 bumping too, and so on up through every `app.js` to each tier's
 `<script>` tag — check every hop, not just the first one.
+
+## Frontend: user preferences — time zone, ticker/news links, session-context highlighting (Aug 9-10, 2026)
+
+**Starter + Pro only.** Free must never show the Settings UI and must be
+immune to preferences set by another tier sharing the same browser/
+localStorage origin — `shared/prefs.js`'s `forceDefaults()` runs on Free's
+`app.js` load and always resolves to ET + Yahoo regardless of what's in
+localStorage. Free's `app.js` does not import `settings-modal.js` at all.
+
+**Time zone.** The market timestamp used to render in unlabeled
+browser-local time next to an already-ET-labeled live clock — confusing
+whenever the two disagreed. `prefs.js` exports `TIMEZONES` (ET/CT/MT/PT)
+and `getTzPref`/`setTzPref`/`getTzIana`; both the live clock and the
+market timestamp on Starter/Pro now render in the user's chosen zone,
+always labeled.
+
+**Ticker/news links.** `LINK_SITES` (`yahoo`/`tradingview`/`stocktwits`/
+`google`/`robinhood`/`custom`) drives `tickerHref(t)` (what a ticker
+symbol links to) and `newsHref(t)` (what a news headline links to —
+defaults to the same site, TradingView overrides to its `/news/` path).
+The paywalled-news problem was originally attacked with a keyword-search
+test bench trying to find a reliably-free source per headline — abandoned
+after live testing kept surfacing 404s and Google's `site:` search
+banner, nothing usable as a real link target. **Pivoted to a simpler
+model:** route both ticker and news links through the user's own site
+preference — "paywalled" is relative to the individual user, and someone
+with their own TradingView/Robinhood subscription doesn't have a paywall
+problem to solve for. Finnhub/Alpaca remain the underlying data source for
+headline text and gate logic; only the *link* changed. `robinhood` was
+added as a built-in option alongside a `custom` option for a fully
+user-defined link template.
+
+**Custom link template** (`buildTemplateFromExample`, `detectTickerInUrl`,
+`isValidCustomTemplate`, `getCustomTemplate`/`setCustomTemplate` in
+`prefs.js`) went through three rounds of simplification, each a direct
+user correction: (1) originally required manually typing `{TICKER}` into
+a template — replaced with `detectTickerInUrl()`, a heuristic that scans
+a pasted example URL's path segments from the end (with a non-ticker-word
+blocklist, a hyphen-split fallback for Webull-style URLs, and a
+query-param fallback for chart-style URLs like `?symbol=NASDAQ:AAPL`) so
+the user never types the ticker at all; (2) then simplified from two
+fields (ticker + URL) to one — the Settings modal's Custom-link UI is now
+a single URL input (`#settings-custom-ex-url`) that auto-prepends
+`https://` if missing and shows a save/error status line, nothing else;
+(3) the placeholder text ("Paste your favorite market news URL") was
+shortened after the original wording visually truncated on mobile.
+Blank/invalid custom input silently falls back to Yahoo Finance.
+
+**Session Context highlighting.** `shared/context-highlight.js`'s
+`highlightContextMatches(headline, contextText)` HTML-escapes the
+headline (this also fixed a latent missing-escape bug — headline text was
+going straight into `innerHTML` before) and wraps matches in
+`<mark class="ctx-match">` only when 2+ distinct stopword-filtered words
+overlap between the Session Context textarea and a given headline —
+single coincidental word overlaps are intentionally ignored to avoid
+false-positive highlighting. Wired to a 250ms-debounced input listener on
+`#context-input` (`wireContextHighlight()` in starter/app.js and
+pro/app.js) that re-renders already-cached card/compact-list news via
+`refreshNewsHighlights()` (new export in `shared/watchlist.js`) — no new
+network calls.
+
+**Watchlist ordering.** `addTickers()` used to append new tickers to the
+bottom; it now collects the not-already-present tickers and prepends them
+as a block (`watchlist.unshift.apply(watchlist, newOnes)`, not a
+naive per-item loop, which would reverse the typed order) so newly added
+tickers appear at the top in the order they were entered. Mirrored into
+`shark/index.html` as a mechanical fix (not the rest of this section's
+feature work, which stayed Starter/Pro-only per instruction).
+
+**Gotcha hit again during this work, same class already documented in the
+cache-busting rule below:** bumping `settings-modal.js`'s own `prefs.js`
+import to a new `?v=` without bumping the other importers
+(`watchlist.js`, `track-record.js`, `app.js`, `starter/app.js`,
+`pro/app.js`) created two live ES module instances of `prefs.js` in the
+same page — `pro/app.js`'s `onPrefsChange` listener was registered on the
+stale one and never fired. Fixed by bumping every importer in lockstep;
+re-confirm with the unanchored grep from the cache-busting rule whenever
+`prefs.js` changes again.
+
+Shipped as `trade-verdict` PRs #76-#80, all merged to `main`.
 
 ## Tier status (as of Aug 4, 2026)
 
