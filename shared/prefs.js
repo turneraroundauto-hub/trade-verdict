@@ -17,6 +17,16 @@ export const TIMEZONES = {
 // (AAPL:NASDAQ) that this app has no reliable way to know per-symbol, so
 // that option routes through a Google search instead of a direct quote
 // page — always resolves, never a broken link.
+//
+// newsHref() is optional, used only for the news-headline link (see
+// newsHref() below) — sites with a dedicated per-ticker news page (vs.
+// just a quote page) get one; everything else falls back to href().
+//
+// robinhood.com/stocks/X is a real, public page (no login needed to view
+// it) that also happens to register as a universal link — tapping it on
+// a phone with the Robinhood app installed opens the app directly,
+// browser otherwise. That's standard iOS/Android behavior tied to the
+// domain, not anything this app has to implement.
 export const LINK_SITES = {
   yahoo: {
     label: 'Yahoo Finance',
@@ -25,6 +35,7 @@ export const LINK_SITES = {
   tradingview: {
     label: 'TradingView',
     href: function(t){ return 'https://www.tradingview.com/symbols/' + encodeURIComponent(t.replace('-USD','USD')) + '/'; },
+    newsHref: function(t){ return 'https://www.tradingview.com/symbols/' + encodeURIComponent(t.replace('-USD','USD')) + '/news/'; },
   },
   stocktwits: {
     label: 'StockTwits',
@@ -34,7 +45,50 @@ export const LINK_SITES = {
     label: 'Google Finance',
     href: function(t){ return 'https://www.google.com/search?q=' + encodeURIComponent(t.replace('-USD',' USD') + ' stock'); },
   },
+  robinhood: {
+    label: 'Robinhood',
+    href: function(t){ return 'https://robinhood.com/stocks/' + encodeURIComponent(t.replace('-USD','')); },
+  },
+  custom: {
+    label: 'Custom link…',
+    href: function(t){ return customTemplateHref(t); },
+  },
 };
+
+const CUSTOM_TEMPLATE_KEY = 'tv_link_custom_template';
+
+// Only http(s) with a ticker placeholder is accepted — this is user-typed
+// text rendered straight into an href, so a stray javascript: paste can't
+// turn into a self-XSS, and a template with nowhere to put the ticker
+// would just link every symbol to the same dead page.
+export function isValidCustomTemplate(template){
+  var t = (template || '').trim();
+  if(!/^https?:\/\//i.test(t)) return false;
+  if(!/\{ticker\}/i.test(t)) return false;
+  return true;
+}
+
+export function getCustomTemplate(){
+  return localStorage.getItem(CUSTOM_TEMPLATE_KEY) || '';
+}
+
+export function setCustomTemplate(template){
+  if(forced) return false;
+  var t = (template || '').trim();
+  if(!isValidCustomTemplate(t)) return false;
+  localStorage.setItem(CUSTOM_TEMPLATE_KEY, t);
+  listeners.forEach(function(cb){cb();});
+  return true;
+}
+
+// Falls back to Yahoo (never a dead link) if no valid template is saved —
+// same fail-safe posture as every other outbound link in this app.
+function customTemplateHref(t){
+  var template = getCustomTemplate();
+  if(!isValidCustomTemplate(template)) return LINK_SITES.yahoo.href(t);
+  return template.replace(/\{TICKER\}/g, encodeURIComponent(t.toUpperCase()))
+                  .replace(/\{ticker\}/g, encodeURIComponent(t.toLowerCase()));
+}
 
 const TZ_KEY = 'tv_tz_pref';
 const LINK_KEY = 'tv_link_site_pref';
@@ -78,6 +132,20 @@ export function setLinkSitePref(site){
 // pro/app.js all had byte-identical hardcoded-to-Yahoo versions).
 export function tickerHref(t){
   return LINK_SITES[getLinkSitePref()].href(t);
+}
+
+// The news-headline link uses this instead of the specific article URL
+// Finnhub/Alpaca returned — it always goes to the user's preferred site's
+// coverage of that ticker (its dedicated news page where the site has
+// one), not an attempt to reconstruct the exact same story elsewhere.
+// Finnhub/Alpaca still drive the headline text/age/source shown on the
+// card itself; this only changes where tapping it goes. A user whose
+// preferred site happens to be the same outlet the headline came from
+// (e.g. a Seeking Alpha subscriber picking "Custom" -> seekingalpha.com)
+// gets exactly that article's site, which is the point.
+export function newsHref(t){
+  var site = LINK_SITES[getLinkSitePref()];
+  return (site.newsHref || site.href)(t);
 }
 
 // Fires after either preference changes. Callers re-render whatever they

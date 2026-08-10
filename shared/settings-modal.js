@@ -1,4 +1,4 @@
-import { TIMEZONES, LINK_SITES, getTzPref, setTzPref, getLinkSitePref, setLinkSitePref } from './prefs.js?v=1';
+import { TIMEZONES, LINK_SITES, getTzPref, setTzPref, getLinkSitePref, setLinkSitePref, getCustomTemplate, setCustomTemplate, isValidCustomTemplate } from './prefs.js?v=2';
 
 // Injected on first open, same pattern as watchlist.js's undo-toast — no
 // markup needed in any tier's index.html, so this drops into Free/Starter/
@@ -14,8 +14,13 @@ function ensureModal(){
     + '<div style="font-size:13px;font-weight:700;letter-spacing:.06em;margin-bottom:16px">SETTINGS</div>'
     + '<div style="font-size:10px;color:var(--dim);margin-bottom:6px">TIME ZONE</div>'
     + '<select id="settings-tz" style="width:100%;margin-bottom:16px;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:12px;padding:8px;border-radius:6px"></select>'
-    + '<div style="font-size:10px;color:var(--dim);margin-bottom:6px">TICKER LINKS OPEN IN</div>'
-    + '<select id="settings-link-site" style="width:100%;margin-bottom:18px;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:12px;padding:8px;border-radius:6px"></select>'
+    + '<div style="font-size:10px;color:var(--dim);margin-bottom:6px">TICKER &amp; NEWS LINKS OPEN IN</div>'
+    + '<select id="settings-link-site" style="width:100%;margin-bottom:8px;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:12px;padding:8px;border-radius:6px"></select>'
+    + '<div id="settings-custom-wrap" style="display:none;margin-bottom:18px">'
+      + '<input type="text" id="settings-custom-template" placeholder="https://example.com/quote/{TICKER}" style="width:100%;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:11px;padding:8px;border-radius:6px;box-sizing:border-box">'
+      + '<div style="font-size:10px;color:var(--dim);margin-top:6px">Use <span style="color:var(--white)">{TICKER}</span> or <span style="color:var(--white)">{ticker}</span> where the symbol goes — e.g. Webull: <span style="color:var(--white)">https://www.webull.com/quote/nasdaq-{ticker}</span></div>'
+      + '<div id="settings-custom-status" style="font-size:10px;margin-top:6px"></div>'
+    + '</div>'
     + '<button type="button" id="settings-close-btn" style="width:100%;background:var(--blue);border:none;color:#03101f;font-family:monospace;font-size:12px;font-weight:700;padding:10px;border-radius:6px;cursor:pointer;letter-spacing:.04em">DONE</button>'
     + '</div>';
   document.body.appendChild(el);
@@ -34,7 +39,28 @@ function ensureModal(){
     o.value = k; o.textContent = LINK_SITES[k].label;
     linkSel.appendChild(o);
   });
-  linkSel.addEventListener('change', function(){ setLinkSitePref(linkSel.value); });
+  var customWrap = document.getElementById('settings-custom-wrap');
+  var customInput = document.getElementById('settings-custom-template');
+  var customStatus = document.getElementById('settings-custom-status');
+  function refreshCustomVisibility(){
+    customWrap.style.display = linkSel.value === 'custom' ? 'block' : 'none';
+  }
+  linkSel.addEventListener('change', function(){
+    setLinkSitePref(linkSel.value);
+    refreshCustomVisibility();
+  });
+  customInput.addEventListener('input', function(){
+    var v = customInput.value.trim();
+    if(!v){ customStatus.textContent = ''; return; }
+    if(isValidCustomTemplate(v)){
+      setCustomTemplate(v);
+      customStatus.textContent = 'Saved — links now use this.';
+      customStatus.style.color = 'var(--green)';
+    } else {
+      customStatus.textContent = 'Needs http(s):// and a {TICKER} placeholder — using Yahoo Finance until fixed.';
+      customStatus.style.color = 'var(--red)';
+    }
+  });
   return el;
 }
 
@@ -42,6 +68,9 @@ export function openSettingsModal(){
   var el = ensureModal();
   document.getElementById('settings-tz').value = getTzPref();
   document.getElementById('settings-link-site').value = getLinkSitePref();
+  document.getElementById('settings-custom-template').value = getCustomTemplate();
+  document.getElementById('settings-custom-status').textContent = '';
+  document.getElementById('settings-custom-wrap').style.display = getLinkSitePref() === 'custom' ? 'block' : 'none';
   el.style.display = 'flex';
 }
 
