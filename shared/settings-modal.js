@@ -1,4 +1,4 @@
-import { TIMEZONES, LINK_SITES, getTzPref, setTzPref, getLinkSitePref, setLinkSitePref, getCustomTemplate, setCustomTemplate, isValidCustomTemplate, buildTemplateFromExample } from './prefs.js?v=3';
+import { TIMEZONES, LINK_SITES, getTzPref, setTzPref, getLinkSitePref, setLinkSitePref, getCustomTemplate, setCustomTemplate, isValidCustomTemplate, buildTemplateFromExample, detectTickerInUrl } from './prefs.js?v=4';
 
 // Injected on first open, same pattern as watchlist.js's undo-toast — no
 // markup needed in any tier's index.html, so this drops into Free/Starter/
@@ -18,11 +18,10 @@ function ensureModal(){
     + '<select id="settings-link-site" style="width:100%;margin-bottom:8px;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:12px;padding:8px;border-radius:6px"></select>'
     + '<div id="settings-custom-wrap" style="display:none;margin-bottom:18px">'
       + '<div style="font-size:10px;color:var(--dim);line-height:1.6;margin-bottom:8px">'
-        + '1. Open any one stock\'s page on the site you want.<br>'
-        + '2. Type that stock\'s ticker and paste its URL below — the link pattern is figured out for you.'
+        + 'Open any one stock\'s page on the site you want and paste its URL below — the ticker and link pattern are both figured out for you.'
       + '</div>'
-      + '<input type="text" id="settings-custom-ex-ticker" placeholder="Ticker shown on that page, e.g. AAPL" style="width:100%;margin-bottom:8px;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:11px;padding:8px;border-radius:6px;box-sizing:border-box">'
-      + '<input type="text" id="settings-custom-ex-url" placeholder="That stock\'s page URL" style="width:100%;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:11px;padding:8px;border-radius:6px;box-sizing:border-box">'
+      + '<input type="text" id="settings-custom-ex-url" placeholder="That stock\'s page URL" style="width:100%;margin-bottom:8px;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:11px;padding:8px;border-radius:6px;box-sizing:border-box">'
+      + '<input type="text" id="settings-custom-ex-ticker" placeholder="Detected ticker — edit if wrong" style="width:100%;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:11px;padding:8px;border-radius:6px;box-sizing:border-box">'
       + '<div id="settings-custom-status" style="font-size:10px;margin-top:8px"></div>'
       + '<button type="button" id="settings-custom-advanced-toggle" style="background:none;border:none;color:var(--dim);font-family:monospace;font-size:10px;text-decoration:underline;cursor:pointer;padding:0;margin-top:10px">Edit the link pattern directly instead</button>'
       + '<div id="settings-custom-advanced" style="display:none;margin-top:8px">'
@@ -71,13 +70,18 @@ function ensureModal(){
     customStatus.style.color = 'var(--dim)';
   }
 
-  // Auto-detects the ticker inside the pasted URL and saves the resulting
-  // template — the user never has to see or type {TICKER} themselves
+  // Builds and saves the template from whatever's currently in the URL +
+  // ticker fields — the user never has to see or type {TICKER} themselves
   // unless they open Advanced.
   function tryAutoDetect(){
     var t = exTicker.value.trim();
     var u = exUrl.value.trim();
-    if(!t || !u){ showCurrentTemplate(); return; }
+    if(!u){ showCurrentTemplate(); return; }
+    if(!t){
+      customStatus.textContent = 'Couldn\'t spot a ticker in that URL — type it in above.';
+      customStatus.style.color = 'var(--amber)';
+      return;
+    }
     var template = buildTemplateFromExample(u, t);
     if(template){
       setCustomTemplate(template);
@@ -89,8 +93,15 @@ function ensureModal(){
       customStatus.style.color = 'var(--red)';
     }
   }
+  // Pasting/editing the URL re-detects the ticker automatically; editing
+  // the ticker field afterward (e.g. the detector guessed wrong) just
+  // re-runs the save with the corrected value, same as before.
+  exUrl.addEventListener('input', function(){
+    var detected = detectTickerInUrl(exUrl.value);
+    if(detected) exTicker.value = detected;
+    tryAutoDetect();
+  });
   exTicker.addEventListener('input', tryAutoDetect);
-  exUrl.addEventListener('input', tryAutoDetect);
 
   advancedToggle.addEventListener('click', function(){
     var open = advancedWrap.style.display === 'block';
