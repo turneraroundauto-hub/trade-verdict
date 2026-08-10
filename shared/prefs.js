@@ -43,8 +43,23 @@ export const LINK_SITES = {
   },
   tradingview: {
     label: 'TradingView',
-    href: function(t){ return 'https://www.tradingview.com/symbols/' + encodeURIComponent(t.replace('-USD','USD')) + '/'; },
-    newsHref: function(t){ return 'https://www.tradingview.com/symbols/' + encodeURIComponent(t.replace('-USD','USD')) + '/news/'; },
+    // Bare /symbols/{TICKER}/ has the identical exchange-ambiguity problem
+    // as Google Finance's direct quote page (see the comment above) — this
+    // app has no per-symbol exchange data (checked: nowhere in the frontend
+    // or the mirrored server.js), and TradingView's own bare-symbol
+    // resolution isn't reliably US-biased: confirmed live (Aug 10, 2026)
+    // that a real user's ARCC link landed on Egypt's EGX-listed Arabian
+    // Cement instead of NASDAQ's Ares Capital. Routes through a plain web
+    // search instead (same proven-safe pattern as Yahoo/Google's own
+    // fallback), biased toward tradingview.com with a keyword rather than
+    // the `site:` operator — this app already found `site:` search results
+    // unreliable (Google shows an interstitial banner instead of direct
+    // results, hit earlier this session while building the news-link
+    // feature). UNVERIFIED LIVE: this sandbox blocks tradingview.com and
+    // google.com egress alike, so the actual search-result ranking for a
+    // given ticker couldn't be confirmed — spot-check after deploy.
+    href: function(t){ return 'https://www.google.com/search?q=' + encodeURIComponent(t.replace('-USD',' USD') + ' stock tradingview'); },
+    newsHref: function(t){ return 'https://news.google.com/search?q=' + encodeURIComponent(t.replace('-USD',' USD') + ' stock tradingview'); },
   },
   stocktwits: {
     label: 'StockTwits',

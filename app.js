@@ -1,9 +1,9 @@
 import { initTickerCache, fetchTickerData } from './shared/ticker-cache.js?v=4';
-import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, onWatchlistSave, refreshNewsHighlights } from './shared/watchlist.js?v=26';
+import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, onWatchlistSave, refreshNewsHighlights } from './shared/watchlist.js?v=27';
 import { cleanLS, cacheVerdict, getCachedVerdict } from './shared/analysis-cache.js?v=2';
-import { renderTrackRecord } from './shared/track-record.js?v=14';
-import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from './shared/watchlist-sync.js?v=19';
-import { getTzPref, getTzIana, forceDefaults } from './shared/prefs.js?v=9';
+import { renderTrackRecord } from './shared/track-record.js?v=15';
+import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from './shared/watchlist-sync.js?v=20';
+import { getTzPref, getTzIana, forceDefaults } from './shared/prefs.js?v=10';
 // Free has no Settings UI (see prefs.js) — always ET / Yahoo Finance,
 // regardless of a preference set on Starter/Pro in this same browser.
 forceDefaults();
