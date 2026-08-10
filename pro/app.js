@@ -889,7 +889,7 @@ export async function exportWatchlistCSV(btnEl){
   var blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
   var url=URL.createObjectURL(blob);
   var a=document.createElement('a');
-  a.href=url;a.download='trade-verdict-watchlist-'+new Date().toISOString().slice(0,10)+'.csv';
+  a.href=url;a.download='trade-tribunal-watchlist-'+new Date().toISOString().slice(0,10)+'.csv';
   document.body.appendChild(a);a.click();document.body.removeChild(a);
   URL.revokeObjectURL(url);
   if(btnEl){btnEl.textContent=old;btnEl.disabled=false;}

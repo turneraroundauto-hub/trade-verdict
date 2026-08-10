@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-// TRADE VERDICT API — v4.0.0
+// TRADE TRIBUNAL API — v4.0.0
 // Built July 19, 2026
 // Key changes from v3.x:
 //   - Smart proxy algorithm for Gate 5 (never N/A)

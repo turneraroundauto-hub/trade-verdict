@@ -1,2 +1,2 @@
-# trade-verdict
+# Trade Tribunal
 Analysis 
