@@ -1,4 +1,4 @@
-import { TIMEZONES, LINK_SITES, getTzPref, setTzPref, getLinkSitePref, setLinkSitePref, getCustomTemplate, setCustomTemplate, buildTemplateFromExample, detectTickerInUrl } from './prefs.js?v=7';
+import { TIMEZONES, LINK_SITES, getTzPref, setTzPref, getLinkSitePref, setLinkSitePref, getCustomTemplate, setCustomTemplate, getCustomMarketTemplate, setCustomMarketTemplate, buildTemplateFromExample, detectTickerInUrl } from './prefs.js?v=8';
 
 // Injected on first open, same pattern as watchlist.js's undo-toast — no
 // markup needed in any tier's index.html, so this drops into Free/Starter/
@@ -17,9 +17,13 @@ function ensureModal(){
     + '<div style="font-size:10px;color:var(--dim);margin-bottom:6px">TICKER &amp; NEWS LINKS OPEN IN</div>'
     + '<select id="settings-link-site" style="width:100%;margin-bottom:8px;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:12px;padding:8px;border-radius:6px"></select>'
     + '<div id="settings-custom-wrap" style="display:none;margin-bottom:18px">'
+      + '<div style="font-size:9px;color:var(--dim);margin-bottom:5px">MARKET DATA (TICKER) URL</div>'
+      + '<input type="text" id="settings-custom-market-url" placeholder="Paste your favorite stock quote URL" style="width:100%;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:11px;padding:8px;border-radius:6px;box-sizing:border-box">'
+      + '<div id="settings-custom-market-status" style="font-size:10px;margin-top:8px;margin-bottom:16px"></div>'
+      + '<div style="font-size:9px;color:var(--dim);margin-bottom:5px">NEWS URL</div>'
       + '<input type="text" id="settings-custom-ex-url" placeholder="Paste your favorite market news URL" style="width:100%;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:11px;padding:8px;border-radius:6px;box-sizing:border-box">'
       + '<div id="settings-custom-status" style="font-size:10px;margin-top:8px"></div>'
-      + '<div style="font-size:10px;color:var(--amber);margin-top:8px">Blank or invalid = Yahoo Finance is used instead.</div>'
+      + '<div style="font-size:10px;color:var(--amber);margin-top:8px">Blank or invalid = Yahoo Finance is used instead, per field.</div>'
     + '</div>'
     + '<button type="button" id="settings-close-btn" style="width:100%;background:var(--blue);border:none;color:#03101f;font-family:monospace;font-size:12px;font-weight:700;padding:10px;border-radius:6px;cursor:pointer;letter-spacing:.04em">DONE</button>'
     + '</div>';
@@ -42,6 +46,8 @@ function ensureModal(){
   var customWrap = document.getElementById('settings-custom-wrap');
   var exUrl = document.getElementById('settings-custom-ex-url');
   var customStatus = document.getElementById('settings-custom-status');
+  var marketUrl = document.getElementById('settings-custom-market-url');
+  var marketStatus = document.getElementById('settings-custom-market-status');
 
   function refreshCustomVisibility(){
     customWrap.style.display = linkSel.value === 'custom' ? 'block' : 'none';
@@ -57,10 +63,19 @@ function ensureModal(){
     customStatus.style.color = 'var(--dim)';
   }
 
-  // One field only: paste a URL, everything else is inferred. A missing
-  // http(s):// is filled in automatically rather than rejected, and the
-  // ticker is detected from the URL itself (detectTickerInUrl) -- the
-  // user never sees or types {TICKER} or the symbol at all.
+  function showCurrentMarketTemplate(){
+    var saved = getCustomMarketTemplate();
+    marketStatus.textContent = saved ? 'Currently: ' + saved : 'No link saved yet — using Yahoo Finance.';
+    marketStatus.style.color = 'var(--dim)';
+  }
+
+  // One field per link type: paste a URL, everything else is inferred. A
+  // missing http(s):// is filled in automatically rather than rejected, and
+  // the ticker is detected from the URL itself (detectTickerInUrl) -- the
+  // user never sees or types {TICKER} or the symbol at all. Market data and
+  // news route through separate saved templates (see prefs.js) since a
+  // favorite quote site and a favorite news site are frequently not the
+  // same site.
   exUrl.addEventListener('input', function(){
     var raw = exUrl.value.trim();
     if(!raw){ showCurrentTemplate(); return; }
@@ -69,11 +84,27 @@ function ensureModal(){
     var template = detected ? buildTemplateFromExample(withScheme, detected) : null;
     if(template){
       setCustomTemplate(template);
-      customStatus.textContent = 'Saved — links now use this.';
+      customStatus.textContent = 'Saved — news links now use this.';
       customStatus.style.color = 'var(--green)';
     } else {
       customStatus.textContent = 'Couldn\'t find a ticker in that URL — try pasting a single stock\'s page instead.';
       customStatus.style.color = 'var(--red)';
+    }
+  });
+
+  marketUrl.addEventListener('input', function(){
+    var raw = marketUrl.value.trim();
+    if(!raw){ showCurrentMarketTemplate(); return; }
+    var withScheme = /^https?:\/\//i.test(raw) ? raw : 'https://' + raw;
+    var detected = detectTickerInUrl(withScheme);
+    var template = detected ? buildTemplateFromExample(withScheme, detected) : null;
+    if(template){
+      setCustomMarketTemplate(template);
+      marketStatus.textContent = 'Saved — ticker links now use this.';
+      marketStatus.style.color = 'var(--green)';
+    } else {
+      marketStatus.textContent = 'Couldn\'t find a ticker in that URL — try pasting a single stock\'s page instead.';
+      marketStatus.style.color = 'var(--red)';
     }
   });
   return el;
@@ -83,11 +114,19 @@ export function openSettingsModal(){
   var el = ensureModal();
   document.getElementById('settings-tz').value = getTzPref();
   document.getElementById('settings-link-site').value = getLinkSitePref();
+
   document.getElementById('settings-custom-ex-url').value = '';
   var saved = getCustomTemplate();
   var statusEl = document.getElementById('settings-custom-status');
   statusEl.textContent = saved ? 'Currently: ' + saved : 'No link saved yet — using Yahoo Finance.';
   statusEl.style.color = 'var(--dim)';
+
+  document.getElementById('settings-custom-market-url').value = '';
+  var savedMarket = getCustomMarketTemplate();
+  var marketStatusEl = document.getElementById('settings-custom-market-status');
+  marketStatusEl.textContent = savedMarket ? 'Currently: ' + savedMarket : 'No link saved yet — using Yahoo Finance.';
+  marketStatusEl.style.color = 'var(--dim)';
+
   document.getElementById('settings-custom-wrap').style.display = getLinkSitePref() === 'custom' ? 'block' : 'none';
   el.style.display = 'flex';
 }

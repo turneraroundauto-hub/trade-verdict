@@ -60,11 +60,22 @@ export const LINK_SITES = {
   },
   custom: {
     label: 'Custom link…',
-    href: function(t){ return customTemplateHref(t); },
+    href: function(t){ return customMarketTemplateHref(t); },
+    newsHref: function(t){ return customNewsTemplateHref(t); },
   },
 };
 
+// Two independent templates: a ticker/quote-page one (used for tickerHref,
+// i.e. every plain symbol link) and a news one (used for newsHref, i.e.
+// headline links) — a favorite market-data site and a favorite news site
+// are frequently not the same site. CUSTOM_TEMPLATE_KEY is the original,
+// single template from before this split; kept as the NEWS template
+// specifically (not renamed/migrated) so an existing saved value keeps
+// working exactly as before for existing users, with the market-data
+// template simply starting unset (falls back to Yahoo's quote page,
+// same as it always did) until a user fills in the new field.
 const CUSTOM_TEMPLATE_KEY = 'tv_link_custom_template';
+const CUSTOM_MARKET_TEMPLATE_KEY = 'tv_link_custom_market_template';
 
 // Only http(s) with a ticker placeholder is accepted — this is user-typed
 // text rendered straight into an href, so a stray javascript: paste can't
@@ -149,6 +160,7 @@ export function detectTickerInUrl(rawUrl){
   return null;
 }
 
+// NEWS template — see the comment above CUSTOM_TEMPLATE_KEY.
 export function getCustomTemplate(){
   return localStorage.getItem(CUSTOM_TEMPLATE_KEY) || '';
 }
@@ -162,13 +174,39 @@ export function setCustomTemplate(template){
   return true;
 }
 
-// Falls back to Yahoo (never a dead link) if no valid template is saved —
-// same fail-safe posture as every other outbound link in this app.
-function customTemplateHref(t){
-  var template = getCustomTemplate();
-  if(!isValidCustomTemplate(template)) return LINK_SITES.yahoo.href(t);
+// MARKET DATA (ticker/quote) template.
+export function getCustomMarketTemplate(){
+  return localStorage.getItem(CUSTOM_MARKET_TEMPLATE_KEY) || '';
+}
+
+export function setCustomMarketTemplate(template){
+  if(forced) return false;
+  var t = (template || '').trim();
+  if(!isValidCustomTemplate(t)) return false;
+  localStorage.setItem(CUSTOM_MARKET_TEMPLATE_KEY, t);
+  listeners.forEach(function(cb){cb();});
+  return true;
+}
+
+function applyTemplate(template, t){
   return template.replace(/\{TICKER\}/g, encodeURIComponent(t.toUpperCase()))
                   .replace(/\{ticker\}/g, encodeURIComponent(t.toLowerCase()));
+}
+
+// Falls back to Yahoo's quote page (never a dead link) if no valid market
+// template is saved — same fail-safe posture as every other outbound link
+// in this app.
+function customMarketTemplateHref(t){
+  var template = getCustomMarketTemplate();
+  if(!isValidCustomTemplate(template)) return LINK_SITES.yahoo.href(t);
+  return applyTemplate(template, t);
+}
+
+// Falls back to Yahoo's news page if no valid news template is saved.
+function customNewsTemplateHref(t){
+  var template = getCustomTemplate();
+  if(!isValidCustomTemplate(template)) return LINK_SITES.yahoo.newsHref(t);
+  return applyTemplate(template, t);
 }
 
 const TZ_KEY = 'tv_tz_pref';
