@@ -525,6 +525,52 @@ remote branch and diffing each against `main` for unmerged commits.
 Reminder: "pushed" and "merged" are not the same claim, and nothing
 surfaces that gap automatically.
 
+**Late-night follow-up (Aug 10, 2026): live bug caught by the user, `trade-verdict`
+PRs #88, #89.** Clicking ARCC (Ares Capital Corporation, NASDAQ) landed on
+Egypt's EGX-listed Arabian Cement Company instead — the exact failure mode
+flagged as an unverified risk when the Google Finance beta-search change
+above shipped. **First response was wrong**: assumed the report was about
+that just-shipped Google change without confirming which link-site
+preference was actually active, and fixed only Google (reverted
+`google.com/finance/beta/?q=` back to a plain `google.com/search?q={TICKER}+stock`
+web search). The user corrected this directly — the report was actually
+about the **TradingView** preference. Re-verified with the same `prefs.js`
+node-script test used throughout this session's link work and confirmed
+TradingView's bare `tradingview.com/symbols/{TICKER}/` has the identical
+missing-exchange-context problem (both need a `TICKER:EXCHANGE` qualifier
+this app has no way to supply — there is no per-symbol exchange field
+anywhere in the frontend or the mirrored `server.js`). Fixed the same way:
+routes through a plain web search with a `tradingview` keyword instead of
+the `site:tradingview.com` operator (already known unreliable — see the
+news-link section above). **Both fixes are unverified against a live
+response** — this sandbox's network egress proxy blocks every finance/social
+site tried outright (`google.com`, `tradingview.com`, `finance.yahoo.com`,
+`stocktwits.com` all returned `EGRESS_BLOCKED`/403 via both `curl` and
+`WebFetch`) — flagged for a human spot-check. **Lesson: don't infer which
+of several similar, recently-changed things a bug report is about — confirm
+the actual state (which preference was selected) before fixing.**
+
+Prompted a direct instruction to verify *every* link route lands on the
+correct company. Clarified first via `AskUserQuestion` whether that meant a
+literal NASDAQ-only restriction or "the correct US company, not a foreign
+lookalike" — confirmed the latter; a literal NASDAQ-only rule would have
+broken routing for the many NYSE-listed tickers a real watchlist contains
+(Ares Capital is incidentally NASDAQ-listed, but that's not the actual bug
+class). Audited every remaining `LINK_SITES` option by design reasoning
+(live verification isn't possible from this sandbox, per above): **Yahoo**
+left unchanged — `finance.yahoo.com/quote/{TICKER}` resolves a bare
+US-style ticker to the primary US listing by design (non-US listings need
+an explicit suffix in Yahoo's own convention), and it's the app's
+default/most-used option all session with zero misroute reports even
+through the testing that caught the other two. **Robinhood** left
+unchanged — structurally safe, since Robinhood's own product only lists
+US-tradable securities at all, so there's no foreign listing a bare ticker
+could resolve to on that domain. **StockTwits** left unchanged —
+materially thinner international coverage than Yahoo/Google/TradingView,
+lower collision risk, no reported issues. **Custom** left unchanged —
+routes through whichever site the user themselves pastes an example from;
+correctness there is inherently the user's own choice.
+
 ## Deploying: GitHub Pages deployments can get stuck in `queued` forever (Aug 10, 2026)
 
 Merged `trade-verdict` PR #80 and the live site kept serving the *previous*
