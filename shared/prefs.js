@@ -68,6 +68,78 @@ export function isValidCustomTemplate(template){
   return true;
 }
 
+// Turns a real example (a ticker + the URL you land on viewing that one
+// stock) into a template automatically, so a user never has to know
+// {TICKER} syntax exists. Finds the ticker as a whole token (not a
+// substring of something else — matters for short tickers like "GE")
+// and swaps it for {TICKER} or {ticker} matching whichever case it
+// actually appeared in, since sites are inconsistent (Yahoo: AAPL,
+// Webull: aapl). Every occurrence is swapped, not just the first, in
+// case a site repeats the ticker in the URL. Returns null if the ticker
+// isn't found anywhere in the URL, so the caller can show a clear error
+// instead of silently saving a template with nowhere to substitute.
+export function buildTemplateFromExample(exampleUrl, exampleTicker){
+  var url = (exampleUrl || '').trim();
+  var ticker = (exampleTicker || '').trim();
+  if(!ticker || !/^https?:\/\//i.test(url)) return null;
+  var escaped = ticker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  var re = new RegExp('(^|[^A-Za-z0-9])(' + escaped + ')(?=[^A-Za-z0-9]|$)', 'gi');
+  var found = false;
+  var result = url.replace(re, function(_match, boundary, matched){
+    found = true;
+    var placeholder = matched === matched.toUpperCase() ? '{TICKER}' : '{ticker}';
+    return boundary + placeholder;
+  });
+  return found ? result : null;
+}
+
+// Words that show up in stock-site URLs but are never themselves the
+// ticker — path segments like "quote"/"stocks"/"symbol" and exchange
+// names, which would otherwise pass the plain shape check below (short,
+// letters-only) and get picked as a false-positive ticker.
+const URL_NON_TICKER_WORDS = new Set(['quote','quotes','stock','stocks','symbol','symbols','news','chart','charts','charting',
+  'market','markets','markt','investing','finance','financials','company','overview','summary','profile','research',
+  'www','com','us','en','html','htm','index',
+  'nasdaq','nyse','amex','otc','otcmkts','arca','bats','cboe']);
+
+function looksLikeTicker(s){
+  return /^[A-Za-z]{1,5}(\.[A-Za-z]{1,2})?$/.test(s);
+}
+
+// Guesses the ticker straight out of a real example URL, so the user
+// only has to paste one thing. Scans path segments from the end first
+// (site URLs almost always put the ticker last: /quote/AAPL,
+// /stocks/AAPL, /symbols/AAPL/news/), falling back to splitting on
+// hyphens for patterns like Webull's /quote/nasdaq-aapl, then to a
+// handful of common query-string params (?symbol=NASDAQ:AAPL and
+// similar) for chart-style URLs. Returns null, not a bad guess, when
+// nothing plausible turns up — the caller falls back to asking the user
+// to type the ticker rather than silently building a broken template.
+export function detectTickerInUrl(rawUrl){
+  var url;
+  try { url = new URL((rawUrl || '').trim()); } catch(e){ return null; }
+  var segments = url.pathname.split('/').filter(Boolean);
+  for (var i = segments.length - 1; i >= 0; i--) {
+    var seg;
+    try { seg = decodeURIComponent(segments[i]); } catch(e){ seg = segments[i]; }
+    if (looksLikeTicker(seg) && !URL_NON_TICKER_WORDS.has(seg.toLowerCase())) return seg;
+    if (seg.indexOf('-') !== -1) {
+      var parts = seg.split('-');
+      for (var j = parts.length - 1; j >= 0; j--) {
+        if (looksLikeTicker(parts[j]) && !URL_NON_TICKER_WORDS.has(parts[j].toLowerCase())) return parts[j];
+      }
+    }
+  }
+  var queryKeys = ['symbol', 'ticker', 'q', 's'];
+  for (var k = 0; k < queryKeys.length; k++) {
+    var v = url.searchParams.get(queryKeys[k]);
+    if (!v) continue;
+    var last = v.indexOf(':') !== -1 ? v.split(':').pop() : v;
+    if (looksLikeTicker(last)) return last;
+  }
+  return null;
+}
+
 export function getCustomTemplate(){
   return localStorage.getItem(CUSTOM_TEMPLATE_KEY) || '';
 }

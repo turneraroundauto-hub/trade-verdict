@@ -1,4 +1,4 @@
-import { TIMEZONES, LINK_SITES, getTzPref, setTzPref, getLinkSitePref, setLinkSitePref, getCustomTemplate, setCustomTemplate, isValidCustomTemplate } from './prefs.js?v=2';
+import { TIMEZONES, LINK_SITES, getTzPref, setTzPref, getLinkSitePref, setLinkSitePref, getCustomTemplate, setCustomTemplate, isValidCustomTemplate, buildTemplateFromExample, detectTickerInUrl } from './prefs.js?v=4';
 
 // Injected on first open, same pattern as watchlist.js's undo-toast — no
 // markup needed in any tier's index.html, so this drops into Free/Starter/
@@ -18,14 +18,17 @@ function ensureModal(){
     + '<select id="settings-link-site" style="width:100%;margin-bottom:8px;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:12px;padding:8px;border-radius:6px"></select>'
     + '<div id="settings-custom-wrap" style="display:none;margin-bottom:18px">'
       + '<div style="font-size:10px;color:var(--dim);line-height:1.6;margin-bottom:8px">'
-        + '1. Open any stock\'s page on the site you want.<br>'
-        + '2. Copy its URL, replace that stock\'s ticker with <span style="color:var(--white)">{TICKER}</span>.<br>'
-        + '3. Paste it below. Must start with <span style="color:var(--white)">http://</span> or <span style="color:var(--white)">https://</span>.<br>'
-        + '<span style="color:var(--amber)">Blank or invalid = Yahoo Finance is used instead.</span>'
+        + 'Open any one stock\'s page on the site you want and paste its URL below — the ticker and link pattern are both figured out for you.'
       + '</div>'
-      + '<input type="text" id="settings-custom-template" placeholder="https://example.com/quote/{TICKER}" style="width:100%;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:11px;padding:8px;border-radius:6px;box-sizing:border-box">'
-      + '<div style="font-size:10px;color:var(--dim);margin-top:6px">Example (Webull): <span style="color:var(--white)">https://www.webull.com/quote/nasdaq-{ticker}</span></div>'
-      + '<div id="settings-custom-status" style="font-size:10px;margin-top:6px"></div>'
+      + '<input type="text" id="settings-custom-ex-url" placeholder="That stock\'s page URL" style="width:100%;margin-bottom:8px;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:11px;padding:8px;border-radius:6px;box-sizing:border-box">'
+      + '<input type="text" id="settings-custom-ex-ticker" placeholder="Detected ticker — edit if wrong" style="width:100%;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:11px;padding:8px;border-radius:6px;box-sizing:border-box">'
+      + '<div id="settings-custom-status" style="font-size:10px;margin-top:8px"></div>'
+      + '<button type="button" id="settings-custom-advanced-toggle" style="background:none;border:none;color:var(--dim);font-family:monospace;font-size:10px;text-decoration:underline;cursor:pointer;padding:0;margin-top:10px">Edit the link pattern directly instead</button>'
+      + '<div id="settings-custom-advanced" style="display:none;margin-top:8px">'
+        + '<input type="text" id="settings-custom-template" placeholder="https://example.com/quote/{TICKER}" style="width:100%;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:11px;padding:8px;border-radius:6px;box-sizing:border-box">'
+        + '<div style="font-size:10px;color:var(--dim);margin-top:6px">Use <span style="color:var(--white)">{TICKER}</span> or <span style="color:var(--white)">{ticker}</span> where the symbol goes.</div>'
+      + '</div>'
+      + '<div style="font-size:10px;color:var(--amber);margin-top:8px">Blank or invalid = Yahoo Finance is used instead.</div>'
     + '</div>'
     + '<button type="button" id="settings-close-btn" style="width:100%;background:var(--blue);border:none;color:#03101f;font-family:monospace;font-size:12px;font-weight:700;padding:10px;border-radius:6px;cursor:pointer;letter-spacing:.04em">DONE</button>'
     + '</div>';
@@ -46,8 +49,13 @@ function ensureModal(){
     linkSel.appendChild(o);
   });
   var customWrap = document.getElementById('settings-custom-wrap');
-  var customInput = document.getElementById('settings-custom-template');
+  var exTicker = document.getElementById('settings-custom-ex-ticker');
+  var exUrl = document.getElementById('settings-custom-ex-url');
   var customStatus = document.getElementById('settings-custom-status');
+  var advancedToggle = document.getElementById('settings-custom-advanced-toggle');
+  var advancedWrap = document.getElementById('settings-custom-advanced');
+  var customInput = document.getElementById('settings-custom-template');
+
   function refreshCustomVisibility(){
     customWrap.style.display = linkSel.value === 'custom' ? 'block' : 'none';
   }
@@ -55,9 +63,54 @@ function ensureModal(){
     setLinkSitePref(linkSel.value);
     refreshCustomVisibility();
   });
+
+  function showCurrentTemplate(){
+    var saved = getCustomTemplate();
+    customStatus.textContent = saved ? 'Currently: ' + saved : 'No link saved yet — using Yahoo Finance.';
+    customStatus.style.color = 'var(--dim)';
+  }
+
+  // Builds and saves the template from whatever's currently in the URL +
+  // ticker fields — the user never has to see or type {TICKER} themselves
+  // unless they open Advanced.
+  function tryAutoDetect(){
+    var t = exTicker.value.trim();
+    var u = exUrl.value.trim();
+    if(!u){ showCurrentTemplate(); return; }
+    if(!t){
+      customStatus.textContent = 'Couldn\'t spot a ticker in that URL — type it in above.';
+      customStatus.style.color = 'var(--amber)';
+      return;
+    }
+    var template = buildTemplateFromExample(u, t);
+    if(template){
+      setCustomTemplate(template);
+      customInput.value = template;
+      customStatus.textContent = 'Saved — found it: ' + template;
+      customStatus.style.color = 'var(--green)';
+    } else {
+      customStatus.textContent = 'Couldn\'t find "' + t + '" in that URL — check it matches exactly, or use "Edit the link pattern directly" below.';
+      customStatus.style.color = 'var(--red)';
+    }
+  }
+  // Pasting/editing the URL re-detects the ticker automatically; editing
+  // the ticker field afterward (e.g. the detector guessed wrong) just
+  // re-runs the save with the corrected value, same as before.
+  exUrl.addEventListener('input', function(){
+    var detected = detectTickerInUrl(exUrl.value);
+    if(detected) exTicker.value = detected;
+    tryAutoDetect();
+  });
+  exTicker.addEventListener('input', tryAutoDetect);
+
+  advancedToggle.addEventListener('click', function(){
+    var open = advancedWrap.style.display === 'block';
+    advancedWrap.style.display = open ? 'none' : 'block';
+    advancedToggle.textContent = open ? 'Edit the link pattern directly instead' : 'Hide the link pattern editor';
+  });
   customInput.addEventListener('input', function(){
     var v = customInput.value.trim();
-    if(!v){ customStatus.textContent = ''; return; }
+    if(!v){ showCurrentTemplate(); return; }
     if(isValidCustomTemplate(v)){
       setCustomTemplate(v);
       customStatus.textContent = 'Saved — links now use this.';
@@ -74,8 +127,15 @@ export function openSettingsModal(){
   var el = ensureModal();
   document.getElementById('settings-tz').value = getTzPref();
   document.getElementById('settings-link-site').value = getLinkSitePref();
+  document.getElementById('settings-custom-ex-ticker').value = '';
+  document.getElementById('settings-custom-ex-url').value = '';
   document.getElementById('settings-custom-template').value = getCustomTemplate();
-  document.getElementById('settings-custom-status').textContent = '';
+  document.getElementById('settings-custom-advanced').style.display = 'none';
+  document.getElementById('settings-custom-advanced-toggle').textContent = 'Edit the link pattern directly instead';
+  var saved = getCustomTemplate();
+  var statusEl = document.getElementById('settings-custom-status');
+  statusEl.textContent = saved ? 'Currently: ' + saved : 'No link saved yet — using Yahoo Finance.';
+  statusEl.style.color = 'var(--dim)';
   document.getElementById('settings-custom-wrap').style.display = getLinkSitePref() === 'custom' ? 'block' : 'none';
   el.style.display = 'flex';
 }
