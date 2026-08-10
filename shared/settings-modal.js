@@ -1,4 +1,4 @@
-import { TIMEZONES, LINK_SITES, getTzPref, setTzPref, getLinkSitePref, setLinkSitePref, getCustomTemplate, setCustomTemplate, buildTemplateFromExample, detectTickerInUrl } from './prefs.js?v=6';
+import { TIMEZONES, LINK_SITES, getTzPref, setTzPref, getLinkSitePref, setLinkSitePref, getCustomTemplate, setCustomTemplate, buildTemplateFromExample, detectTickerInUrl } from './prefs.js?v=7';
 
 // Injected on first open, same pattern as watchlist.js's undo-toast — no
 // markup needed in any tier's index.html, so this drops into Free/Starter/
