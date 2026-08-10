@@ -46,8 +46,17 @@ is a real breaking data migration for existing users and needs its own
 deliberate pass, not a side effect of a branding change. The GitHub repo
 itself is also still named `trade-verdict` — renaming that is a separate,
 bigger decision (breaks existing clone URLs/CI references) not covered by
-this pass. The Notion "Full Build Log" doc title is also still unchanged
-(see note above) — low priority per Mr. T as of Aug 4, 2026.
+this pass. **Reconfirmed Aug 10, 2026:** asked directly whether to do
+either of these two now; got no go-ahead on either, so both stay exactly
+as described above — still open, still deliberate, not forgotten.
+
+**Follow-up brand scrub (Aug 10, 2026, `trade-verdict` PR #83):** a
+repo-wide case-insensitive grep for `trade[ -]?verdict` turned up three
+spots the cosmetic pass above missed — Pro's watchlist CSV export still
+downloaded as `trade-verdict-watchlist-*.csv` (user-visible), the mirrored
+`server.js`'s banner comment still read `TRADE VERDICT API`, and
+`README.md`'s heading was still the old repo slug. All three fixed; same
+deliberately-untouched exceptions as above.
 
 ## The two-repo trap — read this first
 
@@ -486,6 +495,62 @@ re-confirm with the unanchored grep from the cache-busting rule whenever
 `prefs.js` changes again.
 
 Shipped as `trade-verdict` PRs #76-#80, all merged to `main`.
+
+**Evening follow-up (Aug 10, 2026): news-link correctness sweep, `trade-verdict`
+PRs #82, #84-#86.** `newsHref()` only ever special-cased TradingView with a
+real per-ticker news route — Yahoo (the default for every user, and the
+*only* option Free can use) and Google both silently fell back to `href()`
+(a plain quote page / generic web search) instead of landing on actual
+news. Fixed: Yahoo now has its own `newsHref` (`/quote/{TICKER}/news/`);
+Google's `newsHref` routes through `news.google.com` instead of a plain
+web search; StockTwits got its own `newsHref`
+(`stocktwits.com/symbol/{TICKER}/news`) — previously assumed (wrong) that
+StockTwits had no distinct news route, corrected via a live example the
+user supplied. Separately, Google Finance's *ticker* link (`href`, not
+`newsHref`) was still routing through a plain `google.com` web search —
+per direct instruction, changed to `google.com/finance/beta/?q={TICKER}`
+instead. **Unverified against a live response** — this sandbox's network
+egress proxy blocks `google.com` outright (confirmed via both `curl` and
+`WebFetch`, both returned 403/`EGRESS_BLOCKED`) — spot-check after deploy.
+**Custom link split into two independent templates**
+(`getCustomMarketTemplate`/`setCustomMarketTemplate`, new key
+`tv_link_custom_market_template`) — the Custom option previously had one
+saved template serving both ticker and news links; the original
+template/key keeps its exact prior behavior and now serves only the news
+link, so existing users' saved link keeps working unchanged, no migration
+needed. Also found and merged `trade-verdict` PR #75 ("Back to Free tier"
+link on the Starter/Pro login screens) — opened by a *different*, earlier
+session on Aug 6 and left unmerged ever since, found by fetching every
+remote branch and diffing each against `main` for unmerged commits.
+Reminder: "pushed" and "merged" are not the same claim, and nothing
+surfaces that gap automatically.
+
+## Deploying: GitHub Pages deployments can get stuck in `queued` forever (Aug 10, 2026)
+
+Merged `trade-verdict` PR #80 and the live site kept serving the *previous*
+build after multiple hard refreshes and several real minutes — longer than
+the documented ~22-minute CDN-propagation ceiling elsewhere in this file
+would explain as "still propagating." Diagnosed via the GitHub Actions API
+(`actions_list`/`actions_get`, workflow name "pages build and deployment"):
+the deployment run for that commit was stuck at `status: queued`
+indefinitely, never advancing to `in_progress`. Calling `rerun_workflow_run`
+on it directly failed with `403 This workflow is already running` — it
+can't be kicked back to life that way.
+
+**Fix: push any new commit to `main`.** GitHub Pages spawns a brand-new,
+independent deployment run for the new SHA — confirmed the stuck run's
+`conclusion` flipped to `cancelled` the moment the new run was created, and
+the new run deployed cleanly within about a minute. If a deploy seems
+stuck beyond a couple of minutes, check the Actions run status (`pages
+build and deployment`, filtered to `main`) before assuming it's just
+propagation lag — a genuinely stuck run won't be fixed by waiting or by
+hard-refreshing the browser.
+
+Root cause unconfirmed — five PRs were merged in quick succession that
+evening (roughly 10-20 minutes apart), which is the leading suspect for
+GitHub Pages' deployment queue getting confused, but this wasn't proven.
+If it recurs, check whether it correlates with rapid successive merges
+again.
 
 ## Tier status (as of Aug 4, 2026)
 
