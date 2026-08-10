@@ -556,7 +556,11 @@ function addTickers(){
   var raw=document.getElementById('ticker-input').value;
   var tickers=parseTickers(raw);
   if(!tickers.length)return alert('No valid tickers. Try: AAPL or MU');
-  tickers.forEach(function(t){if(!watchlist.includes(t))watchlist.push(t)});
+  // New tickers land at the top, in the order typed -- unshift-per-item
+  // would reverse that order (last processed ends up first), so collect
+  // the actually-new ones first and prepend them as a block.
+  var newOnes=tickers.filter(function(t){return !watchlist.includes(t)});
+  watchlist.unshift.apply(watchlist,newOnes);
   document.getElementById('ticker-input').value='';
   saveWL();renderWatchlist();
   tickers.forEach(function(t){fetchTickerData(t).then(function(d){if(d)updateCardMeta(t,d)})});
