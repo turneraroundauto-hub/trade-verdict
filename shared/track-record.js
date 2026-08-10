@@ -1,4 +1,4 @@
-import { tickerHref } from './prefs.js?v=4';
+import { tickerHref } from './prefs.js?v=5';
 
 var LOG_KEY='tv_accuracy_log';
 function getLog(){try{return JSON.parse(localStorage.getItem(LOG_KEY)||'[]')}catch(e){return[]}}
