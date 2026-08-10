@@ -19,8 +19,11 @@ export const TIMEZONES = {
 // page — always resolves, never a broken link.
 //
 // newsHref() is optional, used only for the news-headline link (see
-// newsHref() below) — sites with a dedicated per-ticker news page (vs.
-// just a quote page) get one; everything else falls back to href().
+// newsHref() below) — sites with a dedicated per-ticker news page (Yahoo,
+// TradingView) or a real news search (Google, via news.google.com rather
+// than a plain web search) get one; sites with no distinct news route
+// (StockTwits' symbol page is already a live stream, Robinhood has no
+// public news URL) fall back to href().
 //
 // robinhood.com/stocks/X is a real, public page (no login needed to view
 // it) that also happens to register as a universal link — tapping it on
@@ -31,6 +34,7 @@ export const LINK_SITES = {
   yahoo: {
     label: 'Yahoo Finance',
     href: function(t){ return 'https://finance.yahoo.com/quote/' + encodeURIComponent(t); },
+    newsHref: function(t){ return 'https://finance.yahoo.com/quote/' + encodeURIComponent(t) + '/news/'; },
   },
   tradingview: {
     label: 'TradingView',
@@ -44,6 +48,7 @@ export const LINK_SITES = {
   google: {
     label: 'Google Finance',
     href: function(t){ return 'https://www.google.com/search?q=' + encodeURIComponent(t.replace('-USD',' USD') + ' stock'); },
+    newsHref: function(t){ return 'https://news.google.com/search?q=' + encodeURIComponent(t.replace('-USD',' USD') + ' stock'); },
   },
   robinhood: {
     label: 'Robinhood',
