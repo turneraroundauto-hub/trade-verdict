@@ -1,11 +1,11 @@
 import { initTickerCache, fetchTickerData } from '../shared/ticker-cache.js?v=4';
-import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, setWatchlist, removeTicker, setRenderScope, getOverflow, onRenderWatchlist, onWatchlistSave, cardsReady } from '../shared/watchlist.js?v=16';
+import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, setWatchlist, removeTicker, setRenderScope, getOverflow, onRenderWatchlist, onWatchlistSave, cardsReady } from '../shared/watchlist.js?v=17';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache.js?v=2';
 import { renderTrackRecord, logResult, getAccuracyLog, clearLog, onLogSave } from '../shared/track-record.js?v=7';
 import { initTrackRecordSync, pullTrackRecordFromServer, schedulePushTrackRecord } from '../shared/track-record-sync.js?v=4';
-import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=9';
-import { tickerHref, getTzPref, getTzIana, onPrefsChange, refreshTickerLinks } from '../shared/prefs.js?v=1';
-import '../shared/settings-modal.js?v=1';
+import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=10';
+import { tickerHref, newsHref, getTzPref, getTzIana, onPrefsChange, refreshTickerLinks } from '../shared/prefs.js?v=2';
+import '../shared/settings-modal.js?v=3';
 
 const API_URL='https://tra-zacg.onrender.com';
 const SUPABASE_URL='https://oinomcikdyisrbfeeirp.supabase.co';
@@ -454,7 +454,7 @@ export async function renderCompactList(){
       +'<div class="compact-row-top"><span class="compact-ticker"><a class="ticker-a" href="'+tickerHref(t)+'" target="_blank">'+t+'</a></span>'
       +'<span class="compact-price">'+(r.price!=null?'$'+parseFloat(r.price).toFixed(2):'&mdash;')+'</span>'
       +'<span class="compact-pct" style="color:'+(r.pct!=null?pctColor(r.pct):'var(--dim)')+'">'+(r.pct!=null?fmtPct(r.pct):'&mdash;')+'</span></div>'
-      +'<div class="compact-news"'+(hasNews?'':' style="display:none"')+'>'+(hasNews?'<a href="'+r.news.url+'" target="_blank">'+r.news.headline+'</a>':'')+'</div>'
+      +'<div class="compact-news"'+(hasNews?'':' style="display:none"')+'>'+(hasNews?'<a href="'+newsHref(t)+'" target="_blank">'+r.news.headline+'</a>':'')+'</div>'
       +'</div>'
       +'<button type="button" class="compact-plus-btn" title="Add as card" onclick="promoteToCard(\''+t+'\')">+</button>'
       +'</div></div>';

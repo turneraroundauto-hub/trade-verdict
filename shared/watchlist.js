@@ -1,5 +1,5 @@
 import { fetchTickerData } from './ticker-cache.js?v=4';
-import { tickerHref } from './prefs.js?v=1';
+import { tickerHref, newsHref } from './prefs.js?v=2';
 
 export let watchlist = [];
 let maxTickers = 3;
@@ -121,7 +121,7 @@ export function updateCardMeta(ticker,td){
   if(newsEl){
     if(news&&news.ageHours<=300){
       newsEl.style.display='block';
-      newsEl.innerHTML='<a href="'+news.url+'" target="_blank">'+news.headline+'</a><span class="news-age">'+news.ageLabel+'</span>';
+      newsEl.innerHTML='<a href="'+newsHref(ticker)+'" target="_blank">'+news.headline+'</a><span class="news-age">'+news.ageLabel+'</span>';
     }else newsEl.style.display='none';
   }
 }
