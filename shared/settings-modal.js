@@ -17,7 +17,7 @@ function ensureModal(){
     + '<div style="font-size:10px;color:var(--dim);margin-bottom:6px">TICKER &amp; NEWS LINKS OPEN IN</div>'
     + '<select id="settings-link-site" style="width:100%;margin-bottom:8px;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:12px;padding:8px;border-radius:6px"></select>'
     + '<div id="settings-custom-wrap" style="display:none;margin-bottom:18px">'
-      + '<input type="text" id="settings-custom-ex-url" placeholder="Paste a stock\'s page URL from your favorite news site" style="width:100%;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:11px;padding:8px;border-radius:6px;box-sizing:border-box">'
+      + '<input type="text" id="settings-custom-ex-url" placeholder="Paste your favorite market news URL" style="width:100%;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:11px;padding:8px;border-radius:6px;box-sizing:border-box">'
       + '<div id="settings-custom-status" style="font-size:10px;margin-top:8px"></div>'
       + '<div style="font-size:10px;color:var(--amber);margin-top:8px">Blank or invalid = Yahoo Finance is used instead.</div>'
     + '</div>'
