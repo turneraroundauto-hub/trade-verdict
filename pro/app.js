@@ -5,7 +5,7 @@ import { renderTrackRecord, logResult, getAccuracyLog, clearLog, onLogSave } fro
 import { initTrackRecordSync, pullTrackRecordFromServer, schedulePushTrackRecord } from '../shared/track-record-sync.js?v=4';
 import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=10';
 import { tickerHref, newsHref, getTzPref, getTzIana, onPrefsChange, refreshTickerLinks } from '../shared/prefs.js?v=2';
-import '../shared/settings-modal.js?v=2';
+import '../shared/settings-modal.js?v=3';
 
 const API_URL='https://tra-zacg.onrender.com';
 const SUPABASE_URL='https://oinomcikdyisrbfeeirp.supabase.co';
