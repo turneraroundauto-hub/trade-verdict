@@ -52,11 +52,26 @@ jobs:
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
 
+      - name: Sanitize password secrets
+        # Same class of fix as the keystore decode step above: trims stray whitespace
+        # a mobile paste can pick up, then re-masks the cleaned value explicitly since
+        # GitHub only auto-masks the exact original secret string, not a derived one.
+        run: |
+          ks_pw="$(printf '%s' "$RAW_KS_PW" | tr -d '[:space:]')"
+          key_pw="$(printf '%s' "$RAW_KEY_PW" | tr -d '[:space:]')"
+          echo "::add-mask::$ks_pw"
+          echo "::add-mask::$key_pw"
+          echo "KEYSTORE_PW_CLEAN=$ks_pw" >> "$GITHUB_ENV"
+          echo "KEY_PW_CLEAN=$key_pw" >> "$GITHUB_ENV"
+        env:
+          RAW_KS_PW: ${{ secrets.BUBBLEWRAP_KEYSTORE_PASSWORD }}
+          RAW_KEY_PW: ${{ secrets.BUBBLEWRAP_KEY_PASSWORD }}
+
       - name: Build and sign
         run: bubblewrap build
         env:
-          BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.BUBBLEWRAP_KEYSTORE_PASSWORD }}
-          BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.BUBBLEWRAP_KEY_PASSWORD }}
+          BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ env.KEYSTORE_PW_CLEAN }}
+          BUBBLEWRAP_KEY_PASSWORD: ${{ env.KEY_PW_CLEAN }}
 
       - name: Remove keystore from the runner
         if: always()
