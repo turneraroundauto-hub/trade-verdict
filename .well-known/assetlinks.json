@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "app.tradetribunal.twa",
+        "sha256_cert_fingerprints": ["E2:D8:11:D9:B8:1B:0E:19:27:DC:50:28:C5:87:A5:85:B6:1A:CF:C7:44:A2:BA:8D:2F:74:FE:CB:7B:CD:CE:10"]
+      }
+    }]
