@@ -3,6 +3,6 @@
       "target": {
         "namespace": "android_app",
         "package_name": "app.tradetribunal.twa",
-        "sha256_cert_fingerprints": ["E2:D8:11:D9:B8:1B:0E:19:27:DC:50:28:C5:87:A5:85:B6:1A:CF:C7:44:A2:BA:8D:2F:74:FE:CB:7B:CD:CE:10"]
+        "sha256_cert_fingerprints": ["A1:A5:F4:1B:F0:B3:84:35:09:0C:3D:BF:CA:6E:7B:40:7F:21:E4:9A:E1:6E:21:67:7F:A2:95:D3:90:F6:AC:95"]
       }
     }]
