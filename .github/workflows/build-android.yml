@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
@@ -24,7 +24,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install Bubblewrap CLI
         run: npm install -g @bubblewrap/cli
@@ -37,7 +37,18 @@ jobs:
           EOF
 
       - name: Decode signing keystore from secret
-        run: echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android.keystore
+        # -d -i (ignore-garbage) tolerates stray whitespace/line-wrapping that can get
+        # picked up when the base64 blob is copy-pasted through a phone/browser into the
+        # secret field. The size check below fails fast with a clear message instead of a
+        # cryptic keytool error later if the secret ended up empty or badly mangled anyway.
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d -i > android.keystore
+          size=$(stat -c%s android.keystore)
+          echo "Decoded keystore size: $size bytes"
+          if [ "$size" -lt 500 ]; then
+            echo "::error::Decoded keystore is only $size bytes — the ANDROID_KEYSTORE_BASE64 secret is likely wrong, truncated, or empty. Re-copy the full contents of android.keystore.base64.txt into that secret."
+            exit 1
+          fi
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
 
