@@ -1,0 +1,5 @@
+# Android signing keys must never be committed — the CI workflow decodes
+# these from GitHub Actions secrets at build time instead.
+android/android.keystore
+android/*.keystore
+android/*.jks
