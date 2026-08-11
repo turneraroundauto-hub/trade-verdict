@@ -1,0 +1,31 @@
+{
+  "name": "Trade Tribunal",
+  "short_name": "Trade Tribunal",
+  "description": "Systematic day-trading decision framework — UP/DOWN/FLAT verdicts with sizing guidance.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#080c12",
+  "theme_color": "#0f1923",
+  "icons": [
+    {
+      "src": "/shared/assets/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/shared/assets/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/shared/assets/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

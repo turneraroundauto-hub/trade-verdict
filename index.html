@@ -8,6 +8,9 @@
 <meta name="theme-color" content="#0f1923">
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate">
 <title>Trade Tribunal — Free</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/shared/assets/icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="/shared/assets/icons/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@800&display=swap" rel="stylesheet">
@@ -383,8 +386,13 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 
 
 
-<div class="footer">Trade Tribunal v4.0 &middot; CRF Pattern Analysis &middot; July 2026<br>Not financial advice &middot; Do your own research &middot; Trade at your own risk</div>
+<div class="footer">Trade Tribunal v4.0 &middot; CRF Pattern Analysis &middot; July 2026<br>Not financial advice &middot; Do your own research &middot; Trade at your own risk<br><a href="/privacy/" style="color:var(--dim)">Privacy Policy</a></div>
 
 <script type="module" src="./app.js?v=39"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
+}
+</script>
 </body>
 </html>
