@@ -148,6 +148,8 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 .expand-btn{border-top:1px solid var(--border);display:flex;justify-content:space-between;padding:7px 14px;background:none;border-left:none;border-right:none;border-bottom:none;width:100%;color:var(--dim);font-family:monospace;font-size:var(--fs-sm);cursor:pointer}
 .gate-list{padding:0 14px 12px}
 .gate-row{display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--border)}
+.gate-row-compact{padding:4px 0;align-items:center;opacity:0.65}
+.gate-lbl-compact{font-family:monospace;font-size:var(--fs-sm);color:var(--dim)}
 .gate-dot-sm{width:7px;height:7px;border-radius:50%;margin-top:3px;flex-shrink:0}
 .gate-content{flex:1}
 .gate-header{display:flex;justify-content:space-between}
@@ -388,7 +390,7 @@ body{background:var(--bg);color:var(--white);font-family:-apple-system,BlinkMacS
 
 <div class="footer">Trade Tribunal v4.0 &middot; CRF Pattern Analysis &middot; July 2026<br>Not financial advice &middot; Do your own research &middot; Trade at your own risk<br><a href="/privacy/" style="color:var(--dim)">Privacy Policy</a></div>
 
-<script type="module" src="./app.js?v=40"></script>
+<script type="module" src="./app.js?v=41"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));

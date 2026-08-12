@@ -304,6 +304,10 @@ function renderCardResult(ticker,data,td){
     var gHtml='<button class="expand-btn" onclick="toggleGates(\''+ticker+'\')"><span>GATE BREAKDOWN</span><span id="arrow-'+ticker+'">▼</span></button><div class="gate-list" id="gates-'+ticker+'" style="display:none">';
     gates.forEach(function(g){
       var lbl=g[0],gate=g[1]||{};
+      if(gate===data.gates.pre_gate&&gate.status==='GREEN'){
+        gHtml+='<div class="gate-row gate-row-compact"><div class="gate-dot-sm" style="background:'+sigColor(gate.status)+'"></div><span class="gate-lbl-compact">PRE-GATE clear</span></div>';
+        return;
+      }
       gHtml+='<div class="gate-row"><div class="gate-dot-sm" style="background:'+sigColor(gate.status)+'"></div><div class="gate-content"><div class="gate-header"><span class="gate-lbl">'+lbl+'</span><span class="gate-stat" style="color:'+sigColor(gate.status)+'">'+(gate.status||'')+'</span></div>'+(gate.note?'<div class="gate-note-txt">'+gate.note+'</div>':'')+'</div></div>';
     });
     gHtml+='<div class="conf-row"><span class="conf-lbl">CONFIDENCE</span><span class="conf-val" style="color:'+cc+'">'+data.confidence+'</span></div></div>';
