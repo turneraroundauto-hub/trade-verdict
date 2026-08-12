@@ -994,6 +994,56 @@ untested guess a second time. Check Render logs for
 `getCikFromEdgarSearch` errors to see whether the general tier is
 actually working for tickers beyond DRAM.
 
+## Backend/Frontend: Pre-Gate robustness — wider SEC form coverage + de-emphasized GREEN UI (Aug 12, 2026)
+
+Follow-up to the DRAM CIK saga above, prompted by a direct design
+question: is Pre-Gate actually a robust pre-check, and — since a GREEN
+result is the overwhelming common case and mostly redundant info — should
+it sit in the background unless it actually finds something. Two
+separate, independent fixes landed together.
+
+**Coverage gap, `Tra` PR #33 / `trade-verdict` PR #106 (both merged).**
+`PRE_GATE_FORMS` was `8-K,10-Q,10-K` only — an operating-company-
+disclosure view. Real gap for the "dilution" trigger category: an ATM
+program, shelf registration, or registered-direct offering is disclosed
+via a registration statement (S-1/S-3) or its prospectus supplement
+(424B2/3/4/5), and doesn't always also get a fresh 8-K — especially a
+periodic draw under an ATM program already set up under an existing
+shelf. Widened to
+`8-K,10-Q,10-K,S-1,S-3,424B2,424B3,424B4,424B5`; benefits the
+solvency/guidance-cut categories too, since a going-concern risk factor
+can show up in a new S-1's risk factors section, not just 10-K/10-Q.
+**Still open, not touched by this pass:** the trigger keyword table
+itself (`PRE_GATE_TRIGGERS`) is still explicitly flagged in its own code
+comment as "first draft, needs review, tune against real false-
+positive/negative rates" — this pass only widened which forms get
+searched, not the keywords being searched for.
+
+**UI de-emphasis, `trade-verdict` PR #106 only (Tra has no frontend).** A
+GREEN Pre-Gate was rendering with the exact same visual weight — full
+row, label, status, note text — as every substantive gate below it, even
+though it's almost always just "nothing to see here." Now collapses to a
+single compact, muted row ("PRE-GATE clear") when GREEN; YELLOW/RED still
+render at full prominence with their note text, unchanged. Implemented
+with a reference-equality check against `data.gates.pre_gate` (not
+label-string matching or an array index), so the special-casing can't
+silently apply to the wrong gate if the array order ever changes. Applied
+identically to Free/Starter/Pro — Shark's old monolithic template doesn't
+render Pre-Gate at all, so nothing to touch there. Bumped each tier's own
+`app.js` `?v=` since its content changed (`index.html` 40→41,
+`pro`/`starter` 41→42) per the cache-busting rule.
+
+**Actually verified this time, not just simulated:** ran a real headless-
+Chromium smoke test (Playwright) rendering both a GREEN-Pre-Gate card and
+a RED-Pre-Gate card side by side against the real extracted CSS —
+screenshot confirmed the GREEN row visibly collapses/dims while RED stays
+full-weight and every other gate renders unaffected regardless of its own
+status. A first-pass Node-only logic simulation (no browser) also passed
+before that. The SEC form-widening half is still unverified against live
+data, same limitation as the rest of Pre-Gate's SEC integration — watch
+Render logs / real analyses for any change in trigger rate on tickers
+known to have run ATM programs.
+
 ## Tier status (as of Aug 4, 2026)
 
 | Tier | Files | Status |
