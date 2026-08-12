@@ -154,7 +154,8 @@ export async function analyzeTicker(ticker){
         openingBarData:td&&td.openingBar?td.openingBar:null,
         proxyRule:td&&td.proxyRule?td.proxyRule:null,
         gate1Data:td&&td.gate1?td.gate1:null,
-        preGateData:td&&td.preGate?td.preGate:null
+        preGateData:td&&td.preGate?td.preGate:null,
+        weeklyCarryoverData:td&&td.weeklyCarryover?td.weeklyCarryover:null
       })});
     if(!res.ok){
       var errData=await res.json().catch(function(){return{}});
