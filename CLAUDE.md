@@ -814,6 +814,99 @@ works. Used repeatedly this session (icon, feature graphic, tablet
 screenshots) — reach for this immediately for any future file handoff to
 him rather than re-attempting `SendUserFile` first.
 
+## Backend: Gate 3 Mon/Fri overlay — timezone bug fix + weekly carryover (Aug 12, 2026)
+
+Reported live: Gate 3 kept saying "no Monday/Friday overlay." Two separate
+issues surfaced back to back, one a real bug, one a framework-intent gap —
+worth keeping both straight since they look similar from the symptom.
+
+**Bug 1 — timezone, `Tra` PR #29 / `trade-verdict` PR #99 (both merged).**
+The `/analyze` prompt's `Today:` weekday was built with
+`new Date().toLocaleDateString(...)` and no explicit `timeZone`, so it
+formatted in the server process's own timezone (UTC on Render) instead of
+the Eastern trading day — same class of bug as the Gate 5 Proxy Resolution
+"Last checked" date fixed earlier (`Tra` PR #28). Once it's roughly 8pm ET
+or later — inside this app's own 4-8pm ET extended-hours window — UTC has
+already rolled to the next calendar day, so a real **Friday-evening**
+session got stamped `Today: Saturday`, and Gate 3's own rules treat
+weekends as no-overlay. Fixed by anchoring to `America/New_York`, matching
+every other day-of-week check in this file. **Unverified against a live
+Friday-evening run** — the fix is confirmed correct by code inspection
+(matches the established pattern everywhere else in this file) but not
+watched end-to-end against a real deploy yet.
+
+**False alarm along the way, same session:** a screenshot showed Gate
+3/4/5 rendering horizontally in Pro's Gate Breakdown instead of stacked
+like every other gate. Investigated before touching anything — the CSS
+(`.gate-row{display:flex}` etc.) and the JS that builds the gate list are
+from the *same* commit (Aug 2, 2026 Pro rebuild) and haven't been touched
+since by anyone, including this session, which only touched `server.js`
+and docs at that point. Diagnosed as stale client-side cache, not a code
+regression — confirmed by the user after a hard refresh fixed it. No code
+change made. Worth remembering as a live example of the cache-busting
+rule's failure mode actually happening, not just a hypothetical.
+
+**Bug 2 (really a framework-intent gap) — weekly carryover, `Tra` PR #30 /
+`trade-verdict` PR #100 (both merged).** After the timezone fix, Gate 3
+still said "no Monday/Friday overlay" — correctly, since it was a
+Wednesday and the overlay was coded as a same-day-only flag (today must
+literally equal Monday or Friday). **Corrected directly by Mr. T:** that's
+not what the gate is supposed to mean. The Friday close → weekend → Monday
+reaction is part of the broader week's narrative, not an isolated
+same-day event, and should keep informing Gate 3 through the rest of that
+week on a decay schedule — not replace the existing same-day Mon/Fri
+rules, sit alongside them. Scoped via `AskUserQuestion` before touching
+code: carryover persists through the week (not just a label), as an
+explicit codified decay rule (not left to the model's judgment), added
+alongside the same-day rules rather than replacing them.
+
+Shipped:
+- `fetchWeeklyCarryover(symbol)` — a small, **separate** dated-bars fetch
+  (~10 days via Alpaca), deliberately NOT derived from `fetchDailyCloses`'s
+  existing 130-day array. That array is bare closes with no dates attached
+  and is explicitly commented "Do NOT date-anchor into this array; index
+  positionally (sessions)" — reusing it would have reintroduced exactly
+  the calendar-vs-position-counting bug class documented in the Gate 1
+  Patch 4 story above. This fetch instead locates the most recent
+  Friday/Monday close pair by each bar's own timestamp, robust to
+  holidays. Only invoked on Tue/Wed/Thu (`carryoverDecayLabel()` returns
+  null on Mon/Fri/weekend), so it adds zero extra Alpaca calls the other
+  4 days of the week.
+- `carryoverDecayLabel()` — Tuesday (1 session removed) = MODERATE,
+  Wednesday (2 sessions) = REDUCED, Thursday (3 sessions) = MINIMAL/faded.
+  Computed server-side from the real ET weekday, same "never trust the
+  client for what day it is" reasoning as the `Today:` line above.
+- A new Gate 3 prompt section spelling out how to weight each tier, and a
+  `Gate 3 weekly carryover` context block in the `/analyze` prompt.
+- `weeklyCarryover` threaded through `/ticker/:symbol`'s response and
+  `refreshMarketEntry`'s cache entry, and `weeklyCarryoverData` forwarded
+  by every tier's `analyzeTicker()` (including Shark's monolithic file) in
+  the `/analyze` POST body — same relay pattern as `gate1Data`/`proxyRule`.
+- Mirror (`trade-verdict`) needed its own version of `fetchWeeklyCarryover`
+  adapted to its `alpacaGet()`'s different contract (full URL + `Response`
+  object, vs `Tra`'s path-only URL + pre-parsed JSON) — not a straight
+  copy-paste; flagged in the code comment so it doesn't read as accidental
+  drift. Client `app.js` content changed in Free/Starter/Pro, so each
+  tier's own `?v=` got bumped (`index.html` 39→40, `pro`/`starter` 40→41)
+  per the cache-busting rule — these are each tier's own top-level file,
+  not a shared module, so no cascade into other importers was needed.
+
+**Explicitly flagged as needing a revisit once real data exists — this is
+the reason to keep this entry around, not just a changelog note.** The
+reaction-classification threshold (±0.3% Friday→Monday move = CONFIRMED_UP/
+DOWN vs FLAT) and the three decay-weight labels (MODERATE/REDUCED/MINIMAL)
+are this session's own reasonable-but-arbitrary calibration — Mr. T did
+not specify either numerically. **Unverified against any live Tue/Wed/Thu
+run** — there's no way to test this from a sandbox without real Alpaca
+entitlements and an actual mid-week analysis. Once enough real Tue/Wed/Thu
+verdicts have accumulated (ideally cross-referenced against
+`tv_accuracy_log`/the synced track record), revisit whether: (1) the
+±0.3% threshold is picking up real signal vs noise for the tickers this
+app actually tracks, (2) the three-tier MODERATE/REDUCED/MINIMAL decay
+curve is the right shape (vs., say, a smoother numeric decay), and (3)
+Thursday's "MINIMAL — mention only to break a tie" framing is actually
+how the model is using it in practice, not just how it was instructed to.
+
 ## Tier status (as of Aug 4, 2026)
 
 | Tier | Files | Status |
