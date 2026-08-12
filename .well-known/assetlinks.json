@@ -3,6 +3,9 @@
       "target": {
         "namespace": "android_app",
         "package_name": "app.tradetribunal.twa",
-        "sha256_cert_fingerprints": ["A1:A5:F4:1B:F0:B3:84:35:09:0C:3D:BF:CA:6E:7B:40:7F:21:E4:9A:E1:6E:21:67:7F:A2:95:D3:90:F6:AC:95"]
+        "sha256_cert_fingerprints": [
+          "A1:A5:F4:1B:F0:B3:84:35:09:0C:3D:BF:CA:6E:7B:40:7F:21:E4:9A:E1:6E:21:67:7F:A2:95:D3:90:F6:AC:95",
+          "41:63:DA:8C:75:66:FF:2D:8F:B2:F0:E3:6A:4C:9C:71:E8:AC:82:92:6B:7D:B6:3A:2E:7D:FD:BB:0C:59:5C:00"
+        ]
       }
     }]
