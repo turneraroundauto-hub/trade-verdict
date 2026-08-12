@@ -907,6 +907,57 @@ curve is the right shape (vs., say, a smoother numeric decay), and (3)
 Thursday's "MINIMAL — mention only to break a tie" framing is actually
 how the model is using it in practice, not just how it was instructed to.
 
+## Backend: Pre-Gate fund-ticker CIK fallback (Aug 12, 2026)
+
+Reported live, same session as the Gate 3 work above: Pre-Gate kept
+showing "No SEC CIK found for DRAM" — user pushed back directly, having
+independently confirmed DRAM does have a real SEC CIK.
+
+**Root-caused via web research, not a live SEC fetch** — this sandbox's
+egress proxy blocks `sec.gov` outright (confirmed via both `curl`, 403,
+and `WebFetch`, `EGRESS_BLOCKED`). Found: **DRAM = Roundhill Memory
+ETF**, launched Apr 2, 2026, registered under **Roundhill ETF Trust, CIK
+1976517** — confirmed via SEC's own EDGAR filing URLs directly
+referencing DRAM (an 8-A Cert PDF under
+`/Archives/edgar/data/1976517/.../8A_Cert_DRAM.pdf`, found via
+`WebSearch`). `getCik()` only ever checked `company_tickers.json` (SEC's
+primary, operating-company-oriented ticker file) — a fund this recently
+launched, sharing a trust CIK with many other Roundhill funds, plausibly
+isn't (yet, or ever reliably) indexed by ticker in that specific file.
+
+**Fix (`Tra` PR #31 / `trade-verdict` PR #102, both merged):** `getCik()`
+now falls back to `company_tickers_mf.json` (SEC's fund/series/class
+ticker file — "mf" = mutual fund, but shares the series/class
+registration structure most ETFs use) whenever the primary map misses.
+Fetched **lazily** — only on an actual primary-map miss, not eagerly
+alongside it — so it adds zero extra SEC call volume for the overwhelming
+majority of tickers that already resolve fine. Parsed defensively (field
+lookup by name against the documented `{fields:[...], data:[[...]]}`
+shape, not hardcoded position) and fails safe to `null` on any shape
+mismatch, same fail-safe posture as every other unverified-from-sandbox
+integration in this file.
+
+**Still unverified against SEC's actual live file** — same limitation as
+above, this was researched, not fetched and inspected directly. If
+`company_tickers_mf.json` genuinely doesn't cover DRAM either (plausible
+for a security this recently listed), a small hardcoded ticker→CIK
+override map would be a reasonable stopgap — not added preemptively,
+since it's unconfirmed whether it's even needed yet.
+
+**Expectation-setting, worth knowing before assuming this "didn't work":**
+`PRE_GATE_FORMS` is `8-K,10-Q,10-K` — operating-company forms a fund like
+DRAM will never file. So this fix changes DRAM's Pre-Gate note from "No
+SEC CIK found" to a clean GREEN pass-through ("No solvency, dilution, or
+guidance-cut language found"), **not** to an active RED/YELLOW trigger.
+Pre-Gate's trigger categories are operating-company risk concepts
+(insolvency language, dilutive raises, guidance cuts) that don't really
+map onto a passively-tracked ETF — a quiet pass-through is the correct,
+expected outcome, not a sign the fix silently failed.
+
+**To actually confirm this landed:** analyze DRAM after `Tra` redeploys
+and check the Pre-Gate note changed as described above, or check Render
+logs for `getCikFromFundMap` errors.
+
 ## Tier status (as of Aug 4, 2026)
 
 | Tier | Files | Status |
