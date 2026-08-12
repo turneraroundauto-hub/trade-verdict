@@ -598,6 +598,222 @@ GitHub Pages' deployment queue getting confused, but this wasn't proven.
 If it recurs, check whether it correlates with rapid successive merges
 again.
 
+## Google Play launch (Aug 11-12, 2026) — Free tier live in Internal testing
+
+Mr. T wanted Trade Tribunal on the Play Store. Scope agreed up front and
+still in force: **no in-app purchases** — the Android app is a Trusted Web
+Activity (TWA) wrapper around the Free tier only; sign-up/upgrade still
+happens on the website via Stripe. Package ID `app.tradetribunal.twa`.
+Starter/Pro/Shark as their own Play listings is explicitly a later,
+separate decision, not started.
+
+### PWA groundwork (Free tier only, `trade-verdict` PRs #91, #93-#97)
+
+Added `manifest.json`, app icons generated from `shared/assets/logo-mark.png`
+(`shared/assets/icons/`), and `sw.js` (network-first service worker —
+deliberately not cache-first, given this file's whole cache-busting-rule
+history above; a cache-first worker would reintroduce that exact failure
+mode at a new layer). `sw.js` is served from the site root so its default
+scope covers the *entire* origin even though only Free registers it —
+fixed by having the fetch handler explicitly ignore `/starter/`, `/pro/`,
+`/shark/`, `/reset/`, `/privacy/` so a network hiccup can never fall back
+to serving Free's cached homepage for another tier. Also added
+`/privacy/index.html` (plain-language privacy policy, required by Play
+Console) and a root `.nojekyll` file (see "Domain verification" below for
+why that one mattered).
+
+### The sandbox can't reach `dl.google.com` — plan accordingly
+
+Any sandbox/session working on this needs to know: outbound network
+policy in this kind of environment blocks `dl.google.com` (where the
+Android SDK itself is distributed from) and, discovered later the same
+session, blocks `tradetribunal.app` too. **Both are real org policy
+denials (403 from the egress proxy), not bugs — don't retry them, don't
+hunt for a workaround/mirror, just route around the *need* for them
+instead:**
+- Can't download the Android SDK → can't run `bubblewrap build` locally →
+  the actual Gradle compile has to happen somewhere with normal internet
+  access. Solved with a GitHub Actions workflow (below) — Actions runners
+  aren't network-restricted the way this sandbox is.
+- Can't fetch `tradetribunal.app` → Bubblewrap's own `init` wizard (which
+  fetches the live manifest/icons over HTTP) can't run directly either.
+  Worked around by feeding it the repo's own local copies of
+  `manifest.json`/icons via a throwaway `localhost` HTTP server (loopback
+  traffic doesn't go through the egress proxy at all — not a policy
+  workaround, just avoiding an unnecessary fetch of data already on disk).
+- Bubblewrap's CLI wizard is also fully interactive (inquirer prompts)
+  and doesn't handle piped/non-TTY stdin reliably. Went one layer down
+  and scripted directly against `@bubblewrap/core` (the library the CLI
+  wraps) — `TwaManifest.fromWebManifestJson()`, `TwaGenerator.
+  createTwaProject()`, `KeyTool.createSigningKey()`,
+  `DigitalAssetLinks.generateAssetLinks()` — with zero interactive
+  prompts. This is a reusable pattern if Bubblewrap needs touching again
+  from a sandbox like this: don't fight the CLI, use the library.
+
+### CI build pipeline: `.github/workflows/build-android.yml`
+
+The generated Android project lives in `android/` (gradle files,
+`twa-manifest.json`, resources — **the signing keystore is deliberately
+never committed**, guarded by a root `.gitignore`). The workflow
+(`workflow_dispatch`-triggered, so it can be run with one tap from the
+Play Console app or a phone browser, no desktop needed) sets up JDK 21 +
+`android-actions/setup-android` + Node, installs the Bubblewrap CLI,
+decodes the keystore from a repo secret, and runs `bubblewrap build` with
+`BUBBLEWRAP_KEYSTORE_PASSWORD`/`BUBBLEWRAP_KEY_PASSWORD` env vars (the
+mechanism Bubblewrap's own `build` command supports natively for
+non-interactive password input), then uploads `app-release-bundle.aab` +
+the signed `.apk` as run artifacts.
+
+Getting this green took three real, separate bugs, each with a
+non-obvious root cause — worth knowing all three if this workflow ever
+needs touching again:
+
+1. **`base64: invalid input` decoding the keystore secret.** The
+   `ANDROID_KEYSTORE_BASE64` secret is a ~4,700-character blob;
+   copy-pasting it into GitHub's secret field from a phone reliably picks
+   up stray whitespace/line-wrapping. Fixed by piping through
+   `tr -d '[:space:]'` then `base64 -d -i` (ignore-garbage), plus a size
+   check on the decoded output that fails fast with a clear
+   `::error::` message instead of a cryptic downstream failure if the
+   secret is still wrong/empty.
+2. **`Wrong password?` / `BadPaddingException` signing the APK, even
+   with both passwords freshly re-verified correct.** Root cause,
+   confirmed by reproducing locally with plain `keytool`: **PKCS12
+   keystores (the default keystore type since JDK 9) do not support a
+   separate key password from the store password** — `keytool` silently
+   prints `Warning: Different store and key passwords not supported for
+   PKCS12 KeyStores. Ignoring user-specified -keypass value.` and
+   actually encrypts the private key entry with the *store* password
+   regardless of what `-keypass` was given. `BUBBLEWRAP_KEY_PASSWORD`
+   must equal `BUBBLEWRAP_KEYSTORE_PASSWORD` for this exact reason — not
+   a workaround, the only password that was ever actually in effect.
+   Also trimmed whitespace on both password secrets the same way as the
+   base64 fix, in case that was compounding it.
+3. Both fixes are permanent, in the committed workflow — a future
+   keystore rotation just needs both secrets set to the same value.
+
+### Domain verification (`.well-known/assetlinks.json`)
+
+Two separate, sequential bugs, both now fixed:
+
+1. **404 even though the file was correctly committed on `main`.**
+   Root cause: no `.nojekyll` file in the repo, so GitHub Pages ran the
+   site through Jekyll before publishing, and Jekyll's default behavior
+   excludes dotfiles/dot-directories — `.well-known` included —
+   regardless of what's actually in the repo. Added an empty `.nojekyll`
+   at repo root; fixed it immediately.
+2. **Sideloaded APK opened with no browser bar; the real Play
+   Store-installed copy still showed one.** Root cause: Google Play
+   re-signs every app it distributes with its own certificate (Play App
+   Signing) — different from the keystore used to sign the uploaded
+   `.aab`. `assetlinks.json` only listed the upload keystore's
+   fingerprint. Fixed by extracting the actual Play-installed APK's
+   certificate directly (`keytool -printcert -jarfile <apk>` — no
+   Android SDK needed, works on any APK since it's a signed JAR/zip
+   under the hood) and adding *that* fingerprint to `assetlinks.json`
+   alongside the original one. `assetlinks.json` now lists both;
+   confirmed working on a real Play-distributed install. **If the
+   keystore is ever rotated, or if this ever regresses after a Play
+   Console change, re-pull the actual installed APK and re-check its
+   cert this same way rather than assuming the fingerprint on file is
+   still right** — Play's re-signing cert is Google's to change, not
+   ours to assume.
+
+### Adaptive icon showed a white background/border (PR #97)
+
+The installed app's icon didn't fill its home-screen badge shape the way
+every other app's does — showed a white ring around it instead. Root
+cause: Bubblewrap's generated `android/app/src/main/res/mipmap-anydpi-v26/
+ic_launcher.xml` hardcodes the adaptive icon's background layer to
+`@android:color/white`, and insets the actual icon art 8.5dp from every
+edge (Bubblewrap's own template, meant to mimic WebAPK icon proportions).
+Any launcher mask shape (circle, squircle, etc.) wider than that inset
+shows white bleeding through. The icon PNGs themselves were already
+correct (`#080C12`, confirmed by sampling their corner pixels) — only the
+background layer needed fixing. Added `ic_launcher_background` (`#080C12`)
+to `colors.xml`, pointed `ic_launcher.xml` at it. **Not yet bench-tested
+against a rebuilt APK as of this writing** — merged but no fresh build
+triggered/sideloaded yet to visually confirm.
+
+### Keystore handling — read this before ever touching the signing key
+
+The keystore was generated twice this session. The first one's
+credentials file reportedly didn't make it into the handoff zip Mr. T
+received (root cause never confirmed — this session's own local copy had
+already been deleted on the assumption delivery succeeded, so the
+passwords couldn't be recovered either way). Rather than debug further,
+regenerated a fresh keystore from scratch, since nothing had been
+uploaded to Play Console yet — zero cost to switching. **Lesson,
+applied on the second handoff and worth keeping permanent: always
+`unzip -l`/verify a secrets handoff archive's actual contents before
+calling `SendUserFile`, and don't delete the local copy until the
+recipient explicitly confirms receipt** — assumed-success was exactly
+the failure mode the first time.
+
+The live keystore's credentials are with Mr. T only (never committed,
+never logged anywhere retrievable) — if this session needs to touch
+signing again and doesn't have them, ask, don't regenerate a third time
+now that a real Play Console app/track depends on the current one.
+
+### Play Console submission — decisions made, still in progress
+
+- **Not a paid app.** Confirmed with Mr. T: Free tier stays free on Play
+  too — charging for what's identically free on the website would just
+  add friction against the real monetization funnel (Starter/Pro/Shark
+  subscriptions on the website).
+- **Not a prediction markets app.** Flagged explicitly during the
+  content-declaration questionnaire — Trade Tribunal doesn't facilitate
+  wagers or hold funds; mischecking that box risks unnecessary
+  compliance requirements or a rejected declaration.
+- **Sign-in details: "No."** Free tier requires no account for any of
+  its functionality; the visible Sign Up/Sign In link is an optional
+  path to a different (paid, out-of-scope-for-this-app) product tier,
+  not gated content within this submission.
+- **Financial features declaration**: guided (not yet confirmed against
+  the live questionnaire's exact wording) toward "no lending, no
+  brokerage/account management, no crypto, no personalized investment
+  advice" — the app gives generic pattern-based analysis with an
+  explicit not-financial-advice disclaimer, not tailored recommendations.
+- Accidentally toggled **"Managed Google Play"** (an enterprise/MDM
+  distribution feature, unrelated to normal public Play Store listing)
+  under Advanced settings — flagged to turn back off; not confirmed
+  done.
+- Store listing copy (short + long description), the feature graphic
+  (1024×500, generated by padding — not cropping — the existing
+  "Catalyst Response Framework" promo graphic to hit the exact ratio
+  without losing any content), and 7"/10" tablet screenshots (this app
+  has no distinct tablet layout, so these were made by resizing real
+  phone screenshots to the required 9:16 dimensions rather than
+  capturing on an actual tablet or emulator) have all been produced and
+  handed off.
+- **First-time-publisher propagation delay is real and expected**, not
+  a bug: a brand-new app's first release to internal testers can take
+  several hours to become fetchable from Play even after Console shows
+  it as fully rolled out ("Item not found" / the native Play Store
+  error, not a browser 404). Hit this twice — once for Mr. T's own
+  account, once for a separate tester. Standard troubleshooting order:
+  confirm the Play Store app's signed-in account matches the invited
+  tester email exactly, confirm they've visited the explicit opt-in link
+  (`https://play.google.com/apps/testing/<packageId>`) and tapped
+  "Become a tester" (being on the list alone isn't enough), then just
+  wait if both check out.
+- Content rating questionnaire, final Production promotion: not reached
+  yet.
+
+### Delivering files to Mr. T when `SendUserFile` doesn't work
+
+Discovered mid-session: whatever client Mr. T is using for this
+conversation cannot render `SendUserFile` as an actual downloadable
+attachment — tried both `render` and `attach` display modes, PNG and
+JPEG, no luck; he only ever sees an inline (re-encoded, lower-quality)
+image. **Working fallback: commit the file to a scratch branch in this
+repo (a `store-assets/` folder, clearly not app code) and give him the
+`raw.githubusercontent.com` URL for that branch/path** — opens as a
+plain image in his phone's browser, where long-press-to-save reliably
+works. Used repeatedly this session (icon, feature graphic, tablet
+screenshots) — reach for this immediately for any future file handoff to
+him rather than re-attempting `SendUserFile` first.
+
 ## Tier status (as of Aug 4, 2026)
 
 | Tier | Files | Status |
