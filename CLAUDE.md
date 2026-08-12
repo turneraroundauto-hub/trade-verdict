@@ -958,6 +958,42 @@ expected outcome, not a sign the fix silently failed.
 and check the Pre-Gate note changed as described above, or check Render
 logs for `getCikFromFundMap` errors.
 
+**Follow-up, same day — the fund-file fallback did NOT work.** Confirmed
+live: no change to DRAM's Pre-Gate note. User asked for further research
+specifically because this could affect more tickers than just DRAM, not
+just a one-off patch. Further research: `company_tickers_mf.json`'s "mf"
+naming most likely means it's genuinely scoped to traditional NAV-priced
+open-end mutual funds, not exchange-traded funds — DRAM was probably
+never going to resolve through that file regardless of any
+staleness/coverage-lag theory. Rather than ship a third unverified guess
+alone, **two tiers landed together (`Tra` PR #32 / `trade-verdict` PR
+#104, both merged):**
+- `KNOWN_CIK_OVERRIDES` — a small, explicit, hand-confirmed map, starting
+  with `DRAM → 1976517`. Guaranteed to work regardless of the tier below
+  — zero risk, not dependent on any unverified parsing, immediately
+  fixes the actually-reported ticker.
+- `getCikFromEdgarSearch()` — SEC's own **live** company/ticker search
+  (the same mechanism that powers EDGAR's search box itself), queried
+  only when every static file above misses. Hits SEC's current database
+  directly instead of a periodically-cached snapshot, so it should catch
+  future new listings without needing a hardcoded entry added for each
+  one. SEC's classic `browse-edgar` endpoint accepts a ticker directly in
+  its `CIK` parameter (well-documented, long-standing SEC behavior), atom
+  output wraps a match in a `<company-info><cik>` element. **Still
+  unverified against a live response** — `sec.gov` remains unreachable
+  from this sandbox — parsed defensively (primary `<cik>` tag match, a
+  `"CIK#:"` label fallback deliberately narrow enough not to false-positive
+  on an echoed `CIK=` query string) and fails safe to `null`.
+
+**Lesson for next time this pattern comes up:** when a fix depends on
+unverifiable assumptions about an external data source's exact coverage/
+format and there's no way to test it live, pair the speculative general
+mechanism with a small, guaranteed, hand-confirmed override for the
+specific case actually reported — don't stake the whole fix on one
+untested guess a second time. Check Render logs for
+`getCikFromEdgarSearch` errors to see whether the general tier is
+actually working for tickers beyond DRAM.
+
 ## Tier status (as of Aug 4, 2026)
 
 | Tier | Files | Status |
