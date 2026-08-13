@@ -1044,6 +1044,96 @@ data, same limitation as the rest of Pre-Gate's SEC integration — watch
 Render logs / real analyses for any change in trigger rate on tickers
 known to have run ATM programs.
 
+## Backend: Proposal 4 — Context-Weighted Gate 2 Corroboration (Aug 13, 2026)
+
+Landed from the Notion Build Log's "Formal Rule Proposals" section (`Tra`
+PR pending / `trade-verdict` PR pending, mirrored per the two-repo rule).
+Session Context (the free-text textarea every tier's client already sends
+as `marketContext`) previously had zero backend awareness at all — purely
+a client-side keyword-highlight cosmetic (`shared/context-highlight.js`),
+with zero influence on the actual verdict. It's now checked against three
+independent corroboration sources; **≥2 of 3 agreeing** promotes it to a
+`CONTEXT-CORROBORATED` modifier that both the prompt (Gate 2 Step 5) and
+the response carry — the LLM is told to weight it as real Gate 2 evidence
+only when corroborated, and to treat it as informational-only otherwise.
+
+**No separate credit cost** — folds into the existing per-analysis charge,
+per the proposal's own scoping. All four tiers were already sending
+`marketContext`, so no frontend change was needed to enable it on Free —
+the proposal's "first Free-tier use" framing turned out to already be true
+in the current code by the time this was picked up.
+
+**The three sources (`gates-extended.js`, section 6 — `contextTextMatches`,
+`buildupPatternCheck`, `corroborateSessionContext`; fetches live in
+`server.js`):**
+1. **News-content match** — full-body article text (Alpaca `content`/
+   `summary`, Finnhub `summary`), matched against the typed context using
+   the *exact same* 2-distinct-word-overlap heuristic as
+   `shared/context-highlight.js`'s `highlightContextMatches()`, kept in
+   lockstep on purpose so "corroborated" and "highlighted" never silently
+   disagree. `newsData` (already on the request) is headline-only and too
+   short for this, so a new `fetchNewsBodiesForCorroboration()` re-queries
+   both sources — only when Session Context is non-blank, so it adds zero
+   extra Alpaca/Finnhub call volume on every other analysis.
+2. **Gate 3 buildup pattern** — per the proposal's own definition
+   (sustained volume 1.5x+, sector-proxy outperformance, no fresh material
+   news yet priced, clean earnings-reaction history). The last of those has
+   no data source anywhere in this app — no per-ticker earnings-reaction
+   history is tracked — so it's deliberately omitted rather than faked;
+   `buildupPatternCheck()` requires every one of the *other three* signals
+   that's actually computable to agree, and at least 2 of 3 to be
+   computable at all, so one lone signal can't carry the pattern alone.
+   "Outperformance" is read as magnitude (`|tickerPct| > |proxyPct|`), not
+   direction — the intent is "something ticker-specific is happening,"
+   not a bull/bear call.
+3. **Real dated calendar event** — new `fetchEarningsCalendarFlag()`,
+   silent/boolean only against Finnhub's existing `/calendar/earnings`,
+   routed through the shared `finnhubThrottle()`. Same lazy/only-on-real-
+   context-input posture as source 1.
+
+**A real pre-existing bug found and flagged, not fixed, while building
+this.** The buildup pattern's outperformance signal needs the ticker's own
+same-session % move and its Gate 5 proxy's % move as numbers. The existing
+Proxy Coherence Check (Proposal 2, already shipped) reads exactly those
+same two values via `metricsData?.pct` and `sectorContext?.tsm?.pct` — but
+every tier's client-side `analyzeTicker()` only ever sends
+`sectorContext[symbol]` as the formatted `.change` **string** (e.g.
+`"+1.23%"`), never a raw `.pct` number, and `metricsData` (built server-side
+in `/ticker/:symbol`) never carries a `.pct` field either. Both conditions
+are therefore always false in production, meaning **the Proxy Coherence
+Check's coherence-comparison branch has never actually executed** —
+`/analyze` always falls through to the plain forceDown `else` branch
+instead. This predates this session's work and wasn't introduced or
+touched by it; flagged here rather than silently fixed, since Proposal 2
+wasn't in this pass's scope and changing live forceDown behavior deserves
+its own deliberate pass. This new feature avoids the same trap by parsing
+the ticker's move from `openingBarData`'s own bar-1 open→close and the
+proxy's move from `sectorContext`'s change strings directly (via a new
+`parsePctString()` helper), both of which are actually populated.
+
+**Explicitly out of scope for this pass, per the proposal itself:** Gate 4
+phase-sizing influence (stays Gate 2-only); a Shark-tier visible earnings-
+calendar feature (the proposal's own earnings-calendar fetch is reusable
+for that later, but it's a separate future feature). Also not done this
+pass, as a deliberate scope call rather than an oversight: the proposal's
+"recommend logging every corroborated-vs-uncorroborated event to
+`accuracy_log`" suggestion — that table is currently Pro-only
+(`shared/track-record-sync.js`) and wiring a new event type into it is a
+real follow-up, not a one-line addition.
+
+**Unverified against live data** — same posture as every other
+sandbox-built integration in this file: Alpaca's `content` field on
+`/v1beta1/news` and Finnhub's `/calendar/earnings` response shape are both
+implemented from documented shapes, fail safe (empty array / `null`) on
+any mismatch, and haven't been confirmed against a real response. Node-only
+logic simulation of `contextTextMatches`/`buildupPatternCheck`/
+`corroborateSessionContext` passed before shipping (see git history), but
+that only proves the pure logic, not the live fetches. To confirm after
+deploy: type real Session Context on a ticker with known matching news and
+check the Gate 2 card's note for the `[Session Context: CONTEXT-
+CORROBORATED, N/3]` tag; check Render logs for `fetchNewsBodiesForCorroboration`/
+`fetchEarningsCalendarFlag` errors.
+
 ## Tier status (as of Aug 4, 2026)
 
 | Tier | Files | Status |
