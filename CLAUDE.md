@@ -300,10 +300,11 @@ table already exists, is what actually worked. Structure future patches
 as explicit separate steps rather than assuming one combined run is
 equivalent.
 
-**Root cause confirmed (Aug 4, 2026) — fix up as `Tra` PR #22, not yet
-merged/deployed.** `credits` currently still has its `anon`/`authenticated`
-grants back as a live stopgap (the vulnerability above is re-opened on
-this one table until the fix below deploys and holds). Revoking `credits`'
+**Root cause confirmed (Aug 4, 2026) — fix shipped as `Tra` PR #22
+(merged/deployed same day).** `credits` had its `anon`/`authenticated`
+grants put back as a live stopgap (the vulnerability above re-opened on
+this one table until the fix below deployed and held — see the Aug 13
+resolution below for how this closed out). Revoking `credits`'
 grants broke real production traffic within minutes — `credits.
 get_or_create_user_credits failed: permission denied for table
 credits` in Render logs — even though `service_role` provably had full
@@ -341,10 +342,22 @@ for `service_role` work. Mirrored into this repo's `server.js` too (same
 `authClient()` pattern). **Once this deploys and holds under real
 traffic for a few days, `credits`' `anon`/`authenticated` grants can
 likely be safely re-revoked** — do that as its own follow-up, not in the
-same change, so a regression is easy to isolate. `accuracy_log`,
-`proxy_resolution`, `pre_gate_triggers`, and `watchlists` are still
-properly revoked and were never affected — only `credits` is currently
-exposed.
+same change, so a regression is easy to isolate.
+
+**Stopgap closed (Aug 13, 2026).** A follow-up Supabase Security Advisor
+email (dated Aug 9, 2026 — "Table publicly accessible" / "Sensitive data
+publicly accessible", CRITICAL) turned out to just be Supabase correctly
+still flagging this exact open item, nine days after PR #22 merged and
+with nobody having circled back to actually run the re-revoke it
+unblocked. Ran `revoke all on public.credits from anon, authenticated;`
+and confirmed zero rows on the standard grants-check query. Verified this
+didn't repeat the Aug 4 outage two ways: (1) a real login against
+production (`turneraroundauto@gmail.com`, tier pro) came back clean in
+Render logs, no `permission denied for table credits`; (2) a real `/analyze`
+call immediately after deducted a credit successfully with no error —
+the actual path that broke in the original incident. `credits`,
+`accuracy_log`, `proxy_resolution`, `pre_gate_triggers`, and `watchlists`
+are now all properly revoked — this was the last one still exposed.
 
 ## Frontend architecture
 
