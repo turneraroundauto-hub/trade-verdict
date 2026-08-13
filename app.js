@@ -200,7 +200,8 @@ export async function analyzeTicker(ticker){
         proxyRule:td&&td.proxyRule?td.proxyRule:null,
         gate1Data:td&&td.gate1?td.gate1:null,
         preGateData:td&&td.preGate?td.preGate:null,
-        weeklyCarryoverData:td&&td.weeklyCarryover?td.weeklyCarryover:null
+        weeklyCarryoverData:td&&td.weeklyCarryover?td.weeklyCarryover:null,
+        regimeData:td&&td.regime?td.regime:null
       })});
     if(!res.ok){var errData=await res.json().catch(function(){return{}});if(res.status===402&&errData.code==='NO_CREDITS'){handleNoCredits(card,ticker);fetchCreditStatus();return;}throw new Error(errData.error||'Server error '+res.status);}
     var _r=await res.json();cacheVerdict(ticker,_r);renderCardResult(ticker,_r);fetchCreditStatus();

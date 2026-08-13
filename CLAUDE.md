@@ -1044,6 +1044,262 @@ data, same limitation as the rest of Pre-Gate's SEC integration — watch
 Render logs / real analyses for any change in trigger rate on tickers
 known to have run ATM programs.
 
+## Backend: Proposal 4 — Context-Weighted Gate 2 Corroboration (Aug 13, 2026)
+
+Landed from the Notion Build Log's "Formal Rule Proposals" section (`Tra`
+PR pending / `trade-verdict` PR pending, mirrored per the two-repo rule).
+Session Context (the free-text textarea every tier's client already sends
+as `marketContext`) previously had zero backend awareness at all — purely
+a client-side keyword-highlight cosmetic (`shared/context-highlight.js`),
+with zero influence on the actual verdict. It's now checked against three
+independent corroboration sources; **≥2 of 3 agreeing** promotes it to a
+`CONTEXT-CORROBORATED` modifier that both the prompt (Gate 2 Step 5) and
+the response carry — the LLM is told to weight it as real Gate 2 evidence
+only when corroborated, and to treat it as informational-only otherwise.
+
+**No separate credit cost** — folds into the existing per-analysis charge,
+per the proposal's own scoping. All four tiers were already sending
+`marketContext`, so no frontend change was needed to enable it on Free —
+the proposal's "first Free-tier use" framing turned out to already be true
+in the current code by the time this was picked up.
+
+**The three sources (`gates-extended.js`, section 6 — `contextTextMatches`,
+`buildupPatternCheck`, `corroborateSessionContext`; fetches live in
+`server.js`):**
+1. **News-content match** — full-body article text (Alpaca `content`/
+   `summary`, Finnhub `summary`), matched against the typed context using
+   the *exact same* 2-distinct-word-overlap heuristic as
+   `shared/context-highlight.js`'s `highlightContextMatches()`, kept in
+   lockstep on purpose so "corroborated" and "highlighted" never silently
+   disagree. `newsData` (already on the request) is headline-only and too
+   short for this, so a new `fetchNewsBodiesForCorroboration()` re-queries
+   both sources — only when Session Context is non-blank, so it adds zero
+   extra Alpaca/Finnhub call volume on every other analysis.
+2. **Gate 3 buildup pattern** — per the proposal's own definition
+   (sustained volume 1.5x+, sector-proxy outperformance, no fresh material
+   news yet priced, clean earnings-reaction history). The last of those has
+   no data source anywhere in this app — no per-ticker earnings-reaction
+   history is tracked — so it's deliberately omitted rather than faked;
+   `buildupPatternCheck()` requires every one of the *other three* signals
+   that's actually computable to agree, and at least 2 of 3 to be
+   computable at all, so one lone signal can't carry the pattern alone.
+   "Outperformance" is read as magnitude (`|tickerPct| > |proxyPct|`), not
+   direction — the intent is "something ticker-specific is happening,"
+   not a bull/bear call.
+3. **Real dated calendar event** — new `fetchEarningsCalendarFlag()`,
+   silent/boolean only against Finnhub's existing `/calendar/earnings`,
+   routed through the shared `finnhubThrottle()`. Same lazy/only-on-real-
+   context-input posture as source 1.
+
+**A real pre-existing bug found and flagged, not fixed, while building
+this.** The buildup pattern's outperformance signal needs the ticker's own
+same-session % move and its Gate 5 proxy's % move as numbers. The existing
+Proxy Coherence Check (Proposal 2, already shipped) reads exactly those
+same two values via `metricsData?.pct` and `sectorContext?.tsm?.pct` — but
+every tier's client-side `analyzeTicker()` only ever sends
+`sectorContext[symbol]` as the formatted `.change` **string** (e.g.
+`"+1.23%"`), never a raw `.pct` number, and `metricsData` (built server-side
+in `/ticker/:symbol`) never carries a `.pct` field either. Both conditions
+are therefore always false in production, meaning **the Proxy Coherence
+Check's coherence-comparison branch has never actually executed** —
+`/analyze` always falls through to the plain forceDown `else` branch
+instead. This predates this session's work and wasn't introduced or
+touched by it; flagged here rather than silently fixed, since Proposal 2
+wasn't in this pass's scope and changing live forceDown behavior deserves
+its own deliberate pass. This new feature avoids the same trap by parsing
+the ticker's move from `openingBarData`'s own bar-1 open→close and the
+proxy's move from `sectorContext`'s change strings directly (via a new
+`parsePctString()` helper), both of which are actually populated.
+
+**Explicitly out of scope for this pass, per the proposal itself:** Gate 4
+phase-sizing influence (stays Gate 2-only); a Shark-tier visible earnings-
+calendar feature (the proposal's own earnings-calendar fetch is reusable
+for that later, but it's a separate future feature). Also not done this
+pass, as a deliberate scope call rather than an oversight: the proposal's
+"recommend logging every corroborated-vs-uncorroborated event to
+`accuracy_log`" suggestion — that table is currently Pro-only
+(`shared/track-record-sync.js`) and wiring a new event type into it is a
+real follow-up, not a one-line addition.
+
+**Unverified against live data** — same posture as every other
+sandbox-built integration in this file: Alpaca's `content` field on
+`/v1beta1/news` and Finnhub's `/calendar/earnings` response shape are both
+implemented from documented shapes, fail safe (empty array / `null`) on
+any mismatch, and haven't been confirmed against a real response. Node-only
+logic simulation of `contextTextMatches`/`buildupPatternCheck`/
+`corroborateSessionContext` passed before shipping (see git history), but
+that only proves the pure logic, not the live fetches. To confirm after
+deploy: type real Session Context on a ticker with known matching news and
+check the Gate 2 card's note for the `[Session Context: CONTEXT-
+CORROBORATED, N/3]` tag; check Render logs for `fetchNewsBodiesForCorroboration`/
+`fetchEarningsCalendarFlag` errors.
+
+## Backend: Gate 5 forceDown was silently unreachable — evaluateProxyStatus data-shape bug (Aug 13, 2026)
+
+Follow-up to the "dead code" note flagged while building Proposal 4 above.
+Went to fix what was described there as "the Proxy Coherence Check
+(Proposal 2) never runs" and found the actual root cause is bigger than
+that framing suggested — **worth reading even if you only care about
+Gate 5, not Session Context.**
+
+**The real bug.** `evaluateProxyStatus()` (the function `/analyze` calls to
+compute `gate5Result.status` — literally what the Gate 5 card badge shows,
+and the gate behind Proposal 1/2/3's whole forceDown-authority mechanism)
+reads `marketData[symbol].pct` and `.change` off each proxy symbol,
+expecting an object. But every tier's client (`app.js`'s `sc` object in
+`analyzeTicker()`) only ever sends `sectorContext[symbol]` as the
+**formatted `.change` string** (e.g. `"+1.23%"`) — never an object, never a
+raw `.pct` number. `.pct` on a string is always `undefined`, so `avgPct`
+was always `0` and `anyRedFlag` was always `false`. Confirmed directly: fed
+the real function a real `-6.20%` TSM string (the actual Jul 29, 2026
+KOSPI-crash-scale move referenced in Proposal 2's own writeup) and it
+returned GREEN.
+
+**What this actually means:** Gate 5's RED (and YELLOW) status has never
+been reachable through `/analyze`, for any ticker, regardless of how far
+the resolved proxy has actually moved. Not "the coherence check's extra
+confirmation step doesn't run" (a narrower, safer-sounding framing) —
+**the whole Gate 5 hard-trigger path (Proposal 1's forceDown authority,
+Proposal 2's coherence check) has been unreachable dead code since it
+shipped.** `/analyze` always fell through to whatever Gate 2/Gate 0 alone
+implied. Gate 0 (SPY/QQQ) is unaffected — it reads a pre-computed
+`gateStatus` string the server already resolved correctly server-side
+before the client ever sees it, a different code path entirely.
+
+**Fix (`Tra` PR pending / `trade-verdict` PR pending, same PRs as
+Proposal 4 above, one merge for both):**
+- New `normalizeMarketReading()` parses the real string wire format via the
+  `parsePctString()` helper Proposal 4 already added, while still accepting
+  a real `{pct, change}` object (lenient superset, not a breaking change —
+  nothing that already passed objects here stops working).
+- `evaluateProxyStatus()` now uses it, so Gate 5 RED/YELLOW actually fires.
+  Verified: the same `-6.20%` TSM string now correctly returns RED.
+- Fixed a second, smaller latent bug in the same function while it was
+  already open: `changeStr`'s label re-indexed the post-filter `readings`
+  array against the pre-filter `symbols` array, which mislabels a reading
+  whenever an earlier symbol in a multi-symbol rule (the TSM+KOSPI combined
+  rule) fails to resolve. Symbol and reading are now kept paired together.
+  Verified with a KOSPI-missing/TSM-present case — correctly labels "TSM",
+  not "KOSPI".
+- The Proxy Coherence Check (Proposal 2) call site had the identical shape
+  bug one level up (`metricsData?.pct`/`sectorContext?.tsm?.pct`, both
+  always null) — fixed to use `tickerPct`/`proxyPct`, the same two values
+  Proposal 4's buildup-pattern check needed, now computed once and shared
+  by both rather than duplicated. `tickerPct` comes from `openingBarData`'s
+  bar-1 open→close (not `metricsData.pct`, which never existed); `proxyPct`
+  comes from parsing `sectorContext`'s change strings (not
+  `sectorContext.tsm.pct`, which never existed either).
+
+**Verified by simulation, not yet by a live deploy** — same posture as
+everything else unverifiable from this sandbox. Ran the real
+`evaluateProxyStatus`/`proxyCoherenceCheck` code (extracted, not
+reimplemented) against: a real crash-scale string (`-6.20%` → RED,
+previously GREEN), a mild move (`-1.50%` → YELLOW), a flat move (`+0.20%`
+→ GREEN), a multi-symbol rule with one missing symbol (label pairing
+correct), and the still-supported object shape (backward compatible). The
+downstream coherence check was also run with the fixed `tickerPct`/
+`proxyPct` and produced a real Case 1 "DOWN — proxy confirmed" result. To
+confirm live: watch for a real Gate 5 RED card during an actual TSM/KOSPI
+move of 3%+ (previously impossible to see at all), and check that its note
+reads `TSM -X.XX%` with a correctly-labeled multi-symbol proxy if one ever
+applies.
+
+## Backend: Proposal 3 — Fixed-Proxy Regime Validation, weekly persistence (Aug 13, 2026)
+
+Bridges the gap flagged in the Proposal 4/Gate 5-bug sessions above:
+`gates-extended.js`'s `regimeValidation()`/`resolveFixedProxyBreak()` have
+existed since Patch 4 (Jul 29, 2026) but were never wired into `/analyze` —
+the code literally said so (`const regime = null; // Proposal 3
+(regimeValidation) is NOT wired yet — it needs its own weekly-cadence
+persistence layer`). This lands that persistence layer and wires it up.
+
+**Why it needed its own persistence, not just a function call.**
+`regimeValidation(tickerCloses, proxyCloses)` needs ~41 days of daily
+closes for both the ticker and its fixed proxy (TSM) to compute a
+rolling-20-day vs. full-history correlation. Recomputing that on every
+single `/analyze` call would be wasteful — same reasoning that already
+gave the *quarterly* Dynamic Proxy Resolution (Patch 2) its own
+`proxy_resolution` table. This is the same shape, at a weekly cadence.
+
+**What shipped (`supabase-ddl-patch9-proxy-regime.sql`, new
+`proxy_regime_state` table — same two-step RLS-disable + explicit
+`revoke` pattern every service-role table here uses; `Tra` +
+`trade-verdict` mirror, same PRs as Proposal 4/the Gate 5 bug fix above):**
+
+- `getCachedRegimeState()`/`saveRegimeState()` — mirror
+  `getCachedProxyResolution()`/`saveProxyResolution()` almost line for
+  line, `REGIME_RECOMPUTE_MAX_AGE_MS` = 7 days instead of 90.
+- `resolveProxyRegime(symbol, tickerCloses)` — on a cache miss, fetches
+  TSM's own closes (`fetchDailyCloses("TSM", 130)`, the one extra Alpaca
+  call this adds, at most once a week per gated ticker) and calls
+  `gx.regimeValidation()`; reuses the ticker's own `dailyCloses`
+  (`refreshMarketEntry` already fetches it for Gate 1 — no extra fetch for
+  that half).
+- **Wired into `resolveGate5()` itself, not just consumed downstream.**
+  `resolveGate5` now takes a 5th `regime` param: when the ticker's static
+  classification is the fixed Taiwan/Korea rule AND its regime state is
+  `BROKEN`, it skips the static early-return and falls through to the
+  Dynamic Proxy Resolution Algorithm below — exactly like a `DEFAULT_PROXY`
+  (ambiguous) ticker would. This is the "graduates into the dynamic system,
+  triggered by breakdown instead of onboarding" fallback the proposal
+  describes, not just a passive flag. `refreshMarketEntry()` computes
+  `regime` *before* calling `resolveGate5` (via a cheap, pure
+  `classifyTicker()` check) so both share one value instead of resolving it
+  twice. Every other static category (Biotech/XBI, Defense/LMT, etc.) has
+  no regime tracking — `regime` is always `null` for them, so this is a
+  no-op outside Taiwan/Korea-gated tickers, and defensively checked on
+  `staticRule.category === "AI/Semiconductor"` inside `resolveGate5`
+  itself, not just relied on via how it happens to be called today.
+- `regime` threaded through `/ticker/:symbol`'s response and
+  `symbolMarketCache`, and `regimeData` forwarded by every tier's client
+  `analyzeTicker()` in the `/analyze` POST body — same relay pattern as
+  `gate1Data`/`weeklyCarryoverData`. The hardcoded `const regime = null;`
+  in `/analyze` is now `const regime = regimeData || null;`.
+- **DEGRADING's "coherence check becomes mandatory" requirement needed no
+  new code.** The Proxy Coherence Check already runs unconditionally for
+  every Taiwan/Korea-gated ticker whenever Gate 5 reads RED (guarded only
+  by `tickerGating.length`, not by regime state) — so once the Gate 5
+  data-shape bug fix above made `tickerPct`/`proxyPct` actually populate,
+  the coherence check was already "mandatory" in practice for every
+  DEGRADING (and INTACT) case. `hasForceDownAuthority()`'s
+  `requiresCoherenceCheck` flag is returned but not separately consumed —
+  nothing left for it to gate that isn't already happening.
+- **BROKEN correctly suspends blind forceDown.**
+  `hasForceDownAuthority()` returns `authorized: false` on a BROKEN regime,
+  so `/analyze`'s existing "not independently exempt" fallback path
+  applies — the ticker needs 2+ RED gates for DOWN, same safe degrade
+  already used for a decoupled/lagging Coherence Check result. No new
+  `/analyze`-level branching was needed for this either — routing through
+  `resolveGate5` already handles the actual re-resolution.
+- Free/Starter/Pro's client `app.js` and Shark's monolithic file all had
+  `regimeData:td&&td.regime?td.regime:null` added to their `/analyze` POST
+  body, mirroring `weeklyCarryoverData`'s pattern exactly. Each tier's own
+  `app.js` `?v=` bumped per the cache-busting rule (`index.html` 41→42,
+  `pro`/`starter` 42→43) — these are each tier's own top-level file, no
+  cascade needed. Shark's `index.html` has no separate versioned `app.js`
+  (still monolithic), so no `?v=` bump applies there.
+
+**Verified by simulation, not a live deploy** — same posture as
+everything else unverifiable from this sandbox. Ran the real
+`resolveGate5` branching logic (extracted) across every regime state
+(null/INTACT/DEGRADING/BROKEN) for a Taiwan-gated ticker, confirmed
+`BROKEN` is the only one that falls through to dynamic resolution, and
+confirmed a `BROKEN` regime on a *non*-Taiwan/Korea ticker (shouldn't ever
+happen given how it's called, but checked defensively) is correctly
+ignored. Also ran `gx.regimeValidation()` against a synthetic perfectly-
+correlated series (→ INTACT) and one with the last 20 days deliberately
+decorrelated (→ DEGRADING, `REQUIRE_COHERENCE_CHECK`), and confirmed
+`hasForceDownAuthority()` responds correctly to all three states plus
+`null`. To confirm live: watch Render logs for `resolveProxyRegime`/
+`getCachedRegimeState`/`saveRegimeState` errors, and check
+`proxy_regime_state` actually accumulates rows for AI/Semiconductor-gated
+tickers (IREN, CIFR, etc.) after a week of real traffic. **BROKEN is
+expected to be rare** — `gates-extended.js`'s own `regimeValidation()`
+docstring already flags that correlations tend to *converge* under market
+stress, so this is a calm-market detector, not something likely to fire
+during an actual crisis; don't read an absence of BROKEN states as proof
+this isn't working.
+
 ## Tier status (as of Aug 4, 2026)
 
 | Tier | Files | Status |
