@@ -1204,6 +1204,102 @@ move of 3%+ (previously impossible to see at all), and check that its note
 reads `TSM -X.XX%` with a correctly-labeled multi-symbol proxy if one ever
 applies.
 
+## Backend: Proposal 3 — Fixed-Proxy Regime Validation, weekly persistence (Aug 13, 2026)
+
+Bridges the gap flagged in the Proposal 4/Gate 5-bug sessions above:
+`gates-extended.js`'s `regimeValidation()`/`resolveFixedProxyBreak()` have
+existed since Patch 4 (Jul 29, 2026) but were never wired into `/analyze` —
+the code literally said so (`const regime = null; // Proposal 3
+(regimeValidation) is NOT wired yet — it needs its own weekly-cadence
+persistence layer`). This lands that persistence layer and wires it up.
+
+**Why it needed its own persistence, not just a function call.**
+`regimeValidation(tickerCloses, proxyCloses)` needs ~41 days of daily
+closes for both the ticker and its fixed proxy (TSM) to compute a
+rolling-20-day vs. full-history correlation. Recomputing that on every
+single `/analyze` call would be wasteful — same reasoning that already
+gave the *quarterly* Dynamic Proxy Resolution (Patch 2) its own
+`proxy_resolution` table. This is the same shape, at a weekly cadence.
+
+**What shipped (`supabase-ddl-patch9-proxy-regime.sql`, new
+`proxy_regime_state` table — same two-step RLS-disable + explicit
+`revoke` pattern every service-role table here uses; `Tra` +
+`trade-verdict` mirror, same PRs as Proposal 4/the Gate 5 bug fix above):**
+
+- `getCachedRegimeState()`/`saveRegimeState()` — mirror
+  `getCachedProxyResolution()`/`saveProxyResolution()` almost line for
+  line, `REGIME_RECOMPUTE_MAX_AGE_MS` = 7 days instead of 90.
+- `resolveProxyRegime(symbol, tickerCloses)` — on a cache miss, fetches
+  TSM's own closes (`fetchDailyCloses("TSM", 130)`, the one extra Alpaca
+  call this adds, at most once a week per gated ticker) and calls
+  `gx.regimeValidation()`; reuses the ticker's own `dailyCloses`
+  (`refreshMarketEntry` already fetches it for Gate 1 — no extra fetch for
+  that half).
+- **Wired into `resolveGate5()` itself, not just consumed downstream.**
+  `resolveGate5` now takes a 5th `regime` param: when the ticker's static
+  classification is the fixed Taiwan/Korea rule AND its regime state is
+  `BROKEN`, it skips the static early-return and falls through to the
+  Dynamic Proxy Resolution Algorithm below — exactly like a `DEFAULT_PROXY`
+  (ambiguous) ticker would. This is the "graduates into the dynamic system,
+  triggered by breakdown instead of onboarding" fallback the proposal
+  describes, not just a passive flag. `refreshMarketEntry()` computes
+  `regime` *before* calling `resolveGate5` (via a cheap, pure
+  `classifyTicker()` check) so both share one value instead of resolving it
+  twice. Every other static category (Biotech/XBI, Defense/LMT, etc.) has
+  no regime tracking — `regime` is always `null` for them, so this is a
+  no-op outside Taiwan/Korea-gated tickers, and defensively checked on
+  `staticRule.category === "AI/Semiconductor"` inside `resolveGate5`
+  itself, not just relied on via how it happens to be called today.
+- `regime` threaded through `/ticker/:symbol`'s response and
+  `symbolMarketCache`, and `regimeData` forwarded by every tier's client
+  `analyzeTicker()` in the `/analyze` POST body — same relay pattern as
+  `gate1Data`/`weeklyCarryoverData`. The hardcoded `const regime = null;`
+  in `/analyze` is now `const regime = regimeData || null;`.
+- **DEGRADING's "coherence check becomes mandatory" requirement needed no
+  new code.** The Proxy Coherence Check already runs unconditionally for
+  every Taiwan/Korea-gated ticker whenever Gate 5 reads RED (guarded only
+  by `tickerGating.length`, not by regime state) — so once the Gate 5
+  data-shape bug fix above made `tickerPct`/`proxyPct` actually populate,
+  the coherence check was already "mandatory" in practice for every
+  DEGRADING (and INTACT) case. `hasForceDownAuthority()`'s
+  `requiresCoherenceCheck` flag is returned but not separately consumed —
+  nothing left for it to gate that isn't already happening.
+- **BROKEN correctly suspends blind forceDown.**
+  `hasForceDownAuthority()` returns `authorized: false` on a BROKEN regime,
+  so `/analyze`'s existing "not independently exempt" fallback path
+  applies — the ticker needs 2+ RED gates for DOWN, same safe degrade
+  already used for a decoupled/lagging Coherence Check result. No new
+  `/analyze`-level branching was needed for this either — routing through
+  `resolveGate5` already handles the actual re-resolution.
+- Free/Starter/Pro's client `app.js` and Shark's monolithic file all had
+  `regimeData:td&&td.regime?td.regime:null` added to their `/analyze` POST
+  body, mirroring `weeklyCarryoverData`'s pattern exactly. Each tier's own
+  `app.js` `?v=` bumped per the cache-busting rule (`index.html` 41→42,
+  `pro`/`starter` 42→43) — these are each tier's own top-level file, no
+  cascade needed. Shark's `index.html` has no separate versioned `app.js`
+  (still monolithic), so no `?v=` bump applies there.
+
+**Verified by simulation, not a live deploy** — same posture as
+everything else unverifiable from this sandbox. Ran the real
+`resolveGate5` branching logic (extracted) across every regime state
+(null/INTACT/DEGRADING/BROKEN) for a Taiwan-gated ticker, confirmed
+`BROKEN` is the only one that falls through to dynamic resolution, and
+confirmed a `BROKEN` regime on a *non*-Taiwan/Korea ticker (shouldn't ever
+happen given how it's called, but checked defensively) is correctly
+ignored. Also ran `gx.regimeValidation()` against a synthetic perfectly-
+correlated series (→ INTACT) and one with the last 20 days deliberately
+decorrelated (→ DEGRADING, `REQUIRE_COHERENCE_CHECK`), and confirmed
+`hasForceDownAuthority()` responds correctly to all three states plus
+`null`. To confirm live: watch Render logs for `resolveProxyRegime`/
+`getCachedRegimeState`/`saveRegimeState` errors, and check
+`proxy_regime_state` actually accumulates rows for AI/Semiconductor-gated
+tickers (IREN, CIFR, etc.) after a week of real traffic. **BROKEN is
+expected to be rare** — `gates-extended.js`'s own `regimeValidation()`
+docstring already flags that correlations tend to *converge* under market
+stress, so this is a calm-market detector, not something likely to fire
+during an actual crisis; don't read an absence of BROKEN states as proof
+this isn't working.
+
 ## Tier status (as of Aug 4, 2026)
 
 | Tier | Files | Status |
