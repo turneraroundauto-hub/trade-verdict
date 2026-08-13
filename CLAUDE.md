@@ -1134,6 +1134,76 @@ check the Gate 2 card's note for the `[Session Context: CONTEXT-
 CORROBORATED, N/3]` tag; check Render logs for `fetchNewsBodiesForCorroboration`/
 `fetchEarningsCalendarFlag` errors.
 
+## Backend: Gate 5 forceDown was silently unreachable — evaluateProxyStatus data-shape bug (Aug 13, 2026)
+
+Follow-up to the "dead code" note flagged while building Proposal 4 above.
+Went to fix what was described there as "the Proxy Coherence Check
+(Proposal 2) never runs" and found the actual root cause is bigger than
+that framing suggested — **worth reading even if you only care about
+Gate 5, not Session Context.**
+
+**The real bug.** `evaluateProxyStatus()` (the function `/analyze` calls to
+compute `gate5Result.status` — literally what the Gate 5 card badge shows,
+and the gate behind Proposal 1/2/3's whole forceDown-authority mechanism)
+reads `marketData[symbol].pct` and `.change` off each proxy symbol,
+expecting an object. But every tier's client (`app.js`'s `sc` object in
+`analyzeTicker()`) only ever sends `sectorContext[symbol]` as the
+**formatted `.change` string** (e.g. `"+1.23%"`) — never an object, never a
+raw `.pct` number. `.pct` on a string is always `undefined`, so `avgPct`
+was always `0` and `anyRedFlag` was always `false`. Confirmed directly: fed
+the real function a real `-6.20%` TSM string (the actual Jul 29, 2026
+KOSPI-crash-scale move referenced in Proposal 2's own writeup) and it
+returned GREEN.
+
+**What this actually means:** Gate 5's RED (and YELLOW) status has never
+been reachable through `/analyze`, for any ticker, regardless of how far
+the resolved proxy has actually moved. Not "the coherence check's extra
+confirmation step doesn't run" (a narrower, safer-sounding framing) —
+**the whole Gate 5 hard-trigger path (Proposal 1's forceDown authority,
+Proposal 2's coherence check) has been unreachable dead code since it
+shipped.** `/analyze` always fell through to whatever Gate 2/Gate 0 alone
+implied. Gate 0 (SPY/QQQ) is unaffected — it reads a pre-computed
+`gateStatus` string the server already resolved correctly server-side
+before the client ever sees it, a different code path entirely.
+
+**Fix (`Tra` PR pending / `trade-verdict` PR pending, same PRs as
+Proposal 4 above, one merge for both):**
+- New `normalizeMarketReading()` parses the real string wire format via the
+  `parsePctString()` helper Proposal 4 already added, while still accepting
+  a real `{pct, change}` object (lenient superset, not a breaking change —
+  nothing that already passed objects here stops working).
+- `evaluateProxyStatus()` now uses it, so Gate 5 RED/YELLOW actually fires.
+  Verified: the same `-6.20%` TSM string now correctly returns RED.
+- Fixed a second, smaller latent bug in the same function while it was
+  already open: `changeStr`'s label re-indexed the post-filter `readings`
+  array against the pre-filter `symbols` array, which mislabels a reading
+  whenever an earlier symbol in a multi-symbol rule (the TSM+KOSPI combined
+  rule) fails to resolve. Symbol and reading are now kept paired together.
+  Verified with a KOSPI-missing/TSM-present case — correctly labels "TSM",
+  not "KOSPI".
+- The Proxy Coherence Check (Proposal 2) call site had the identical shape
+  bug one level up (`metricsData?.pct`/`sectorContext?.tsm?.pct`, both
+  always null) — fixed to use `tickerPct`/`proxyPct`, the same two values
+  Proposal 4's buildup-pattern check needed, now computed once and shared
+  by both rather than duplicated. `tickerPct` comes from `openingBarData`'s
+  bar-1 open→close (not `metricsData.pct`, which never existed); `proxyPct`
+  comes from parsing `sectorContext`'s change strings (not
+  `sectorContext.tsm.pct`, which never existed either).
+
+**Verified by simulation, not yet by a live deploy** — same posture as
+everything else unverifiable from this sandbox. Ran the real
+`evaluateProxyStatus`/`proxyCoherenceCheck` code (extracted, not
+reimplemented) against: a real crash-scale string (`-6.20%` → RED,
+previously GREEN), a mild move (`-1.50%` → YELLOW), a flat move (`+0.20%`
+→ GREEN), a multi-symbol rule with one missing symbol (label pairing
+correct), and the still-supported object shape (backward compatible). The
+downstream coherence check was also run with the fixed `tickerPct`/
+`proxyPct` and produced a real Case 1 "DOWN — proxy confirmed" result. To
+confirm live: watch for a real Gate 5 RED card during an actual TSM/KOSPI
+move of 3%+ (previously impossible to see at all), and check that its note
+reads `TSM -X.XX%` with a correctly-labeled multi-symbol proxy if one ever
+applies.
+
 ## Tier status (as of Aug 4, 2026)
 
 | Tier | Files | Status |
