@@ -1300,7 +1300,81 @@ stress, so this is a calm-market detector, not something likely to fire
 during an actual crisis; don't read an absence of BROKEN states as proof
 this isn't working.
 
-## Tier status (as of Aug 4, 2026)
+## Frontend: collapsing-card UI exploration — not built, but a reusable lesson (Aug 13, 2026)
+
+Separate from the backend work above (Proposal 3/4, Gate 5 bug fix — all
+shipped, merged, live). This is a design exploration only — **nothing
+below is in the deployed app** — kept here because the lesson it produced
+is worth not re-learning the hard way on future UI work.
+
+**The ask:** Mr. T wants the watchlist to stop being a plain scroll —
+too easy to lose the Gate status once you've scrolled down into a big
+watchlist, especially in the first 60 minutes when he's re-checking it
+often. Explored via a live interactive prototype (Artifact, not real
+app code), iterated through several rounds directly against his phone,
+not just described.
+
+**Round 1:** built a 3-way comparison — Accordion (tap one ticker open,
+opening a new one closes the last), Scroll-collapse (cards auto-expand/
+collapse as they cross the top of the viewport), and Rolodex (one ticker
+fully open at a time, swipeable stack, horizontal chip index). **He
+picked Rolodex.**
+
+**Rounds 2-6, the actual lesson:** refining Rolodex into a real design
+(Gate docks into a pinned strip as you scroll, watchlist chips pin under
+it, tap a chip to load that ticker's full analysis) hit the same failure
+mode three separate times, confirmed live on his device each time, each
+attempt making it worse, not better:
+- Round 3: Gate collapsed via an animated `grid-template-rows` transition,
+  triggered by an IntersectionObserver watching scroll position. Result:
+  "very jumpy."
+- Round 4: removed the animation, made the collapse instant, on the
+  theory that the animation was fighting the scroll gesture. Result:
+  worse — "not scrolling at all, just jumps."
+- Round 5: kept the sticky element's own layout height perfectly
+  constant (never animated OR instantly changed) and faked the visual
+  collapse with an absolutely-positioned overlay + opacity crossfade,
+  reasoning that literally zero layout change during scroll should be
+  bulletproof. Result: still worse — "gate doesn't scroll up, it's just
+  pinned full open."
+
+**The actual conclusion, confirmed by three different techniques all
+failing the same way:** on his real device, changing a `position:sticky`
+element's rendered height reactively while the user is actively
+touch-scrolling breaks scroll tracking — animated, instant, or disguised
+behind an opacity fade, it doesn't matter, all three are still "the
+sticky element's box changes shape while a scroll gesture is in
+flight," and that's what's fragile, not any one implementation detail
+of how the change was expressed. This wasn't diagnosable by reasoning
+about the CSS alone — it only showed up against live touch scrolling on
+an actual phone, not in any static review of the code.
+
+**Round 6, what actually worked:** stopped trying to auto-collapse the
+Gate from scroll position at all. Made it sticky (always pinned, height
+never changes, ever) with a plain **tap** to expand/collapse — the exact
+same accordion mechanic already used by the Pulse/Session Context/
+Import cards elsewhere on the page, which had zero issues through every
+round of this because nothing about a tap-driven accordion depends on
+scroll position in the first place.
+
+**Rule for next time this class of feature comes up:** if a UI element
+needs to visually "dock" or "collapse" as part of scrolling, don't
+reach for scroll-position-driven height/layout changes on a sticky
+element — that's the fragile pattern, confirmed three independent ways
+on real hardware in this session, not a one-off bug in any single
+attempt. Prefer either (a) a plain tap/click toggle, which is what
+actually shipped here, or (b) if a true scroll-linked motion is a hard
+requirement, drive it through `transform`/`opacity` exclusively (never a
+property that changes layout — height, padding, grid-template-rows) and
+test on a real device before considering it done, not just in a desktop
+browser resize.
+
+**Status as of this writing:** Mr. T asked to go back to the Round 1
+3-way comparison and restart the decision from there with this lesson
+in hand — Round 6's tap-based Rolodex refinement is not the final
+direction, just the point where the scroll-jank chase stopped. Nothing
+from any round has been built into the real app (`index.html`/`app.js`/
+etc.) — this is 100% prototype, parked in an Artifact, not a repo file.
 
 | Tier | Files | Status |
 |---|---|---|
