@@ -344,20 +344,43 @@ traffic for a few days, `credits`' `anon`/`authenticated` grants can
 likely be safely re-revoked** — do that as its own follow-up, not in the
 same change, so a regression is easy to isolate.
 
-**Stopgap closed (Aug 13, 2026).** A follow-up Supabase Security Advisor
-email (dated Aug 9, 2026 — "Table publicly accessible" / "Sensitive data
-publicly accessible", CRITICAL) turned out to just be Supabase correctly
-still flagging this exact open item, nine days after PR #22 merged and
-with nobody having circled back to actually run the re-revoke it
-unblocked. Ran `revoke all on public.credits from anon, authenticated;`
-and confirmed zero rows on the standard grants-check query. Verified this
-didn't repeat the Aug 4 outage two ways: (1) a real login against
-production (`turneraroundauto@gmail.com`, tier pro) came back clean in
-Render logs, no `permission denied for table credits`; (2) a real `/analyze`
-call immediately after deducted a credit successfully with no error —
-the actual path that broke in the original incident. `credits`,
-`accuracy_log`, `proxy_resolution`, `pre_gate_triggers`, and `watchlists`
-are now all properly revoked — this was the last one still exposed.
+**`credits` stopgap closed, Aug 13, 2026 (first pass).** A follow-up
+Supabase Security Advisor email (dated Aug 9, 2026 — "Table publicly
+accessible" / "Sensitive data publicly accessible", CRITICAL) turned out
+to just be Supabase correctly still flagging this exact open item, nine
+days after PR #22 merged and with nobody having circled back to actually
+run the re-revoke it unblocked. Ran `revoke all on public.credits from
+anon, authenticated;` and confirmed zero rows on the standard grants-check
+query. Verified this didn't repeat the Aug 4 outage two ways: (1) a real
+login against production (`turneraroundauto@gmail.com`, tier pro) came
+back clean in Render logs, no `permission denied for table credits`; (2) a
+real `/analyze` call immediately after deducted a credit successfully with
+no error — the actual path that broke in the original incident.
+
+**Bigger regression found the same day, same session.** Prompted by the
+`credits` scare, re-ran the grants-check query scoped to all five
+service-role tables instead of just `credits` — and found `accuracy_log`,
+`proxy_resolution`, `pre_gate_triggers`, and `watchlists` had **all**
+regained full `anon`/`authenticated` grants (`INSERT`/`SELECT`/`UPDATE`/
+`DELETE`, plus `TRUNCATE` on `pre_gate_triggers` and `watchlists`) —
+directly contradicting this file's own Aug 4 note that those four were
+"properly revoked and never affected." `credits` alone was clean
+(confirming the revoke above held), meaning something re-opened the
+*other four* independently of anything done today. **Root cause
+unconfirmed** — nobody had re-run this check since Aug 4, so there's no
+way to tell from here whether this was a single event (e.g. a dashboard
+action or a script re-granting broadly) or whether the Aug 4 "confirmed
+via zero rows" fix on these tables never actually held long-term. Flagged
+to Mr. T as an open question, not guessed at.
+
+Fixed the same way as `credits`: `revoke all on public.<table> from anon,
+authenticated;` run against all four, re-verified zero rows across all
+five tables (`credits`, `accuracy_log`, `proxy_resolution`,
+`pre_gate_triggers`, `watchlists`) in one query this time, not scoped to a
+single table like the first pass was. **Given the surprise here, don't
+assume this stays fixed either — re-run the full five-table grants query
+periodically instead of trusting this note, the same lesson the first
+regression itself just taught.**
 
 ## Frontend architecture
 
