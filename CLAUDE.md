@@ -1687,6 +1687,73 @@ one hand-written `types/api.d.ts` for the real `/analyze` and
 `tsc --noEmit` run to see what else surfaces beyond what's already found
 above.
 
+### Phase 0 shipped (Aug 14, 2026, `trade-verdict` only — not yet in `Tra`)
+
+Landed the same day as the plan above: a real `tsconfig.json`
+(`checkJs`/`noEmit`/`allowJs`, no build step) scoped exactly to
+`shared/*.js` + this repo's own `gates-extended.js`, plus
+`shared/types.js` — JSDoc-only `@typedef`s for `GateResult`,
+`SectorContext`, `TickerData`, `AnalyzeRequestBody`, `AnalyzeResponse`
+(the highest-risk shapes the plan named). `shared/types.js` is never
+loaded at runtime (JSDoc `@typedef {import(...)}` references are erased
+comments, not real imports), so it's exempt from the cache-busting rule —
+don't add it a `?v=`.
+
+Applied the typedefs to real call sites within the checked scope, not just
+declared them: `gates-extended.js`'s exported functions
+(`proxyCoherenceCheck`, `regimeValidation`, `hasForceDownAuthority`,
+`resolveFixedProxyBreak`, `evaluateGate1Sessions`, `contextTextMatches`,
+`buildupPatternCheck`, `corroborateSessionContext`, `dailyReturns`,
+`pearson`) now have real `@param`/`@returns` JSDoc instead of implicit
+`any`; `shared/ticker-cache.js`'s `fetchTickerData()`/`tickerCache`/
+`inFlight` are typed against `TickerData`; `shared/watchlist.js`'s
+`updateCardMeta(ticker, td)` — the actual `TickerData` consumer that
+renders a card's price/52W/news/phase strip — is typed the same way.
+
+**Actually verified the mechanism works, not just that it compiles clean.**
+Built a throwaway scratch reproduction of the real Aug 13, 2026 Gate 5 bug
+shape (feeding `sectorContext.tsm` — a formatted `"-6.20%"` *string* — into
+`proxyCoherenceCheck()`, which expects a parsed `number`, the exact mistake
+`evaluateProxyStatus()` made in production for three weeks) against the
+real `gates-extended.js` JSDoc types: `tsc` flagged
+`Argument of type 'string' is not assignable to parameter of type
+'number'` immediately. Confirms this isn't just documentation — it would
+have caught that exact bug class on save. Scratch file discarded after
+confirming, never part of the repo.
+
+One real (harmless) type mismatch turned up and got fixed along the way:
+`shared/watchlist.js`'s `updateCardMeta()` called
+`parseFloat(td.metrics.price)` before `.toFixed(2)`, but
+`metrics.price` is already a `number` on the wire (`fetchTickerMetrics()`
+in server.js never stringifies it — that's a different function,
+`fetchQuote()`, used for `/market`'s tracked-symbol entries, not
+`/ticker/:symbol`). `parseFloat` on an already-numeric value is a no-op
+(JS coerces it to a string and back to the identical number), so this was
+never a live bug, just sloppy — simplified to
+`td.metrics.price.toFixed(2)` directly, byte-identical output.
+
+**A fresh `tsc -p tsconfig.json` run still shows ~26 known, expected
+errors** — unchanged in nature from what the investigation already found
+and documented above, not something this pass tried to silence:
+`./foo.js?v=N` import-resolution failures (every real ES import in the
+checked files, since `?v=` isn't a valid module specifier to any
+resolver — the concrete reason Phase 3's bundler is on the roadmap) and a
+handful of generic DOM-typing errors (`Property 'value' does not exist on
+type 'HTMLElement'`, `window.foo` assignments) on pre-existing
+`getElementById`-heavy code in `shared/settings-modal.js`/`track-record.js`/
+`watchlist.js`. Left alone deliberately — real but low-value casting churn
+outside Phase 0's actual scope (the typedefs), not a regression and not
+something Phase 0 promised to zero out.
+
+**Not done in this pass:** mirroring `tsconfig.json`/`shared/types.js`'s
+JSDoc-typing approach into `Tra`'s own copy of `gates-extended.js` — this
+session's repo scope was `trade-verdict` only. `server.js` (where the
+real `/analyze` handler, `evaluateProxyStatus()`, and `evaluateGate1()`
+actually live) and every tier's `app.js` are still outside `checkJs`'s
+scope too, per the plan's own reasoning (untyped Express/Stripe/Supabase
+surface, much higher noise) — a natural widening for a future pass, not
+an oversight here.
+
 ## Verifying changes before you claim done
 
 There's no test suite. What's actually been useful:

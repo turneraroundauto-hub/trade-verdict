@@ -2,6 +2,8 @@ import { fetchTickerData } from './ticker-cache.js?v=4';
 import { tickerHref, newsHref } from './prefs.js?v=10';
 import { highlightContextMatches } from './context-highlight.js?v=1';
 
+/** @typedef {import('./types.js').TickerData} TickerData */
+
 export let watchlist = [];
 let maxTickers = 3;
 let upgradeMessage = '';
@@ -102,6 +104,10 @@ export function refreshNewsHighlights(){
   });
 }
 
+/**
+ * @param {string} ticker
+ * @param {TickerData|null} td
+ */
 export function updateCardMeta(ticker,td){
   var card=document.getElementById('card-'+ticker);if(!card)return;
   var priceEl=card.querySelector('.ticker-price');
@@ -112,7 +118,7 @@ export function updateCardMeta(ticker,td){
   // fetch, and needs to look different from the plain pre-fetch dash or it
   // reads as broken instead of as an answer.
   if(priceEl&&td){
-    priceEl.textContent=td.metrics&&td.metrics.price?'$'+parseFloat(td.metrics.price).toFixed(2):'N/A';
+    priceEl.textContent=td.metrics&&td.metrics.price?'$'+td.metrics.price.toFixed(2):'N/A';
   }
   var phaseEl=card.querySelector('.phase-strip');
   if(phaseEl&&td&&td.metrics){
