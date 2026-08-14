@@ -487,62 +487,101 @@ async function renderRolodexFromWatchlist(){
   }));
 }
 
-// ── /analyze — real credit-consuming call, same payload shape as every
-// tier's client (see server.js's /analyze handler). ──────────────────
-function buildSectorContext(){
-  const f = (k)=> market && market[k] ? market[k].change : '?';
-  return {
-    spy:f('spy'), qqq:f('qqq'), btc:f('btc'), iwm:f('iwm'), soxx:f('soxx'), xbi:f('xbi'),
-    ibb:f('ibb'), gld:f('gld'), uso:f('uso'), tsm:f('tsm'), msft:f('msft'),
-    gateStatus: market ? (market.gateStatus||'GREEN') : 'GREEN',
-    gateNote: market ? (market.gateNote||'') : '',
-    btcSignal: market ? (market.btcSignal||'neutral') : 'neutral',
-  };
-}
+// ── ANALYZE — mocked, not a real /analyze call ────────────────────────
+// Direct request (Aug 14, 2026): real /analyze is credit-gated server-side
+// (see credits.js in Tra), and there's no way to top up credits just for
+// reviewing this UI -- a page reload can't reset a real, server-enforced
+// balance no matter what the frontend does. So ANALYZE on this preview
+// page no longer calls the real endpoint at all: it simulates a response
+// from a small pool of realistic, hand-written profiles covering the
+// verdict/badge/gate states worth reviewing (clean UP, forceDown NONE,
+// mixed FLAT, clean full-size UP, Gate 5 forceDown DOWN). Cycles through
+// them per ticker on repeated taps so re-analyzing the same ticker shows
+// different states instead of the identical result every time.
+//
+// Ticker price/news/52W/phase/beta/proxy (fetchTickerData(), above) are
+// UNCHANGED and still real -- /ticker/:symbol has no credit cost in
+// production either, so there's no reason to fake that half.
+const MOCK_ANALYZE_PROFILES = [
+  {
+    type:'SENTIMENT', verdict:'UP', confidence:'HIGH', sizing:'HALF', wait_for:null,
+    gates:{
+      pre_gate:{ status:'GREEN', note:'No solvency, dilution, or guidance-cut language found.' },
+      sector:{ status:'GREEN', note:'SPY +0.3% QQQ +0.6% — flat to mild positive, proceed normally.' },
+      g1_prewindow:{ status:'GREEN', note:'14-session +6.2% under +10% — clean.' },
+      g2_catalyst:{ status:'GREEN', note:'Company-specific positive: catalyst confirmed, sector confirming.' },
+      g3_openbar:{ status:'GREEN', note:'Bar 1 green, building with sector strength.' },
+      g4_phase:{ status:'YELLOW', note:'Phase 2 — acceleration, half size on pullbacks.' },
+      g5_korea:{ status:'GREEN', note:'Sector proxy confirms — tailwind.' },
+    },
+  },
+  {
+    type:'CANARY', verdict:'DOWN', confidence:'MEDIUM', sizing:'NONE',
+    wait_for:'Structural reversal (higher high + reclaim of 50-day MA) required before re-evaluating.',
+    gates:{
+      pre_gate:{ status:'GREEN', note:'No solvency, dilution, or guidance-cut language found.' },
+      sector:{ status:'YELLOW', note:'SPY -0.6% QQQ -0.9% — mild headwind.' },
+      g1_prewindow:{ status:'RED', note:'60-session -28.4% structural breakdown exceeds 25% — forceDown.' },
+      g2_catalyst:{ status:'RED', note:'Company-specific negative headline pressuring the name.' },
+      g3_openbar:{ status:'YELLOW', note:'Bar 1 red, Bar 2 rejecting — reversal risk in play.' },
+      g4_phase:{ status:'RED', note:'Phase 3 — priced for perfection, post-flush entry only.' },
+      g5_korea:{ status:'YELLOW', note:'Sector proxy mixed, not confirming direction.' },
+    },
+  },
+  {
+    type:'FLOW', verdict:'FLAT', confidence:'LOW', sizing:'HALF', wait_for:'Additional confirmation needed before directional entry.',
+    gates:{
+      pre_gate:{ status:'GREEN', note:'No solvency, dilution, or guidance-cut language found.' },
+      sector:{ status:'GREEN', note:'SPY +0.1% QQQ +0.2% — flat.' },
+      g1_prewindow:{ status:'YELLOW', note:'14-session +11.4% in the +10-20% band — reduce size 50%.' },
+      g2_catalyst:{ status:'YELLOW', note:'No fresh catalyst — neutral by default.' },
+      g3_openbar:{ status:'YELLOW', note:'No bar data — blind sequence, midweek default.' },
+      g4_phase:{ status:'YELLOW', note:'Phase 2 — half size on pullbacks only.' },
+      g5_korea:{ status:'GREEN', note:'Sector proxy flat — no headwind.' },
+    },
+  },
+  {
+    type:'FLOW', verdict:'UP', confidence:'HIGH', sizing:'FULL', wait_for:null,
+    gates:{
+      pre_gate:{ status:'GREEN', note:'No solvency, dilution, or guidance-cut language found.' },
+      sector:{ status:'GREEN', note:'SPY +0.5% QQQ +0.8% — genuinely strong tape.' },
+      g1_prewindow:{ status:'GREEN', note:'14-session +3.0% — clean.' },
+      g2_catalyst:{ status:'GREEN', note:'Company-specific positive, sector confirming, congruent.' },
+      g3_openbar:{ status:'GREEN', note:'Monday + bullish 3-bar sequence — highest conviction.' },
+      g4_phase:{ status:'GREEN', note:'Phase 1 — discovery, full size entry appropriate.' },
+      g5_korea:{ status:'GREEN', note:'Sector proxy confirms.' },
+    },
+  },
+  {
+    type:'SENTIMENT', verdict:'DOWN', confidence:'MEDIUM', sizing:'NONE',
+    wait_for:'Proxy must stabilize before re-evaluating.',
+    gates:{
+      pre_gate:{ status:'GREEN', note:'No solvency, dilution, or guidance-cut language found.' },
+      sector:{ status:'YELLOW', note:'SPY -0.4% QQQ -0.5% — soft.' },
+      g1_prewindow:{ status:'YELLOW', note:'14-session +14.1% in the +10-20% band — reduce size 50%.' },
+      g2_catalyst:{ status:'YELLOW', note:'Sector macro negative, no company-specific catalyst yet.' },
+      g3_openbar:{ status:'RED', note:'Bar 1 red, Bar 2 red — no reversal signal.' },
+      g4_phase:{ status:'YELLOW', note:'Phase 2 — half size on pullbacks only.' },
+      g5_korea:{ status:'RED', note:'Sector proxy down sharply — forceDown, gated exemption applies.' },
+    },
+  },
+];
 
 async function analyzeOne(sym){
   const state = tickerState.get(sym);
   if(!state || state.analyzing) return;
   state.analyzing = true; state.error = null;
   renderRoloCard(sym);
-  const ctx = document.getElementById('context-input').value;
   const td = state.td || await fetchTickerData(sym);
   state.td = td;
-  try{
-    const res = await fetch(addSecret(API_URL+'/analyze'), {
-      method:'POST', headers:authH(),
-      body: JSON.stringify({
-        ticker: sym, sectorContext: buildSectorContext(), marketContext: ctx,
-        metricsData: td && td.metrics ? td.metrics : null,
-        newsData: td && td.news ? td.news : null,
-        openingBarData: td && td.openingBar ? td.openingBar : null,
-        proxyRule: td && td.proxyRule ? td.proxyRule : null,
-        gate1Data: td && td.gate1 ? td.gate1 : null,
-        preGateData: td && td.preGate ? td.preGate : null,
-        weeklyCarryoverData: td && td.weeklyCarryover ? td.weeklyCarryover : null,
-        regimeData: td && td.regime ? td.regime : null,
-      }),
-    });
-    if(!res.ok){
-      const errData = await res.json().catch(()=>({}));
-      if(res.status === 402 && errData.code === 'NO_CREDITS'){
-        state.error = 'Out of credits — ' + (sbSession && sbSession.token ? 'buy more or upgrade.' : 'sign in to add credits.');
-      } else {
-        state.error = errData.error || ('Server error ' + res.status);
-      }
-      state.analyzing = false;
-      renderRoloCard(sym);
-      fetchCreditStatus();
-      return;
-    }
-    const data = await res.json();
-    state.result = data; state.analyzing = false;
-    renderRoloCard(sym); renderPill(sym);
-    fetchCreditStatus();
-  }catch(e){
-    state.error = e.message; state.analyzing = false;
-    renderRoloCard(sym);
-  }
+
+  await new Promise((resolve)=> setTimeout(resolve, 400 + Math.random()*300));
+
+  state.mockIndex = (state.mockIndex == null ? 0 : state.mockIndex + 1) % MOCK_ANALYZE_PROFILES.length;
+  const profile = MOCK_ANALYZE_PROFILES[state.mockIndex];
+  state.result = { ticker: sym, marketOpen: true, ...profile };
+  state.analyzing = false;
+  renderRoloCard(sym); renderPill(sym);
 }
 
 function analyzeAll(){ watchlist.forEach((sym)=> analyzeOne(sym)); }
