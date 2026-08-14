@@ -1,0 +1,49 @@
+{
+  // Phase 0 of the TypeScript adoption plan — see CLAUDE.md, "Engineering:
+  // TypeScript adoption path" (Aug 14, 2026). JSDoc + checkJs only: no
+  // .ts files, no build step, ever. Run with `tsc --noEmit` (or `npx tsc`,
+  // TypeScript is not a committed devDependency here — no package.json
+  // exists in this repo yet).
+  //
+  // Scope is deliberately narrow — shared/*.js + gates-extended.js — same
+  // scope the investigation behind this plan actually tested against, kept
+  // low-risk on purpose. server.js and every tier's app.js are NOT covered
+  // yet (untyped Express/Stripe/Supabase surface, much higher noise) — a
+  // natural follow-up once Phase 0 proves out, not part of this pass.
+  //
+  // Tra (the real backend, turneraroundauto-hub/Tra) has its own copy of
+  // gates-extended.js — per the two-repo mirror convention, this
+  // tsconfig.json is a candidate to mirror there too, adjusted for that
+  // repo's own file layout. Not done in this pass since this session's
+  // repo scope is trade-verdict only.
+  //
+  // KNOWN, EXPECTED baseline noise on a fresh run (documented by the
+  // investigation, not fixed by this pass):
+  //   1. Every `./foo.js?v=N` import fails to resolve (TS2307) — the
+  //      `?v=` cache-busting convention (see CLAUDE.md) isn't a valid
+  //      module specifier to any resolver, tsc included. This is the
+  //      concrete reason Phase 3 (a real bundler) is on the roadmap; not
+  //      fixable here without breaking cache-busting.
+  //   2. A handful of generic DOM-typing errors (`Property 'value' does
+  //      not exist on type 'HTMLElement'`, `window.foo` assignments) from
+  //      untyped `getElementById` call sites across shared/*.js predating
+  //      this pass. Real but low-value churn to fully silence; left as
+  //      known noise rather than casting every DOM access for this pass.
+  // Neither category is a real bug — both were called out by name when
+  // this plan was written. What Phase 0 actually adds is real @typedefs
+  // (shared/types.js) for the shapes that have shipped hidden bugs before
+  // (GateResult / SectorContext / TickerData / the /analyze contract),
+  // applied to gates-extended.js and shared/ticker-cache.js/watchlist.js.
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "skipLibCheck": true,
+    "noImplicitAny": false,
+    "strictNullChecks": false
+  },
+  "include": ["shared/*.js", "gates-extended.js"]
+}

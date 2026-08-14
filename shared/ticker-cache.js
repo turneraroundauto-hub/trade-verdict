@@ -1,6 +1,9 @@
+/** @typedef {import('./types.js').TickerData} TickerData */
+
 let API_URL = '';
 let authH = function(){ return {}; };
 let addSecret = function(url){ return url; };
+/** @type {Object<string, TickerData>} */
 const tickerCache = {};
 // Only the RESOLVED result was ever memoized here — two callers asking for
 // the same symbol microseconds apart (e.g. the visible cards hydrating
@@ -10,14 +13,23 @@ const tickerCache = {};
 // real wasted call volume competing for the same 55/min budget, directly
 // slowing down whichever of those views loads second. Track in-flight
 // promises per symbol so concurrent callers await the same request.
+/** @type {Object<string, Promise<TickerData|null>>} */
 const inFlight = {};
 
+/**
+ * @param {{API_URL:string, authH:()=>Object, addSecret:(url:string)=>string}} config
+ */
 export function initTickerCache(config){
   API_URL = config.API_URL;
   authH = config.authH;
   addSecret = config.addSecret;
 }
 
+/**
+ * @param {string} symbol
+ * @param {boolean} [force]
+ * @returns {Promise<TickerData|null>}
+ */
 export async function fetchTickerData(symbol,force){
   if(tickerCache[symbol]&&!force)return tickerCache[symbol];
   if(inFlight[symbol]&&!force)return inFlight[symbol];
