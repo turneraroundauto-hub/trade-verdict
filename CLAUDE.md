@@ -1804,6 +1804,28 @@ UP/DOWN to HOLD outside market hours, same as it does for a real
 result — the mock only replaces where the verdict data comes from, not
 any of the rendering/override logic downstream of it.
 
+**Follow-up, same day: the fixes above didn't actually reach the user's
+browser at first.** Reported live: the dismiss button didn't close the
+banner, and ANALYZE still showed a no-credits error — both symptoms of
+running an *old* cached `app.js`, not of either fix being wrong. Root
+cause: `preview/rolodex/index.html` was built without the two things
+every real tier page has for exactly this reason — a
+`Cache-Control: no-cache,no-store,must-revalidate` meta tag, and a
+`?v=N` query string on its own `<script src="./app.js">` tag (see the
+cache-busting rule earlier in this file). This page had gone through
+four rounds of content changes to `app.js` in one session with zero
+cache-busting the whole time, so a browser that loaded it early was
+never guaranteed to see any of the later fixes. Fixed by adding both to
+`index.html` (`?v=1` as the starting baseline — the *un*versioned URL a
+browser may have already cached is a different cache key regardless of
+what number this starts at, so correctness didn't depend on picking a
+"right" starting value, only on bumping it from here on).
+
+**Going forward: `preview/rolodex/app.js` needs its `?v=` bumped on
+every future content change**, exactly like every other real
+`app.js`/shared module in this repo — this page was the one exception
+that had fallen through, not a deliberate opt-out.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
