@@ -318,8 +318,9 @@ function roloCardHTML(sym, state){
   const proxyName = td && td.proxyRule && td.proxyRule.proxy ? td.proxyRule.proxy.name.split('(')[0].trim() : '?';
   const analyzing = state.analyzing;
   const result = state.result;
+  const dir = priceDirClass(td);
   return `<div class="ticker-row">`
-    + `<span class="ticker-sym"><a href="${tickerHref(sym)}" target="_blank">${sym}</a></span><span class="ticker-price">${price}</span>`
+    + `<span class="ticker-sym ${dir}"><a href="${tickerHref(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}">${price}</span>`
     + `</div>`
     + pregateStripHTML(result)
     + `<div class="headline"><a href="${newsHref(sym)}" target="_blank">${headline}</a> <span class="age">${age}</span></div>`
@@ -359,13 +360,21 @@ function resetTicker(sym){
   renderPill(sym);
 }
 
+// Real day % change direction -- same source (td.metrics.pct) and
+// threshold used for both the pill strip's perf-up/down/flat framing and
+// the open card's ticker symbol/price color, so the two never disagree
+// about which way a ticker is actually moving.
+function priceDirClass(td){
+  const pct = td && td.metrics && typeof td.metrics.pct === 'number' ? td.metrics.pct : 0;
+  return pct > 0.05 ? 'up' : pct < -0.05 ? 'down' : 'flat';
+}
+
 function renderPill(sym){
   document.querySelectorAll(`.rolo-chip[data-sym="${sym}"]`).forEach((chip)=>{
     const state = tickerState.get(sym);
     const td = state && state.td;
     const price = td && td.metrics && td.metrics.price != null ? '$' + td.metrics.price.toFixed(2) : '—';
-    const pct = td && td.metrics && typeof td.metrics.pct === 'number' ? td.metrics.pct : 0;
-    const perf = pct > 0.05 ? 'perf-up' : pct < -0.05 ? 'perf-down' : 'perf-flat';
+    const perf = 'perf-' + priceDirClass(td);
     chip.className = 'rolo-chip ' + perf + (chip.dataset.idx === String(roloCurrent) ? ' active' : '');
     chip.innerHTML = `<span class="rc-sym">${sym}</span><span class="rc-price">${price}</span>`;
   });
