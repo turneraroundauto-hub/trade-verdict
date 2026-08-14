@@ -1578,6 +1578,115 @@ decision point, not an oversight — flagged to and confirmed by Mr. T before
 `iv` shipped, precisely because it crosses a pricing/differentiation
 boundary, not just a technical one.
 
+## Engineering: TypeScript adoption path — investigated, not yet started (Aug 14, 2026)
+
+Mr. T got questioned externally on why this project is plain JavaScript and
+asked directly: what's actually lost by staying JS, is a pivot away from it
+realistic, and is there a real benefit. Answered in two parts, then asked to
+turn the answer into an actual plan, framed as something that could ride
+along with the planned Rolodex UI rework (see the collapsing-card
+exploration section above) rather than as a separate effort. **Nothing in
+this section has been built — this is a plan plus one real investigation,
+not a change to either repo.** Full formatted version, including the actual
+terminal output:
+`https://claude.ai/code/artifact/100a336b-d173-4f0f-9d88-875d628bdd0f`.
+
+**The framing that survived scrutiny:** don't change the runtime for either
+side. The backend (`Tra`) is I/O-bound API-proxying work (Finnhub/Alpaca/SEC)
+— Node's non-blocking model already fits that, and a language rewrite would
+mean re-deriving every hard-won fix already in this file (the Finnhub/Alpaca
+throttle queues, the Supabase session-leak fix, the SEC rate limiter) with
+real risk of quietly reintroducing bugs that cost actual production incidents
+to find the first time. The frontend can't leave JavaScript at all — it's a
+static site a browser executes, full stop. What's actually on the table is
+layering **TypeScript type-checking** on top of the existing JS, incrementally,
+and separately, whether to eventually add a **bundler** (a bigger, different
+question from "types," addressed below).
+
+**This wasn't just reasoned about — it was tested against the real repos.**
+Ran actual `tsc` (TypeScript 6.0.2) with `allowJs`/`checkJs`/`noEmit` against
+`shared/*.js` and both repos' `gates-extended.js` before writing any of the
+plan below, specifically to avoid shipping a fourth confident-but-unverified
+claim in this file. Three findings came out of it:
+
+1. **The `?v=N` cache-busting convention breaks static module resolution
+   completely.** `tsc` (and by extension any bundler) cannot resolve
+   `'./prefs.js?v=10'` as a module specifier at all — every hand-versioned
+   import in this codebase fails the same way. This is the concrete,
+   demonstrated reason a bundler would help, not a generic "modern tooling"
+   claim — it's specifically what makes the existing cache-busting rule's
+   failure mode (documented above, cost real hours Aug 2-3) structurally
+   possible in the first place. A real bundler content-hashes output
+   filenames automatically, which makes that whole bug class unrepresentable.
+2. **Plain `checkJs` with zero type annotations catches almost nothing.**
+   Once the import-resolution problem above is worked around, the only
+   remaining errors on the actual `shared/*.js` files are generic DOM-typing
+   noise (`Property 'value' does not exist on type 'HTMLElement'` from
+   `querySelector`'s return type) — expected, not real bugs, fixed with
+   casts. The real payoff only shows up once actual shapes are written down
+   as JSDoc `@typedef`s — that annotation work IS the actual task, not
+   flipping a compiler flag.
+3. **Reproduced the real Aug 13 Gate 5 bug directly.** Wrote the pre-fix
+   `evaluateProxyStatus` shape (`marketData[s].pct`, assuming an object) next
+   to a one-line `@typedef` for what `sectorContext[symbol]` actually is in
+   production (`Record<string, string>` — a formatted `"+1.23%"` string,
+   never an object) and `tsc` flagged `Property 'pct' does not exist on type
+   'string'` immediately, at the exact line. That's the same bug that
+   shipped silently and made Gate 5's RED status unreachable until it got
+   root-caused by hand three weeks later — caught here on save, from nothing
+   but a type declaration for a shape that was already true.
+
+**The path — five phases, each shippable as its own PR, same as everything
+else in this file:**
+- **Phase 0 — JSDoc + `checkJs`, no `.ts` files, no build step, ever.** One
+  `tsconfig.json` (`checkJs`/`noEmit`), then real `@typedef`s for the highest-
+  risk shapes first: the `/analyze` request/response, `TickerData`,
+  `GateResult` — the exact contract that's broken twice already. Effort low,
+  risk none, payoff high — this is what Finding 3 above demonstrates directly.
+- **Phase 1 — shared contract types, hand-mirrored.** One `types/api.d.ts`
+  copied into both `Tra` and this repo, same "keep these files identical"
+  convention already used for the mirrored `server.js`. Doesn't fix the
+  two-repo drift problem itself, but gives both sides something concrete to
+  drift *against* instead of drifting silently. Effort low, risk none.
+- **Phase 2 — real `.ts`, transpile-only, still no bundler.** Convert
+  `shared/` leaf modules and both `gates-extended.js` files one at a time,
+  highest-fan-out first. `tsc` emits one `.js` per `.ts` with no bundling —
+  GitHub Pages keeps serving the exact same file layout it does today.
+  Effort medium, risk low.
+- **Phase 3 — a real bundler (esbuild or Vite), paired with the Rolodex UI
+  work, not before.** This is the one phase that changes the deploy
+  pipeline, so do it when the UI rebuild is actually greenlit — that work
+  already touches every tier's markup and every shared module, so the
+  bundler-adoption cost lands in the same PRs instead of a separate
+  migration nobody asked for. This is what actually eliminates Finding 1,
+  structurally, not just documents around it. Effort medium-high, risk
+  medium.
+- **Phase 4 — formalize the simulation scripts into a real test suite,
+  after Phase 3.** Every recent gate-logic change (Proposal 3, Proposal 4,
+  the Gate 5 fix) was already verified with a throwaway Node script
+  simulating real inputs, documented above each time as "verified by
+  simulation" then discarded. Checking those in as a real test suite (Vitest,
+  or even Node's built-in runner without waiting on Phase 3) converts work
+  already being done into permanent regression coverage for the trickiest
+  logic in the app. Effort low-medium, risk none.
+
+**Explicitly not part of this plan:** a backend language swap (already
+covered above — I/O-bound work, Node isn't the bottleneck); adopting a
+frontend framework (bigger, separate decision, real dependency surface this
+app has deliberately avoided so far); converting Shark now (already flagged
+elsewhere in this file as deliberately deferred pending the Alpaca "Plus"
+decision — fold TS into that rebuild whenever it happens, don't do it
+twice); one big-bang PR (no test suite exists yet, so file-by-file keeps
+every step revertable).
+
+**If picked back up in a future session:** Phases 0 and 1 need nothing
+decided about the UI rework first and can start immediately — a
+`tsconfig.json` scoped to `shared/*.js` and both `gates-extended.js` files,
+one hand-written `types/api.d.ts` for the real `/analyze` and
+`/ticker/:symbol` shapes mirrored into both repos, then a baseline
+`tsc --noEmit` run to see what else surfaces beyond what's already found
+above.
+
 ## Verifying changes before you claim done
 
 There's no test suite. What's actually been useful:
