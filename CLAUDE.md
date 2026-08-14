@@ -1369,12 +1369,146 @@ property that changes layout — height, padding, grid-template-rows) and
 test on a real device before considering it done, not just in a desktop
 browser resize.
 
-**Status as of this writing:** Mr. T asked to go back to the Round 1
+**Status as of this writing (superseded by the Aug 14 follow-up directly
+below — kept for the history):** Mr. T asked to go back to the Round 1
 3-way comparison and restart the decision from there with this lesson
 in hand — Round 6's tap-based Rolodex refinement is not the final
 direction, just the point where the scroll-jank chase stopped. Nothing
 from any round has been built into the real app (`index.html`/`app.js`/
 etc.) — this is 100% prototype, parked in an Artifact, not a repo file.
+
+## Frontend: collapsing-card UI exploration — Rolodex finalized, still 100% prototype (Aug 14, 2026)
+
+Direct continuation of the session above, same Artifact
+(`https://claude.ai/code/artifact/a4c3fd53-111b-4c05-8e71-ddaf59f8b878`),
+same rule applies — **nothing in this section is in the deployed app.**
+Restarted from the Round 1 3-way comparison as planned, then Mr. T
+picked Rolodex again and this time confirmed it as final: **"this
+roladex is the only option we're sticking with, you can remove the
+others."** Accordion and Scroll-collapse (including their dead code —
+`setPlainMode`, the `IntersectionObserver` scroll-collapse branch,
+`#plainList`, the mode-switcher UI, `cardHeadHTML`/`cardBodyHTML`/
+`chevronSVG`) were fully removed from the prototype, not just hidden —
+Rolodex is what the page loads into now, no picker.
+
+**Misinterpretation caught and corrected: "gate tickers" meant the
+Gate's own market indices, not the watchlist.** Asked to make "the gate
+tickers auto scroll horizontal — only when it's collapsed," first pass
+wired the auto-scroll marquee onto the wrong element (the watchlist chip
+strip, `#roloIndex`) instead of the Gate's own SPY/QQQ/BTC/etc. row.
+Corrected directly: *"you scrolled the wrong tickers, the top gate
+tickers are supposed to scroll not the watchlist pills, but I kinda like
+that too if it had price with them also."* Fixed by adding a second,
+separate marquee (`#gateMarquee` / `GATE_INDICES`, docked-only) for the
+Gate's own indices, and keeping the watchlist marquee as a distinct,
+intentional feature — enhanced with each pill now showing price next to
+its symbol (`.rc-price`), per the second half of that same correction.
+
+**Watchlist pills, several rounds of direct correction, in order:**
+1. **Card switching restricted to pill-tap only.** *"I don't want the
+   tiles to cycle up with the scroll... only analyze when you tap the
+   pill."* Removed swipe (touchstart/touchend) and mouse-wheel paging on
+   the Rolodex stage, and removed the prev/next buttons entirely — a
+   tap on a pill in `#roloIndex` is now the only thing that changes
+   which ticker's card is open, full stop.
+2. **Manual drag re-enabled, then a real bug in doing so.** Asked to
+   let the pill strip "also manually scroll" even while its own marquee
+   is auto-scrolling. First attempt paused the marquee via a boolean
+   flag set `true` then immediately `false` around the marquee's own
+   `scrollLeft` write — broke on his phone: *"it move extremely slow .5
+   mm jump."* Root cause: browsers dispatch `scroll` asynchronously, so
+   the flag was already back to `false` before the marquee's own scroll
+   event arrived, and every single frame's own 0.5px nudge was
+   misread as a manual scroll and instantly re-paused itself for 1.8s —
+   moves a hair, stalls, moves a hair, stalls. Fixed by comparing the
+   scroll event's actual `scrollLeft` against the value the marquee
+   itself last wrote (state comparison), not a timing-dependent flag —
+   immune to the async-dispatch race by construction.
+3. **Pills recolored by real performance, not the AI verdict.** *"all
+   pills need the performance red/green color frame and font with dark
+   grey background color, make the one pill that is selected background
+   red or green depending on performance and font the background
+   color."* Added a `chg` (day % change) field per ticker, independent
+   of the existing `verdict` field (up/down/flat/pending) — a flat or
+   pending-analysis ticker still has a real day move, so it still gets a
+   real green/red read instead of falling back to neutral. Selected pill
+   inverts: solid green/red fill, text set to the same dark grey every
+   other pill uses as its own background.
+4. **Marquee changed to run continuously, not gated on the Gate.**
+   *"I don't remember the pills not scrolling horizontal until the gate
+   starts... make the pills scroll horizontal all the time."* The
+   `gateCard.classList.contains("docked")` condition gating
+   `stepRoloMarquee` was dropped — it now runs from page load. Also
+   removed a now-conflicting bit of logic that scrolled a newly-tapped
+   pill into view, but only while the Gate was *not* docked (to avoid
+   fighting the marquee mid-animation) — now that the marquee always
+   runs, that scrollIntoView would fight it constantly, so it was
+   dropped in favor of just the `.active` color highlight.
+
+**Pulse/Session Context/Import now dock under the Gate too, in order,
+as you scroll.** Previously these three scrolled off normally. Now each
+is its own `position:sticky` element (`#card-pulse`/`#card-context`/
+`#card-io`, descending z-index 19/18/17, below the Gate's 20) with a
+`top` offset computed in JS (`updateStickyOffsets()`) as
+`GATE_DOCKED_H` plus the real height of every card ahead of it — so the
+stack grows underneath the Gate's 44px docked bar like a second, third,
+fourth pinned bar, in Pulse → Context → Import order. Each card's own
+height is computed from its head's real rendered height plus (if
+expanded) its body's `scrollHeight` — readable immediately on tap
+without waiting for the `.22s` accordion transition to settle, since
+`grid-template-rows:0fr` only clips the grid track, not the child's own
+layout box. This is deliberately **not** the same failure pattern as
+the Aug 13 Gate scroll-jank lesson above: nothing here changes a sticky
+element's height reactively *during* a scroll gesture — the accordion
+expand/collapse is tap-triggered same as it always was, sticky
+positioning just responds to that afterward, which is the safe
+"(a) plain tap toggle" option that lesson already called out.
+
+**A real bug caught by headless-Chromium pixel measurement, not just
+eyeballing.** First version of `updateStickyOffsets()` summed each
+card's head height + body `scrollHeight` only, which undercounts the
+outer `.card`'s own 1px top + 1px bottom border — caught as a 2-3px
+overlap between Pulse and Context once Pulse was expanded, via a real
+Playwright script that measured `getBoundingClientRect()` on each
+card and printed the actual gaps, not just a screenshot glance. Fixed
+by adding `getComputedStyle(card).borderTopWidth +
+borderBottomWidth` into the height sum. Re-verified the same way with
+all three cards expanded simultaneously (the worst case) — sub-pixel
+gaps only, invisible in practice. Worth repeating as a technique: for
+any future layout-math change like this (cumulative offsets, stacked
+sticky elements), measure real rendered rects in a headless browser
+before calling it done — this bug was real and would not have been
+caught by reading the code or a single screenshot.
+
+**Collapsed row height, tightened twice on direct feedback.** First
+pass shaved a flat 3px off the existing padding. Mr. T: *"I still think
+the collapsed cards can get a lot shorter still, like the same height
+as the collapsed gate."* Rebuilt `.card-head` to share the literal
+`--gate-docked-h` CSS variable (fixed height, no vertical padding, flex
+`align-items:center`) instead of guessing another padding number — so
+Pulse/Context/Import's collapsed rows are now pixel-identical to the
+Gate's own docked height and will track it automatically if that value
+is ever changed.
+
+**Import/Export split: Export is leaving, Import was missing its own
+input.** Mr. T: *"the import is missing the input window. remove the
+export button and write a print to add it to the profile badge
+drop-down."* Renamed the card to plain "Import," added the ticker-entry
+textarea it was missing (matching the existing `.ctx-box` style used by
+Session Context), and removed the Export CSV button outright. Left a
+code comment flagging that Export should move into a profile/account
+badge's dropdown instead — **not built here**, since this prototype has
+no profile badge component at all yet (the "72 CREDITS" chip is the
+closest thing to one); that placement is a real-app decision for
+whenever this actually gets built, not something to mock up inside an
+exploration prototype.
+
+**Still 100% prototype.** Every item above lives only in the Artifact —
+nothing in `index.html`/`starter/`/`pro/`/`shark/`/`shared/` changed.
+If/when Mr. T says to actually build this into a real tier, treat that
+as new work informed by everything above (especially the sticky-height
+scroll-jank lesson and the border-height measurement bug), not a
+copy-paste of the Artifact's HTML/CSS/JS as-is.
 
 | Tier | Files | Status |
 |---|---|---|
