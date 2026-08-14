@@ -43,9 +43,14 @@
   /* ── preview-only notice — never present in the real app ────── */
   .preview-banner{
     background:var(--amber-dim); border-bottom:1px solid rgba(255,182,45,.35);
-    color:var(--amber); font-size:11px; line-height:1.5; padding:8px 14px;
-    text-align:center;
+    color:var(--amber); font-size:11px; line-height:1.5; padding:8px 34px 8px 14px;
+    text-align:center; position:relative;
   }
+  .preview-banner-close{
+    position:absolute; top:6px; right:8px; background:none; border:none; cursor:pointer;
+    color:var(--amber); font-size:16px; line-height:1; padding:4px 6px; font-family:var(--mono);
+  }
+  .preview-banner-close:hover{ color:var(--ink); }
 
   /* Fixed height (not min-height) is load-bearing here: #scroller's
      flex:1 + overflow-y:auto only becomes its own internally-scrolling
@@ -328,10 +333,12 @@
 </head>
 <body>
 
-<div class="preview-banner">
-  <b>UI staging preview</b> — real backend, real data. Tapping ANALYZE uses a real credit
-  from your account (or the shared anonymous pool if not signed in). Not linked from the live
-  app; nothing here is final until it's actually wired into a real tier's page.
+<div class="preview-banner" id="previewBanner">
+  <button class="preview-banner-close" id="previewBannerClose" aria-label="Dismiss">&times;</button>
+  <b>UI staging preview</b> — ticker price/news/Gate 0 are real (no credit cost in production
+  either). ANALYZE is <b>simulated</b> — no real credit is spent, tap it as many times as you
+  want. Not linked from the live app; nothing here is final until it's actually wired into a
+  real tier's page.
 </div>
 
 <div class="app-shell">

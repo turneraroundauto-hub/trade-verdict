@@ -1763,6 +1763,47 @@ broke. **Still not verified:** a real end-to-end `/analyze` round trip
 against live credentials — same standing sandbox limitation as the
 initial build.
 
+## Frontend: Rolodex preview — ANALYZE mocked, no longer a real credit spend (Aug 14, 2026)
+
+Direct follow-up: no practical way to add credits just to keep reviewing
+this page, and a page reload can't reset a real, server-enforced
+balance no matter what the frontend does — credits.js checks and
+deducts server-side in `Tra`, not something a client reload touches.
+Scoped via `AskUserQuestion` (mock vs. "keep it real, clearer messaging
+when blocked") — mock was the clear pick, since this page exists to
+review the UI, not to re-validate the real backend round trip (real
+production Free tier already does that).
+
+**ANALYZE on `/preview/rolodex/` no longer calls the real `/analyze`
+endpoint at all.** `analyzeOne()` now picks from `MOCK_ANALYZE_PROFILES`
+— five hand-written, realistic full responses (clean full-size UP,
+Gate 1 forceDown DOWN/NONE sizing, mixed FLAT/LOW confidence, clean
+HIGH-confidence UP, Gate 5 forceDown DOWN with a proxy `wait_for`) —
+covering the verdict/badge/gate-color states actually worth reviewing.
+Cycles through them per ticker (`state.mockIndex`) so repeatedly tapping
+ANALYZE on the same ticker shows different states instead of the
+identical result every time. A ~400-700ms randomized delay keeps the
+RUNNING… loading state meaningful rather than resolving instantly.
+
+**Ticker price/news/52W/phase/beta/proxy stayed real, unchanged** —
+`fetchTickerData()`/`/ticker/:symbol` has no credit cost in production
+either (only `/analyze` does), so there was no reason to fake that half
+along with it.
+
+**The preview banner's own claim was fixed to match** — it previously
+said ANALYZE spends a real credit, which would now be false. Rewritten
+to say ticker/news/Gate 0 are real (and free) while ANALYZE is
+simulated and costs nothing, so it's safe to tap repeatedly.
+
+**Verified via headless Chromium:** confirmed zero real `/analyze`
+network requests fire across repeated ANALYZE taps (network-request
+listener, not just reading the code); confirmed the mock profiles
+actually cycle (four successive taps showed three distinct `wait_for`
+states); confirmed `isMarketClosed()` still correctly overrides a mocked
+UP/DOWN to HOLD outside market hours, same as it does for a real
+result — the mock only replaces where the verdict data comes from, not
+any of the rendering/override logic downstream of it.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
