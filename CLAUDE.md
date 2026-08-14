@@ -1588,12 +1588,107 @@ closest thing to one); that placement is a real-app decision for
 whenever this actually gets built, not something to mock up inside an
 exploration prototype.
 
-**Still 100% prototype.** Every item above lives only in the Artifact —
-nothing in `index.html`/`starter/`/`pro/`/`shark/`/`shared/` changed.
-If/when Mr. T says to actually build this into a real tier, treat that
-as new work informed by everything above (especially the sticky-height
-scroll-jank lesson and the border-height measurement bug), not a
-copy-paste of the Artifact's HTML/CSS/JS as-is.
+**Superseded by the real build below — kept for the history.** At the
+time this was written, every item above lived only in the Artifact;
+nothing in `index.html`/`starter/`/`pro/`/`shark/`/`shared/` had changed.
+
+## Frontend: Rolodex UI built for real, staged at `/preview/rolodex/` (Aug 14, 2026)
+
+Asked directly to build the finalized Rolodex prototype for real and
+merge it to the live site's hidden `/preview/` staging subpath (see "UI
+staging: the `/preview/` subpath convention" above) — not into any real
+tier's actual nav yet, per that convention's own intended use.
+
+**Scope: Free tier's feature set, as its own fully standalone page —
+`preview/rolodex/index.html` + `preview/rolodex/app.js`.** Free was
+picked as the pilot (simplest surface: no card/watchlist split, no
+Analyst View/Proxy Explorer/Heat Map) without asking first, since the
+whole point of `/preview/` is that a wrong guess costs nothing — it's
+reviewed before it ever touches a real tier's nav either way.
+
+**Real backend, real data, zero coupling to `shared/watchlist.js`.**
+The page calls the real `/market`, `/ticker/:symbol`, `/analyze`, and
+`/status` endpoints with the exact same request shapes and auth pattern
+(`authH()`/`addSecret()`, `tv_session`) as Free's real `app.js` — so
+credits, sign-in state, and the Gate all behave exactly like production.
+It reuses `shared/ticker-cache.js` (pure data-fetching, no DOM coupling,
+safe the same way every tier already shares it) but deliberately
+**reimplements** watchlist state and all rendering standalone rather
+than touching `shared/watchlist.js` — that file is what every real tier
+imports, and its rendering functions are tightly coupled to the old
+`.card-wrap` DOM shape the Rolodex replaces. Keeping this page 100%
+self-contained means it can be merged straight to `main` with zero risk
+to Free/Starter/Pro, matching the whole reason `/preview/` exists.
+
+**A real, visible cost, disclosed on the page itself:** tapping ANALYZE
+here spends a real credit, from the real account if signed in or the
+shared anonymous weekly pool if not — same backend, same credit system,
+not a sandboxed copy. A banner says so at the top of the page.
+
+**One safety measure beyond what production itself does:** if a paid
+(`tier !== 'free'`) `tv_session` is present, this page never reads or
+writes the shared `tv_wl` localStorage key — it falls back to Free's
+hardcoded default tickers (`MU`/`IREN`/`ALAB`) in-memory only. Real
+`/analyze` calls still use the real signed-in account (auth doesn't
+depend on which tickers are shown), but the watchlist itself can't be
+corrupted by Free's 3-ticker cap the way `app.js`'s own
+`redirectingToPaidTier` guard exists to prevent elsewhere — a redirect
+would defeat the entire point of a preview page, so this does the
+narrower thing that actually matters instead: never touch the shared key.
+
+**Two real bugs found and fixed by actually testing it, not just
+porting the prototype's code:**
+1. **Overlay height measured before it had real content.**
+   `sizeGateSpacer()` (reserves scroll room for the Gate's full-detail
+   overlay) ran once at page load, while the overlay still held
+   placeholder text and an empty grid — before the async `/market` fetch
+   populated the real 3×4 stat grid. Once real data landed, the overlay
+   grew taller than the spacer had reserved, so it visually (and
+   interactively — Playwright's own click failed with "element intercepts
+   pointer events") covered the Sector Pulse and Session Context cards
+   sitting right below it. Fixed by re-running `sizeGateSpacer()` after
+   `renderGate()` populates the grid, not just once at init — same root
+   cause as the border-height measurement bug from the Aug 13 prototype
+   work: measure the real rendered content, and re-measure whenever that
+   content can change size.
+2. **The whole page scrolled instead of `#scroller`.** The prototype's
+   sticky/dock/marquee mechanism only worked because it lived inside a
+   fixed-`height` `.device` phone-mockup frame; this build correctly
+   dropped that frame (it's not meant to look like it's inside a phone
+   mockup) but kept `.app-shell{min-height:100vh}` — `min-height` doesn't
+   constrain, so once content exceeded the viewport the *page* scrolled
+   natively and `#scroller`'s own `overflow-y:auto` never activated,
+   silently breaking gate-docking entirely (`scroller.scrollTop` stayed
+   `0` no matter how far down the page you were). Fixed by changing
+   `.app-shell` to a real `height:100vh`/`100dvh`.
+
+**Verified, not assumed — same headless-Chromium discipline as the Aug
+13 prototype work:** a real local static server + Playwright, confirmed
+via `getBoundingClientRect()` (not just a screenshot glance) that Pulse/
+Context/Import all render at sane, non-overlapping positions; confirmed
+the Gate actually docks on scroll after the height fix; confirmed
+tapping a pill switches the open card and highlights the right pill;
+confirmed the utility-card accordion expand/collapse correctly reflows
+the sticky stack beneath it; confirmed ANALYZE degrades to a visible
+inline error with zero thrown JS exceptions when the backend is
+unreachable (expected in this sandbox, same limitation documented
+throughout this file); confirmed Import correctly blocks at the
+3-ticker cap with the same upgrade alert Free's real `app.js` shows.
+**Not verified:** a real end-to-end `/analyze` call against live
+credentials (this sandbox can't reach `tra-zacg.onrender.com` — same
+standing limitation as everywhere else in this file) — check Render
+logs or just try it live to confirm the real request/response round
+trip once this deploys.
+
+**Explicitly not done in this pass:** Track Record and the Glossary
+tile (Free's real page has both; neither is part of the approved
+prototype's card set — Track Record is paywalled-teaser-only on Free
+anyway, so nothing lost there; Glossary is a legitimate real Free
+feature just left out of this specific UI experiment on purpose, not an
+oversight). Starter/Pro's own versions of this build. Actually wiring
+any of this into a real tier's `index.html`/nav — that's a deliberate
+next step requiring an explicit go-ahead, not a side effect of merging
+to `/preview/`.
 
 | Tier | Files | Status |
 |---|---|---|

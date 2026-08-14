@@ -60,7 +60,7 @@
  * price/52W/news/phase strip before the user ever taps ANALYZE.
  * @typedef {Object} TickerData
  * @property {string} symbol
- * @property {{price:number, week52hi:number, week52lo:number, rangePosition:(number|null), phaseProxy:string, beta:(number|null)}|null} metrics
+ * @property {{price:number, pct:(number|null), week52hi:number, week52lo:number, rangePosition:(number|null), phaseProxy:string, beta:(number|null)}|null} metrics
  * @property {{headline:string, url:string, source:string, ageLabel:string, ageHours:number}|null} news
  * @property {Object|null} openingBar
  * @property {{proxy:{symbols:string[], name:string, rationale:string}, category:string, dynamicallyResolved?:boolean, forceDownAuthority?:boolean, sizingOverride?:string, elevatedCapCeiling?:boolean, autoExecuteStop?:boolean}} proxyRule
