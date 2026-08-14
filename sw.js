@@ -21,7 +21,12 @@ self.addEventListener('activate', (event) => {
 // the Free tier registers it. Explicitly ignore those tiers' paths so this
 // worker never intercepts (and can't ever fall back to serving Free's
 // homepage for) a request that belongs to a different tier.
-const OTHER_TIER_PATHS = ['/starter/', '/pro/', '/shark/', '/reset/', '/privacy/'];
+// /preview/ is the same reasoning applied to the hidden-subpath UI staging
+// convention (see CLAUDE.md) — real work-in-progress pages under review,
+// deliberately not linked from any tier's nav and never opened by the Play
+// TWA (which only ever navigates to the root URL). This worker must never
+// intercept or cache anything under it.
+const OTHER_TIER_PATHS = ['/starter/', '/pro/', '/shark/', '/reset/', '/privacy/', '/preview/'];
 
 // Network-first: always prefer a fresh response. Only fall back to the
 // cached shell when there's no network at all (this repo has been bitten

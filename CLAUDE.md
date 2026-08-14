@@ -850,6 +850,55 @@ works. Used repeatedly this session (icon, feature graphic, tablet
 screenshots) — reach for this immediately for any future file handoff to
 him rather than re-attempting `SendUserFile` first.
 
+## UI staging: the `/preview/` subpath convention (Aug 14, 2026)
+
+Prompted by a direct question: since the Play Store app is a TWA (see
+above) that just opens the live `tradetribunal.app` root URL rather than
+bundling its own content, pushing a UI change to `main` — which GitHub
+Pages deploys immediately — goes live for web visitors **and** existing
+Play Store installs at the same instant. There's no built-in "preview on
+web, promote to Play later" step, because Play isn't loading a separate
+bundled copy to promote in the first place.
+
+**Fix: a hidden subpath, not a separate deploy pipeline.** Real
+in-progress UI work can be staged at `tradetribunal.app/preview/<name>/`
+— a real deploy through the existing Pages pipeline (so relative
+paths/fetches to the real `Tra` backend all behave exactly like
+production), but invisible to everyone who isn't given the direct URL:
+- Never linked from any tier's nav or from `/preview/`'s own placeholder
+  index (`preview/index.html`).
+- Excluded from `sw.js`'s fetch handler (`OTHER_TIER_PATHS`, same
+  mechanism/list as `/starter/`, `/pro/`, `/shark/`) — the service worker
+  never intercepts or caches anything under it.
+- Disallowed in `robots.txt` — never crawled/indexed.
+- **Never reached by the Play app** — the TWA's `twa-manifest.json` only
+  ever opens the root URL; nothing links from there to `/preview/`.
+
+**Deliberately not a full PR-preview-deploys pipeline.** That would mean
+switching GitHub Pages' source from "deploy from branch" to "deploy via
+Actions" — a real change to the currently-working live-site deploy
+config, on a pipeline this file has already documented as occasionally
+getting stuck (see "GitHub Pages deployments can get stuck in `queued`
+forever" below) — not something to take on casually just for staging.
+The subpath approach gets a real, working preview with zero changes to
+how the live site actually deploys.
+
+**How to use it for a real change:** copy the tier files being previewed
+into `preview/<name>/` on a feature branch (adjust relative asset paths
+as needed for the extra path depth), PR it, merge to `main` like normal
+— the preview only becomes reachable at that point, but stays invisible
+to everyone else per the exclusions above. Visit the URL directly to
+review. Once approved, a **separate** follow-up change actually wires the
+real tier's `index.html`/nav to point at the new code — that's the actual
+"go live" step, not the merge that populated `/preview/`.
+
+**Status as of this writing:** the convention and its plumbing
+(`sw.js` exclusion, `robots.txt`, a placeholder `preview/index.html`
+explaining the convention) are shipped. No real UI work is staged under
+it yet — the Rolodex UI exploration (below) is still 100% prototype in an
+Artifact, not real repo files, so there's nothing to move into
+`/preview/` until that work actually gets picked up for real.
+
 ## Backend: Gate 3 Mon/Fri overlay — timezone bug fix + weekly carryover (Aug 12, 2026)
 
 Reported live: Gate 3 kept saying "no Monday/Friday overlay." Two separate

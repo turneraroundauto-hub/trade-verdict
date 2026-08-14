@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Trade Tribunal — Preview Staging</title>
+<style>
+  body{background:#080C12;color:#e7edf3;font-family:monospace;max-width:560px;margin:60px auto;padding:0 20px;line-height:1.5}
+  code{background:#101c2e;padding:2px 6px;border-radius:4px}
+  a{color:#4da3ff}
+</style>
+</head>
+<body>
+<h1>Preview staging</h1>
+<p>This is <code>/preview/</code> — a hidden subpath on the live domain used to
+stage in-progress UI work before it's wired into any real tier's nav.</p>
+<p>Not linked from anywhere in the live app, excluded from the service
+worker (<code>sw.js</code>), and disallowed in <code>robots.txt</code>. The
+Play Store app only ever opens the root URL, so nothing under here ever
+reaches it.</p>
+<p>Real preview content lives at <code>/preview/&lt;name&gt;/</code> — see
+CLAUDE.md's "UI staging: the /preview/ subpath convention" section for how
+to add one.</p>
+</body>
+</html>
