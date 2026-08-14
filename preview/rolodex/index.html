@@ -6,6 +6,9 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#080c12">
 <title>Trade Tribunal — Rolodex Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@800&display=swap" rel="stylesheet">
 <style>
   :root{
     --bg:        #080c12;
@@ -53,22 +56,33 @@
      never changes, silently breaking the Gate's dock/undock entirely. */
   .app-shell{ max-width:480px; margin:0 auto; height:100vh; height:100dvh; display:flex; flex-direction:column; }
 
+  /* Header ported from the real Free tier (index.html) verbatim in
+     structure/typography — this is the "current working version" the
+     header needs to match, not the prototype's own alt monospace brand
+     treatment. */
+  .safe-top{ height:env(safe-area-inset-top,32px); background:var(--bg-raise); flex:none; }
   .app-topbar{
-    padding:14px 16px 10px; flex:none;
-    display:flex; align-items:center; justify-content:space-between;
+    padding:12px 16px; flex:none;
+    display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px 6px;
     border-bottom:1px solid var(--border); background:var(--bg-raise);
   }
-  .brand{ font-weight:700; font-size:15px; letter-spacing:-.01em; }
-  .brand .t1{ color:var(--green); } .brand .t2{ color:var(--red); }
-  .brand-meta{ font-size:10px; color:var(--ink-dim); margin-top:2px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-  .tier-chip{ font-size:9px; font-weight:700; color:var(--ink-dim); background:rgba(125,136,150,.1); border:1px solid rgba(125,136,150,.3); border-radius:3px; padding:1px 6px; letter-spacing:.08em; }
-  .topbar-actions{ display:flex; gap:6px; align-items:center; }
-  .credits-chip, .auth-chip{
-    font-size:10px; font-weight:700; border-radius:6px; padding:6px 9px; white-space:nowrap;
-    text-decoration:none; border:1px solid; cursor:pointer;
+  .header-brand{ display:flex; align-items:center; gap:10px; flex-shrink:0; min-width:0; }
+  .header-logo{ height:44px; width:44px; flex-shrink:0; align-self:flex-start; }
+  .header-title-wrap{ min-width:0; }
+  .brand{
+    font-family:'Playfair Display',serif; font-size:clamp(14px,4.2vw,20px); font-weight:800;
+    color:var(--ink); letter-spacing:.3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   }
-  .credits-chip{ color:var(--amber); border-color:rgba(255,182,45,.35); background:var(--amber-dim); }
-  .auth-chip{ color:var(--blue); border-color:rgba(74,168,255,.4); background:var(--blue-dim); }
+  .brand .t1{ color:var(--green); } .brand .t2{ color:var(--red); }
+  .brand-meta{ font-size:11px; color:var(--ink-dim); margin-top:2px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-family:var(--mono); }
+  .tier-chip{ font-size:9px; font-weight:700; color:var(--ink-dim); background:rgba(125,136,150,.1); border:1px solid rgba(125,136,150,.3); border-radius:3px; padding:1px 6px; letter-spacing:.08em; }
+  .topbar-actions{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+  .credits-chip, .auth-chip{
+    font-size:9px; font-weight:700; border-radius:4px; padding:4px 8px; white-space:nowrap;
+    text-decoration:none; border:1px solid; cursor:pointer; font-family:var(--mono);
+  }
+  .credits-chip{ color:var(--amber); border-color:rgba(255,182,45,.3); background:rgba(255,182,45,.1); }
+  .auth-chip{ color:var(--blue); border-color:rgba(74,168,255,.4); background:rgba(74,168,255,.1); display:inline-flex; align-items:center; gap:4px; }
 
   .app-scroll{ flex:1; overflow-y:auto; overflow-x:hidden; }
 
@@ -190,6 +204,37 @@
   .meta-row{ display:flex; gap:12px; font-size:10px; color:var(--ink-faint); margin-top:4px; flex-wrap:wrap; }
   .meta-row b{ color:var(--ink-dim); font-weight:700; }
 
+  /* Pre-Gate strip -- ported from production: Gate 5 status dot +
+     WAIT FOR guidance, front-and-center, independent of the Gate
+     Breakdown list below. */
+  .pregate-strip{ display:flex; gap:8px; align-items:flex-start; margin-top:6px; padding:6px 8px; border-radius:6px; background:var(--surface-2); border:1px solid var(--border); }
+  .pregate-dot{ width:7px; height:7px; border-radius:50%; margin-top:4px; flex-shrink:0; }
+  .pregate-note{ flex:1; min-width:0; font-size:10.5px; color:var(--ink); line-height:1.4; }
+  .wait-lbl{ color:var(--amber); font-weight:700; }
+
+  /* Type/sizing badges -- ported from production's card-badges. */
+  .card-badges{ display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+  .badge{ border:1px solid; border-radius:3px; padding:1px 6px; font-family:var(--mono); font-size:9px; font-weight:700; }
+
+  /* Verdict: big thumb-up/thumb-down/HOLD, ported from production
+     (thumbUp/thumbDown/holdPulse keyframes + verdict-container). Replaces
+     the ANALYZE button once a result comes in; tapping it resets back to
+     ANALYZE, same as production's resetCard(). */
+  @keyframes thumbUp{0%{transform:scale(0) rotate(-30deg);opacity:0}60%{transform:scale(1.35) rotate(10deg)}80%{transform:scale(.92) rotate(-4deg)}100%{transform:scale(1) rotate(0);opacity:1}}
+  @keyframes thumbDown{0%{transform:scale(0) rotate(30deg);opacity:0}60%{transform:scale(1.35) rotate(-10deg)}80%{transform:scale(.92) rotate(4deg)}100%{transform:scale(1) rotate(0);opacity:1}}
+  @keyframes holdPulse{0%{transform:scale(1);box-shadow:0 0 0 0 rgba(255,182,45,.6)}50%{transform:scale(1.06);box-shadow:0 0 0 10px rgba(255,182,45,0)}100%{transform:scale(1);box-shadow:0 0 0 0 rgba(255,182,45,0)}}
+  @keyframes greenGlow{0%{box-shadow:0 0 0 0 rgba(0,230,118,.5)}70%{box-shadow:0 0 0 14px rgba(0,230,118,0)}100%{box-shadow:0 0 0 0 rgba(0,230,118,0)}}
+  @keyframes redGlow{0%{box-shadow:0 0 0 0 rgba(255,59,92,.5)}70%{box-shadow:0 0 0 14px rgba(255,59,92,0)}100%{box-shadow:0 0 0 0 rgba(255,59,92,0)}}
+  .rolo-card.verdict-up{ animation:greenGlow 1s ease-out; }
+  .rolo-card.verdict-down{ animation:redGlow 1s ease-out; }
+  .verdict-container{ display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; margin-top:12px; }
+  .verdict-up{ font-size:40px; display:block; animation:thumbUp .5s cubic-bezier(.175,.885,.32,1.275) forwards; filter:drop-shadow(0 0 10px rgba(0,230,118,.9)); }
+  .verdict-down{ font-size:40px; display:block; animation:thumbDown .5s cubic-bezier(.175,.885,.32,1.275) forwards; filter:drop-shadow(0 0 10px rgba(255,59,92,.9)); }
+  .verdict-hold{ font-size:12px; background:var(--amber-dim); border:2px solid var(--amber); border-radius:6px; padding:5px 10px; animation:holdPulse 1.5s ease-in-out infinite; color:var(--amber); font-family:var(--mono); font-weight:700; letter-spacing:.1em; display:block; }
+  .verdict-lbl-up{ font-size:9px; font-family:var(--mono); color:var(--green); font-weight:700; letter-spacing:.1em; }
+  .verdict-lbl-down{ font-size:9px; font-family:var(--mono); color:var(--red); font-weight:700; letter-spacing:.1em; }
+  .verdict-lbl-hold{ font-size:9px; font-family:var(--mono); color:var(--amber); font-weight:700; letter-spacing:.1em; }
+
   .gate-list{ display:flex; flex-direction:column; gap:6px; margin-top:10px; }
   .gate-row{ display:flex; align-items:flex-start; gap:8px; }
   .gate-dot{ width:8px; height:8px; border-radius:50%; margin-top:4px; flex:none; }
@@ -199,6 +244,9 @@
   .gate-clear{ display:flex; align-items:center; gap:6px; opacity:.55; }
   .gate-clear .gate-dot{ margin-top:0; }
   .gate-clear span{ font-size:10px; color:var(--ink-dim); }
+  .conf-row{ display:flex; align-items:center; margin-top:2px; gap:6px; }
+  .conf-lbl{ font-size:10px; color:var(--ink-faint); letter-spacing:.05em; }
+  .conf-val{ font-size:10px; font-weight:700; }
 
   .rolo-wrap{ display:flex; flex-direction:column; gap:10px; }
   .rolo-index{ display:flex; gap:6px; overflow-x:auto; padding:2px 2px 6px; touch-action:pan-x; -webkit-overflow-scrolling:touch; }
@@ -217,17 +265,55 @@
   .rolo-chip.active.perf-flat{ background:var(--amber); border-color:var(--amber); color:var(--surface); }
   .rolo-chip .rc-price{ font-weight:600; font-variant-numeric:tabular-nums; opacity:.75; }
 
-  .rolo-stage{ position:relative; min-height:280px; }
+  /* Real gate note text runs longer/more variably than the prototype's
+     curated demo copy -- a fixed height + overflow:hidden here silently
+     clipped Gate 4/5 and the confidence row off the bottom of real
+     analyzed cards. height is now unset (auto per-card) and synced by
+     JS (syncRoloStageHeight()) to the active card's real content height
+     instead, transitioning smoothly on change. */
+  .rolo-stage{ position:relative; transition:height .28s ease; }
   .rolo-card{
-    position:absolute; inset:0; border-radius:14px;
+    position:absolute; top:0; left:0; right:0; border-radius:14px;
     background:var(--surface); border:1px solid var(--border-2);
     padding:16px; display:flex; flex-direction:column;
     transition:transform .32s cubic-bezier(.2,.7,.2,1), opacity .32s ease, filter .32s ease;
-    will-change:transform; overflow:hidden;
+    will-change:transform;
   }
   .rolo-analyze-row{ margin-top:12px; }
   .rolo-nav{ display:flex; justify-content:center; align-items:center; padding:2px 4px; }
   .nav-hint{ font-size:10px; color:var(--ink-faint); }
+
+  /* Glossary + Track Record teaser -- ported from production's Free
+     tier, which has both after the watchlist. */
+  .glossary-tile{ background:var(--surface); border:1px solid rgba(206,147,216,.25); border-radius:10px; overflow:hidden; }
+  .glossary-tile-header{ padding:12px 14px; display:flex; justify-content:space-between; align-items:center; cursor:pointer; border-bottom:1px solid transparent; transition:border-color .2s; }
+  .glossary-tile-header.open{ border-bottom-color:var(--border); }
+  .glossary-tile-title{ font-size:10.5px; font-weight:700; color:var(--purple); letter-spacing:.08em; }
+  .glossary-tile-arrow{ font-size:11px; color:var(--purple); transition:transform .2s; }
+  .glossary-tile-arrow.open{ transform:rotate(180deg); }
+  .glossary-search-wrap{ padding:10px 14px; border-bottom:1px solid var(--border); }
+  .glossary-search{ width:100%; background:var(--surface-2); border:1px solid var(--border); border-radius:5px; padding:7px 12px; color:var(--ink); font-family:var(--mono); font-size:11px; }
+  .glossary-search::placeholder{ color:var(--ink-faint); }
+  .glossary-panel{ display:none; max-height:60vh; overflow-y:auto; }
+  .glossary-panel.open{ display:block; }
+  .glossary-cat{ padding:8px 14px 4px; font-size:9px; font-weight:700; color:var(--purple); letter-spacing:.1em; border-bottom:1px solid var(--border); }
+  .glossary-term{ padding:9px 14px; border-bottom:1px solid rgba(255,255,255,.05); display:none; }
+  .glossary-term.visible{ display:block; }
+  .glossary-term-name{ font-size:11px; font-weight:700; color:var(--ink); margin-bottom:3px; }
+  .glossary-term-def{ font-size:11px; color:var(--ink-dim); line-height:1.5; }
+  .glossary-term-example{ font-size:9px; color:var(--ink-faint); margin-top:3px; font-style:italic; line-height:1.4; }
+  .glossary-no-results{ padding:20px 14px; font-size:11px; color:var(--ink-faint); text-align:center; display:none; }
+
+  .track-teaser{
+    padding:12px 14px; background:rgba(74,168,255,.05); border:1px solid rgba(74,168,255,.18); border-radius:10px;
+    display:flex; justify-content:space-between; align-items:center; gap:10px;
+  }
+  .track-teaser-title{ font-size:10.5px; font-weight:700; color:var(--blue); letter-spacing:.08em; margin-bottom:3px; }
+  .track-teaser-sub{ font-size:10.5px; color:var(--ink-dim); }
+  .track-teaser-upgrade{
+    font-size:9px; font-weight:700; color:var(--ink-dim); background:rgba(125,136,150,.1); border:1px solid rgba(125,136,150,.3);
+    border-radius:4px; padding:6px 10px; text-decoration:none; white-space:nowrap; flex:none;
+  }
 
   .disclaimer{ margin:4px 0 0; padding:12px; background:var(--red-dim); border:1px solid rgba(255,59,92,.25); border-radius:10px; }
   .disclaimer-title{ font-size:10.5px; font-weight:700; color:var(--red); letter-spacing:.06em; margin-bottom:6px; }
@@ -245,17 +331,21 @@
 </div>
 
 <div class="app-shell">
+  <div class="safe-top"></div>
   <div class="app-topbar">
-    <div>
-      <div class="brand"><span class="t1">TRADE</span> <span class="t2">TRIBUNAL</span></div>
-      <div class="brand-meta">
-        <span id="ticker-count">CRF · — TICKERS</span>
-        <span class="tier-chip">FREE · ROLODEX PREVIEW</span>
+    <div class="header-brand">
+      <img src="../../shared/assets/logo-mark.png?v=2" alt="" class="header-logo">
+      <div class="header-title-wrap">
+        <div class="brand"><span class="t1">TRADE</span> <span class="t2">TRIBUNAL</span></div>
+        <div class="brand-meta">
+          <span id="ticker-count">CRF · — TICKERS</span>
+          <span class="tier-chip">FREE</span>
+        </div>
       </div>
     </div>
     <div class="topbar-actions">
       <a id="credits-btn" class="credits-chip" href="#" target="_blank">— CREDITS</a>
-      <a id="auth-action-btn" class="auth-chip" href="#">SIGN UP / SIGN IN</a>
+      <a id="auth-action-btn" class="auth-chip" href="#">🔒 SIGN UP / SIGN IN</a>
     </div>
   </div>
 
@@ -332,6 +422,28 @@
         <div class="rolo-index" id="roloIndex"></div>
         <div class="rolo-stage" id="roloStage"></div>
         <div class="rolo-nav"><span class="nav-hint" id="roloHint">— / —</span></div>
+      </div>
+
+      <div class="glossary-tile">
+        <div class="glossary-tile-header" id="glossary-header">
+          <span class="glossary-tile-title">📚 GLOSSARY — CRF TERMS &amp; MARKET CONCEPTS</span>
+          <span class="glossary-tile-arrow" id="glossary-arrow">▼</span>
+        </div>
+        <div class="glossary-panel" id="glossary-panel">
+          <div class="glossary-search-wrap">
+            <input class="glossary-search" id="glossary-search" placeholder="Search terms — greeks, CRF, sector, trading...">
+          </div>
+          <div id="glossary-no-results" class="glossary-no-results">No matching terms.</div>
+          <div id="glossary-body"></div>
+        </div>
+      </div>
+
+      <div class="track-teaser">
+        <div>
+          <div class="track-teaser-title">📈 TRACK RECORD</div>
+          <div class="track-teaser-sub">Log verdicts and track your accuracy</div>
+        </div>
+        <a class="track-teaser-upgrade" href="https://buy.stripe.com/eVq3cw84pczR6lp0oV3VC03" target="_blank">UPGRADE → Starter</a>
       </div>
 
       <div class="disclaimer">
