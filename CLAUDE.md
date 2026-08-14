@@ -1680,15 +1680,88 @@ standing limitation as everywhere else in this file) — check Render
 logs or just try it live to confirm the real request/response round
 trip once this deploys.
 
-**Explicitly not done in this pass:** Track Record and the Glossary
-tile (Free's real page has both; neither is part of the approved
-prototype's card set — Track Record is paywalled-teaser-only on Free
-anyway, so nothing lost there; Glossary is a legitimate real Free
-feature just left out of this specific UI experiment on purpose, not an
-oversight). Starter/Pro's own versions of this build. Actually wiring
-any of this into a real tier's `index.html`/nav — that's a deliberate
-next step requiring an explicit go-ahead, not a side effect of merging
-to `/preview/`.
+**Explicitly not done in this pass (superseded in part below):**
+Starter/Pro's own versions of this build. Actually wiring any of this
+into a real tier's `index.html`/nav — that's a deliberate next step
+requiring an explicit go-ahead, not a side effect of merging to
+`/preview/`.
+
+## Frontend: Rolodex preview fidelity pass — real analyzed cards, matching production (Aug 14, 2026)
+
+Direct correction from Mr. T after reviewing `/preview/rolodex/` live:
+the analyzed card "doesn't look anything like the original" — missing
+the thumb/hold verdict badge, only showing 3 of 6 gates (G4/G5 and the
+confidence row missing), missing the type/sizing badges ("sentiment with
+risk level"), missing hyperlinks, missing the Glossary and Track Record
+teaser after the ticker list, and the header "disorganized" — needed to
+match the real deployed Free tier, not the prototype's own alt styling.
+
+**"Only 3 gates" was a real, confirmed layout bug, not a missing
+feature.** `gateListHTML()` always built all 6 gate rows — the code was
+never actually dropping G4/G5. The real cause: `.rolo-stage`/`.rolo-card`
+had a fixed `min-height:280px` with `overflow:hidden`, sized for the
+prototype's own curated, short demo gate notes. Real gate note text runs
+longer and more variably, so a real analyzed card (6 gates + verdict +
+meta + headline + confidence) easily exceeds 280px and the fixed-height
+overflow:hidden container silently clipped everything past it — visually
+indistinguishable from the gates just not being there. Confirmed via a
+mocked `/analyze` response in headless Chromium (this sandbox can't reach
+the real backend) showing `stageHeight ≈ cardScrollHeight` and all 6
+`.gate-row`/`.gate-clear` elements present after the fix. Fixed by
+dropping the fixed height/`overflow:hidden` entirely — `.rolo-card` now
+sizes to its own real content (`top/left/right`, no `bottom`/`inset`),
+and a new `syncRoloStageHeight()` sets `.rolo-stage`'s height to match
+the *active* card's real `offsetHeight` on every render/switch, the same
+"measure the real thing, don't assume" lesson as the sizeGateSpacer bug
+from the initial build.
+
+**Everything else ported from production, not reinvented:** the big
+👍/👎/HOLD verdict treatment (`thumbUp`/`thumbDown`/`holdPulse` keyframes,
+market-closed always forces HOLD regardless of the real verdict — ported
+`isMarketClosed()` verbatim) now replaces the ANALYZE button on a result,
+tapping it resets back to ANALYZE exactly like production's
+`resetCard()`; TYPE badge (CANARY/SENTIMENT/FLOW) and SIZING badge
+(Full/Half/¼ size, or "Defined risk" for `NONE`) now render, matching
+production's exact badge-color mapping; the CONFIDENCE row now appends
+to the gate list; a Pre-Gate strip (Gate 5 dot + `wait_for` guidance)
+now renders above the meta row, independent of the Gate Breakdown list,
+matching production; ticker symbol and headline are now real hyperlinks
+to Yahoo Finance's quote/news pages (Free forces Yahoo regardless of any
+saved preference — hardcoded here rather than importing `shared/prefs.js`,
+keeping this page's isolation from `shared/` complete); the full
+Glossary (all real terms, search/filter) and the Track Record upsell
+teaser now render after the ticker list, matching production's real
+order and copy exactly.
+
+**Header rebuilt to match production, not approximated.** Was using the
+prototype's own alt monospace brand treatment; now uses the real
+`logo-mark.png` + Playfair Display serif title + plain "FREE" badge
+(shortened from "FREE · ROLODEX PREVIEW" — redundant with the
+preview-banner already at the top of the page, and also the direct fix
+for the bug below).
+
+**A second real bug, caught by the same discipline (measure, don't
+eyeball):** the rebuilt header overflowed horizontally
+(`scrollWidth 453px` vs `barWidth 390px`, confirmed via
+`getBoundingClientRect`) — the credits chip and half the sign-in text
+were being cut off outside the viewport, invisible in a static
+screenshot glance until actually measured. Root cause: `.app-topbar` had
+no `flex-wrap`, and the tier badge's longer text
+("FREE · ROLODEX PREVIEW") pushed total content past 390px. Fixed both
+(added `flex-wrap:wrap` to `.app-topbar` as a safety net, shortened the
+badge text) and re-confirmed `scrollWidth === barWidth` after.
+
+**Verified the same way as the initial build — headless Chromium,
+measured not eyeballed:** mocked a full realistic `/analyze` response
+(clock-pinned to real market hours via Playwright's clock API, since
+`isMarketClosed()` is time-of-day dependent and the sandbox's real clock
+falls outside market hours) to confirm the 👍/👎 thumb, all badges, and
+gate rows actually render end-to-end; confirmed the Glossary's search
+correctly filters by both term name and definition text; re-ran the
+original pill-tap/accordion/dock regression checks to confirm nothing
+broke. **Still not verified:** a real end-to-end `/analyze` round trip
+against live credentials — same standing sandbox limitation as the
+initial build.
 
 | Tier | Files | Status |
 |---|---|---|
