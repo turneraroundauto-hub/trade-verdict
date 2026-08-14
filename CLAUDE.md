@@ -1826,6 +1826,35 @@ every future content change**, exactly like every other real
 `app.js`/shared module in this repo — this page was the one exception
 that had fallen through, not a deliberate opt-out.
 
+**Follow-up, same day: verdict badge moved to the top, empty Pre-Gate
+strip hidden (`?v=2`).** Direct comparison against a real production
+screenshot: the thumb/HOLD badge was buried below the full gate list in
+this build's single-column layout, while production puts it right next
+to the ticker row at the top (production's real 2-column `card-left`/
+`card-right` split). Restructured `.ticker-row` into two columns —
+ticker symbol/price on the left, the verdict (or the ANALYZE button,
+pre-analysis) on the right in a new `.ticker-action` slot — matching
+where production puts that element without adopting its full 2-column
+body layout (Rolodex's single-column card content below the top row is
+unchanged, still the approved design from the earlier prototype rounds).
+Added `.btn-compact` (width auto, not the card-wide default) so ANALYZE
+fits that slot before a result exists.
+
+**Also fixed in the same pass, prompted by the same screenshot:** the
+Pre-Gate strip now renders **only** when there's real `wait_for` text —
+matching the earlier "hide it, don't show an empty box" plan — and the
+label changed from production's "WAIT FOR " to "LOOK FOR:" (direct
+request, same pass) — this preview's own copy, not a claim about what
+production says.
+
+**Verified via headless Chromium:** confirmed no horizontal overflow in
+the restructured ticker row across both the pre-analysis (ANALYZE
+button) and post-analysis (verdict badge) states; confirmed the
+Pre-Gate strip is absent for a mocked profile with `wait_for:null` and
+present with the colon for one that has real guidance text; visually
+confirmed via screenshot that the layout now matches the production
+reference (ticker/price top-left, thumb badge top-right).
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |

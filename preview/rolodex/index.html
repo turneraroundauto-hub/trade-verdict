@@ -175,6 +175,9 @@
   .btn-amber{ color:var(--amber); border-color:rgba(255,182,45,.4); background:var(--amber-dim); }
   .btn-blue{ color:var(--blue); border-color:rgba(74,168,255,.4); background:var(--blue-dim); }
   .btn:disabled{ opacity:.5; cursor:default; }
+  /* Sized to its own content, not full-width -- used for ANALYZE when it
+     sits in the ticker row's top-right action slot (see .ticker-action). */
+  .btn-compact{ width:auto; padding:8px 14px; }
 
   .pulse-blur{ filter:blur(4px); pointer-events:none; user-select:none; font-size:11px; color:var(--ink); line-height:1.6; }
   .pulse-upsell{
@@ -193,7 +196,14 @@
   }
   .list-head .count{ background:var(--surface-3); color:var(--ink-dim); border-radius:5px; padding:2px 6px; font-size:10px; }
 
-  .ticker-row{ display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+  /* Ticker row is now two columns: sym+price on the left, the verdict
+     (or ANALYZE button, pre-analysis) on the right -- matches production's
+     real card layout, where that action sits beside the ticker row, not
+     below the gate list (reported live, Aug 14, 2026: it read as buried
+     at the bottom of a single-column card). */
+  .ticker-row{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+  .ticker-left{ display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; min-width:0; }
+  .ticker-action{ flex:none; }
   /* .up/.down/.flat set the real color; the ticker link must inherit it
      rather than take the global a{color:var(--blue)} rule (production's
      own .ticker-a uses the same color:inherit pattern for this reason). */
@@ -237,7 +247,7 @@
   @keyframes redGlow{0%{box-shadow:0 0 0 0 rgba(255,59,92,.5)}70%{box-shadow:0 0 0 14px rgba(255,59,92,0)}100%{box-shadow:0 0 0 0 rgba(255,59,92,0)}}
   .rolo-card.verdict-up{ animation:greenGlow 1s ease-out; }
   .rolo-card.verdict-down{ animation:redGlow 1s ease-out; }
-  .verdict-container{ display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; margin-top:12px; }
+  .verdict-container{ display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; }
   .verdict-up{ font-size:40px; display:block; animation:thumbUp .5s cubic-bezier(.175,.885,.32,1.275) forwards; filter:drop-shadow(0 0 10px rgba(0,230,118,.9)); }
   .verdict-down{ font-size:40px; display:block; animation:thumbDown .5s cubic-bezier(.175,.885,.32,1.275) forwards; filter:drop-shadow(0 0 10px rgba(255,59,92,.9)); }
   .verdict-hold{ font-size:12px; background:var(--amber-dim); border:2px solid var(--amber); border-radius:6px; padding:5px 10px; animation:holdPulse 1.5s ease-in-out infinite; color:var(--amber); font-family:var(--mono); font-weight:700; letter-spacing:.1em; display:block; }
@@ -289,7 +299,6 @@
     transition:transform .32s cubic-bezier(.2,.7,.2,1), opacity .32s ease, filter .32s ease;
     will-change:transform;
   }
-  .rolo-analyze-row{ margin-top:12px; }
   .rolo-nav{ display:flex; justify-content:center; align-items:center; padding:2px 4px; }
   .nav-hint{ font-size:10px; color:var(--ink-faint); }
 
@@ -473,6 +482,6 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=1"></script>
+<script type="module" src="./app.js?v=2"></script>
 </body>
 </html>

@@ -260,12 +260,17 @@ function badgesHTML(result){
   return html ? `<div class="card-badges">${html}</div>` : '';
 }
 
+// Only renders when there's real guidance to show -- production's own
+// version always renders the dot-only box even when wait_for is empty,
+// which reads as a broken/empty element (reported live, Aug 14, 2026:
+// a real, pre-existing UX gap this preview doesn't need to repeat).
 function pregateStripHTML(result){
   if(!result || !result.gates) return '';
-  const g5 = result.gates.g5_korea || {};
   const waitText = (result.wait_for && result.wait_for !== 'null') ? result.wait_for : '';
+  if(!waitText) return '';
+  const g5 = result.gates.g5_korea || {};
   return `<div class="pregate-strip"><div class="pregate-dot" style="background:${sigColor(g5.status)}"></div>`
-    + (waitText ? `<div class="pregate-note"><span class="wait-lbl">WAIT FOR </span>${waitText}</div>` : '')
+    + `<div class="pregate-note"><span class="wait-lbl">LOOK FOR: </span>${waitText}</div>`
     + '</div>';
 }
 
@@ -320,17 +325,17 @@ function roloCardHTML(sym, state){
   const result = state.result;
   const dir = priceDirClass(td);
   return `<div class="ticker-row">`
-    + `<span class="ticker-sym ${dir}"><a href="${tickerHref(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}">${price}</span>`
+    + `<div class="ticker-left"><span class="ticker-sym ${dir}"><a href="${tickerHref(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}">${price}</span></div>`
+    + '<div class="ticker-action">'
+    + (result ? verdictAreaHTML(sym, result)
+        : `<button class="btn btn-blue btn-compact" data-analyze="${sym}" ${analyzing?'disabled':''}>${analyzing?'RUNNING…':'ANALYZE'}</button>`)
+    + '</div>'
     + `</div>`
     + pregateStripHTML(result)
     + `<div class="headline"><a href="${newsHref(sym)}" target="_blank">${headline}</a> <span class="age">${age}</span></div>`
     + `<div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>β <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyName}</b></span></div>`
     + badgesHTML(result)
     + gateListHTML(result)
-    + '<div class="rolo-analyze-row">'
-    + (result ? verdictAreaHTML(sym, result)
-        : `<button class="btn btn-blue" data-analyze="${sym}" ${analyzing?'disabled':''}>${analyzing?'RUNNING…':'ANALYZE'}</button>`)
-    + '</div>'
     + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : '');
 }
 
