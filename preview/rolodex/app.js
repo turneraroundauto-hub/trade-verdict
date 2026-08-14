@@ -725,6 +725,19 @@ function filterGlossary(query){
 document.getElementById('glossary-header').addEventListener('click', toggleGlossary);
 document.getElementById('glossary-search').addEventListener('input', (e)=> filterGlossary(e.target.value));
 
+// ── preview banner — dismissible, persisted so it doesn't reappear on
+// every reload while actively iterating. Preview-only key, unrelated to
+// any real tv_* production localStorage key. ─────────────────────────
+const PREVIEW_BANNER_DISMISSED_KEY = 'rolodex_preview_banner_dismissed';
+const previewBanner = document.getElementById('previewBanner');
+if(localStorage.getItem(PREVIEW_BANNER_DISMISSED_KEY) === '1'){
+  previewBanner.style.display = 'none';
+}
+document.getElementById('previewBannerClose').addEventListener('click', ()=>{
+  previewBanner.style.display = 'none';
+  localStorage.setItem(PREVIEW_BANNER_DISMISSED_KEY, '1');
+});
+
 // ── init ───────────────────────────────────────────────────────────
 updateAuthButton();
 loadWatchlist();
