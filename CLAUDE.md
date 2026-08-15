@@ -2527,6 +2527,60 @@ against both fixes together, all pass.
 
 `preview/rolodex/app.js` bumped to `?v=12` per the cache-busting rule.
 
+## Frontend: Rolodex preview — the real jump was content reflow, not marquee math (Aug 15, 2026, `?v=13`)
+
+Direct follow-up, same day, live screenshot at the divider transition:
+"it is still jumping at this point." The `?v=12` sweep had verified the
+marquee's own wrap math was pixel-clean on both strips — correctly, that
+part held up — but the actual jump the user kept seeing had a completely
+different, third cause neither `?v=11` nor `?v=12` had looked at.
+
+**Root cause: `scrollLeft` sampling is blind to content reflow.** A
+pill's price starts as a `"—"` placeholder and swaps to a real
+`"$969.33"` once `fetchTickerData()` resolves — a real, often much wider
+piece of text (confirmed: 44px → 82px for one chip). The marquee runs
+from page load, independent of when that data actually arrives. If the
+swap happens for a chip sitting upstream of whatever's currently visible
+while the marquee is already scrolling, the reflow shifts every sibling
+after it — so the exact same `scrollLeft` number suddenly shows
+different content. Sampling `scrollLeft` itself (everything this file's
+`?v=11`/`?v=12` verification relied on) is completely blind to this,
+since the number never actually "jumps" — only what it's pointing at
+does. Caught by switching the measurement to the divider's own real
+`getBoundingClientRect()` position instead: a 76px visual jump with
+`scrollLeft` moving by all of 1.
+
+**Fix: hold the marquee still until there's nothing left to reflow.**
+`roloMarqueeDataReady` gates `stepRoloMarquee()` (in addition to the
+existing pause check) and only flips true once every ticker's real data
+has loaded and one final `sizeRoloMarquee()` has measured the settled
+layout — reset to `false` in lockstep with the same
+`renderRolodexFromWatchlist()` rebuild that already resets
+`roloMarqueePos`. Simpler than trying to compensate `scrollLeft` for
+every possible mid-scroll reflow after the fact; this repo's own
+`fetchTickerData()` only changes a chip's rendered width during this one
+initial-load window (memoized afterward, and the other two `renderPill()`
+call sites — `resetTicker()`, `analyzeOne()` — both reuse already-loaded
+`state.td`, so neither introduces a new width change), so removing that
+window's overlap with active scrolling removes the entire failure mode.
+
+**Verified two ways, since the earlier `scrollLeft`-only method was
+exactly what missed this the first two times:** (1) confirmed
+`scrollLeft` stays flat at `0` for the full ~2.25s a mocked 3s-delayed
+`/ticker/:symbol` response takes to resolve — the marquee genuinely
+doesn't move at all during the window where reflow could happen; (2)
+tracked the divider's actual on-screen position (not `scrollLeft`)
+through and past that data-settle point — confirmed the pre-fix 76px
+jump is gone, with the max single-sample delta anywhere in the
+post-settle active-scrolling phase down to 1px, matching the clean
+motion `?v=12` already established for the wrap point itself. Confirmed
+the marquee does start moving once data settles (not stuck paused
+forever) and that it still moves promptly under a normal, fast (not
+artificially delayed) response. Full pill-tap/auto-analyze/accordion/
+glossary-search/dock regression suite re-run, all pass.
+
+`preview/rolodex/app.js` bumped to `?v=13` per the cache-busting rule.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
