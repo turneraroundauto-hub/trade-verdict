@@ -2711,6 +2711,98 @@ of this bug.
 `preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
 `?v=15` per the cache-busting rule.
 
+## Frontend: Rolodex preview — jump confirmed via real video, root cause still open (Aug 16, 2026, `?v=16`)
+
+Reported live that the `?v=15` overlay still showed "nothing detected"
+while the jump kept happening. Rather than guess a fifth time, asked for
+and got a real screen recording (91fps slow-motion capture, 4.68s,
+`Record_20260815145530...mp4`) and analyzed it directly frame-by-frame —
+the first time this investigation has had ground-truth video evidence
+instead of live reports + sandbox reasoning.
+
+**Analysis method, worth keeping for any future case like this.**
+Extracted every frame (`ffmpeg -vsync 0`, critical — without it, `ffmpeg`
+defaulted to the container's 90kHz timebase and tried to emit ~100k
+duplicate-padded frames instead of the real ~427). First pass used
+JPEG-compressed, downscaled (480px) frames and found an apparent ~27px
+jump — but a full-resolution, **lossless PNG** re-check of the same frame
+pair showed only ~1px difference, revealing the first measurement was a
+compression/downscaling artifact, not a real page event. Redid the
+entire analysis losslessly at full resolution (crop just the pill-row
+band per frame to keep it fast) before trusting any number again.
+
+**The confirmed finding.** At full resolution, cross-correlating every
+consecutive frame pair for the pill row band found exactly ONE anomaly
+in all 426 transitions: frame 238→239, a clean **-26px** shift (residual
+0.027 — a near-perfect alignment at that shift, i.e. a real, precise
+displacement, not noise), against an otherwise rock-steady +1/+2px-per-
+frame baseline confirmed both immediately before and after (and at an
+independent checkpoint ~3s later) and confirmed visually (`anomaly_
+before.png`/`anomaly_after.png` in that session's scratchpad). The
+strip snapped backward ~26px for exactly one frame (~11ms, confirmed via
+`ffmpeg -vf showinfo`'s pts_time — no dropped/irregular frame timing
+around it, ruling out the recording itself skipping a frame), then the
+very next frame resumed the normal forward cadence with zero lasting
+drift. **This happened with zero interaction** — no touch visible, page
+untouched, ~2.6s after load.
+
+**Why neither existing diagnostic saw it.** The shape (self-corrects in
+exactly one frame) is consistent with something OTHER than
+`stepRoloMarquee`'s own write briefly setting `#roloIndex.scrollLeft` to
+a different value, which `stepRoloMarquee`'s very next call then
+silently overwrites back to the correct `roloMarqueePos`-derived value
+before `marqueeDiagCheck` -- which reads synchronously right after
+`stepRoloMarquee`'s OWN write, in the same call -- ever gets a chance to
+see the interfering value. The Layout Instability API doesn't apply
+either: `scrollLeft` changes are explicitly excluded from the CLS spec
+(scrolling isn't a "layout shift"), so it was never going to catch this
+regardless of timing.
+
+**Fix: a ground-truth `scroll` event listener** (`watchRoloScrollGroundTruth`)
+on `#roloIndex`. The native `scroll` event fires for ANY `scrollLeft`
+mutation regardless of source or timing -- the one mechanism that can't
+share either diagnostic's blind spot. Compares the real observed
+`scrollLeft` against what `roloMarqueePos` (our own intended value) says
+it should be; only logs on a real mismatch (a matching event fires on
+every one of our own routine per-frame writes too, so logging those
+would be pure noise).
+
+**Verified the new mechanism catches exactly this shape of bug**, not
+just that it registers: simulated the video's own finding directly
+(`el.scrollLeft = el.scrollLeft - 26` on a running marquee) and confirmed
+it's caught and logged with the precise delta. Confirmed zero false
+positives across 7s of pure idle operation.
+
+**A real, understood, separate bug found and fixed along the way while
+building the realistic test for the above** (not a guess -- reproduced,
+root-caused, and fix confirmed via a native `element.click()`, since
+Playwright's `locator.click()` has its own auto-scroll-before-interacting
+behavior that turned out to produce a misleading false positive during
+testing -- caught and ruled out before shipping anything based on it).
+Tapping a chip focuses that `<button>`, and if the browser's default
+"scroll the newly-focused element into view" ever fires for it, that
+would yank `#roloIndex.scrollLeft` to wherever the chip sits, fully
+independent of `roloMarqueePos` -- and since a tap also pauses the
+marquee for 2s, nothing would correct it back until the resume timer
+fires. Fixed with `chip.addEventListener('pointerdown', e =>
+e.preventDefault())`, the standard technique for "don't let this
+button's tap move focus" -- doesn't affect keyboard/Tab navigation,
+which still focuses and scrolls normally as accessibility requires, and
+doesn't affect the click/`goRolo()` firing normally either.
+
+**Root cause of the video's own -26px anomaly is still open.** The new
+diagnostic is built specifically to catch it with hard data on the next
+real occurrence (source, exact delta, whether `roloMarqueePaused`/
+`roloMarqueeDataReady` were true at the moment) rather than adding a
+sixth guessed fix. Leading candidates, unconfirmed: a browser-native
+scroll-anchoring adjustment, or some other native compensation
+mechanism entirely outside this page's own JS -- deliberately not
+guessed at further without evidence, per this investigation's own
+repeated lesson about shipping fixes ahead of a confirmed cause.
+
+`preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
+`?v=16` per the cache-busting rule.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
