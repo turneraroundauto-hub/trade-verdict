@@ -170,26 +170,38 @@ function currentGateFullHeight(){
 
 // Direct request (Aug 15, 2026): dock exactly when Sector Pulse "begins
 // to hide" -- confirmed via AskUserQuestion to mean the Sector Pulse
-// drop-down specifically, the first of the three utility cards. Reported
-// live: with real market data (10 real indices + a real, often
-// multi-line note -- both considerably bigger than anything exercised in
-// this session's earlier testing), the overlay grows tall enough that
-// the OLD threshold (scrollTop >= currentGateFullHeight(), i.e. "you've
-// scrolled past the overlay's own height") stayed undocked long after
-// Sector Pulse -- and Session Context, and Import -- had already
-// scrolled out of view. That threshold was only ever a *proxy* for
-// Sector Pulse's position, coupled to it through gateSpacer's cached
-// height; it was correct as long as gateSpacer stayed in sync with the
-// overlay's real height, but any gap between them (spacer sized once,
-// overlay growing again afterward) pushes the derived threshold later
-// than Sector Pulse's real position without anything to catch it.
-// Fixed by measuring Sector Pulse's own real position directly instead
-// of deriving it: no derived threshold to fall out of sync with
-// anything, since #card-pulse's rect is read fresh every tick.
+// drop-down specifically, the first of the three utility cards.
+//
+// First attempt at this (since corrected) compared Sector Pulse's real
+// top against GATE_DOCKED_H (44px) -- reasoning "dock once Pulse has
+// scrolled up to where the compact bar's bottom edge will be." That's
+// actually a much LATER point than "begins to hide": while un-docked,
+// #gateCard's full-detail overlay stays sticky-pinned at the top the
+// entire time (position:sticky engages regardless of the docked class --
+// only the crossfade to the compact mini-row is gated on it), opaque,
+// at its own FULL real height -- not just GATE_DOCKED_H. So Sector Pulse
+// -- a plain, non-sticky element -- starts getting visually painted over
+// (hidden) the moment its own top scrolls up to meet the overlay's
+// CURRENT full height, not the eventual 44px docked height. Comparing
+// against 44px instead meant waiting until Sector Pulse had scrolled
+// most of the way to *fully* clear the overlay before docking -- a wide
+// "dead zone" of scrolling where Sector Pulse was already invisible
+// (painted over) but the Gate still hadn't collapsed, matching the
+// repeated "still collapses late" reports. Confirmed by direct
+// measurement against a realistic 10-index/long-note mock: the old
+// GATE_DOCKED_H-based version needed ~187px of scroll; Sector Pulse
+// actually starts being covered at ~14px (essentially the moment
+// scrolling begins, since gateSpacer already reserves just enough room
+// to sit Sector Pulse right at the overlay's edge at rest).
+// Fixed by comparing against the overlay's own live height instead --
+// still a fresh, uncached measurement every tick, just the correct
+// reference height for "when hiding begins" rather than "when it's
+// safe to have fully shrunk."
 const cardPulse = document.getElementById('card-pulse');
 function updateGateDockState(){
   const pulseTop = cardPulse.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
-  const docked = pulseTop <= GATE_DOCKED_H;
+  const overlayHeight = gateFullOverlay.getBoundingClientRect().height;
+  const docked = pulseTop <= overlayHeight;
   gateCard.classList.toggle('docked', docked);
   gateCard.setAttribute('aria-expanded', String(!docked));
 }
@@ -531,13 +543,10 @@ async function renderRolodexFromWatchlist(){
     roloStage.appendChild(card);
     renderRoloCard(sym);
   });
-  // Two identical chip sets back to back so the marquee wraps seamlessly,
-  // with a single "— N —" count divider between them marking where the
-  // real list ends and the duplicate pass (used only for the seamless
-  // wrap) begins -- a landmark for a long Starter/Pro watchlist scrolling
-  // past in the strip (direct request, Aug 15, 2026).
-  roloCountDivider = null;
-  for(let pass = 0; pass < 2; pass++){
+  // A real ticker pass, then a single "— N —" count divider marking
+  // where it ends, then duplicate pass(es) (no divider) so the marquee
+  // wraps seamlessly.
+  function appendChipPass(){
     watchlist.forEach((sym, i)=>{
       const chip = document.createElement('button');
       chip.className = 'rolo-chip'; chip.dataset.sym = sym; chip.dataset.idx = String(i);
@@ -545,12 +554,26 @@ async function renderRolodexFromWatchlist(){
       roloIndex.appendChild(chip);
       renderPill(sym);
     });
-    if(pass === 0){
-      roloCountDivider = document.createElement('span');
-      roloCountDivider.className = 'rolo-divider';
-      roloCountDivider.textContent = `— ${watchlist.length} —`;
-      roloIndex.appendChild(roloCountDivider);
-    }
+  }
+  appendChipPass();
+  roloCountDivider = document.createElement('span');
+  roloCountDivider.className = 'rolo-divider';
+  roloCountDivider.textContent = `— ${watchlist.length} —`;
+  roloIndex.appendChild(roloCountDivider);
+  appendChipPass();
+  // On a short watchlist (Free's 3-ticker cap) in a wide-ish viewport, one
+  // "set" (real pass + divider) is WIDER than the browser's native
+  // scrollable room past a single duplicate pass -- scrollLeft creeps a
+  // few px, hits that hard native clamp, and can never reach the distance
+  // needed to wrap. Not a pause bug: it's stuck, not paused, but reads
+  // identically to "doesn't auto-scroll at all" (direct report, Aug 15,
+  // 2026). Keep appending plain duplicate passes (no divider -- the
+  // marker stays singular) until there's actually enough scrollable room
+  // to traverse one full set; guarded so an unexpected empty watchlist
+  // can't spin forever.
+  const oneSetW = roloCountDivider.offsetLeft + roloCountDivider.offsetWidth;
+  for(let guard = 0; guard < 20 && (roloIndex.scrollWidth - roloIndex.clientWidth) < oneSetW; guard++){
+    appendChipPass();
   }
   roloCurrent = Math.min(roloCurrent, Math.max(0, watchlist.length-1));
   positionRoloStack();
