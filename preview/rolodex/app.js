@@ -457,7 +457,15 @@ function goRolo(i){
 // not a timing-dependent flag — see CLAUDE.md for why the flag approach
 // broke on a real device). ──────────────────────────────────────────
 let roloMarqueeOneSetW = 0;
-function sizeRoloMarquee(){ roloMarqueeOneSetW = roloIndex.scrollWidth / 2; }
+let roloCountDivider = null;
+// One full "set" is the real pass + its trailing count divider -- measured
+// directly off the divider's own position rather than assumed as
+// scrollWidth/2, since the divider only appears once (after the real
+// pass, not after the duplicate pass), so the two passes are no longer
+// equal-width halves.
+function sizeRoloMarquee(){
+  roloMarqueeOneSetW = roloCountDivider ? (roloCountDivider.offsetLeft + roloCountDivider.offsetWidth) : (roloIndex.scrollWidth / 2);
+}
 window.addEventListener('resize', sizeRoloMarquee);
 
 let roloMarqueePaused = false, roloMarqueeResumeTimer = null, roloMarqueeLastSelfScrollLeft = null;
@@ -485,7 +493,6 @@ requestAnimationFrame(stepRoloMarquee);
 // ── Build/rebuild the rolodex from the current watchlist ─────────────
 async function renderRolodexFromWatchlist(){
   document.getElementById('ticker-count').textContent = 'CRF · ' + watchlist.length + ' TICKERS';
-  document.getElementById('roloCount').textContent = String(watchlist.length);
   roloStage.innerHTML = '';
   roloIndex.innerHTML = '';
   watchlist.forEach((sym)=>{
@@ -495,7 +502,12 @@ async function renderRolodexFromWatchlist(){
     roloStage.appendChild(card);
     renderRoloCard(sym);
   });
-  // Two identical chip sets back to back so the marquee wraps seamlessly.
+  // Two identical chip sets back to back so the marquee wraps seamlessly,
+  // with a single "— N —" count divider between them marking where the
+  // real list ends and the duplicate pass (used only for the seamless
+  // wrap) begins -- a landmark for a long Starter/Pro watchlist scrolling
+  // past in the strip (direct request, Aug 15, 2026).
+  roloCountDivider = null;
   for(let pass = 0; pass < 2; pass++){
     watchlist.forEach((sym, i)=>{
       const chip = document.createElement('button');
@@ -504,6 +516,12 @@ async function renderRolodexFromWatchlist(){
       roloIndex.appendChild(chip);
       renderPill(sym);
     });
+    if(pass === 0){
+      roloCountDivider = document.createElement('span');
+      roloCountDivider.className = 'rolo-divider';
+      roloCountDivider.textContent = `— ${watchlist.length} —`;
+      roloIndex.appendChild(roloCountDivider);
+    }
   }
   roloCurrent = Math.min(roloCurrent, Math.max(0, watchlist.length-1));
   positionRoloStack();

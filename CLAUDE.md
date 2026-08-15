@@ -2006,6 +2006,64 @@ repeated samples; confirmed scrolling back to the top undocks both the
 Gate and the pill strip back to their normal positions. Re-ran the full
 pill-tap/accordion/analyze/glossary-search regression suite — all pass.
 
+## Frontend: Rolodex preview — ticker pill count moved into the strip (Aug 15, 2026, `?v=5`)
+
+Direct follow-up, same day: "move the ticker pill count to between the
+first and last in the row with a dash on each side, to show the
+beginning and end of the list. this will help for starter and pro as the
+list gets longer." The count previously lived above the pill strip
+(`.list-head`'s `#roloCount` badge, "Analysis Cards · N") — removed
+entirely (both the HTML element and its CSS), replaced with a single
+`— N —` divider chip (`.rolo-divider`) built directly into `#roloIndex`
+itself.
+
+**Where exactly "between the first and last" landed, given the strip's
+existing marquee mechanism.** `#roloIndex` already renders the watchlist
+*twice* back to back (`renderRolodexFromWatchlist`'s two-pass loop) so
+the auto-scroll marquee can wrap seamlessly — the visible strip is never
+just one pass through the list. The `— N —` divider is appended once,
+right after the real (first) pass and before the duplicate (second)
+pass — i.e., literally between the first pass's last ticker and the
+second pass's first ticker, which reads to the user as a single
+landmark marking where the list wraps back to its own beginning as it
+scrolls by. Free's own watchlist is capped at 3 tickers so this is
+subtle here, but the whole point (per the request) is Starter/Pro-scale
+lists, where a long unbroken stream of pills has no landmark at all
+without it — confirmed by direct math below, not just reasoned about.
+
+**The marquee's wrap-distance calculation had to change, not just cosmetic
+placement.** It previously assumed the strip's total width split into two
+exactly-equal halves (`roloMarqueeOneSetW = roloIndex.scrollWidth / 2`) —
+true only because both passes were identical chip sets with nothing else
+between them. Adding a divider after the *first* pass only (not the
+second) breaks that symmetry on purpose, matching "between the first and
+last," so the assumed-half-width math would now be wrong by roughly one
+divider-width. Replaced with a direct measurement:
+`roloCountDivider.offsetLeft + roloCountDivider.offsetWidth` — the real,
+live boundary of "first pass + its divider," regardless of list length.
+This is more correct than the old assumption ever was, not just adjusted
+to compensate for the new element.
+
+**Verified the math actually holds at Starter/Pro scale, not just for
+Free's real 3-ticker cap.** This page's own `MAX_TICKERS = 3` (mirroring
+Free's real limit) means it can't structurally demonstrate a long list
+by itself, so the wrap math was checked two ways: (1) the real page with
+its real 3-ticker watchlist — divider renders correctly (`"— 3 —"`), old
+`#roloCount` element and its CSS confirmed gone, pill tap-to-switch and
+the real-incremental-scroll dock/undock regression both still pass; (2)
+a synthetic 15-ticker (Starter/Pro-scale) rebuild of the exact same
+`#roloIndex` markup/CSS shape, confirming the measured `oneSetW` (1538px)
+stays well under the container's actual max scroll distance (2626px) —
+so the wraparound branch actually triggers at that scale — and that the
+chip immediately after the divider is pixel-identical (same symbol) to
+the strip's very first chip, confirming the loop is seamless at the
+point the divider sits. Free's own 3-ticker case was independently
+confirmed to have too little overflow to ever visibly wrap, both before
+and after this change — not a regression this change introduced, just
+the pre-existing ceiling of a 3-ticker cap on a ~390px-wide strip.
+
+`preview/rolodex/app.js` bumped to `?v=5` per the cache-busting rule.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |

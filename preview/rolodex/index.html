@@ -201,7 +201,6 @@
     display:flex; align-items:center; justify-content:space-between;
     padding:6px 4px 2px; font-size:10.5px; color:var(--ink-faint); letter-spacing:.08em; text-transform:uppercase;
   }
-  .list-head .count{ background:var(--surface-3); color:var(--ink-dim); border-radius:5px; padding:2px 6px; font-size:10px; }
 
   /* Ticker row is now two columns: sym+price on the left, the verdict
      (or ANALYZE button, pre-analysis) on the right -- matches production's
@@ -301,6 +300,17 @@
   .rolo-chip.active.perf-down{ background:var(--red); border-color:var(--red); color:var(--surface); }
   .rolo-chip.active.perf-flat{ background:var(--amber); border-color:var(--amber); color:var(--surface); }
   .rolo-chip .rc-price{ font-weight:600; font-variant-numeric:tabular-nums; opacity:.75; }
+  /* Marks the boundary between the real ticker pass and the duplicate
+     pass appended for the marquee's seamless wrap (see
+     renderRolodexFromWatchlist/sizeRoloMarquee in app.js) -- "— N —" so a
+     long Starter/Pro watchlist has a visible "list restarts here"
+     landmark in the scrolling strip instead of an undifferentiated
+     stream of pills. */
+  .rolo-divider{
+    display:inline-flex; align-items:center; flex:none; padding:0 10px;
+    font-family:var(--mono); font-size:10.5px; font-weight:700; color:var(--ink-faint);
+    letter-spacing:.03em; white-space:nowrap; user-select:none;
+  }
 
   /* Real gate note text runs longer/more variably than the prototype's
      curated demo copy -- a fixed height + overflow:hidden here silently
@@ -454,7 +464,7 @@
         </div></div></div>
       </div>
 
-      <div class="list-head"><span>Analysis Cards</span><span class="count" id="roloCount">—</span></div>
+      <div class="list-head"><span>Analysis Cards</span></div>
 
       <div class="rolo-wrap">
         <div class="rolo-index" id="roloIndex"></div>
@@ -499,6 +509,6 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=4"></script>
+<script type="module" src="./app.js?v=5"></script>
 </body>
 </html>
