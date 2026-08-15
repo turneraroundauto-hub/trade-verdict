@@ -2581,6 +2581,65 @@ glossary-search/dock regression suite re-run, all pass.
 
 `preview/rolodex/app.js` bumped to `?v=13` per the cache-busting rule.
 
+## Frontend: Rolodex preview — reserve pill price width at the source, add a live diagnostic overlay (Aug 15, 2026, `?v=14`)
+
+Direct follow-up, same day: "it is still happening. do research into
+this issue and run tests for options that I can review." Given three
+straight rounds of "still broken" despite each fix verifying clean in
+isolation, this pass was a genuine investigation before touching code
+again, not another guess.
+
+**Ruled out first, with evidence:** the deployed `main` source was
+pulled straight from GitHub and byte-matched the intended `?v=13` fix
+— no drift. The `?v=13` "hold until data loads" gate itself re-tested
+clean under an artificially-delayed backend response. `resetTicker()`
+and `analyzeOne()`, the other two `renderPill()` call sites, both only
+re-render already-loaded `state.td` and can't introduce a new width
+change. `fetchTickerData()` (`shared/ticker-cache.js`) never throws —
+it catches everything and resolves to `null` — so the gate's
+`Promise.all` can't get stuck on a rejection either.
+
+**The actual gap: `?v=13` only closed the reflow window during the
+*initial* page load.** That was real and worth fixing, but incomplete
+— it's a timing fix around *when* the reflow happens, not a fix for
+the reflow itself. Tested a structural alternative instead: reserving
+the price text's display width up front (`min-width:7ch` on
+`.rc-price`, plus `text-align:right`), so the `"—"` placeholder and a
+real `"$969.33"` render at the *same* width — no size change, nothing
+to jump, regardless of when or why data lands. Verified directly: MU/
+IREN/ALAB's real prices now render with a width delta of ~0.02px
+(pure rounding noise) against their placeholder — down from a 38px
+real difference before. The one known gap: a 4-digit price (over
+$999.99) still doesn't fit `7ch` and would cause a smaller residual
+shift — the `?v=13` timing-gate stays in place specifically for that
+edge case, as a second layer.
+
+**Also shipped, at the user's explicit request for a review option:**
+a small, always-on diagnostic overlay (`#marqueeDiag`, bottom-left,
+read-only, `pointer-events:none`) that piggybacks on both marquees'
+existing per-frame step functions to track their reference elements'
+*real* on-screen position — not `scrollLeft`, which is exactly what
+missed this bug for two straight rounds. Correctly distinguishes a
+normal wrap (the reference element legitimately jumps by ~`oneSetW`
+the instant `scrollLeft` resets) from genuinely unexplained motion, by
+passing the expected wrap delta into the comparison rather than
+flagging every large delta. Logs to both the on-page overlay (visible
+in a screenshot without needing devtools) and `console.warn` with a
+timestamp, the raw delta, and the unexplained portion. Marked clearly
+in both files as temporary and safe to remove once the jump is
+confirmed resolved for good.
+
+**Verified the diagnostic tool itself, not just the width fix:** ran 8
+real seconds of normal operation (several genuine wraps) with zero
+false-positive log entries; then deliberately forced an unexplained
+40px shift via direct DOM manipulation and confirmed it was correctly
+caught and logged (`"moved 39.0px, 39.0px unexplained"`) within one
+frame. Re-confirmed the width fix eliminates the original repro
+(delayed real ticker response) end to end. Full pill-tap/auto-analyze/
+accordion/glossary-search/dock regression suite re-run, all pass.
+
+`preview/rolodex/app.js` bumped to `?v=14` per the cache-busting rule.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |

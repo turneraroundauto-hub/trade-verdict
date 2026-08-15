@@ -308,7 +308,17 @@
   .rolo-chip.active.perf-up{ background:var(--green); border-color:var(--green); color:var(--surface); }
   .rolo-chip.active.perf-down{ background:var(--red); border-color:var(--red); color:var(--surface); }
   .rolo-chip.active.perf-flat{ background:var(--amber); border-color:var(--amber); color:var(--surface); }
-  .rolo-chip .rc-price{ font-weight:600; font-variant-numeric:tabular-nums; opacity:.75; }
+  /* min-width reserves space for a real price up front, so the "—"
+     placeholder and the eventual "$969.33" render at the same width --
+     the actual root cause of the marquee jump reported Aug 15, 2026 was
+     content reflow (a chip growing wider once real data replaces the
+     placeholder while sitting upstream of whatever's currently visible),
+     not the marquee's own scroll math. 7ch fits any price under
+     $1,000 with zero width delta (verified); a 4-digit price still
+     shifts a few px -- the "hold until data loads" gate in app.js
+     (roloMarqueeDataReady) remains as a second layer specifically for
+     that edge case. */
+  .rolo-chip .rc-price{ display:inline-block; min-width:7ch; text-align:right; font-weight:600; font-variant-numeric:tabular-nums; opacity:.75; }
   /* Marks the boundary between the real ticker pass and the duplicate
      pass appended for the marquee's seamless wrap (see
      renderRolodexFromWatchlist/sizeRoloMarquee in app.js) -- "— N —" so a
@@ -384,6 +394,22 @@
   .disclaimer p{ font-size:10.5px; color:var(--ink-dim); line-height:1.6; margin:0 0 5px; }
   .disclaimer strong{ color:var(--amber); }
   .foot-note{ text-align:center; font-size:10px; color:var(--ink-faint); line-height:1.7; padding:14px 0 8px; }
+
+  /* TEMPORARY diagnostic overlay (Aug 15, 2026) -- catches the exact
+     moment/magnitude/cause of any future marquee jump on a real device,
+     since this could not be reproduced further from the sandbox this
+     was built from beyond what's already fixed. Read-only: never
+     touches scrollLeft/roloMarqueePos itself. Small and out of the way
+     on purpose, but always visible so a screenshot at the moment of a
+     jump captures it without needing to remember to enable anything.
+     Safe to remove once the jump is confirmed resolved for good. */
+  #marqueeDiag{
+    position:fixed; left:6px; bottom:6px; z-index:999; max-width:calc(100vw - 12px);
+    background:rgba(8,12,18,.92); border:1px solid rgba(255,182,45,.4); border-radius:6px;
+    padding:5px 7px; font-family:var(--mono); font-size:8.5px; line-height:1.5; color:var(--amber);
+    max-height:110px; overflow-y:auto; pointer-events:none;
+  }
+  #marqueeDiag .diag-title{ color:var(--ink-faint); text-transform:uppercase; letter-spacing:.05em; }
 </style>
 </head>
 <body>
@@ -395,6 +421,8 @@
   want. Not linked from the live app; nothing here is final until it's actually wired into a
   real tier's page.
 </div>
+
+<div id="marqueeDiag"><div class="diag-title">marquee diag — no jump detected yet</div></div>
 
 <div class="app-shell">
   <div class="safe-top"></div>
@@ -539,6 +567,6 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=13"></script>
+<script type="module" src="./app.js?v=14"></script>
 </body>
 </html>

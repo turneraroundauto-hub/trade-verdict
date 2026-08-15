@@ -276,6 +276,46 @@ gateCard.addEventListener('keydown', (e)=>{
   if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); if(gateCard.classList.contains('docked')) jumpToTop(); }
 });
 
+// ── TEMPORARY diagnostic overlay (Aug 15, 2026) -- catches the exact
+// moment/magnitude/cause of any future marquee jump on a real device,
+// since this could not be reproduced further from the sandbox this was
+// built from beyond what's already fixed. Piggybacks on the step
+// functions below (they already run every frame) to track each
+// marquee's reference element's REAL on-screen position -- this is what
+// actually caught the content-reflow jump in the first place, since
+// scrollLeft's own number stayed smooth throughout, completely blind to
+// it. Read-only: never writes to scrollLeft/roloMarqueePos/
+// gateMarqueePos itself. Safe to remove once the jump is confirmed
+// resolved for good.
+const marqueeDiagState = { events: [], lastRoloLeft: null, lastGateLeft: null };
+const MARQUEE_DIAG_THRESHOLD = 3; // px/frame of UNEXPLAINED motion before it's logged
+function marqueeDiagLog(label, detail){
+  const t = new Date().toISOString().slice(11, 23);
+  marqueeDiagState.events.unshift(`${t} ${label} ${detail}`);
+  marqueeDiagState.events.length = Math.min(marqueeDiagState.events.length, 6);
+  const el = document.getElementById('marqueeDiag');
+  if(el) el.innerHTML = marqueeDiagState.events.map((e)=> `<div>${e}</div>`).join('');
+  console.warn('[marquee-diag]', label, detail);
+}
+// expectedDelta accounts for a normal wrap (the reference element's
+// on-screen position legitimately jumps by ~oneSetW the instant
+// scrollLeft resets) so that ONLY genuinely unexplained motion --
+// content reflow, not the marquee's own intended behavior -- gets
+// logged.
+function marqueeDiagCheck(el, key, label, expectedDelta, scrollLeftNow){
+  if(!el) return;
+  const left = el.getBoundingClientRect().left;
+  const last = marqueeDiagState[key];
+  if(last != null){
+    const rawDelta = left - last;
+    const unexplained = Math.abs(rawDelta - (expectedDelta || 0));
+    if(unexplained > MARQUEE_DIAG_THRESHOLD){
+      marqueeDiagLog(label, `moved ${rawDelta.toFixed(1)}px, ${unexplained.toFixed(1)}px unexplained (scrollLeft=${scrollLeftNow})`);
+    }
+  }
+  marqueeDiagState[key] = left;
+}
+
 // Same fix as the pill strip's stepRoloMarquee(): scrollLeft snaps
 // writes to the nearest whole pixel, so accumulating by reading it back
 // each frame compounds that rounding every frame until the wrap check
@@ -284,11 +324,13 @@ gateCard.addEventListener('keydown', (e)=>{
 // scrollLeft.
 const GATE_MARQUEE_SPEED = 0.4;
 function stepGateMarquee(){
+  let wrapDelta = 0;
   if(gateCard.classList.contains('docked') && gateMarqueeOneSetW > 0){
     gateMarqueePos += GATE_MARQUEE_SPEED;
-    if(gateMarqueePos >= gateMarqueeOneSetW) gateMarqueePos -= gateMarqueeOneSetW;
+    if(gateMarqueePos >= gateMarqueeOneSetW){ gateMarqueePos -= gateMarqueeOneSetW; wrapDelta = gateMarqueeOneSetW; }
     gateMarquee.scrollLeft = gateMarqueePos;
   }
+  marqueeDiagCheck(gateMarquee.querySelector('.gm-item'), 'lastGateLeft', 'GATE', wrapDelta, gateMarquee.scrollLeft);
   requestAnimationFrame(stepGateMarquee);
 }
 requestAnimationFrame(stepGateMarquee);
@@ -630,11 +672,13 @@ roloIndex.addEventListener('pointercancel', scheduleRoloMarqueeResume);
 
 const ROLO_MARQUEE_SPEED = 0.5;
 function stepRoloMarquee(){
+  let wrapDelta = 0;
   if(!roloMarqueePaused && roloMarqueeDataReady && roloMarqueeOneSetW > 0){
     roloMarqueePos += ROLO_MARQUEE_SPEED;
-    if(roloMarqueePos >= roloMarqueeOneSetW) roloMarqueePos -= roloMarqueeOneSetW;
+    if(roloMarqueePos >= roloMarqueeOneSetW){ roloMarqueePos -= roloMarqueeOneSetW; wrapDelta = roloMarqueeOneSetW; }
     roloIndex.scrollLeft = roloMarqueePos;
   }
+  marqueeDiagCheck(roloCountDivider, 'lastRoloLeft', 'ROLO', wrapDelta, roloIndex.scrollLeft);
   requestAnimationFrame(stepRoloMarquee);
 }
 requestAnimationFrame(stepRoloMarquee);
