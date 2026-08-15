@@ -395,21 +395,36 @@
   .disclaimer strong{ color:var(--amber); }
   .foot-note{ text-align:center; font-size:10px; color:var(--ink-faint); line-height:1.7; padding:14px 0 8px; }
 
-  /* TEMPORARY diagnostic overlay (Aug 15, 2026) -- catches the exact
-     moment/magnitude/cause of any future marquee jump on a real device,
-     since this could not be reproduced further from the sandbox this
-     was built from beyond what's already fixed. Read-only: never
-     touches scrollLeft/roloMarqueePos itself. Small and out of the way
-     on purpose, but always visible so a screenshot at the moment of a
-     jump captures it without needing to remember to enable anything.
-     Safe to remove once the jump is confirmed resolved for good. */
+  /* TEMPORARY diagnostic overlay (Aug 15-16, 2026) -- catches the exact
+     moment/magnitude/cause of any future visible jump on a real device,
+     since this could not be reproduced further from the sandbox this was
+     built from beyond what's already fixed. Round 1 only watched the two
+     marquees' own reference elements; reported live afterward that the
+     jump kept happening (including on refresh) with zero detections the
+     whole time -- real evidence it wasn't a marquee-scrollLeft issue at
+     all. Round 2 added the browser's own Layout Instability API
+     (PerformanceObserver({type:'layout-shift'}), see app.js), which
+     reports every visible layout shift on the page on any element/axis,
+     not just the two marquees -- scrollable (touch-draggable) now that
+     there's more to show. Read-only: never touches scrollLeft/
+     roloMarqueePos/gateMarqueePos or any layout property itself. Small
+     and out of the way on purpose, but always visible so a screenshot at
+     the moment of a jump captures it without needing to remember to
+     enable anything. Safe to remove once the jump is confirmed resolved
+     for good. */
   #marqueeDiag{
     position:fixed; left:6px; bottom:6px; z-index:999; max-width:calc(100vw - 12px);
     background:rgba(8,12,18,.92); border:1px solid rgba(255,182,45,.4); border-radius:6px;
     padding:5px 7px; font-family:var(--mono); font-size:8.5px; line-height:1.5; color:var(--amber);
-    max-height:110px; overflow-y:auto; pointer-events:none;
+    max-height:150px; overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y;
   }
   #marqueeDiag .diag-title{ color:var(--ink-faint); text-transform:uppercase; letter-spacing:.05em; }
+  /* Flags a single-frame shift large enough to plausibly be the reported
+     "jump" (as opposed to the many small per-frame entries a normal,
+     already-smooth CSS transition legitimately produces) -- see
+     DIAG_NOTABLE_PX in app.js. Nothing is ever dropped from the log,
+     this just makes the likely-real entries easy to spot by eye. */
+  #marqueeDiag .diag-hot{ color:var(--red); font-weight:700; }
 </style>
 </head>
 <body>
@@ -422,7 +437,7 @@
   real tier's page.
 </div>
 
-<div id="marqueeDiag"><div class="diag-title">marquee diag — no jump detected yet</div></div>
+<div id="marqueeDiag"><div class="diag-title">jump diag — nothing detected yet</div></div>
 
 <div class="app-shell">
   <div class="safe-top"></div>
@@ -567,6 +582,6 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=14"></script>
+<script type="module" src="./app.js?v=15"></script>
 </body>
 </html>
