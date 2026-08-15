@@ -2141,6 +2141,68 @@ one shows its existing result immediately, no RUNNING… flash.
 
 `preview/rolodex/app.js` bumped to `?v=6` per the cache-busting rule.
 
+## Frontend: Rolodex preview — Gate dock retargeted to Sector Pulse's real position, marquee self-healing pause (Aug 15, 2026, `?v=7`)
+
+Two more live-reported issues, same page.
+
+**1. Gate collapsing far too late against real data.** Live screenshot:
+scrolled well past Sector Pulse *and* Session Context, with Import's tail
+end barely visible — and the Gate still hadn't docked. Root cause:
+the dock trigger (`scrollTop >= currentGateFullHeight()`) was only ever a
+*proxy* for "has Sector Pulse scrolled under the docked bar," correct
+only as long as it stayed exactly coupled to Sector Pulse's real
+position. It was — by construction, `gateSpacer`'s reserved height came
+from the same `currentGateFullHeight()` measurement, which set Sector
+Pulse's real top offset to exactly equal the overlay's own height. That
+held up fine against the earlier synthetic mocks this session's tests
+used (2 indices, a short note), but real live data — 10 real indices
+plus a real, often multi-clause note — makes the overlay considerably
+taller, and the derived threshold grew right along with it, without
+anything to point out it had drifted away from where Sector Pulse
+actually was on screen.
+
+Confirmed via `AskUserQuestion` which drop-down was meant (this Free
+preview has no card literally called "Proxy" — that's Pro-only; the
+report meant Sector Pulse, the first of the three utility cards).
+**Fixed by measuring Sector Pulse's own position directly** instead of
+deriving a threshold from the Gate's own height: `updateGateDockState()`
+now reads `#card-pulse`'s live `getBoundingClientRect()` every tick and
+docks once its top has scrolled up to the docked bar's own height
+(`GATE_DOCKED_H`). Nothing left to fall out of sync — the measurement is
+never cached, so it can't drift from reality the way a derived value
+could. `currentGateFullHeight()` is still used for what it was always
+also doing — sizing `gateSpacer` so the un-docked overlay doesn't visually
+overlap Sector Pulse — just no longer for the dock decision itself.
+
+Verified with a real incremental scroll against a realistic 10-index/
+long-note mocked `/market` response (matching what was actually live,
+not the earlier lighter mocks): found the exact transition sample —
+docks the instant Sector Pulse's measured top crosses `GATE_DOCKED_H`
+(44px), confirmed both just-before (58px, still fully clear) and
+at-transition (33px, already under the bar) samples bracket it correctly.
+
+**2. Marquee could get stuck stopped indefinitely.** The pause/resume
+mechanism only ever scheduled a resume from `pointerup`/`pointercancel`.
+On a real device, a touch that starts on `#roloIndex` but resolves as
+(or gets interpreted as) a page scroll doesn't reliably fire either of
+those on that element — so a pause with no matching release event had no
+way out, matching the live report ("the marquee is stopping here… should
+be continuous"). Fixed by having `pauseRoloMarquee()` (on `pointerdown`)
+schedule its own 2s resume immediately, making that the hard ceiling on
+any pause regardless of what happens next; `pointerup`/`pointercancel`,
+when they do fire, just reset the same timer to 2s from that later point
+(the right behavior for a normal tap or drag), rather than being the
+only way out of the paused state.
+
+Verified by dispatching a synthetic `pointerdown` with **no** matching
+`pointerup`/`pointercancel` ever fired (the exact real-device gap this
+targets) and sampling `scrollLeft`: stayed flat for the full pause
+window, then resumed moving on its own at the 2s mark regardless.
+
+Full pill-tap/auto-analyze/accordion/glossary-search/dock-undock
+regression suite re-run against both fixes together — all pass.
+`preview/rolodex/app.js` bumped to `?v=7` per the cache-busting rule.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
