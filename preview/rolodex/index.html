@@ -317,8 +317,17 @@
      clipped Gate 4/5 and the confidence row off the bottom of real
      analyzed cards. height is now unset (auto per-card) and synced by
      JS (syncRoloStageHeight()) to the active card's real content height
-     instead, transitioning smoothly on change. */
-  .rolo-stage{ position:relative; transition:height .28s ease; }
+     instead, transitioning smoothly on change.
+     overflow:hidden re-added (Aug 15, 2026) -- safe now that the stage's
+     height always tracks the ACTIVE card only: a switched-away-from card
+     that's taller than the newly active one (e.g. a full analyzed result
+     behind a still-idle "Tap ANALYZE" card) was bleeding straight through
+     the stage's own box into the Glossary/Track Record content below it,
+     faded but clearly visible -- confirmed via getBoundingClientRect
+     showing the inactive card's bottom edge ~250px past the stage's own
+     bottom. Clipping the inactive cards' overflow doesn't touch the
+     active card, since the stage is never shorter than it. */
+  .rolo-stage{ position:relative; overflow:hidden; transition:height .28s ease; }
   .rolo-card{
     position:absolute; top:0; left:0; right:0; border-radius:14px;
     background:var(--surface); border:1px solid var(--border-2);
@@ -509,6 +518,6 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=5"></script>
+<script type="module" src="./app.js?v=6"></script>
 </body>
 </html>

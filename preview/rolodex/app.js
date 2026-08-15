@@ -450,12 +450,28 @@ function goRolo(i){
   const count = roloStage.querySelectorAll('.rolo-card').length;
   roloCurrent = Math.max(0, Math.min(count-1, i));
   positionRoloStack();
+  // Tapping a ticker that hasn't been analyzed yet runs it automatically
+  // rather than leaving it on the idle "Tap ANALYZE" state -- direct
+  // request, Aug 15, 2026. Only for a ticker with no result yet; revisiting
+  // an already-analyzed one just shows what's there, same as tapping any
+  // other already-open card.
+  const sym = watchlist[roloCurrent];
+  const state = sym && tickerState.get(sym);
+  if(state && !state.result && !state.analyzing) analyzeOne(sym);
 }
 
-// ── Watchlist auto-scroll pill marquee — always running, manual drag
-// always wins (state-comparison against the marquee's own last write,
-// not a timing-dependent flag — see CLAUDE.md for why the flag approach
-// broke on a real device). ──────────────────────────────────────────
+// ── Watchlist auto-scroll pill marquee — always running, pauses for a
+// flat 2s on real pointer interaction (tap a pill / drag the strip) only.
+// Previously also paused on any #roloIndex 'scroll' event whose
+// scrollLeft didn't match the marquee's own last self-write, meant to
+// catch manual drags the pointer events might miss -- but that
+// comparison mistook the marquee's OWN async-dispatched scroll events for
+// a manual scroll often enough on a real device to repeatedly self-pause
+// ("stopping a lot", reported live Aug 15, 2026), not just the one
+// specific timing-flag bug this comment used to describe (see CLAUDE.md
+// for that earlier, narrower fix). Removed entirely rather than
+// re-tuned -- pointerdown/up/cancel alone already covers both a pill tap
+// and a manual drag of the strip. ────────────────────────────────────
 let roloMarqueeOneSetW = 0;
 let roloCountDivider = null;
 // One full "set" is the real pass + its trailing count divider -- measured
@@ -468,23 +484,18 @@ function sizeRoloMarquee(){
 }
 window.addEventListener('resize', sizeRoloMarquee);
 
-let roloMarqueePaused = false, roloMarqueeResumeTimer = null, roloMarqueeLastSelfScrollLeft = null;
+let roloMarqueePaused = false, roloMarqueeResumeTimer = null;
 function pauseRoloMarquee(){ roloMarqueePaused = true; clearTimeout(roloMarqueeResumeTimer); }
-function scheduleRoloMarqueeResume(){ clearTimeout(roloMarqueeResumeTimer); roloMarqueeResumeTimer = setTimeout(()=>{ roloMarqueePaused = false; }, 1800); }
+function scheduleRoloMarqueeResume(){ clearTimeout(roloMarqueeResumeTimer); roloMarqueeResumeTimer = setTimeout(()=>{ roloMarqueePaused = false; }, 2000); }
 roloIndex.addEventListener('pointerdown', pauseRoloMarquee);
 roloIndex.addEventListener('pointerup', scheduleRoloMarqueeResume);
 roloIndex.addEventListener('pointercancel', scheduleRoloMarqueeResume);
-roloIndex.addEventListener('scroll', ()=>{
-  if(roloMarqueeLastSelfScrollLeft !== null && Math.abs(roloIndex.scrollLeft - roloMarqueeLastSelfScrollLeft) < 0.75) return;
-  pauseRoloMarquee(); scheduleRoloMarqueeResume();
-}, { passive:true });
 
 const ROLO_MARQUEE_SPEED = 0.5;
 function stepRoloMarquee(){
   if(!roloMarqueePaused && roloMarqueeOneSetW > 0){
     roloIndex.scrollLeft += ROLO_MARQUEE_SPEED;
     if(roloIndex.scrollLeft >= roloMarqueeOneSetW) roloIndex.scrollLeft -= roloMarqueeOneSetW;
-    roloMarqueeLastSelfScrollLeft = roloIndex.scrollLeft;
   }
   requestAnimationFrame(stepRoloMarquee);
 }

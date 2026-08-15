@@ -2064,6 +2064,83 @@ the pre-existing ceiling of a 3-ticker cap on a ~390px-wide strip.
 
 `preview/rolodex/app.js` bumped to `?v=5` per the cache-busting rule.
 
+## Frontend: Rolodex preview — marquee stalling, card bleed-through, auto-analyze on tap (Aug 15, 2026, `?v=6`)
+
+Three live-reported issues from the same round of feedback, all in
+`preview/rolodex/`, landed together.
+
+**1. Marquee "stopping a lot."** The pause-on-manual-scroll mechanism had
+*two* independent triggers: pointerdown/pointerup (correct, tied to a real
+tap/drag) and a `#roloIndex` `scroll` listener that paused whenever the
+observed `scrollLeft` didn't match the marquee's own last self-write —
+added earlier specifically to catch manual drags the pointer events might
+miss. That comparison was supposed to ignore the marquee's own writes
+(state-comparison, not a timing flag — see the earlier "moves a hair,
+stalls" fix elsewhere in this file), but in practice was still
+mis-detecting the marquee's own async-dispatched scroll events as manual
+scrolls often enough on a real device to repeatedly self-pause — a
+broader recurrence of the same bug *class* that earlier fix addressed,
+not the identical bug. **Fix: removed the scroll-listener pause path
+entirely**, rather than re-tuning its threshold again — pointerdown/up/
+cancel alone already covers both a pill tap and a manual drag of the
+strip, with no self-detection ambiguity to get wrong. Resume delay
+tightened from 1800ms to a flat 2000ms per the direct request ("should
+only pause for 2 seconds").
+
+Verified on the real page: tapped a pill immediately after load (before
+the strip's ~42px native scroll room on this 3-ticker Free-tier page gets
+used up, which would otherwise mask any pause/resume signal) and sampled
+`scrollLeft` through the window — flat for the full ~2s pause, then
+visibly incrementing again right after, with no in-between stalls.
+
+**2. Analyzed-card bleed-through on ticker switch.** Reported live,
+screenshot showed faded gate rows and a stray "3 / 3" overlapping the
+Glossary/Track Record area below the pill strip. Root cause:
+`.rolo-stage` lost its `overflow:hidden` in the Aug 14 fidelity pass (so
+a real analyzed card's full content wouldn't get clipped — see "Only 3
+gates" earlier in this file) and never got it back once the stage height
+was made fully dynamic. Once a ticker's card is genuinely taller than
+whatever's currently active (e.g. a previously-analyzed full result,
+sitting inactive/faded behind a freshly-selected still-idle card), that
+taller inactive card's bottom edge extends straight past the (shorter)
+stage box into whatever comes after it in the page — confirmed via
+`getBoundingClientRect`: MU's analyzed card (373px tall) sitting behind a
+120px-tall active IREN card, its bottom ~250px past both the stage's own
+bottom and the Glossary tile's top. Re-adding `overflow:hidden` is safe
+now in a way it wasn't during the original "Only 3 gates" bug, because
+the stage's height is unconditionally synced to the *active* card's real
+`offsetHeight` on every render (`syncRoloStageHeight()`) — it can never
+end up shorter than the one card that's actually supposed to be fully
+visible, only shorter than the inactive ones, which are supposed to stay
+mostly hidden behind it anyway (that's the whole stacked-deck illusion).
+
+**Caught a testing pitfall worth remembering for any future check of this
+kind: `getBoundingClientRect()` reports a child's own layout geometry
+regardless of an ancestor's `overflow:hidden` — it doesn't reflect what's
+actually painted.** A first verification pass reused the same
+rect-overlap check that reproduced the bug pre-fix, and got flaky
+true/false results post-fix, because the geometry itself is unchanged by
+`overflow:hidden` — only the paint is clipped. Re-verified two ways that
+actually reflect what a user sees: confirmed `getComputedStyle(stage).
+overflow === 'hidden'` structurally, and took a real screenshot after
+switching tickers with one already analyzed — clean, no ghosted text
+anywhere on or below the card.
+
+**3. Tapping a ticker pill now runs its analysis automatically.** Direct
+request: "when tapping a new ticker should invoke a[n] analysis" — the
+idle "Tap ANALYZE to run the gates" state was an unnecessary extra tap
+for a ticker being viewed for the first time. `goRolo(i)` now calls the
+existing (mocked) `analyzeOne(sym)` immediately after switching, but only
+when that ticker has no result yet and isn't already mid-analysis —
+revisiting an already-analyzed ticker just shows what's already there
+(same as tapping into any other open card), rather than needlessly
+re-cycling its mock profile on every visit. Verified: switching to a
+fresh ticker shows RUNNING… then a real verdict within the mock's normal
+~400-700ms delay with no extra tap; switching back to an already-analyzed
+one shows its existing result immediately, no RUNNING… flash.
+
+`preview/rolodex/app.js` bumped to `?v=6` per the cache-busting rule.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
