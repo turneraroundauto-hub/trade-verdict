@@ -104,6 +104,15 @@
     overflow:visible; transition:box-shadow .2s ease;
   }
   #gateCard.docked{ box-shadow:0 10px 18px -14px rgba(0,0,0,.75); cursor:pointer; }
+  /* gateSpacer is a plain, non-sticky block -- its own height collapsing
+     to 0 on dock (app.js's updateGateDockState()) is a normal, one-time
+     reflow on a discrete state change, not the fragile "sticky element's
+     own box changes shape mid-scroll" pattern the Aug 13 collapsing-card
+     lesson found broken three separate ways -- only #gateCard is sticky.
+     The transition here is what makes that collapse read as the content
+     "pulling up" into place instead of an abrupt jump (direct request,
+     Aug 15, 2026). */
+  #gateSpacer{ transition:height .2s ease; }
   .gate-mini-row{
     height:var(--gate-docked-h); box-sizing:border-box;
     display:flex; align-items:center; gap:9px; padding:0 16px;
@@ -475,8 +484,20 @@
 
       <div class="list-head"><span>Analysis Cards</span></div>
 
+      <!-- #roloIndex is deliberately a direct child of .content, NOT
+           nested inside .rolo-wrap (Aug 15, 2026 fix) -- a sticky
+           element's "stuck" range is bounded by its immediate parent's
+           box, so nested inside .rolo-wrap (just the open ticker card +
+           nav hint) it could only stay pinned until that box's own
+           bottom scrolled past, un-sticking well before the
+           Glossary/Track Record/disclaimer/footer that follow -- read
+           live as "the glossary is pushing it off the dock." .content
+           itself spans everything through the footer, so moving
+           #roloIndex up to be its direct child gives it that same,
+           much longer range. -->
+      <div class="rolo-index" id="roloIndex"></div>
+
       <div class="rolo-wrap">
-        <div class="rolo-index" id="roloIndex"></div>
         <div class="rolo-stage" id="roloStage"></div>
         <div class="rolo-nav"><span class="nav-hint" id="roloHint">— / —</span></div>
       </div>
@@ -518,6 +539,6 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=8"></script>
+<script type="module" src="./app.js?v=9"></script>
 </body>
 </html>

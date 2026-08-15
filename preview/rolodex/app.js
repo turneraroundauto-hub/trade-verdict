@@ -154,7 +154,10 @@ let spacerHeight = 0;
 // lesson (CLAUDE.md) found broken three separate ways on a real device.
 function sizeGateSpacer(){
   spacerHeight = currentGateFullHeight();
-  gateSpacer.style.height = spacerHeight + 'px';
+  // Respect whatever dock state is already showing (e.g. a resize firing
+  // while already docked) rather than always re-opening the full gap --
+  // updateGateDockState() below is what actually owns transitioning it.
+  gateSpacer.style.height = (gateCard.classList.contains('docked') ? 0 : spacerHeight) + 'px';
   updateGateDockState();
 }
 window.addEventListener('resize', sizeGateSpacer);
@@ -172,38 +175,68 @@ function currentGateFullHeight(){
 // to hide" -- confirmed via AskUserQuestion to mean the Sector Pulse
 // drop-down specifically, the first of the three utility cards.
 //
-// First attempt at this (since corrected) compared Sector Pulse's real
-// top against GATE_DOCKED_H (44px) -- reasoning "dock once Pulse has
-// scrolled up to where the compact bar's bottom edge will be." That's
-// actually a much LATER point than "begins to hide": while un-docked,
-// #gateCard's full-detail overlay stays sticky-pinned at the top the
-// entire time (position:sticky engages regardless of the docked class --
-// only the crossfade to the compact mini-row is gated on it), opaque,
-// at its own FULL real height -- not just GATE_DOCKED_H. So Sector Pulse
-// -- a plain, non-sticky element -- starts getting visually painted over
+// First attempt at this compared Sector Pulse's real top against
+// GATE_DOCKED_H (44px) -- reasoning "dock once Pulse has scrolled up to
+// where the compact bar's bottom edge will be." That's actually a much
+// LATER point than "begins to hide": while un-docked, #gateCard's
+// full-detail overlay stays sticky-pinned at the top the entire time
+// (position:sticky engages regardless of the docked class -- only the
+// crossfade to the compact mini-row is gated on it), opaque, at its own
+// FULL real height -- not just GATE_DOCKED_H. So Sector Pulse -- a
+// plain, non-sticky element -- starts getting visually painted over
 // (hidden) the moment its own top scrolls up to meet the overlay's
 // CURRENT full height, not the eventual 44px docked height. Comparing
 // against 44px instead meant waiting until Sector Pulse had scrolled
 // most of the way to *fully* clear the overlay before docking -- a wide
 // "dead zone" of scrolling where Sector Pulse was already invisible
-// (painted over) but the Gate still hadn't collapsed, matching the
-// repeated "still collapses late" reports. Confirmed by direct
-// measurement against a realistic 10-index/long-note mock: the old
-// GATE_DOCKED_H-based version needed ~187px of scroll; Sector Pulse
-// actually starts being covered at ~14px (essentially the moment
-// scrolling begins, since gateSpacer already reserves just enough room
-// to sit Sector Pulse right at the overlay's edge at rest).
-// Fixed by comparing against the overlay's own live height instead --
-// still a fresh, uncached measurement every tick, just the correct
-// reference height for "when hiding begins" rather than "when it's
-// safe to have fully shrunk."
-const cardPulse = document.getElementById('card-pulse');
+// (painted over) but the Gate still hadn't collapsed.
+//
+// Second attempt directly measured cardPulse's live position against the
+// overlay's live height every tick -- correct in isolation, but broke
+// once gateSpacer's own height was made to collapse on dock (below):
+// removing gateSpacer's reserved room permanently shifts Sector Pulse's
+// document-flow position closer to the top, which is exactly the value
+// this comparison reads -- so docking once made "undock" permanently
+// unreachable (scrolling back to the top no longer moved pulseTop back
+// past the threshold), a real regression caught before shipping.
+//
+// Fixed with a derivation instead of a live re-measurement: gateSpacer
+// is ALWAYS sized to exactly (overlayHeight - GATE_DOCKED_H) by
+// currentGateFullHeight(), which algebraically means Sector Pulse's
+// un-scrolled position is ALWAYS exactly (overlayHeight +
+// contentPaddingTop) -- so the scrollTop needed to bring it down to
+// "begins to hide" (pulseTop <= overlayHeight) is ALWAYS just
+// contentPaddingTop, a fixed constant, regardless of the overlay's
+// actual height. Confirmed by direct measurement against a realistic
+// 10-index/long-note mock: docks at scrollTop~15px, matching
+// .content's own 14px top padding. Using this fixed constant instead of
+// re-measuring cardPulse removes the circular dependency entirely --
+// nothing here depends on gateSpacer's current (possibly already
+// collapsed) height.
+const dockThreshold = parseFloat(getComputedStyle(document.querySelector('.content')).paddingTop) || 0;
+
+// Reported live (Aug 15, 2026): gateSpacer's reserved room was only ever
+// sized for the UN-docked overlay's full height (~150-200px+ with real
+// data) and never shrank back down once docked -- fine when docking used
+// to happen late (near where the spacer's own room ran out anyway), but
+// now that it docks after ~14px, the spacer still held open a huge,
+// now-pointless blank gap between the compact bar and Sector Pulse.
+// Collapses gateSpacer to 0 the moment `docked` flips true (and restores
+// it on undock) so the content underneath visually "pulls up" to meet
+// the collapsed bar -- only ever written on an actual state transition,
+// not every scroll tick, and only on a plain (non-sticky) element, so
+// this isn't the fragile "sticky element's own box changes shape
+// mid-gesture" pattern the Aug 13 lesson found broken -- #gateSpacer
+// itself is never sticky, only #gateCard is.
+let gateDockedLast = false;
 function updateGateDockState(){
-  const pulseTop = cardPulse.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
-  const overlayHeight = gateFullOverlay.getBoundingClientRect().height;
-  const docked = pulseTop <= overlayHeight;
+  const docked = scroller.scrollTop >= dockThreshold;
   gateCard.classList.toggle('docked', docked);
   gateCard.setAttribute('aria-expanded', String(!docked));
+  if(docked !== gateDockedLast){
+    gateSpacer.style.height = (docked ? 0 : spacerHeight) + 'px';
+    gateDockedLast = docked;
+  }
 }
 
 let gateTicking = false;
