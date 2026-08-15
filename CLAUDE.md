@@ -2803,6 +2803,48 @@ repeated lesson about shipping fixes ahead of a confirmed cause.
 `preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
 `?v=16` per the cache-busting rule.
 
+## Frontend: Rolodex preview — diagnostic was catching itself (Aug 16, 2026, `?v=17`)
+
+Direct follow-up, same day: the `?v=16` scroll ground-truth watcher
+caught nothing on the next live occurrence, and the overlay filled up
+with a confusing cluster instead — repeated `#marqueeDiag Δy±132.0,
+input=true` entries. Root cause: `#marqueeDiag` is `position:fixed`, and
+mobile browsers shift fixed-position elements as their OWN address-bar
+chrome hides/shows during a scroll gesture (`input=true` matches --
+these landed within 500ms of the user's own scroll touch). The Layout
+Instability observer was watching the entire page, including its own
+diagnostic overlay, and dutifully reported the overlay's own
+address-bar-driven repositioning as if it were an app bug. Pure
+self-noise, not signal -- and it was actively unhelpful, crowding out
+whatever real entries might have been there.
+
+**Fix:** filter `entry.sources` to drop any source node that IS
+`#marqueeDiag` itself before rendering/logging, and skip the entry
+entirely if nothing real is left once that's removed. Verified two ways:
+(1) directly mutated `#marqueeDiag`'s own height/padding (reproducing
+the same class of self-shift) and confirmed zero `#marqueeDiag`-sourced
+lines reach the rendered overlay; (2) re-confirmed a real, unrelated
+forced shift elsewhere on the page is still caught and correctly
+attributed (`#card-pulse` etc. still show up) -- the filter only removes
+the overlay's own self-reports, nothing else.
+
+**Still no confirmed root cause for the actual jump.** Both live
+attempts to catch it via the in-page overlay (the `?v=15` Layout
+Instability pass and the `?v=16` scroll ground-truth watcher) have come
+back empty or noisy on real occurrences, in contrast to the one clean,
+conclusive result this investigation has actually gotten: the Aug 15
+screen recording, analyzed frame-by-frame in the sandbox. That method
+found a real, precise, reproducible anomaly (-26px, one frame,
+self-correcting) that the live-overlay approach has not managed to
+reproduce evidence for since. If this recurs, another slow-motion screen
+recording — not another live-overlay screenshot — is the more reliable
+next diagnostic step; the overlay stays in place as a secondary check
+now that its self-noise is fixed, but it's proven less trustworthy than
+direct video analysis so far.
+
+`preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
+`?v=17` per the cache-busting rule.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |

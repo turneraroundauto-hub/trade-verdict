@@ -372,9 +372,18 @@ if('PerformanceObserver' in window){
   try{
     const layoutShiftObserver = new PerformanceObserver((list)=>{
       list.getEntries().forEach((entry)=>{
+        // The overlay itself is position:fixed, and mobile browsers shift
+        // fixed elements as their own address-bar chrome hides/shows
+        // during a scroll -- reported live (Aug 16, 2026) as a cluster of
+        // "#marqueeDiag Δy±132" entries with input=true, i.e. the
+        // diagnostic catching its OWN repositioning, not anything in the
+        // app. Drop any source that IS the overlay, and skip the entry
+        // entirely if nothing real is left once that's removed.
+        const realSources = (entry.sources || []).filter((s)=> s.node !== document.getElementById('marqueeDiag'));
+        if(entry.sources && entry.sources.length && realSources.length === 0) return;
         const t = new Date(performance.timeOrigin + entry.startTime).toISOString().slice(11, 23);
         let maxPx = 0;
-        const sources = (entry.sources || []).map((s)=>{
+        const sources = realSources.map((s)=>{
           const tag = describeShiftNode(s.node);
           const pr = s.previousRect, cr = s.currentRect;
           const dxNum = (pr && cr) ? (cr.x - pr.x) : null;
