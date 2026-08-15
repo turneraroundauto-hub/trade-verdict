@@ -160,29 +160,36 @@ function sizeGateSpacer(){
 window.addEventListener('resize', sizeGateSpacer);
 
 // Pure read, no DOM writes -- safe to call any time, including on every
-// scroll tick.
+// scroll tick. Still used by sizeGateSpacer() below to reserve enough
+// blank scroll room that the un-docked overlay never visually overlaps
+// Sector Pulse -- NOT used for the dock decision itself anymore, see
+// updateGateDockState().
 function currentGateFullHeight(){
   return Math.max(0, gateFullOverlay.getBoundingClientRect().height - GATE_DOCKED_H);
 }
 
-// The actual fix for "collapses at the wrong moment": always re-derived
-// from a fresh measurement, never from a cached value that could be
-// stale relative to content that changed size for a reason other than
-// scrolling (the real /market fetch resolving asynchronously, on a real
-// phone with real network latency, is exactly that reason). Called both
-// on every scroll tick AND right after any render that can change the
-// overlay's real height -- a scroll event is not the only thing that
-// can make the correct dock state change; content arriving while the
-// user is scroll-stationary must too, or the Gate stays stuck showing
-// whatever was correct for the OLD content size until the next scroll.
-// This two-part gap (compare-against-stale-value, then no re-check
-// without a new scroll event) is exactly the kind of thing this
-// sandbox's headless tests couldn't catch on their own: routed fake
-// responses resolve instantly and scrolling was programmatic (scrollTo),
-// neither of which reproduces the real network-latency + real-touch-
-// scroll-then-pause sequence that exposed it live.
+// Direct request (Aug 15, 2026): dock exactly when Sector Pulse "begins
+// to hide" -- confirmed via AskUserQuestion to mean the Sector Pulse
+// drop-down specifically, the first of the three utility cards. Reported
+// live: with real market data (10 real indices + a real, often
+// multi-line note -- both considerably bigger than anything exercised in
+// this session's earlier testing), the overlay grows tall enough that
+// the OLD threshold (scrollTop >= currentGateFullHeight(), i.e. "you've
+// scrolled past the overlay's own height") stayed undocked long after
+// Sector Pulse -- and Session Context, and Import -- had already
+// scrolled out of view. That threshold was only ever a *proxy* for
+// Sector Pulse's position, coupled to it through gateSpacer's cached
+// height; it was correct as long as gateSpacer stayed in sync with the
+// overlay's real height, but any gap between them (spacer sized once,
+// overlay growing again afterward) pushes the derived threshold later
+// than Sector Pulse's real position without anything to catch it.
+// Fixed by measuring Sector Pulse's own real position directly instead
+// of deriving it: no derived threshold to fall out of sync with
+// anything, since #card-pulse's rect is read fresh every tick.
+const cardPulse = document.getElementById('card-pulse');
 function updateGateDockState(){
-  const docked = scroller.scrollTop >= currentGateFullHeight();
+  const pulseTop = cardPulse.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+  const docked = pulseTop <= GATE_DOCKED_H;
   gateCard.classList.toggle('docked', docked);
   gateCard.setAttribute('aria-expanded', String(!docked));
 }
@@ -484,9 +491,20 @@ function sizeRoloMarquee(){
 }
 window.addEventListener('resize', sizeRoloMarquee);
 
+// pauseRoloMarquee schedules its own resume immediately (not just on
+// pointerup/cancel) -- reported live, Aug 15, 2026: the marquee could get
+// stuck stopped indefinitely after a real touch. On a real device a
+// touch that starts as a tap but turns into (or gets interpreted as) a
+// page scroll doesn't reliably fire pointerup/pointercancel on
+// #roloIndex, the ONLY events that used to schedule the resume -- so a
+// pause with no matching pointerup could pause forever. Self-scheduling
+// on pointerdown makes 2s the hard ceiling on any pause regardless of
+// what happens next; pointerup/pointercancel, when they do fire, just
+// reset the same timer to 2s from that later point (right for a normal
+// tap/drag), rather than being the only way out of the paused state.
 let roloMarqueePaused = false, roloMarqueeResumeTimer = null;
-function pauseRoloMarquee(){ roloMarqueePaused = true; clearTimeout(roloMarqueeResumeTimer); }
 function scheduleRoloMarqueeResume(){ clearTimeout(roloMarqueeResumeTimer); roloMarqueeResumeTimer = setTimeout(()=>{ roloMarqueePaused = false; }, 2000); }
+function pauseRoloMarquee(){ roloMarqueePaused = true; scheduleRoloMarqueeResume(); }
 roloIndex.addEventListener('pointerdown', pauseRoloMarquee);
 roloIndex.addEventListener('pointerup', scheduleRoloMarqueeResume);
 roloIndex.addEventListener('pointercancel', scheduleRoloMarqueeResume);
