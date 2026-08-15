@@ -2285,6 +2285,94 @@ Full pill-tap/auto-analyze/accordion/glossary-search/dock-undock
 regression suite re-run against both fixes together — all pass.
 `preview/rolodex/app.js` bumped to `?v=8` per the cache-busting rule.
 
+## Frontend: Rolodex preview — smooth Gate-collapse pull, pill dock persisting past the Glossary (Aug 15, 2026, `?v=9`)
+
+Two more live-reported issues from the same page, once `?v=8`'s much
+earlier dock trigger made both newly visible.
+
+**1. Large blank gap when the Gate collapses.** Direct request: "can the
+screen get pulled with the collapse smoothly?" Root cause: `gateSpacer`
+(the plain block reserving scroll room so the un-docked overlay doesn't
+visually overlap Sector Pulse) was sized once to the overlay's full
+un-docked height and never shrank back down once docked — harmless
+when docking used to happen late (near where the spacer's own room ran
+out anyway, per `?v=7`), but `?v=8` moved the dock trigger to ~14px, so
+the spacer was now holding open a ~150-200px gap that served no purpose
+once the overlay had already crossfaded away. Fixed: `gateSpacer`
+collapses to `0` the instant `docked` flips true (restored on undock),
+written only on an actual state transition (not every scroll tick), with
+a `.2s` CSS transition on `#gateSpacer` itself so the content underneath
+visually "pulls up" into place. `#gateSpacer` is a plain, non-sticky
+block — this is a normal, one-time reflow on a discrete state change, not
+the fragile "sticky element's own box changes shape mid-gesture" pattern
+the Aug 13 collapsing-card lesson found broken three separate ways; only
+`#gateCard` is sticky here.
+
+**A real bug caught before shipping: collapsing the spacer broke
+undocking.** The dock decision at the time measured Sector Pulse's own
+live position (`#card-pulse`'s `getBoundingClientRect()`) against the
+overlay's height. Once `gateSpacer` started collapsing to `0` on dock,
+removing that reserved room permanently shifted Sector Pulse's
+document-flow position closer to the top — the exact value the dock
+condition read — so once docked, "undock" became permanently
+unreachable (scrolling back to the top no longer moved the measurement
+back past the threshold). Root-caused by testing the undock path
+explicitly, not just the dock path. Fixed with a derivation instead of a
+live re-measurement: since `gateSpacer` is always sized to exactly
+`overlayHeight − GATE_DOCKED_H`, the scrollTop needed to reach "begins to
+hide" is algebraically always just `.content`'s own top padding (14px),
+a fixed constant independent of the overlay's height or the spacer's
+current (possibly already-collapsed) state — removing the circular
+dependency entirely. Confirmed docks/undocks repeatedly and correctly
+across multiple toggles, not just once each direction.
+
+**2. Ticker pills not persisting past the Glossary.** Direct report: "the
+ticker pills docked needs to persist with everything scrolling under.
+the glossary is pushing it off the dock." Root cause: `#roloIndex` (the
+sticky pill strip) was nested inside `.rolo-wrap`, a short flex block
+containing only the open ticker card and the nav hint — a sticky
+element's "stuck" range is bounded by its own immediate parent's box, so
+once `.rolo-wrap`'s own box had scrolled past, `#roloIndex` had nowhere
+left to stick and un-stuck well before the Glossary/Track Record/
+disclaimer/footer that follow, reading exactly like those elements
+"pushing it off." Fixed by moving `#roloIndex` up to be a direct child of
+`.content` instead (which spans everything through the footer), not
+nested inside `.rolo-wrap` at all.
+
+**A genuinely embarrassing testing-methodology bug, confirmed and
+corrected before writing this up.** An intermediate attempt at
+diagnosing this (measuring `#roloIndex`'s `getBoundingClientRect().top`
+directly, comparing it to the intended `44px` offset) kept showing a
+"stuck at 231px" result no matter what was changed — including several
+increasingly drastic (and, it turned out, unnecessary) restructuring
+attempts, one of which split `.content` into two separate blocks around
+`#roloIndex` to make it a direct child of `#scroller` itself. The real
+explanation: `getBoundingClientRect().top` is viewport-relative, and
+`#scroller` itself sits 187px down the viewport behind the fixed header
+— `#roloIndex` had been correctly stuck at `44px` *relative to
+`#scroller`* the entire time (`187 + 44 = 231`, exactly the "stuck"
+value), and every one of those diagnostic tests was misreading correct
+behavior as broken by never subtracting `#scroller`'s own offset. Undone
+the unnecessary split-`.content` restructure once this was caught,
+back to the simpler single-`.content`, direct-child-of-`.content`
+version above — that alone was already sufficient. Kept as a written
+lesson because it cost real, avoidable effort: **when measuring a sticky
+or fixed element's position inside a scroll container that itself isn't
+flush with the viewport's own top, always compute position relative to
+the scroll container's own `getBoundingClientRect()`, never raw viewport
+coordinates** — this file already carries several sticky/scroll
+measurement lessons; this is the same discipline (measure the real
+thing) applied to a mistake in the measurement itself, not the code
+under test.
+
+Verified (correctly, this time): scrolled to the page's true max
+(`scrollTop === scrollHeight − clientHeight`, past the Glossary and
+footer) and confirmed `#roloIndex`'s position *relative to `#scroller`*
+is exactly `44px`; confirmed dock/undock and the spacer collapse/restore
+both work correctly across repeated toggles; full pill-tap/auto-analyze/
+accordion/glossary-search regression suite re-run, all pass.
+`preview/rolodex/app.js` bumped to `?v=9` per the cache-busting rule.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
