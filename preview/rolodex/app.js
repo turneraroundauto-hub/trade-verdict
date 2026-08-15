@@ -576,9 +576,14 @@ async function renderRolodexFromWatchlist(){
     roloStage.appendChild(card);
     renderRoloCard(sym);
   });
-  // A real ticker pass, then a single "— N —" count divider marking
-  // where it ends, then duplicate pass(es) (no divider) so the marquee
-  // wraps seamlessly.
+  // Each pass gets its OWN "— N —" divider right after it, not just the
+  // first -- direct report, Aug 15, 2026: with only one divider in the
+  // whole strip, most loops through the watchlist showed no marker at
+  // all, then it would suddenly appear once per full wrap cycle,
+  // reading as "inserted as an afterthought" instead of naturally
+  // recurring at the end of every pass. Every pass+divider chunk is now
+  // the same width, which also keeps the marquee's wrap math (below)
+  // correct regardless of how many passes get appended.
   function appendChipPass(){
     watchlist.forEach((sym, i)=>{
       const chip = document.createElement('button');
@@ -587,23 +592,22 @@ async function renderRolodexFromWatchlist(){
       roloIndex.appendChild(chip);
       renderPill(sym);
     });
+    const divider = document.createElement('span');
+    divider.className = 'rolo-divider';
+    divider.textContent = `— ${watchlist.length} —`;
+    roloIndex.appendChild(divider);
+    return divider;
   }
-  appendChipPass();
-  roloCountDivider = document.createElement('span');
-  roloCountDivider.className = 'rolo-divider';
-  roloCountDivider.textContent = `— ${watchlist.length} —`;
-  roloIndex.appendChild(roloCountDivider);
-  appendChipPass();
+  roloCountDivider = appendChipPass();
   // On a short watchlist (Free's 3-ticker cap) in a wide-ish viewport, one
-  // "set" (real pass + divider) is WIDER than the browser's native
+  // "set" (a pass + its divider) is WIDER than the browser's native
   // scrollable room past a single duplicate pass -- scrollLeft creeps a
   // few px, hits that hard native clamp, and can never reach the distance
   // needed to wrap. Not a pause bug: it's stuck, not paused, but reads
-  // identically to "doesn't auto-scroll at all" (direct report, Aug 15,
-  // 2026). Keep appending plain duplicate passes (no divider -- the
-  // marker stays singular) until there's actually enough scrollable room
-  // to traverse one full set; guarded so an unexpected empty watchlist
-  // can't spin forever.
+  // identically to "doesn't auto-scroll at all". Keep appending duplicate
+  // passes (each with its own divider) until there's actually enough
+  // scrollable room to traverse one full set; guarded so an unexpected
+  // empty watchlist can't spin forever.
   const oneSetW = roloCountDivider.offsetLeft + roloCountDivider.offsetWidth;
   for(let guard = 0; guard < 20 && (roloIndex.scrollWidth - roloIndex.clientWidth) < oneSetW; guard++){
     appendChipPass();
