@@ -2203,6 +2203,88 @@ Full pill-tap/auto-analyze/accordion/glossary-search/dock-undock
 regression suite re-run against both fixes together — all pass.
 `preview/rolodex/app.js` bumped to `?v=7` per the cache-busting rule.
 
+## Frontend: Rolodex preview — corrected dock reference height, marquee wrap on short lists (Aug 15, 2026, `?v=8`)
+
+Reported live, immediately after the `?v=7` fixes above deployed: "both
+problems are still there." Deploy was independently confirmed correct
+(raw file fetched straight from `main` at the deployed SHA, byte-matched
+the intended fix) — so this wasn't a repeat of the caching class of bug.
+Both turned out to be real, distinct bugs the `?v=7` fixes didn't
+actually address, found by direct measurement rather than another guess.
+
+**1. Gate still collapsing late — the `?v=7` fix targeted the wrong
+reference height.** That fix compared Sector Pulse's live top against
+`GATE_DOCKED_H` (44px), reasoning "dock once Pulse has scrolled up to
+where the compact bar's bottom edge will be." Measured directly against
+a realistic mock (10 real indices, a real multi-clause note, matching
+`server.js`'s actual `/market` response shape — `market.gateStatus`/
+`.gateNote`/`.spy` etc. at the top level, not nested, a shape an earlier
+verification pass had gotten wrong without noticing): that threshold
+needed **~187px** of scroll. But `#gateCard`'s full-detail overlay stays
+sticky-pinned at the top the *entire time* it's un-docked (regardless of
+the docked class — only the crossfade to the compact row is gated on
+that; the sticky positioning itself is unconditional), opaque, at its
+own full real height. Sector Pulse — a plain, non-sticky element — starts
+being visually painted over the moment its own top scrolls up to meet
+the overlay's *current* full height, not the eventual 44px docked
+height. Measured: that's only **~14px** of scroll (gateSpacer already
+reserves just enough room to sit Sector Pulse right at the overlay's
+edge at rest, so almost any scrolling starts covering it). The `?v=7`
+fix was comparing against a point ~170px past where Sector Pulse
+actually starts disappearing — a wide "dead zone" where it's already
+invisible (painted over) but the Gate hasn't collapsed yet, exactly
+matching the repeated "still collapses late" reports. **Fixed by
+comparing against the overlay's own live height instead of
+`GATE_DOCKED_H`** — same fresh-every-tick measurement discipline as
+`?v=7`, just the correct reference point for "when hiding begins" rather
+than "when it's safe to have fully shrunk." Verified via real
+incremental scroll against the accurate mock: docks at scrollTop≈15px,
+matching the computed ~14px threshold. This is a large, deliberate
+behavior change (docks almost immediately on any scroll, not after a
+few hundred px) — flagged clearly in case it now reads as too early
+rather than too late; that's a much easier correction to make than the
+ambiguous "still late" this replaces.
+
+**2. Marquee "does not auto-scroll anymore" — a real design gap for
+short lists, not a pause bug.** The `?v=7` fix (self-healing pause)
+was independently re-verified still correct and unaffected — the actual
+cause was that on Free's 3-ticker watchlist, one full "set" (real pass +
+divider) is **wider** than the browser's native scrollable room past a
+single duplicate pass (~242px needed vs. ~42px available in a 390px
+viewport). `scrollLeft` creeps those ~42px and hits a hard native clamp
+it can never get past to reach the wrap-around point — not paused, just
+physically stuck, but visually indistinguishable from "doesn't scroll."
+This was always true (flagged as a known, deliberately-deferred
+limitation when the count-divider landed), but only became a live
+complaint once someone was actually watching it not move at all. Fixed
+in `renderRolodexFromWatchlist()`: after the real pass + divider + one
+duplicate pass, keep appending plain duplicate passes (no divider — the
+"— N —" marker stays singular) until `roloIndex.scrollWidth -
+roloIndex.clientWidth >= roloMarqueeOneSetW`, i.e. until there's
+actually enough native scroll room to traverse one full set, guarded at
+20 iterations so an unexpected empty watchlist can't spin forever.
+Verified: the real 3-ticker page now renders 4 total passes (was 2) and
+`scrollLeft` climbs smoothly past the old ~42px ceiling and genuinely
+wraps (231→1→13→25…) instead of sticking; pause-on-tap and resume still
+work correctly with the extra passes in place.
+
+**Methodology note, worth keeping:** the mocked `/market` response used
+to verify the Aug 15 `?v=7` Gate fix had the wrong shape (nested
+`{gate:{...}, indices:{...}}` instead of the real flat
+`market.gateStatus`/`market.spy` etc.) — silently causing the Gate's
+note text to render empty and every index value to show `?`, understating
+the real overlay's height and masking the actual scale of the dock-timing
+bug in that round's testing. Re-checked the real shape directly against
+the code (`GATE_FIELDS`, `renderGate()`) before writing this round's
+mocks. When a live report contradicts a "verified" fix, re-verify the
+mock's shape against the real code path first, not just the assertion
+logic — a structurally wrong mock can pass tests while proving nothing
+about the real behavior.
+
+Full pill-tap/auto-analyze/accordion/glossary-search/dock-undock
+regression suite re-run against both fixes together — all pass.
+`preview/rolodex/app.js` bumped to `?v=8` per the cache-busting rule.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
