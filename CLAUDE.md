@@ -2414,6 +2414,62 @@ dock regression suite — all pass.
 
 `preview/rolodex/app.js` bumped to `?v=10` per the cache-busting rule.
 
+## Frontend: Rolodex preview — pixel-precise marquee wrap, no more jump at the loop point (Aug 15, 2026, `?v=11`)
+
+Direct report: "the ticker pills back-step jumps like 5 pxls at the end
+of the loop." Two real, stacked sub-pixel precision bugs, confirmed by
+direct measurement before touching any code — not guessed at.
+
+**Bug 1 — `scrollLeft` writes get silently rounded to whole pixels.**
+Confirmed live: writing `10.7` reads back as `11`, writing `10.3` reads
+back as `10`. `stepRoloMarquee()` was accumulating by reading
+`roloIndex.scrollLeft` back each frame and adding `0.5` to it — since
+every read is already rounded, that rounding compounds every single
+frame, so by the time the wrap check fired the position had drifted a
+few px from its true value.
+
+**Bug 2 — `oneSetW` was measured with integer-rounded properties.**
+`offsetLeft`/`offsetWidth` round to the nearest integer per spec;
+`getBoundingClientRect()` doesn't. Measured directly: a divider's
+`offsetLeft + offsetWidth` gave `242`, but its real edge via
+`getBoundingClientRect()` was `242.42` — a small, constant mismatch
+between where the code wrapped and where the content actually repeats,
+compounding with Bug 1's drift instead of correcting it.
+
+**Fix.** `sizeRoloMarquee()` now measures `oneSetW` off
+`getBoundingClientRect()` instead of `offsetLeft`/`offsetWidth`. The
+step loop now tracks its own logical position (`roloMarqueePos`, a plain
+float) independent of `scrollLeft`'s rounding, only writing to the real
+`scrollLeft` at the end of each frame — this bounds the rounding error
+to at most one frame's write instead of letting it compound over
+however many frames occur between wraps.
+
+**Two follow-on correctness details, both needed for the fix to be safe
+rather than just quieter:**
+- `roloMarqueePos` resyncs from the real `scrollLeft` when the marquee
+  resumes from a pause — otherwise a manual drag during the pause
+  window would get silently discarded, resuming from the marquee's own
+  stale pre-pause position instead of wherever the user actually left
+  it.
+- `roloMarqueePos` resets to `0` in lockstep with `renderRolodexFromWatchlist()`'s
+  `roloIndex.innerHTML = ''` (which itself resets the real `scrollLeft`
+  to `0`) — without this, importing a new ticker would leave the tracker
+  holding a stale, large value that the very next frame would snap
+  `scrollLeft` to, a much bigger and more visible jump than the one
+  being fixed.
+
+**Verified:** sampled `scrollLeft` at a fine grain across several full
+loop cycles and confirmed the wrap lands exactly at `0` (not a residual
+few-px offset) with a consistent 0-1px-per-frame step cadence on both
+sides of the transition, no anomalous jump; confirmed a manual drag
+during a pause is correctly picked up on resume (not discarded);
+confirmed a real watchlist rebuild (importing a ticker on an
+under-the-cap list) resets `scrollLeft` to ~0 rather than jumping;
+full pill-tap/auto-analyze/accordion/glossary-search/dock regression
+suite re-run, all pass.
+
+`preview/rolodex/app.js` bumped to `?v=11` per the cache-busting rule.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
