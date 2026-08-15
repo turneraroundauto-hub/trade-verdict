@@ -117,20 +117,27 @@
   .gate-marquee .gm-item{ flex:none; font-size:10.5px; }
   .gate-marquee .gm-item .sym{ color:var(--ink-faint); margin-right:4px; }
   .gate-marquee .gm-item .val{ font-weight:700; font-variant-numeric:tabular-nums; }
+  /* Tightened (Aug 15, 2026): the full-detail overlay's own footprint
+     directly sets how much has to be scrolled before the Gate can dock
+     -- see the JS comment on currentGateFullHeight(). A shorter overlay
+     means less scroll-through-blank-space before Sector Pulse/Session
+     Context/Import get room to appear, without touching the docking
+     mechanism itself (which is correct -- verified via a real
+     incremental-scroll test). */
   .gate-full-overlay{
     position:absolute; top:0; left:0; right:0;
-    background:var(--bg-raise); padding:14px 16px 16px;
+    background:var(--bg-raise); padding:10px 16px 12px;
     opacity:1; pointer-events:auto; transition:opacity .15s ease;
   }
   #gateCard.docked .gate-full-overlay{ opacity:0; pointer-events:none; }
-  .gate-full-label{ display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+  .gate-full-label{ display:flex; align-items:center; gap:8px; margin-bottom:7px; }
   .gate-full-label .dot{ width:9px; height:9px; border-radius:50%; }
   .gate-full-label .label{ font-size:12px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; }
-  .gate-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px 10px; margin-bottom:10px; }
+  .gate-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:5px 10px; margin-bottom:7px; }
   .gate-stat .k{ font-size:9.5px; color:var(--ink-faint); letter-spacing:.05em; }
-  .gate-stat .v{ font-size:13px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .gate-stat .v{ font-size:12.5px; font-weight:700; font-variant-numeric:tabular-nums; }
   .up{ color:var(--green); } .down{ color:var(--red); } .flat{ color:var(--amber); } .neutral{ color:var(--ink-dim); }
-  .gate-note{ font-size:11px; color:var(--ink-dim); line-height:1.6; }
+  .gate-note{ font-size:11px; color:var(--ink-dim); line-height:1.45; }
 
   .content{ padding:14px 14px 60px; display:flex; flex-direction:column; gap:10px; }
 
