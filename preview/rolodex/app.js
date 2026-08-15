@@ -746,6 +746,34 @@ roloIndex.addEventListener('pointerdown', pauseRoloMarquee);
 roloIndex.addEventListener('pointerup', scheduleRoloMarqueeResume);
 roloIndex.addEventListener('pointercancel', scheduleRoloMarqueeResume);
 
+// Ground-truth scrollLeft watcher (Aug 16, 2026) -- a real device video
+// caught a genuine, precise ~26px single-frame jump in the pill row with
+// ZERO interaction (no touch, no scroll, page untouched, ~2.6s after
+// load), immediately self-correcting on the very next frame back to the
+// established smooth rate -- and NEITHER existing diagnostic saw it.
+// Root cause still unconfirmed, but the self-correcting-in-one-frame
+// shape is consistent with something OTHER than stepRoloMarquee's own
+// write briefly setting scrollLeft, which stepRoloMarquee's very next
+// frame then silently overwrites back to the correct roloMarqueePos-
+// derived value before marqueeDiagCheck (which reads synchronously right
+// after stepRoloMarquee's OWN write, same call) ever gets a chance to see
+// the interfering value. The browser's native 'scroll' event fires for
+// ANY scrollLeft mutation regardless of source or timing, so it's the one
+// mechanism that can't share that blind spot. Compares what actually
+// landed against what roloMarqueePos (our own intended value) says it
+// should be; only logs on a real mismatch, since a matching scroll event
+// fires on every single one of our own routine writes too.
+function watchRoloScrollGroundTruth(){
+  const expected = Math.round(roloMarqueePos);
+  const actual = roloIndex.scrollLeft;
+  if(Math.abs(actual - expected) > 2){
+    const t = new Date().toISOString().slice(11, 23);
+    pushDiagEvent(`${t} SCROLL-GT mismatch: scrollLeft=${actual} expected(roloMarqueePos)=${expected} Δ=${actual-expected}`, true);
+    console.warn('[scroll-ground-truth]', { actual, expected, roloMarqueePos, roloMarqueePaused, roloMarqueeDataReady });
+  }
+}
+roloIndex.addEventListener('scroll', watchRoloScrollGroundTruth, { passive:true });
+
 const ROLO_MARQUEE_SPEED = 0.5;
 function stepRoloMarquee(){
   let wrapDelta = 0;
@@ -792,6 +820,20 @@ async function renderRolodexFromWatchlist(){
       const chip = document.createElement('button');
       chip.className = 'rolo-chip'; chip.dataset.sym = sym; chip.dataset.idx = String(i);
       chip.addEventListener('click', ()=> goRolo(i));
+      // A real bug found while investigating the marquee jump (Aug 16,
+      // 2026): tapping a chip focuses this <button>, and the browser's
+      // own default "scroll the newly-focused element into view"
+      // behavior yanks #roloIndex's scrollLeft to wherever that chip
+      // happens to sit -- fully independent of roloMarqueePos, and
+      // since goRolo's tap also pauses the marquee for 2s, nothing
+      // corrects it back until the resume timer fires, leaving a real
+      // visible jump sitting on screen the whole pause. preventDefault()
+      // on pointerdown stops the click from moving focus at all (the
+      // click and goRolo() still fire normally), which is the standard
+      // fix for "don't let this button's tap auto-scroll its container"
+      // -- doesn't affect keyboard/Tab navigation, which still focuses
+      // and scrolls normally as accessibility requires.
+      chip.addEventListener('pointerdown', (e)=> e.preventDefault());
       roloIndex.appendChild(chip);
       renderPill(sym);
     });
