@@ -124,6 +124,7 @@ function renderGate(){
 
 const gateMarquee = document.getElementById('gateMarquee');
 let gateMarqueeOneSetW = 0;
+let gateMarqueePos = 0;
 function buildGateMarquee(){
   const items = GATE_FIELDS.map(([key, label])=>{
     const d = market && market[key];
@@ -132,8 +133,28 @@ function buildGateMarquee(){
     return `<span class="gm-item"><span class="sym">${label}</span><span class="val ${cls}">${val}</span></span>`;
   }).join('');
   gateMarquee.innerHTML = items + items; // duplicated for a seamless marquee loop
-  requestAnimationFrame(()=>{ gateMarqueeOneSetW = gateMarquee.scrollWidth / 2; });
+  // Rebuilding resets the real scrollLeft to 0 -- the tracked position
+  // (see stepGateMarquee below) has to reset with it, same reasoning as
+  // roloMarqueePos in the pill strip.
+  gateMarqueePos = 0;
+  requestAnimationFrame(sizeGateMarquee);
 }
+
+// Same fix as the pill strip's sizeRoloMarquee(): scrollWidth rounds to
+// the nearest integer per spec, so scrollWidth/2 can be off by up to
+// ~0.5px from where the content actually repeats even though the two
+// passes are truly identical. Measures the real boundary (the last item
+// of the first pass) via getBoundingClientRect() instead, which keeps
+// full sub-pixel precision.
+function sizeGateMarquee(){
+  const items = gateMarquee.querySelectorAll('.gm-item');
+  if(items.length < 2){ gateMarqueeOneSetW = gateMarquee.scrollWidth / 2; return; }
+  const lastOfFirstPass = items[items.length / 2 - 1];
+  const containerLeft = gateMarquee.getBoundingClientRect().left;
+  const boundaryRight = lastOfFirstPass.getBoundingClientRect().right;
+  gateMarqueeOneSetW = (boundaryRight - containerLeft) + gateMarquee.scrollLeft;
+}
+window.addEventListener('resize', sizeGateMarquee);
 
 // ── Gate dock/scroll mechanics — ported from the approved prototype;
 // purely UI mechanics, no data dependency. See CLAUDE.md's collapsing-
@@ -255,11 +276,18 @@ gateCard.addEventListener('keydown', (e)=>{
   if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); if(gateCard.classList.contains('docked')) jumpToTop(); }
 });
 
+// Same fix as the pill strip's stepRoloMarquee(): scrollLeft snaps
+// writes to the nearest whole pixel, so accumulating by reading it back
+// each frame compounds that rounding every frame until the wrap check
+// fires against an already-drifted value. Tracks the logical position
+// as a plain float instead, only writing the rounded result to the real
+// scrollLeft.
 const GATE_MARQUEE_SPEED = 0.4;
 function stepGateMarquee(){
   if(gateCard.classList.contains('docked') && gateMarqueeOneSetW > 0){
-    gateMarquee.scrollLeft += GATE_MARQUEE_SPEED;
-    if(gateMarquee.scrollLeft >= gateMarqueeOneSetW) gateMarquee.scrollLeft -= gateMarqueeOneSetW;
+    gateMarqueePos += GATE_MARQUEE_SPEED;
+    if(gateMarqueePos >= gateMarqueeOneSetW) gateMarqueePos -= gateMarqueeOneSetW;
+    gateMarquee.scrollLeft = gateMarqueePos;
   }
   requestAnimationFrame(stepGateMarquee);
 }

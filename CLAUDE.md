@@ -2470,6 +2470,63 @@ suite re-run, all pass.
 
 `preview/rolodex/app.js` bumped to `?v=11` per the cache-busting rule.
 
+## Frontend: Rolodex preview — full scroll-animation sweep, Gate's own index marquee had the identical bug (Aug 15, 2026, `?v=12`)
+
+Direct follow-up: "it's still back stepping at the end of the list...
+rerun a full sweep of the code for scrolling bugs. make ever[y] scrolling
+motion smooth." Grepped the whole file for `scrollLeft`/`scrollTop`/
+`requestAnimationFrame` rather than re-guessing at the pill strip again.
+
+**Found a second, independent instance of the exact same bug class the
+`?v=11` fix addressed: the docked Gate's own SPY/QQQ/BTC/etc. index
+marquee (`stepGateMarquee`/`buildGateMarquee`), never touched by that
+pass.** Same two problems: `stepGateMarquee` accumulated by reading
+`gateMarquee.scrollLeft` back each frame (subject to the same
+whole-pixel rounding confirmed for the pill strip), and
+`gateMarqueeOneSetW` was measured as `gateMarquee.scrollWidth / 2` —
+`scrollWidth` rounds to the nearest integer per spec, so even though
+the gate marquee's two passes are truly identical (no divider breaking
+the symmetry, unlike the pill strip), halving an already-rounded number
+can still land up to ~0.5px off the real repeat boundary. Once the
+Gate's own dock-timing fix (`?v=7`, earlier this file) made this
+marquee visible almost immediately on any scroll, its jump became at
+least as noticeable as the pill strip's.
+
+**Fixed identically:** `sizeGateMarquee()` (renamed from an inline
+`requestAnimationFrame` callback) measures the real boundary — the last
+`.gm-item` of the first pass — via `getBoundingClientRect()` instead of
+`scrollWidth/2`. `stepGateMarquee()` now tracks `gateMarqueePos`, a
+plain float independent of `scrollLeft`'s rounding, same as the pill
+strip's `roloMarqueePos`. `gateMarqueePos` resets to `0` in
+`buildGateMarquee()` alongside the real `scrollLeft` reset, for the same
+reason `roloMarqueePos` needed the same reset in `renderRolodexFromWatchlist()`.
+
+**Confirmed the rest of the file has no other instance of this pattern.**
+Grepped for every `requestAnimationFrame` call: only two are continuous
+per-frame animation loops (`stepRoloMarquee`, `stepGateMarquee`, both now
+fixed) — everything else is a one-shot measurement/sizing call after a
+render, not a repeated scrollLeft-accumulation loop, so not subject to
+this bug class at all. Every other "scrolling motion" in the page (the
+main page scroll, the Gate-collapse spacer pull, the Rolodex card-stack
+transitions, the Glossary accordion) is either native browser scrolling
+or a CSS `transition` on `transform`/`opacity`/`height` — none of those
+read back a rounded DOM property into a frame-by-frame accumulator, so
+none of them share this failure mode.
+
+**Verified with a much longer, denser sampling pass than `?v=11` used,
+specifically to catch a residual bug the shorter test might have missed
+given the live report that the shorter fix "still" wasn't enough:**
+sampled the pill strip at 10ms resolution for 9 real seconds (900
+samples, several full loops) — exactly one wrap, landing at `0`, max
+single-frame step 1px, no anomaly. The Gate's own marquee has a much
+longer ~32s cycle (773px at 0.4px/frame) — waited through most of one
+real cycle, then sampled densely through the expected wrap window and
+confirmed the same clean `766 → 0` transition. Full pill-tap/
+auto-analyze/accordion/glossary-search/dock regression suite re-run
+against both fixes together, all pass.
+
+`preview/rolodex/app.js` bumped to `?v=12` per the cache-busting rule.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
