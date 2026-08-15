@@ -2640,6 +2640,77 @@ accordion/glossary-search/dock regression suite re-run, all pass.
 
 `preview/rolodex/app.js` bumped to `?v=14` per the cache-busting rule.
 
+## Frontend: Rolodex preview — jump still unreproduced, diagnostic broadened to the Layout Instability API (Aug 16, 2026, `?v=15`)
+
+Direct follow-up, reported live: the `?v=14` overlay caught nothing —
+"no detection on refresh" — even though the jump itself was still
+happening. That's real, useful evidence, not just another "still
+broken": it means the jump isn't going through either marquee's own
+`scrollLeft` write at all, so the `?v=14` diagnostic (which only ever
+tracked the two marquees' reference elements' horizontal position) was
+structurally incapable of seeing it, regardless of cause. Re-guessing at
+marquee math a fourth time risked missing it the same way a third time.
+
+**Switched the diagnostic to the browser's own Layout Instability API**
+(`PerformanceObserver({type:'layout-shift'})`) instead of another
+hand-rolled, hypothesis-specific check. This is the web platform's
+purpose-built tool for exactly this class of bug: it reports every
+visible layout shift on the page, on any element, on any axis, regardless
+of cause — not limited to any one theory about where the jump comes from
+— and names the actual DOM node(s) involved (`entry.sources[].node`) plus
+each one's real before/after rect. `buffered:true` replays shifts that
+happened before the observer attaches, which is the specific fix for "on
+refresh" — a load-time shift the page's own script would otherwise have
+missed by starting to watch too late. The old marquee-specific check
+(`marqueeDiagCheck`) was kept alongside it, not replaced — both now feed
+one shared event log/overlay so nothing gets silently overwritten.
+
+**Verified the new mechanism actually works, via real Playwright testing,
+before shipping it — not just that it compiles:** confirmed a
+PerformanceObserver registers without throwing; confirmed a synthetic
+forced layout change (a test element grown 2px→120px with no transition)
+is correctly caught, correctly names every real sibling element that
+shifted as a result (`#card-pulse`, `#card-context`, `#card-io`,
+`.list-head`, `.rolo-wrap`), and correctly reports the real 118px `Δy`;
+confirmed normal page operation (idle load, a pill tap triggering
+auto-analyze) produces a stream of real, legitimate small shifts as
+`.rolo-stage`'s own already-CSS-transitioned (`height:.28s ease`) content
+grows smoothly — i.e., the tool is picking up genuine per-spec CLS
+entries, not staying silent. **This also surfaced a real, previously
+unknown gap in the `?v=14` overlay's own CSS: `pointer-events:none` meant
+its `overflow-y:auto` scroll region could never actually be scrolled by
+touch** — harmless at 6-8 entries but would have silently hidden most of
+a longer history. Fixed (`pointer-events:auto` plus `touch-action:pan-y`)
+in the same pass, caught by testing the overlay itself, not assumed.
+
+**A real design tension found while shipping this, addressed by flagging
+rather than filtering.** Normal, already-smooth CSS transitions (`.rolo-
+stage`'s height, the Gate spacer's pull) legitimately generate a RUN of
+several small layout-shift entries per transition — one per animation
+frame — which is correct per the CLS spec but isn't what a person watching
+smooth motion would call a "jump." Rather than filter those out (risking
+silently discarding the actual bug a second time, the same mistake the
+`?v=14` narrower diagnostic already made once), every entry is still kept
+(cap raised 8→20, panel now genuinely scrollable per the fix above) and
+entries whose single-frame delta exceeds 30px (`DIAG_NOTABLE_PX`, well
+above what the ~13-25px/frame smooth-transition baseline measured in
+testing) render in bold red instead of amber, so a real outlier is easy
+to spot by eye without anything being thrown away.
+
+**Still not reproduced from this sandbox** — same standing limitation as
+the rest of this file's unverified-against-live-conditions entries. This
+round shipped strictly better forensic tooling, not a guessed fix, since
+nothing in this pass's own testing turned up a reproducible discontinuity
+distinct from already-fixed, already-smooth behavior. Next occurrence:
+check the overlay (now scrollable, now watching every element/axis, not
+just the two marquees) at or shortly after the moment of the jump — a
+red-highlighted entry naming the actual element and its real pixel delta
+is the concrete lead this file has been missing through every prior round
+of this bug.
+
+`preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
+`?v=15` per the cache-busting rule.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |

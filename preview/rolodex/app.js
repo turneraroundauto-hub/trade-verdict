@@ -276,27 +276,68 @@ gateCard.addEventListener('keydown', (e)=>{
   if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); if(gateCard.classList.contains('docked')) jumpToTop(); }
 });
 
-// ── TEMPORARY diagnostic overlay (Aug 15, 2026) -- catches the exact
-// moment/magnitude/cause of any future marquee jump on a real device,
+// ── TEMPORARY diagnostic overlay (Aug 15-16, 2026) -- catches the exact
+// moment/magnitude/cause of any future visible jump on a real device,
 // since this could not be reproduced further from the sandbox this was
-// built from beyond what's already fixed. Piggybacks on the step
-// functions below (they already run every frame) to track each
-// marquee's reference element's REAL on-screen position -- this is what
-// actually caught the content-reflow jump in the first place, since
-// scrollLeft's own number stayed smooth throughout, completely blind to
-// it. Read-only: never writes to scrollLeft/roloMarqueePos/
-// gateMarqueePos itself. Safe to remove once the jump is confirmed
-// resolved for good.
-const marqueeDiagState = { events: [], lastRoloLeft: null, lastGateLeft: null };
+// built from beyond what's already fixed.
+//
+// Round 1 (Aug 15) only tracked the two marquees' own reference elements'
+// horizontal position, on the theory that any jump had to be a marquee
+// content-reflow issue -- that's what caught the price-placeholder-swap
+// bug that shipped the same day. Reported live afterward: the jump kept
+// happening, INCLUDING right on page refresh, with this diagnostic
+// showing zero detections the whole time. That's real evidence the
+// remaining jump isn't going through either marquee's per-frame
+// scrollLeft write at all -- possibly a different axis (vertical, not
+// horizontal), a different element (Gate dock, sticky pill strip,
+// something else), or something that happens before this diagnostic's
+// per-frame checks even get a "last known position" baseline to compare
+// against (its first-ever sample can't flag anything, since there's
+// nothing yet to compare it to -- exactly what a load-time/refresh jump
+// would hit).
+//
+// Round 2 adds the browser's own Layout Instability API
+// (PerformanceObserver({type:'layout-shift'})) alongside the marquee-
+// specific checks instead of replacing them. This is the web platform's
+// purpose-built tool for exactly this class of bug: it reports EVERY
+// visible layout shift on the page, on any element, on any axis,
+// regardless of what caused it -- not limited to any one hypothesis
+// about where the jump comes from -- and names the actual DOM node(s)
+// involved plus their real before/after rects. `buffered:true` replays
+// shifts that already happened before this observer attaches, which is
+// the specific fix for "on refresh" -- it catches load-time shifts this
+// script would otherwise have missed by starting to watch too late.
+//
+// Both diagnostics write into the same shared event log/overlay so nothing
+// gets silently overwritten. Read-only: neither ever writes to
+// scrollLeft/roloMarqueePos/gateMarqueePos or any layout property itself.
+// Safe to remove once the jump is confirmed resolved for good.
+const diagEvents = [];
+// notable=true renders in a brighter/bolder line -- several known-good,
+// already-CSS-transitioned changes in this page (.rolo-stage's own
+// height:.28s ease, the Gate spacer's .2s pull) legitimately produce a
+// RUN of many small layout-shift entries per transition, one per animation
+// frame, confirmed live in this sandbox (a forced 118px height change
+// produced a smooth climbing series of ~13-25px entries, not one big
+// jump). Those are real per-spec CLS entries but aren't what "jump" means
+// to a person watching a smooth animation -- so nothing is EVER discarded
+// (every entry is still kept, scroll the panel for full history), but a
+// single-frame delta this large relative to what a smooth ~60fps
+// transition produces is flagged as the more likely actual culprit.
+const DIAG_NOTABLE_PX = 30;
+function pushDiagEvent(line, notable){
+  diagEvents.unshift(notable ? `<span class="diag-hot">${line}</span>` : line);
+  diagEvents.length = Math.min(diagEvents.length, 20);
+  const el = document.getElementById('marqueeDiag');
+  if(el) el.innerHTML = '<div class="diag-title">jump diag (scroll for history)</div>' + diagEvents.map((e)=> `<div>${e}</div>`).join('');
+}
 const MARQUEE_DIAG_THRESHOLD = 3; // px/frame of UNEXPLAINED motion before it's logged
 function marqueeDiagLog(label, detail){
   const t = new Date().toISOString().slice(11, 23);
-  marqueeDiagState.events.unshift(`${t} ${label} ${detail}`);
-  marqueeDiagState.events.length = Math.min(marqueeDiagState.events.length, 6);
-  const el = document.getElementById('marqueeDiag');
-  if(el) el.innerHTML = marqueeDiagState.events.map((e)=> `<div>${e}</div>`).join('');
+  pushDiagEvent(`${t} ${label} ${detail}`, true);
   console.warn('[marquee-diag]', label, detail);
 }
+const marqueeDiagState = { lastRoloLeft: null, lastGateLeft: null };
 // expectedDelta accounts for a normal wrap (the reference element's
 // on-screen position legitimately jumps by ~oneSetW the instant
 // scrollLeft resets) so that ONLY genuinely unexplained motion --
@@ -314,6 +355,41 @@ function marqueeDiagCheck(el, key, label, expectedDelta, scrollLeftNow){
     }
   }
   marqueeDiagState[key] = left;
+}
+// entry.sources[].node is the real DOM element that moved -- identify it
+// by id/class/tag so the overlay names the actual culprit instead of just
+// a magnitude, and report each source's own before/after rect so a
+// vertical shift (a sticky element's top changing) is just as visible as
+// a horizontal one, unlike the marquee-specific check above which only
+// ever looked at .left.
+function describeShiftNode(node){
+  if(!node || !node.nodeType) return '(detached node)';
+  if(node.id) return '#'+node.id;
+  if(typeof node.className === 'string' && node.className.trim()) return '.'+node.className.trim().split(/\s+/).join('.');
+  return node.tagName ? node.tagName.toLowerCase() : '(node)';
+}
+if('PerformanceObserver' in window){
+  try{
+    const layoutShiftObserver = new PerformanceObserver((list)=>{
+      list.getEntries().forEach((entry)=>{
+        const t = new Date(performance.timeOrigin + entry.startTime).toISOString().slice(11, 23);
+        let maxPx = 0;
+        const sources = (entry.sources || []).map((s)=>{
+          const tag = describeShiftNode(s.node);
+          const pr = s.previousRect, cr = s.currentRect;
+          const dxNum = (pr && cr) ? (cr.x - pr.x) : null;
+          const dyNum = (pr && cr) ? (cr.y - pr.y) : null;
+          if(dxNum != null) maxPx = Math.max(maxPx, Math.abs(dxNum), Math.abs(dyNum));
+          const dx = dxNum != null ? dxNum.toFixed(1) : '?';
+          const dy = dyNum != null ? dyNum.toFixed(1) : '?';
+          return `${tag} Δx${dx} Δy${dy}`;
+        }).join(' | ') || '(no attributed source)';
+        pushDiagEvent(`${t} SHIFT val=${entry.value.toFixed(3)} input=${entry.hadRecentInput} ${sources}`, maxPx >= DIAG_NOTABLE_PX);
+        console.warn('[layout-shift]', entry.value, entry.hadRecentInput, entry.sources);
+      });
+    });
+    layoutShiftObserver.observe({ type:'layout-shift', buffered:true });
+  }catch(e){ console.warn('[layout-shift] PerformanceObserver unavailable', e); }
 }
 
 // Same fix as the pill strip's stepRoloMarquee(): scrollLeft snaps
