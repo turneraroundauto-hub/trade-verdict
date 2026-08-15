@@ -141,10 +141,10 @@
 
   .content{ padding:14px 14px 60px; display:flex; flex-direction:column; gap:10px; }
 
-  .card[data-card]{ position:sticky; transition:border-color .2s ease, top .22s ease; }
-  #card-pulse{   z-index:19; }
-  #card-context{ z-index:18; }
-  #card-io{      z-index:17; }
+  /* Sector Pulse/Session Context/Import are deliberately NOT sticky
+     (direct correction, Aug 15, 2026: they took up too much room pinned
+     in a stack). They scroll away like normal content now -- only the
+     Gate and the ticker pill strip (#roloIndex, below) dock. */
 
   .card{ background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; flex:none; transition:border-color .2s ease; }
   .card.expanded{ border-color:var(--border-2); }
@@ -276,7 +276,17 @@
   .conf-val{ font-size:10px; font-weight:700; }
 
   .rolo-wrap{ display:flex; flex-direction:column; gap:10px; }
-  .rolo-index{ display:flex; gap:6px; overflow-x:auto; padding:2px 2px 6px; touch-action:pan-x; -webkit-overflow-scrolling:touch; }
+  /* Docks directly under the (also sticky) Gate at a fixed top -- no JS-
+     computed offset needed, unlike the old multi-card stack this
+     replaced, since it's the only other sticky element and always sits
+     immediately below the Gate's own docked height. Undocks naturally on
+     scroll-up, same as any position:sticky element -- no extra JS for
+     that either. Opaque background so cards scrolling underneath don't
+     show through once it's pinned. */
+  .rolo-index{
+    display:flex; gap:6px; overflow-x:auto; padding:8px 2px; touch-action:pan-x; -webkit-overflow-scrolling:touch;
+    position:sticky; top:var(--gate-docked-h); z-index:15; background:var(--bg); margin:0 -14px; padding-left:14px; padding-right:14px;
+  }
   .rolo-index::-webkit-scrollbar{ display:none; }
   .rolo-chip{
     font-family:var(--mono); font-size:10.5px; font-weight:700; padding:5px 9px; border-radius:20px;
@@ -489,6 +499,6 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=3"></script>
+<script type="module" src="./app.js?v=4"></script>
 </body>
 </html>

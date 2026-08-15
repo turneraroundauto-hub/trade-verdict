@@ -1968,6 +1968,44 @@ analyze regression suite — all pass; directly measured the overlay's
 `getBoundingClientRect().height` before and after to confirm the actual
 pixel reduction rather than eyeballing it.
 
+## Frontend: Rolodex preview — utility cards un-stuck, ticker pills dock instead (Aug 15, 2026, `?v=4`)
+
+Direct follow-up, same day: an `AskUserQuestion` diagnostic re-ask (the
+first attempt's answer came back malformed — a UI glitch on the
+asking side, not a real answer) got a clean, decisive answer this time:
+Sector Pulse/Session Context/Import sticking in a stack was never
+wanted — "they are taking too much room... they should just scroll
+away." Instead: dock the ticker pill strip (`#roloIndex`) under the
+collapsed Gate, and let everything else — the three utility cards, the
+open ticker card, Glossary, Track Record, disclaimer, footer — scroll
+normally.
+
+**This is a real simplification, not just a different look.** The old
+mechanism needed `updateStickyOffsets()`/`utilityCardHeight()` — JS-
+computed cumulative `top` offsets recalculated on every accordion
+toggle, resize, and data load, so each of 3 stacked sticky cards knew
+where to pin relative to the one ahead of it. All of that is gone.
+`#roloIndex` is the *only* other sticky element besides the Gate now,
+sitting directly under it — a single static CSS `top:var(--gate-docked-h)`
+is enough, no JS offset math needed at all, and scroll-up undocking is
+native `position:sticky` behavior, free.
+
+**Utility cards (`.card[data-card]`) dropped `position:sticky`/`z-index`
+entirely** — same plain tap-to-expand accordion as before, just no
+longer pinned; they scroll off normally like the rest of the page.
+`#roloIndex` picked up `position:sticky; top:var(--gate-docked-h)` plus
+an opaque background (`var(--bg)`) so content scrolling underneath
+doesn't show through once it's pinned, with a small negative-margin/
+padding trick to bleed it edge-to-edge while docked.
+
+**Verified via the same real-incremental-scroll technique as the Gate
+compaction fix:** confirmed Sector Pulse now scrolls fully off-screen
+(`pulseTop` goes negative) instead of sticking; confirmed `#roloIndex`
+freezes in place once scrolled far enough and stays frozen across
+repeated samples; confirmed scrolling back to the top undocks both the
+Gate and the pill strip back to their normal positions. Re-ran the full
+pill-tap/accordion/analyze/glossary-search regression suite — all pass.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |

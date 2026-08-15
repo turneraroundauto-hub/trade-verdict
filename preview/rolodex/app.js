@@ -213,31 +213,17 @@ function stepGateMarquee(){
 }
 requestAnimationFrame(stepGateMarquee);
 
-// ── Utility card accordion (Pulse/Context/Import) + sticky docking ──
-const utilityCards = Array.from(document.querySelectorAll('.card[data-card]'));
-function utilityCardHeight(card){
-  const cs = getComputedStyle(card);
-  const borderH = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
-  const headH = card.querySelector('.card-head').getBoundingClientRect().height;
-  if(!card.classList.contains('expanded')) return borderH + headH;
-  return borderH + headH + card.querySelector('.card-body-inner').scrollHeight;
-}
-function updateStickyOffsets(){
-  let top = GATE_DOCKED_H;
-  utilityCards.forEach((card)=>{
-    card.style.top = top + 'px';
-    top += utilityCardHeight(card);
-  });
-}
-window.addEventListener('resize', updateStickyOffsets);
-
+// ── Utility card accordion (Pulse/Context/Import) — plain tap toggle,
+// NOT sticky (direct correction, Aug 15, 2026: pinning all three in a
+// stack under the Gate took up too much room; they scroll away like
+// normal content now, same as everything else below the Gate except the
+// ticker pill strip -- see #roloIndex). ──────────────────────────────
 function wireAccordionHead(head){
   function toggle(){
     const card = head.closest('.card');
     const wasExpanded = card.classList.contains('expanded');
     card.classList.toggle('expanded', !wasExpanded);
     head.setAttribute('aria-expanded', String(!wasExpanded));
-    updateStickyOffsets();
   }
   head.addEventListener('click', toggle);
   head.addEventListener('keydown', (e)=>{ if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); toggle(); } });
@@ -521,7 +507,7 @@ async function renderRolodexFromWatchlist(){
   }
   roloCurrent = Math.min(roloCurrent, Math.max(0, watchlist.length-1));
   positionRoloStack();
-  requestAnimationFrame(()=>{ sizeGateSpacer(); updateStickyOffsets(); sizeRoloMarquee(); });
+  requestAnimationFrame(()=>{ sizeGateSpacer(); sizeRoloMarquee(); });
 
   await Promise.all(watchlist.map(async (sym)=>{
     const td = await fetchTickerData(sym);
@@ -529,7 +515,7 @@ async function renderRolodexFromWatchlist(){
     if(state){ state.td = td; }
     renderRoloCard(sym);
     renderPill(sym);
-    requestAnimationFrame(()=>{ updateStickyOffsets(); sizeRoloMarquee(); });
+    requestAnimationFrame(sizeRoloMarquee);
   }));
 }
 
@@ -788,7 +774,6 @@ document.getElementById('previewBannerClose').addEventListener('click', ()=>{
 updateAuthButton();
 loadWatchlist();
 sizeGateSpacer();
-updateStickyOffsets();
 fetchMarket();
 fetchCreditStatus();
 renderRolodexFromWatchlist();
