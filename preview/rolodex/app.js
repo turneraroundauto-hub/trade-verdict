@@ -526,13 +526,26 @@ function goRolo(i){
 // and a manual drag of the strip. ────────────────────────────────────
 let roloMarqueeOneSetW = 0;
 let roloCountDivider = null;
-// One full "set" is the real pass + its trailing count divider -- measured
+// One full "set" is a pass + its trailing count divider -- measured
 // directly off the divider's own position rather than assumed as
-// scrollWidth/2, since the divider only appears once (after the real
-// pass, not after the duplicate pass), so the two passes are no longer
-// equal-width halves.
+// scrollWidth/2, since every pass now carries its own divider (see
+// renderRolodexFromWatchlist), so any one of them defines the repeat
+// width. Uses getBoundingClientRect() (full sub-pixel precision), not
+// offsetLeft/offsetWidth (rounds to the nearest integer per spec) --
+// reported live (Aug 15, 2026) as a ~5px jump right at the wrap point
+// every cycle. offsetLeft+offsetWidth measured 242 for a divider whose
+// real edge (via getBoundingClientRect) was 242.42 -- a small but real,
+// constant mismatch between where the code wrapped and where the
+// content actually repeats, on top of scrollLeft's own integer rounding
+// (see stepRoloMarquee below).
 function sizeRoloMarquee(){
-  roloMarqueeOneSetW = roloCountDivider ? (roloCountDivider.offsetLeft + roloCountDivider.offsetWidth) : (roloIndex.scrollWidth / 2);
+  if(roloCountDivider){
+    const containerLeft = roloIndex.getBoundingClientRect().left;
+    const dividerRight = roloCountDivider.getBoundingClientRect().right;
+    roloMarqueeOneSetW = (dividerRight - containerLeft) + roloIndex.scrollLeft;
+  } else {
+    roloMarqueeOneSetW = roloIndex.scrollWidth / 2;
+  }
 }
 window.addEventListener('resize', sizeRoloMarquee);
 
@@ -547,8 +560,29 @@ window.addEventListener('resize', sizeRoloMarquee);
 // what happens next; pointerup/pointercancel, when they do fire, just
 // reset the same timer to 2s from that later point (right for a normal
 // tap/drag), rather than being the only way out of the paused state.
+// roloMarqueePos is the marquee's own logical position, tracked as a
+// plain float independent of scrollLeft's rounding (confirmed live:
+// writing 10.7 reads back as 11, 10.3 reads back as 10 -- the browser
+// snaps scrollLeft to whole pixels on every write). Accumulating by
+// reading scrollLeft back each frame (the previous approach) compounds
+// that rounding every single frame, so by the time the wrap check fires
+// the position has drifted a few px from where it should truly be --
+// reported live (Aug 15, 2026) as a ~5px jump right at the wrap point.
+// Tracking the true position separately and only rounding on the
+// final write to scrollLeft bounds the error to at most one frame's
+// rounding instead of letting it compound.
+let roloMarqueePos = 0;
 let roloMarqueePaused = false, roloMarqueeResumeTimer = null;
-function scheduleRoloMarqueeResume(){ clearTimeout(roloMarqueeResumeTimer); roloMarqueeResumeTimer = setTimeout(()=>{ roloMarqueePaused = false; }, 2000); }
+function scheduleRoloMarqueeResume(){
+  clearTimeout(roloMarqueeResumeTimer);
+  roloMarqueeResumeTimer = setTimeout(()=>{
+    // Pick up wherever the user actually left it (a tap or a manual
+    // drag both move the real scrollLeft) rather than resuming from the
+    // marquee's own stale pre-pause position.
+    roloMarqueePos = roloIndex.scrollLeft;
+    roloMarqueePaused = false;
+  }, 2000);
+}
 function pauseRoloMarquee(){ roloMarqueePaused = true; scheduleRoloMarqueeResume(); }
 roloIndex.addEventListener('pointerdown', pauseRoloMarquee);
 roloIndex.addEventListener('pointerup', scheduleRoloMarqueeResume);
@@ -557,8 +591,9 @@ roloIndex.addEventListener('pointercancel', scheduleRoloMarqueeResume);
 const ROLO_MARQUEE_SPEED = 0.5;
 function stepRoloMarquee(){
   if(!roloMarqueePaused && roloMarqueeOneSetW > 0){
-    roloIndex.scrollLeft += ROLO_MARQUEE_SPEED;
-    if(roloIndex.scrollLeft >= roloMarqueeOneSetW) roloIndex.scrollLeft -= roloMarqueeOneSetW;
+    roloMarqueePos += ROLO_MARQUEE_SPEED;
+    if(roloMarqueePos >= roloMarqueeOneSetW) roloMarqueePos -= roloMarqueeOneSetW;
+    roloIndex.scrollLeft = roloMarqueePos;
   }
   requestAnimationFrame(stepRoloMarquee);
 }
@@ -569,6 +604,10 @@ async function renderRolodexFromWatchlist(){
   document.getElementById('ticker-count').textContent = 'CRF · ' + watchlist.length + ' TICKERS';
   roloStage.innerHTML = '';
   roloIndex.innerHTML = '';
+  // Clearing #roloIndex resets its real scrollLeft to 0 -- the marquee's
+  // own logical-position tracker needs to reset with it, or it goes
+  // stale and jumps hard to catch up on the very next frame.
+  roloMarqueePos = 0;
   watchlist.forEach((sym)=>{
     if(!tickerState.has(sym)) tickerState.set(sym, { td:null, result:null, analyzing:false, error:null });
     const card = document.createElement('div');
