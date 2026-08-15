@@ -2845,6 +2845,66 @@ direct video analysis so far.
 `preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
 `?v=17` per the cache-busting rule.
 
+## Frontend: Rolodex preview — second video, corrected finding, overlay retention bug fixed (Aug 16, 2026, `?v=18`)
+
+A second real screen recording (91fps, 4.56s, same method as the Aug 15
+one) came back with an almost identical result: a clean, precise,
+low-residual **-26px single-frame shift** at ~2.2s after load, against
+the same rock-steady baseline motion. Same magnitude, same early timing,
+independently reproduced — this is a real, deterministic bug, not device
+jank.
+
+**A correction to the earlier writeup, found while re-checking the first
+video against this one.** The Aug 15 entry describes the jump as
+"self-correcting on the very next frame." That was wrong -- it only
+checked that the marquee's per-frame *rate* resumed normally afterward,
+not whether the *absolute position* recovered. Re-analyzed both videos by
+comparing many frames after the event against a reference frame from well
+before it: the deviation locks in at -26 to -28px and **stays there
+permanently** (checked out to 50-80 frames / ~0.6-0.9s past the event in
+both videos, no recovery). It's a one-time, permanent reflow, not a
+transient glitch that corrects itself.
+
+**The wrap-distance theory (leading candidate as of the last entry) is
+ruled out by the numbers.** `roloMarqueeOneSetW` for this 3-ticker Free
+page measures ~356px; at the marquee's own speed, reaching that distance
+takes 6-12 seconds depending on device refresh rate. Both anomalies
+happen at ~2.2-2.6s -- 3-5x too early to be the marquee's first wrap.
+Checked this before shipping anything based on the wrap theory, per this
+investigation's own repeated lesson about not shipping a fix ahead of
+confirmed arithmetic.
+
+**Real root cause of why niether diagnostic screenshot showed anything,
+found and fixed.** `marqueeDiagCheck`'s own logic (comparing the
+divider's real position each frame against a 3px threshold) SHOULD
+already catch a bare, non-wrap 26px jump like this -- there was no
+structural reason for it to miss it. The actual problem: the overlay's
+single shared 20-entry cap. Routine, expected layout-shift noise
+(`.content` settling, plus the `#marqueeDiag`-self-shift noise fixed
+`?v=17`) accumulates continuously during normal use and was evicting the
+one rare, real, notable entry long before the entry ever got
+screenshotted -- both live screenshots were taken minutes into a session,
+plenty of time for 20 routine entries to cycle through and push the real
+one out. **Fix:** split the overlay into two independent lists -- rare
+`notable` events (marqueeDiagLog, scroll-ground-truth mismatches) now
+get their own 40-slot cap effectively never evicted by routine noise,
+while high-frequency routine layout-shift entries keep a small 10-slot
+cap. Verified directly: simulated the exact video finding, then flooded
+the overlay with 30 subsequent routine shift events, and confirmed the
+notable entry was still present and visible afterward.
+
+**Status: still no confirmed root-cause mechanism**, but the search
+space is now much narrower (not wrap-related, permanent not transient,
+deterministic magnitude across two independent recordings) and the
+overlay retention bug that likely explains every "diagnostic caught
+nothing" report so far is fixed. Next real occurrence: check the
+overlay -- a `marqueeDiagCheck`-sourced "ROLO moved ...px unexplained"
+entry should now actually survive to be seen, which would confirm
+whether this specific mechanism is (or isn't) what's firing.
+
+`preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
+`?v=18` per the cache-busting rule.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |

@@ -312,7 +312,6 @@ gateCard.addEventListener('keydown', (e)=>{
 // gets silently overwritten. Read-only: neither ever writes to
 // scrollLeft/roloMarqueePos/gateMarqueePos or any layout property itself.
 // Safe to remove once the jump is confirmed resolved for good.
-const diagEvents = [];
 // notable=true renders in a brighter/bolder line -- several known-good,
 // already-CSS-transitioned changes in this page (.rolo-stage's own
 // height:.28s ease, the Gate spacer's .2s pull) legitimately produce a
@@ -325,11 +324,35 @@ const diagEvents = [];
 // single-frame delta this large relative to what a smooth ~60fps
 // transition produces is flagged as the more likely actual culprit.
 const DIAG_NOTABLE_PX = 30;
-function pushDiagEvent(line, notable){
-  diagEvents.unshift(notable ? `<span class="diag-hot">${line}</span>` : line);
-  diagEvents.length = Math.min(diagEvents.length, 20);
+// Two separate lists, not one shared cap (Aug 16, 2026 fix) -- a real
+// device video confirmed a genuine, permanent, notable jump DOES happen
+// (twice, independently, ~26-28px, matching magnitude both times), but
+// two live screenshots taken minutes into a session showed no trace of
+// it in the overlay. Root cause: routine per-spec layout-shift noise
+// (`.content` settling, the diagnostic's own address-bar-driven
+// repositioning before that was filtered) accumulates continuously
+// during normal use, and the old single 20-item cap let that noise
+// evict the one rare, real, notable entry long before anyone thought to
+// screenshot it. Notable events are now effectively never evicted
+// (they're rare by construction); only the high-frequency routine noise
+// gets capped.
+const diagNotableEvents = [];
+const diagRoutineEvents = [];
+function renderDiagOverlay(){
   const el = document.getElementById('marqueeDiag');
-  if(el) el.innerHTML = '<div class="diag-title">jump diag (scroll for history)</div>' + diagEvents.map((e)=> `<div>${e}</div>`).join('');
+  if(!el) return;
+  const rows = diagNotableEvents.concat(diagRoutineEvents);
+  el.innerHTML = '<div class="diag-title">jump diag (scroll for history)</div>' + rows.map((e)=> `<div>${e}</div>`).join('');
+}
+function pushDiagEvent(line, notable){
+  if(notable){
+    diagNotableEvents.unshift(`<span class="diag-hot">${line}</span>`);
+    diagNotableEvents.length = Math.min(diagNotableEvents.length, 40);
+  } else {
+    diagRoutineEvents.unshift(line);
+    diagRoutineEvents.length = Math.min(diagRoutineEvents.length, 10);
+  }
+  renderDiagOverlay();
 }
 const MARQUEE_DIAG_THRESHOLD = 3; // px/frame of UNEXPLAINED motion before it's logged
 function marqueeDiagLog(label, detail){
