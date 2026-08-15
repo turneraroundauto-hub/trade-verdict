@@ -146,21 +146,53 @@ const gateSpacer = document.getElementById('gateSpacer');
 const GATE_DOCKED_H = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--gate-docked-h')) || 44;
 let spacerHeight = 0;
 
+// Sets the ACTUAL reserved scroll room (gateSpacer's real DOM height) --
+// deliberately only called at controlled moments (init, after real
+// market data renders, on resize), never during an active scroll tick.
+// Rewriting a layout-affecting height while a scroll gesture is in
+// flight is exactly the fragile pattern the Aug 13 collapsing-card
+// lesson (CLAUDE.md) found broken three separate ways on a real device.
 function sizeGateSpacer(){
-  const fullH = gateFullOverlay.getBoundingClientRect().height;
-  spacerHeight = Math.max(0, fullH - GATE_DOCKED_H);
+  spacerHeight = currentGateFullHeight();
   gateSpacer.style.height = spacerHeight + 'px';
+  updateGateDockState();
 }
 window.addEventListener('resize', sizeGateSpacer);
+
+// Pure read, no DOM writes -- safe to call any time, including on every
+// scroll tick.
+function currentGateFullHeight(){
+  return Math.max(0, gateFullOverlay.getBoundingClientRect().height - GATE_DOCKED_H);
+}
+
+// The actual fix for "collapses at the wrong moment": always re-derived
+// from a fresh measurement, never from a cached value that could be
+// stale relative to content that changed size for a reason other than
+// scrolling (the real /market fetch resolving asynchronously, on a real
+// phone with real network latency, is exactly that reason). Called both
+// on every scroll tick AND right after any render that can change the
+// overlay's real height -- a scroll event is not the only thing that
+// can make the correct dock state change; content arriving while the
+// user is scroll-stationary must too, or the Gate stays stuck showing
+// whatever was correct for the OLD content size until the next scroll.
+// This two-part gap (compare-against-stale-value, then no re-check
+// without a new scroll event) is exactly the kind of thing this
+// sandbox's headless tests couldn't catch on their own: routed fake
+// responses resolve instantly and scrolling was programmatic (scrollTo),
+// neither of which reproduces the real network-latency + real-touch-
+// scroll-then-pause sequence that exposed it live.
+function updateGateDockState(){
+  const docked = scroller.scrollTop >= currentGateFullHeight();
+  gateCard.classList.toggle('docked', docked);
+  gateCard.setAttribute('aria-expanded', String(!docked));
+}
 
 let gateTicking = false;
 scroller.addEventListener('scroll', ()=>{
   if(gateTicking) return;
   gateTicking = true;
   requestAnimationFrame(()=>{
-    const docked = scroller.scrollTop >= spacerHeight;
-    gateCard.classList.toggle('docked', docked);
-    gateCard.setAttribute('aria-expanded', String(!docked));
+    updateGateDockState();
     gateTicking = false;
   });
 }, { passive:true });
@@ -404,6 +436,15 @@ function positionRoloStack(){
   const cards = Array.from(roloStage.querySelectorAll('.rolo-card'));
   cards.forEach((card, i)=>{
     const d = i - roloCurrent, abs = Math.abs(d);
+    // Only the active card should ever be interactive -- the rest stay in
+    // the DOM (for the stacked-deck visual) but are faded/offset behind
+    // it. Without this, their ANALYZE buttons/verdict-containers/links
+    // remain genuinely clickable/focusable even while visually stacked
+    // behind the active card -- a real interaction/accessibility gap, not
+    // just a headless-testing selector-ambiguity issue (found via
+    // document.querySelector('[data-analyze]') grabbing the first
+    // matching button in DOM order rather than the visually active one).
+    card.style.pointerEvents = abs === 0 ? 'auto' : 'none';
     if(abs === 0){
       card.style.transform = 'translateY(0) scale(1)'; card.style.opacity = '1'; card.style.zIndex = '10'; card.style.filter = 'none';
     } else if(abs <= 2){
