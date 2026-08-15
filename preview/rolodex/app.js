@@ -600,6 +600,18 @@ window.addEventListener('resize', sizeRoloMarquee);
 // final write to scrollLeft bounds the error to at most one frame's
 // rounding instead of letting it compound.
 let roloMarqueePos = 0;
+// A chip's price starts as a "—" placeholder and swaps to a real
+// "$969.33" once fetchTickerData resolves -- a real, often much wider
+// piece of text. Reported live (Aug 15, 2026): if that swap happens for
+// a chip sitting UPSTREAM of the currently-visible portion of the strip
+// while the marquee is already scrolling, the reflow shifts everything
+// after it, so the SAME scrollLeft number suddenly shows different
+// content -- a real visual jump that scrollLeft itself never reflects
+// (confirmed by tracking the divider's actual on-screen position, not
+// scrollLeft: a 76px jump with scrollLeft moving by 1). Held off
+// entirely until this render pass's real data has actually loaded, so
+// there's no reflow left to happen once it starts moving.
+let roloMarqueeDataReady = false;
 let roloMarqueePaused = false, roloMarqueeResumeTimer = null;
 function scheduleRoloMarqueeResume(){
   clearTimeout(roloMarqueeResumeTimer);
@@ -618,7 +630,7 @@ roloIndex.addEventListener('pointercancel', scheduleRoloMarqueeResume);
 
 const ROLO_MARQUEE_SPEED = 0.5;
 function stepRoloMarquee(){
-  if(!roloMarqueePaused && roloMarqueeOneSetW > 0){
+  if(!roloMarqueePaused && roloMarqueeDataReady && roloMarqueeOneSetW > 0){
     roloMarqueePos += ROLO_MARQUEE_SPEED;
     if(roloMarqueePos >= roloMarqueeOneSetW) roloMarqueePos -= roloMarqueeOneSetW;
     roloIndex.scrollLeft = roloMarqueePos;
@@ -634,8 +646,12 @@ async function renderRolodexFromWatchlist(){
   roloIndex.innerHTML = '';
   // Clearing #roloIndex resets its real scrollLeft to 0 -- the marquee's
   // own logical-position tracker needs to reset with it, or it goes
-  // stale and jumps hard to catch up on the very next frame.
+  // stale and jumps hard to catch up on the very next frame. Also held
+  // paused (see stepRoloMarquee) until this pass's real ticker data has
+  // loaded and every chip has already reflowed to its final width, so
+  // there's nothing left to shift once it actually starts moving.
   roloMarqueePos = 0;
+  roloMarqueeDataReady = false;
   watchlist.forEach((sym)=>{
     if(!tickerState.has(sym)) tickerState.set(sym, { td:null, result:null, analyzing:false, error:null });
     const card = document.createElement('div');
@@ -691,6 +707,17 @@ async function renderRolodexFromWatchlist(){
     renderPill(sym);
     requestAnimationFrame(sizeRoloMarquee);
   }));
+  // Every chip has now reflowed to its final (real-price) width -- safe
+  // to let the marquee start moving. One more measurement first: the
+  // per-symbol requestAnimationFrame(sizeRoloMarquee) calls above each
+  // fire after their own symbol's data lands, but the LAST one to land
+  // is what actually leaves the strip in its final layout, so re-measure
+  // once more against that settled state rather than trusting whichever
+  // of those calls happened to run last.
+  requestAnimationFrame(()=>{
+    sizeRoloMarquee();
+    roloMarqueeDataReady = true;
+  });
 }
 
 // ── ANALYZE — mocked, not a real /analyze call ────────────────────────
