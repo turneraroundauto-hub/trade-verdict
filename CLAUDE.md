@@ -1855,6 +1855,66 @@ present with the colon for one that has real guidance text; visually
 confirmed via screenshot that the layout now matches the production
 reference (ticker/price top-left, thumb badge top-right).
 
+## Frontend: Rolodex preview — Gate docking race + inactive-card interactivity (Aug 14, 2026, `?v=3`)
+
+Reported live: "the top Gate card should start collapsing when the
+sector pulse drop-down hits the bottom of the Gate card" — it wasn't.
+Confirmed via `AskUserQuestion` that this was a timing bug (the dock
+snap happening at the wrong moment), not a request to redesign the
+snap into a continuous scroll-linked animation — important to pin down
+given the Aug 13 collapsing-card lesson elsewhere in this file found
+exactly that pattern broken three separate ways on a real device.
+
+**Root cause, found by deliberately simulating real network latency
+(this sandbox's own tests had never done that before) — a two-part
+race:** `sizeGateSpacer()` (measures the Gate overlay's real height,
+sets the scroll-room spacer, and previously also set the module-level
+`spacerHeight` variable the scroll handler compared against) only runs
+once at page load — against placeholder content ("LOADING…", empty
+grid) — and again after the real `/market` fetch resolves. On a real
+phone with real network latency, a user can start scrolling in that gap
+and reach the dock threshold while it's still sized against placeholder
+content, docking early. Confirmed by delaying a mocked `/market`
+response by 900ms in a headless test and scrolling immediately —
+reproduced cleanly, something the earlier build's instant-fake-response
+tests structurally could not have caught.
+
+**Two-part fix, both parts necessary:**
+1. The dock/undock comparison (`updateGateDockState()`) now always
+   re-measures the overlay's real height fresh (`currentGateFullHeight()`,
+   a pure read, no DOM writes) instead of comparing against a value that
+   could be stale — this alone fixed docking-while-still-on-placeholder-
+   content.
+2. That comparison only ever ran in response to a `scroll` event. If
+   real data landed while the user had already stopped scrolling, the
+   dock class never re-evaluated against the new (correct) content
+   size — visibly stuck in the wrong state until the *next* scroll.
+   Fixed by also calling `updateGateDockState()` from inside
+   `sizeGateSpacer()` itself, so content changing size alone (without a
+   new scroll event) also triggers a re-check. Confirmed both parts
+   together via a headless test: scrolled past the placeholder-sized
+   threshold, waited for a delayed `/market` response with zero further
+   scroll input, and confirmed the Gate correctly un-docks the moment
+   real (taller) content lands, then correctly re-docks at the real
+   threshold.
+
+**A second, unrelated real bug found by chasing a flaky headless test
+of the fix above, not by user report — worth fixing regardless:**
+inactive Rolodex cards (stacked behind the active one via
+transform/opacity, per the approved design) never got
+`pointer-events:none`. `positionRoloStack()` now sets it explicitly
+(`auto` only on the active card). Their buttons/links were genuinely
+clickable/focusable the whole time despite being visually stacked
+behind the active card — a real interaction/accessibility gap that
+predates this session's testing, not something the dock-race fix
+introduced. Caught because `document.querySelector('[data-analyze]')`
+(both in a test script and in Playwright's own element-resolution)
+grabbed the *first* matching button in DOM order rather than the
+visually active one, intercepted by whatever was actually on top —
+confirmed by scoping the query to the active card's `data-sym` and
+re-testing; also confirmed via `getComputedStyle` that only the active
+card now reports `pointer-events: auto`.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
