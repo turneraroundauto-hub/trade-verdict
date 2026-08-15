@@ -1915,6 +1915,97 @@ confirmed by scoping the query to the active card's `data-sym` and
 re-testing; also confirmed via `getComputedStyle` that only the active
 card now reports `pointer-events: auto`.
 
+## Frontend: Rolodex preview — Gate compaction, verified via real incremental scroll (Aug 15, 2026)
+
+Follow-up report, same live-scroll feedback loop: "the gate is not
+collapsing until those drop-downs are completely under the gate" and
+the utility cards "don't stack... taking too much real estate." Before
+touching anything, verified the previous dock-race fix (`?v=3`) with a
+**real incremental scroll gesture** for the first time this session —
+`page.mouse.wheel()` dispatched in small repeated steps rather than a
+single programmatic `scrollTo()` jump, which is what every earlier
+verification in this file used. That confirmed the mechanism itself
+was actually working correctly: cards do stick, in the right order, at
+the right relative spacing, and the Gate docks at a real, defensible
+scroll point (not never, not at the very end) — ruling out a second
+"sticky is silently broken" bug like the ones found earlier.
+
+**The real issue was proportions, not a bug.** The Gate's full-detail
+view (a 10-item stat grid + note) is inherently tall, and the dock
+threshold is correctly tied to scrolling past that entire height (see
+`currentGateFullHeight()`) — so on a short, not-yet-analyzed watchlist
+(cards are just a one-line "Tap ANALYZE" placeholder before that),
+there's little scrollable content below the Gate+3-utility-card zone,
+compressing the whole "Gate shrinks → cards stack → tickers appear"
+sequence into a narrow scroll range near the bottom of the page. That
+reads exactly like "nothing happens, then everything happens at once."
+
+**Why the dock threshold couldn't just be lowered on its own.** The
+threshold and the reserved scroll room (`gateSpacer`'s height) have to
+stay in lockstep — the overlay is always rendered at its full natural
+height while undocked, absolutely positioned with nothing clipping it.
+Shrinking only the trigger point without also shrinking the reserved
+room would reopen the exact overlay-bleeds-into-Sector-Pulse bug fixed
+in the initial build (CLAUDE.md, "Overlay height measured before it had
+real content"). The actual fix has to reduce the overlay's own real
+height, since everything downstream (threshold, spacer, dock timing) is
+already correctly derived from that one measurement.
+
+**Fix: tightened the full-detail overlay's own CSS** — padding
+(`14px 16px 16px` → `10px 16px 12px`), the stat grid's row gap
+(`8px`→`5px`) and bottom margins (`10px`→`7px` on both the label and the
+grid), and the note's line-height (`1.6`→`1.45`). Purely a density
+change, no content removed. Measured overlay height dropped from
+~208px to ~185px in the same test scenario, moving the dock threshold
+from ~166px to ~141px scrollTop — a real, measured reduction in how far
+you have to scroll before the Gate gets out of the way, not a guessed
+one.
+
+**Verified, not assumed:** re-ran the real-incremental-scroll test
+against the tightened CSS and confirmed sticky stacking, spacing, and
+dock/undock all still behave correctly; re-ran the full pill/accordion/
+analyze regression suite — all pass; directly measured the overlay's
+`getBoundingClientRect().height` before and after to confirm the actual
+pixel reduction rather than eyeballing it.
+
+## Frontend: Rolodex preview — utility cards un-stuck, ticker pills dock instead (Aug 15, 2026, `?v=4`)
+
+Direct follow-up, same day: an `AskUserQuestion` diagnostic re-ask (the
+first attempt's answer came back malformed — a UI glitch on the
+asking side, not a real answer) got a clean, decisive answer this time:
+Sector Pulse/Session Context/Import sticking in a stack was never
+wanted — "they are taking too much room... they should just scroll
+away." Instead: dock the ticker pill strip (`#roloIndex`) under the
+collapsed Gate, and let everything else — the three utility cards, the
+open ticker card, Glossary, Track Record, disclaimer, footer — scroll
+normally.
+
+**This is a real simplification, not just a different look.** The old
+mechanism needed `updateStickyOffsets()`/`utilityCardHeight()` — JS-
+computed cumulative `top` offsets recalculated on every accordion
+toggle, resize, and data load, so each of 3 stacked sticky cards knew
+where to pin relative to the one ahead of it. All of that is gone.
+`#roloIndex` is the *only* other sticky element besides the Gate now,
+sitting directly under it — a single static CSS `top:var(--gate-docked-h)`
+is enough, no JS offset math needed at all, and scroll-up undocking is
+native `position:sticky` behavior, free.
+
+**Utility cards (`.card[data-card]`) dropped `position:sticky`/`z-index`
+entirely** — same plain tap-to-expand accordion as before, just no
+longer pinned; they scroll off normally like the rest of the page.
+`#roloIndex` picked up `position:sticky; top:var(--gate-docked-h)` plus
+an opaque background (`var(--bg)`) so content scrolling underneath
+doesn't show through once it's pinned, with a small negative-margin/
+padding trick to bleed it edge-to-edge while docked.
+
+**Verified via the same real-incremental-scroll technique as the Gate
+compaction fix:** confirmed Sector Pulse now scrolls fully off-screen
+(`pulseTop` goes negative) instead of sticking; confirmed `#roloIndex`
+freezes in place once scrolled far enough and stays frozen across
+repeated samples; confirmed scrolling back to the top undocks both the
+Gate and the pill strip back to their normal positions. Re-ran the full
+pill-tap/accordion/analyze/glossary-search regression suite — all pass.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
