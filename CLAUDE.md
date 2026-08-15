@@ -2373,6 +2373,47 @@ both work correctly across repeated toggles; full pill-tap/auto-analyze/
 accordion/glossary-search regression suite re-run, all pass.
 `preview/rolodex/app.js` bumped to `?v=9` per the cache-busting rule.
 
+## Frontend: Rolodex preview — pill-strip count divider on every pass, not just one (Aug 15, 2026, `?v=10`)
+
+Direct report: "the divider — n — is not naturally put at the last
+ticker pill. it's inserted as an afterthought. as the first pill fully
+appears, the divider jumps into place instead of naturally reoccurring
+at the last ticker." Real, correctly-diagnosed UX bug in the marquee's
+loop structure.
+
+**Root cause.** The pill-count-divider work earlier this session (see
+above) deliberately kept only ONE `— N —` divider in the whole strip —
+appended once, right after the first (real) pass, with every duplicate
+pass after it left bare. That was fine as long as there were only two
+passes total, but the same day's marquee-wrap fix (also above) started
+appending as many duplicate passes as needed to get enough native
+scroll room on a short watchlist — which for Free's 3-ticker case meant
+3 total passes, only one of which had a divider. The result: scrolling
+through the strip showed two full, clean MU/IREN/ALAB repeats with no
+marker at all, then the divider would suddenly appear once per full
+wrap cycle — reading exactly as reported, an afterthought rather than a
+consistent "end of the list" landmark.
+
+**Fix.** Every pass now gets its own `— N —` divider immediately after
+it, not just the first — `appendChipPass()` builds and returns a
+divider each time it's called, for both the initial pass and every
+guard-loop-added duplicate. The visible pattern is now a clean,
+uniform `chip, chip, chip, divider` repeat for as many passes as exist,
+so the marker naturally recurs at the end of every single pass through
+the watchlist instead of appearing arbitrarily. Since every pass+divider
+chunk is now the same width, the marquee's wrap math (measuring the
+first divider's `offsetLeft + offsetWidth` as "one set") stays exactly
+as correct as before, regardless of how many passes get appended.
+
+**Verified:** dumped the actual chip/divider sequence in the live DOM —
+confirmed a clean `chip,chip,chip,DIV` repeat for all 3 passes on the
+real 3-ticker page; confirmed the marquee still wraps seamlessly
+(scrollLeft climbing smoothly and correctly resetting at the loop
+point); re-ran the full pill-tap/auto-analyze/accordion/glossary-search/
+dock regression suite — all pass.
+
+`preview/rolodex/app.js` bumped to `?v=10` per the cache-busting rule.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
