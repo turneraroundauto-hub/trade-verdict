@@ -450,33 +450,52 @@ function goRolo(i){
   const count = roloStage.querySelectorAll('.rolo-card').length;
   roloCurrent = Math.max(0, Math.min(count-1, i));
   positionRoloStack();
+  // Tapping a ticker that hasn't been analyzed yet runs it automatically
+  // rather than leaving it on the idle "Tap ANALYZE" state -- direct
+  // request, Aug 15, 2026. Only for a ticker with no result yet; revisiting
+  // an already-analyzed one just shows what's there, same as tapping any
+  // other already-open card.
+  const sym = watchlist[roloCurrent];
+  const state = sym && tickerState.get(sym);
+  if(state && !state.result && !state.analyzing) analyzeOne(sym);
 }
 
-// ── Watchlist auto-scroll pill marquee — always running, manual drag
-// always wins (state-comparison against the marquee's own last write,
-// not a timing-dependent flag — see CLAUDE.md for why the flag approach
-// broke on a real device). ──────────────────────────────────────────
+// ── Watchlist auto-scroll pill marquee — always running, pauses for a
+// flat 2s on real pointer interaction (tap a pill / drag the strip) only.
+// Previously also paused on any #roloIndex 'scroll' event whose
+// scrollLeft didn't match the marquee's own last self-write, meant to
+// catch manual drags the pointer events might miss -- but that
+// comparison mistook the marquee's OWN async-dispatched scroll events for
+// a manual scroll often enough on a real device to repeatedly self-pause
+// ("stopping a lot", reported live Aug 15, 2026), not just the one
+// specific timing-flag bug this comment used to describe (see CLAUDE.md
+// for that earlier, narrower fix). Removed entirely rather than
+// re-tuned -- pointerdown/up/cancel alone already covers both a pill tap
+// and a manual drag of the strip. ────────────────────────────────────
 let roloMarqueeOneSetW = 0;
-function sizeRoloMarquee(){ roloMarqueeOneSetW = roloIndex.scrollWidth / 2; }
+let roloCountDivider = null;
+// One full "set" is the real pass + its trailing count divider -- measured
+// directly off the divider's own position rather than assumed as
+// scrollWidth/2, since the divider only appears once (after the real
+// pass, not after the duplicate pass), so the two passes are no longer
+// equal-width halves.
+function sizeRoloMarquee(){
+  roloMarqueeOneSetW = roloCountDivider ? (roloCountDivider.offsetLeft + roloCountDivider.offsetWidth) : (roloIndex.scrollWidth / 2);
+}
 window.addEventListener('resize', sizeRoloMarquee);
 
-let roloMarqueePaused = false, roloMarqueeResumeTimer = null, roloMarqueeLastSelfScrollLeft = null;
+let roloMarqueePaused = false, roloMarqueeResumeTimer = null;
 function pauseRoloMarquee(){ roloMarqueePaused = true; clearTimeout(roloMarqueeResumeTimer); }
-function scheduleRoloMarqueeResume(){ clearTimeout(roloMarqueeResumeTimer); roloMarqueeResumeTimer = setTimeout(()=>{ roloMarqueePaused = false; }, 1800); }
+function scheduleRoloMarqueeResume(){ clearTimeout(roloMarqueeResumeTimer); roloMarqueeResumeTimer = setTimeout(()=>{ roloMarqueePaused = false; }, 2000); }
 roloIndex.addEventListener('pointerdown', pauseRoloMarquee);
 roloIndex.addEventListener('pointerup', scheduleRoloMarqueeResume);
 roloIndex.addEventListener('pointercancel', scheduleRoloMarqueeResume);
-roloIndex.addEventListener('scroll', ()=>{
-  if(roloMarqueeLastSelfScrollLeft !== null && Math.abs(roloIndex.scrollLeft - roloMarqueeLastSelfScrollLeft) < 0.75) return;
-  pauseRoloMarquee(); scheduleRoloMarqueeResume();
-}, { passive:true });
 
 const ROLO_MARQUEE_SPEED = 0.5;
 function stepRoloMarquee(){
   if(!roloMarqueePaused && roloMarqueeOneSetW > 0){
     roloIndex.scrollLeft += ROLO_MARQUEE_SPEED;
     if(roloIndex.scrollLeft >= roloMarqueeOneSetW) roloIndex.scrollLeft -= roloMarqueeOneSetW;
-    roloMarqueeLastSelfScrollLeft = roloIndex.scrollLeft;
   }
   requestAnimationFrame(stepRoloMarquee);
 }
@@ -485,7 +504,6 @@ requestAnimationFrame(stepRoloMarquee);
 // ── Build/rebuild the rolodex from the current watchlist ─────────────
 async function renderRolodexFromWatchlist(){
   document.getElementById('ticker-count').textContent = 'CRF · ' + watchlist.length + ' TICKERS';
-  document.getElementById('roloCount').textContent = String(watchlist.length);
   roloStage.innerHTML = '';
   roloIndex.innerHTML = '';
   watchlist.forEach((sym)=>{
@@ -495,7 +513,12 @@ async function renderRolodexFromWatchlist(){
     roloStage.appendChild(card);
     renderRoloCard(sym);
   });
-  // Two identical chip sets back to back so the marquee wraps seamlessly.
+  // Two identical chip sets back to back so the marquee wraps seamlessly,
+  // with a single "— N —" count divider between them marking where the
+  // real list ends and the duplicate pass (used only for the seamless
+  // wrap) begins -- a landmark for a long Starter/Pro watchlist scrolling
+  // past in the strip (direct request, Aug 15, 2026).
+  roloCountDivider = null;
   for(let pass = 0; pass < 2; pass++){
     watchlist.forEach((sym, i)=>{
       const chip = document.createElement('button');
@@ -504,6 +527,12 @@ async function renderRolodexFromWatchlist(){
       roloIndex.appendChild(chip);
       renderPill(sym);
     });
+    if(pass === 0){
+      roloCountDivider = document.createElement('span');
+      roloCountDivider.className = 'rolo-divider';
+      roloCountDivider.textContent = `— ${watchlist.length} —`;
+      roloIndex.appendChild(roloCountDivider);
+    }
   }
   roloCurrent = Math.min(roloCurrent, Math.max(0, watchlist.length-1));
   positionRoloStack();

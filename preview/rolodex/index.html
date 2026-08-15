@@ -201,7 +201,6 @@
     display:flex; align-items:center; justify-content:space-between;
     padding:6px 4px 2px; font-size:10.5px; color:var(--ink-faint); letter-spacing:.08em; text-transform:uppercase;
   }
-  .list-head .count{ background:var(--surface-3); color:var(--ink-dim); border-radius:5px; padding:2px 6px; font-size:10px; }
 
   /* Ticker row is now two columns: sym+price on the left, the verdict
      (or ANALYZE button, pre-analysis) on the right -- matches production's
@@ -301,14 +300,34 @@
   .rolo-chip.active.perf-down{ background:var(--red); border-color:var(--red); color:var(--surface); }
   .rolo-chip.active.perf-flat{ background:var(--amber); border-color:var(--amber); color:var(--surface); }
   .rolo-chip .rc-price{ font-weight:600; font-variant-numeric:tabular-nums; opacity:.75; }
+  /* Marks the boundary between the real ticker pass and the duplicate
+     pass appended for the marquee's seamless wrap (see
+     renderRolodexFromWatchlist/sizeRoloMarquee in app.js) -- "— N —" so a
+     long Starter/Pro watchlist has a visible "list restarts here"
+     landmark in the scrolling strip instead of an undifferentiated
+     stream of pills. */
+  .rolo-divider{
+    display:inline-flex; align-items:center; flex:none; padding:0 10px;
+    font-family:var(--mono); font-size:10.5px; font-weight:700; color:var(--ink-faint);
+    letter-spacing:.03em; white-space:nowrap; user-select:none;
+  }
 
   /* Real gate note text runs longer/more variably than the prototype's
      curated demo copy -- a fixed height + overflow:hidden here silently
      clipped Gate 4/5 and the confidence row off the bottom of real
      analyzed cards. height is now unset (auto per-card) and synced by
      JS (syncRoloStageHeight()) to the active card's real content height
-     instead, transitioning smoothly on change. */
-  .rolo-stage{ position:relative; transition:height .28s ease; }
+     instead, transitioning smoothly on change.
+     overflow:hidden re-added (Aug 15, 2026) -- safe now that the stage's
+     height always tracks the ACTIVE card only: a switched-away-from card
+     that's taller than the newly active one (e.g. a full analyzed result
+     behind a still-idle "Tap ANALYZE" card) was bleeding straight through
+     the stage's own box into the Glossary/Track Record content below it,
+     faded but clearly visible -- confirmed via getBoundingClientRect
+     showing the inactive card's bottom edge ~250px past the stage's own
+     bottom. Clipping the inactive cards' overflow doesn't touch the
+     active card, since the stage is never shorter than it. */
+  .rolo-stage{ position:relative; overflow:hidden; transition:height .28s ease; }
   .rolo-card{
     position:absolute; top:0; left:0; right:0; border-radius:14px;
     background:var(--surface); border:1px solid var(--border-2);
@@ -454,7 +473,7 @@
         </div></div></div>
       </div>
 
-      <div class="list-head"><span>Analysis Cards</span><span class="count" id="roloCount">—</span></div>
+      <div class="list-head"><span>Analysis Cards</span></div>
 
       <div class="rolo-wrap">
         <div class="rolo-index" id="roloIndex"></div>
@@ -499,6 +518,6 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=4"></script>
+<script type="module" src="./app.js?v=6"></script>
 </body>
 </html>

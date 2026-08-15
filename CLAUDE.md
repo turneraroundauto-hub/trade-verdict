@@ -2006,6 +2006,141 @@ repeated samples; confirmed scrolling back to the top undocks both the
 Gate and the pill strip back to their normal positions. Re-ran the full
 pill-tap/accordion/analyze/glossary-search regression suite — all pass.
 
+## Frontend: Rolodex preview — ticker pill count moved into the strip (Aug 15, 2026, `?v=5`)
+
+Direct follow-up, same day: "move the ticker pill count to between the
+first and last in the row with a dash on each side, to show the
+beginning and end of the list. this will help for starter and pro as the
+list gets longer." The count previously lived above the pill strip
+(`.list-head`'s `#roloCount` badge, "Analysis Cards · N") — removed
+entirely (both the HTML element and its CSS), replaced with a single
+`— N —` divider chip (`.rolo-divider`) built directly into `#roloIndex`
+itself.
+
+**Where exactly "between the first and last" landed, given the strip's
+existing marquee mechanism.** `#roloIndex` already renders the watchlist
+*twice* back to back (`renderRolodexFromWatchlist`'s two-pass loop) so
+the auto-scroll marquee can wrap seamlessly — the visible strip is never
+just one pass through the list. The `— N —` divider is appended once,
+right after the real (first) pass and before the duplicate (second)
+pass — i.e., literally between the first pass's last ticker and the
+second pass's first ticker, which reads to the user as a single
+landmark marking where the list wraps back to its own beginning as it
+scrolls by. Free's own watchlist is capped at 3 tickers so this is
+subtle here, but the whole point (per the request) is Starter/Pro-scale
+lists, where a long unbroken stream of pills has no landmark at all
+without it — confirmed by direct math below, not just reasoned about.
+
+**The marquee's wrap-distance calculation had to change, not just cosmetic
+placement.** It previously assumed the strip's total width split into two
+exactly-equal halves (`roloMarqueeOneSetW = roloIndex.scrollWidth / 2`) —
+true only because both passes were identical chip sets with nothing else
+between them. Adding a divider after the *first* pass only (not the
+second) breaks that symmetry on purpose, matching "between the first and
+last," so the assumed-half-width math would now be wrong by roughly one
+divider-width. Replaced with a direct measurement:
+`roloCountDivider.offsetLeft + roloCountDivider.offsetWidth` — the real,
+live boundary of "first pass + its divider," regardless of list length.
+This is more correct than the old assumption ever was, not just adjusted
+to compensate for the new element.
+
+**Verified the math actually holds at Starter/Pro scale, not just for
+Free's real 3-ticker cap.** This page's own `MAX_TICKERS = 3` (mirroring
+Free's real limit) means it can't structurally demonstrate a long list
+by itself, so the wrap math was checked two ways: (1) the real page with
+its real 3-ticker watchlist — divider renders correctly (`"— 3 —"`), old
+`#roloCount` element and its CSS confirmed gone, pill tap-to-switch and
+the real-incremental-scroll dock/undock regression both still pass; (2)
+a synthetic 15-ticker (Starter/Pro-scale) rebuild of the exact same
+`#roloIndex` markup/CSS shape, confirming the measured `oneSetW` (1538px)
+stays well under the container's actual max scroll distance (2626px) —
+so the wraparound branch actually triggers at that scale — and that the
+chip immediately after the divider is pixel-identical (same symbol) to
+the strip's very first chip, confirming the loop is seamless at the
+point the divider sits. Free's own 3-ticker case was independently
+confirmed to have too little overflow to ever visibly wrap, both before
+and after this change — not a regression this change introduced, just
+the pre-existing ceiling of a 3-ticker cap on a ~390px-wide strip.
+
+`preview/rolodex/app.js` bumped to `?v=5` per the cache-busting rule.
+
+## Frontend: Rolodex preview — marquee stalling, card bleed-through, auto-analyze on tap (Aug 15, 2026, `?v=6`)
+
+Three live-reported issues from the same round of feedback, all in
+`preview/rolodex/`, landed together.
+
+**1. Marquee "stopping a lot."** The pause-on-manual-scroll mechanism had
+*two* independent triggers: pointerdown/pointerup (correct, tied to a real
+tap/drag) and a `#roloIndex` `scroll` listener that paused whenever the
+observed `scrollLeft` didn't match the marquee's own last self-write —
+added earlier specifically to catch manual drags the pointer events might
+miss. That comparison was supposed to ignore the marquee's own writes
+(state-comparison, not a timing flag — see the earlier "moves a hair,
+stalls" fix elsewhere in this file), but in practice was still
+mis-detecting the marquee's own async-dispatched scroll events as manual
+scrolls often enough on a real device to repeatedly self-pause — a
+broader recurrence of the same bug *class* that earlier fix addressed,
+not the identical bug. **Fix: removed the scroll-listener pause path
+entirely**, rather than re-tuning its threshold again — pointerdown/up/
+cancel alone already covers both a pill tap and a manual drag of the
+strip, with no self-detection ambiguity to get wrong. Resume delay
+tightened from 1800ms to a flat 2000ms per the direct request ("should
+only pause for 2 seconds").
+
+Verified on the real page: tapped a pill immediately after load (before
+the strip's ~42px native scroll room on this 3-ticker Free-tier page gets
+used up, which would otherwise mask any pause/resume signal) and sampled
+`scrollLeft` through the window — flat for the full ~2s pause, then
+visibly incrementing again right after, with no in-between stalls.
+
+**2. Analyzed-card bleed-through on ticker switch.** Reported live,
+screenshot showed faded gate rows and a stray "3 / 3" overlapping the
+Glossary/Track Record area below the pill strip. Root cause:
+`.rolo-stage` lost its `overflow:hidden` in the Aug 14 fidelity pass (so
+a real analyzed card's full content wouldn't get clipped — see "Only 3
+gates" earlier in this file) and never got it back once the stage height
+was made fully dynamic. Once a ticker's card is genuinely taller than
+whatever's currently active (e.g. a previously-analyzed full result,
+sitting inactive/faded behind a freshly-selected still-idle card), that
+taller inactive card's bottom edge extends straight past the (shorter)
+stage box into whatever comes after it in the page — confirmed via
+`getBoundingClientRect`: MU's analyzed card (373px tall) sitting behind a
+120px-tall active IREN card, its bottom ~250px past both the stage's own
+bottom and the Glossary tile's top. Re-adding `overflow:hidden` is safe
+now in a way it wasn't during the original "Only 3 gates" bug, because
+the stage's height is unconditionally synced to the *active* card's real
+`offsetHeight` on every render (`syncRoloStageHeight()`) — it can never
+end up shorter than the one card that's actually supposed to be fully
+visible, only shorter than the inactive ones, which are supposed to stay
+mostly hidden behind it anyway (that's the whole stacked-deck illusion).
+
+**Caught a testing pitfall worth remembering for any future check of this
+kind: `getBoundingClientRect()` reports a child's own layout geometry
+regardless of an ancestor's `overflow:hidden` — it doesn't reflect what's
+actually painted.** A first verification pass reused the same
+rect-overlap check that reproduced the bug pre-fix, and got flaky
+true/false results post-fix, because the geometry itself is unchanged by
+`overflow:hidden` — only the paint is clipped. Re-verified two ways that
+actually reflect what a user sees: confirmed `getComputedStyle(stage).
+overflow === 'hidden'` structurally, and took a real screenshot after
+switching tickers with one already analyzed — clean, no ghosted text
+anywhere on or below the card.
+
+**3. Tapping a ticker pill now runs its analysis automatically.** Direct
+request: "when tapping a new ticker should invoke a[n] analysis" — the
+idle "Tap ANALYZE to run the gates" state was an unnecessary extra tap
+for a ticker being viewed for the first time. `goRolo(i)` now calls the
+existing (mocked) `analyzeOne(sym)` immediately after switching, but only
+when that ticker has no result yet and isn't already mid-analysis —
+revisiting an already-analyzed ticker just shows what's already there
+(same as tapping into any other open card), rather than needlessly
+re-cycling its mock profile on every visit. Verified: switching to a
+fresh ticker shows RUNNING… then a real verdict within the mock's normal
+~400-700ms delay with no extra tap; switching back to an already-analyzed
+one shows its existing result immediately, no RUNNING… flash.
+
+`preview/rolodex/app.js` bumped to `?v=6` per the cache-busting rule.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
