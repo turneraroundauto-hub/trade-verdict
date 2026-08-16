@@ -885,7 +885,30 @@ function stepRoloMarquee(){
     if(!roloMarqueePaused && roloMarqueeDataReady && roloMarqueeOneSetW > 0){
       roloMarqueePos += ROLO_MARQUEE_SPEED;
       if(roloMarqueePos >= roloMarqueeOneSetW){ roloMarqueePos -= roloMarqueeOneSetW; wrapDelta = roloMarqueeOneSetW; }
-      roloIndex.scrollLeft = roloMarqueePos;
+      // Mitigation, not a confirmed fix (Aug 16, 2026) -- a SIXTH real
+      // video reproduced the same precise jump yet again, and this time
+      // the overlay was checked at the start, middle, and end of the
+      // whole clip: byte-identical throughout, despite the heartbeat
+      // climbing steadily the entire time (proving the loop never
+      // stopped and nothing is wrong with the render/update pipeline
+      // itself -- it's just that scrollLeft, scrollWidth, and layout-
+      // shift genuinely never fired). Six occurrences, every JS/DOM-
+      // level mechanism this investigation could build has come back
+      // empty every time. The remaining, unfalsifiable-from-JS
+      // possibility: this is happening at the paint/compositor layer,
+      // not the layout layer getBoundingClientRect() and friends can
+      // see. Writing a FRACTIONAL scrollLeft every frame (roloMarqueePos
+      // is a plain float) is exactly the kind of thing that could stress
+      // sub-pixel-to-device-pixel rounding at paint time in a way this
+      // page's own JS has no visibility into (confirmed earlier this
+      // investigation: reading scrollLeft back always reports an
+      // integer, but that doesn't guarantee what was internally applied
+      // for compositing was equally unambiguous). Rounding to a whole
+      // CSS pixel before every write removes that ambiguity outright,
+      // regardless of whether it's actually the cause -- a plausible,
+      // low-risk, reversible mitigation given diagnosis has hit a real
+      // wall, not another guessed "fix."
+      roloIndex.scrollLeft = Math.round(roloMarqueePos);
     }
     marqueeDiagCheck(roloCountDivider, 'lastRoloLeft', 'ROLO', wrapDelta, roloIndex.scrollLeft);
     checkRoloScrollWidth();

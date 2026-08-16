@@ -3100,6 +3100,73 @@ whole time, the next occurrence should finally show something.
 `preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
 `?v=21` per the cache-busting rule.
 
+## Frontend: Rolodex preview — sixth video, diagnostic pipeline confirmed healthy, integer-scrollLeft mitigation (Aug 16, 2026, `?v=22`)
+
+A sixth real screen recording reproduced the same jump a sixth
+independent time -- **-27px**, re-verified with the same proper 2D
+alignment search (still purely horizontal, dy=0).
+
+**The decisive new data point this round: the overlay was checked at
+the start, middle, and end of the entire 7-second clip, not just around
+the jump.** Byte-identical the whole way through -- despite the
+heartbeat climbing steadily throughout (tick 3930 -> 4275 -> 4575,
+proving the loop never stopped) and despite the real jump happening
+partway through. This rules out a broken render/update pipeline as the
+explanation for "nothing visible" (a genuinely broken pipeline would
+still be a possible read of the last five rounds) -- the diagnostic
+machinery is demonstrably healthy and simply has nothing new to report,
+which is consistent with a page that fully settled long before this
+clip started (this clip is a later slice of a longer session, not a
+fresh load) and with `scrollLeft`/`scrollWidth`/layout-shift genuinely
+never firing for this specific event, not with any of them being
+silently swallowed.
+
+**Six occurrences. Every JS/DOM-level mechanism this investigation has
+built -- native scroll events, total content width, the browser's own
+Layout Instability API, a single-element position check, a heartbeat
+proving the loop's own liveness -- has come back empty, every time,
+now cross-checked against a diagnostic pipeline independently confirmed
+to be working correctly.** The one remaining possibility that's
+structurally unfalsifiable from page-level JavaScript: this is
+happening at the paint/compositor layer, not the layout layer
+`getBoundingClientRect()` and the Layout Instability API can see.
+JavaScript only ever has visibility into the LAYOUT model (computed
+geometry); it has no way to observe what actually gets handed to the
+GPU/compositor for painting, or how that gets rounded to real device
+pixels.
+
+**A plausible, low-risk, reversible mitigation, explicitly not claimed
+as a confirmed fix given there's no confirmed root cause to fix:**
+`roloMarqueePos` is a plain float, incremented by `0.5` every tick, and
+was being written to `scrollLeft` unrounded every frame. Reading
+`scrollLeft` back always reports a rounded integer (confirmed earlier
+this investigation), but that doesn't guarantee what gets applied
+internally for compositing is equally unambiguous -- a continuous
+stream of fractional writes is exactly the kind of thing that could
+stress sub-pixel-to-device-pixel rounding at paint time in a way this
+page's own JS has zero visibility into either direction. `stepRoloMarquee`
+now writes `Math.round(roloMarqueePos)` explicitly every frame, removing
+that ambiguity outright regardless of whether it's actually the cause.
+The internal `roloMarqueePos` accumulator itself stays full-precision
+(only the final write rounds), so the wrap-math precision from the
+`?v=11` fix is untouched.
+
+**Verified the mitigation doesn't regress anything:** sampled
+`scrollLeft` over 60 real frames and confirmed it's always a whole
+integer now, still smoothly and correctly incrementing at the intended
+average rate (alternating +0/+1 per frame, which is the correct rounded
+behavior for a true 0.5px/frame rate) -- not jittery, not back-stepping.
+
+**Status: still no confirmed root cause.** This is a defensible,
+reversible attempt given diagnosis has hit a real, thoroughly-explored
+wall -- not another round of the same escalation. If it doesn't help,
+the honest next step is acknowledging this may be a real but
+paint-layer phenomenon specific to this device/browser combination that
+page-level JavaScript cannot observe or fix from here.
+
+`preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
+`?v=22` per the cache-busting rule.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
