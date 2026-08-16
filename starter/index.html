@@ -144,6 +144,7 @@
   .gate-stat .v{ font-size:12.5px; font-weight:700; font-variant-numeric:tabular-nums; }
   .up{ color:var(--green); } .down{ color:var(--red); } .flat{ color:var(--amber); } .neutral{ color:var(--ink-dim); }
   .gate-note{ font-size:11px; color:var(--ink-dim); line-height:1.45; }
+  .market-ts{ font-size:9px; color:var(--ink-faint); line-height:1.4; margin-top:4px; font-family:var(--mono); }
   .session-note{ font-size:9px; color:var(--ink-faint); line-height:1.4; margin-top:4px; }
 
   .content{ padding:14px 14px 60px; display:flex; flex-direction:column; gap:10px; }
@@ -367,7 +368,6 @@
         <div class="brand-meta">
           <span id="ticker-count">CRF · 7 TICKERS</span>
           <span class="tier-chip">STARTER</span>
-          <span id="live-clock">--:--:-- ET</span>
         </div>
       </div>
     </div>
@@ -399,6 +399,7 @@
         <div class="gate-full-label"><span class="dot" id="gateFullDot"></span><span class="label" id="gateFullLabel">LOADING…</span></div>
         <div class="gate-grid" id="gateGrid"></div>
         <div class="gate-note" id="gateNote">Fetching live data…</div>
+        <div class="market-ts" id="marketTs"></div>
         <div class="session-note">Pre/post-market prices are IEX-only and may vary from the full consolidated tape. Built for regular-session (9:30am&ndash;4pm ET) analysis.</div>
       </div>
     </div>
@@ -487,7 +488,7 @@
 
       <div class="disclaimer">
         <div class="disclaimer-title">⚠ NOT FINANCIAL OR MARKET ADVICE</div>
-        <p>This app is a <strong>pattern and catalyst analysis tool</strong> for <strong>short-term trading support</strong> during the <strong>first 90 minutes (9:30–11:00am ET)</strong> and <strong>last 90 minutes (2:30–4:00pm ET)</strong> of the regular US session only.</p>
+        <p>This app is a <strong>pattern and catalyst analysis tool</strong> for <strong>trading support</strong> during the <strong>first 90 minutes (9:30–11:00am ET)</strong> and <strong>last 90 minutes (2:30–4:00pm ET)</strong> of the regular US session only.</p>
         <p><strong>Always do your own research.</strong> Verdicts are pattern-based only. Past patterns do not guarantee future results. <strong>You can lose money trading.</strong> All decisions are solely your responsibility.</p>
         <p style="margin-top:6px"><strong>Sources:</strong> <a href="https://finnhub.io" target="_blank" class="source-link">Finnhub</a> (quotes, news, sector data) · <a href="https://alpaca.markets" target="_blank" class="source-link">Alpaca</a> (extended-hours pricing, weekly carryover) · <a href="https://anthropic.com" target="_blank" class="source-link">Anthropic</a> (CRF analysis) · <a href="https://unusualwhales.com" target="_blank" class="source-link">Unusual Whales</a> (flow reference)</p>
       </div>
@@ -502,6 +503,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=52"></script>
+<script type="module" src="./app.js?v=53"></script>
 </body>
 </html>
