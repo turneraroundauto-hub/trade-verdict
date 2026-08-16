@@ -3038,14 +3038,48 @@ each tier's `<script src="./app.js?v=N">` bumped too (`index.html`
 45→46, `starter/index.html`/`pro/index.html` 46→47). `preview/rolodex/`
 and `shark/index.html` confirmed untouched.
 
-**Next in Phase 2, not done in this pass:** the rest of `shared/*.js` by
-fan-out — `shared/analysis-cache.js`/`shared/watchlist-sync.js` (3
-importers each), `shared/context-highlight.js`/`shared/settings-modal.js`
-(2 each), `shared/track-record-sync.js` (1) — then both repos'
-`gates-extended.js` last (largest, highest-stakes file, best converted
-once the pattern is well-proven on smaller modules first). **Before any
-future `?v=` bump on a module with a `.ts` source, check that source's
-own import lines too** — the lesson from the bug caught in this pass.
+**Before any future `?v=` bump on a module with a `.ts` source, check
+that source's own import lines too** — the lesson from the bug caught in
+the `track-record.ts` pass above.
+
+### `shared/analysis-cache.js` converted to `.ts` (Aug 16, 2026)
+
+Fifth Phase 2 conversion — tied with `shared/watchlist-sync.js` for
+next-highest fan-out (3 importers), picked first as the true leaf (zero
+internal `shared/` dependencies at all — no imports, not even of
+`types.js`, until this pass added one). Small, simple module (the
+per-ticker/per-day verdict cache backing `tv_v_*` localStorage keys) —
+converted in one pass with no DOM surface to reason about at all. Typed
+against `AnalyzeResponse` from `shared/types.d.ts` (`cacheVerdict`/
+`getCachedVerdict`'s `d`/return value is exactly the parsed `/analyze`
+JSON response, confirmed by checking the real call sites in all three
+tiers' `app.js` — `var _r=await res.json();cacheVerdict(ticker,_r)`).
+
+**Verified via an exact-output comparison again** (same technique as
+`track-record.ts`) — ran the pre- and post-conversion module side by
+side in a minimal Node harness with a stubbed `localStorage`, exercised
+`cacheVerdict`/`getCachedVerdict`/`cleanLS` against identical inputs,
+confirmed identical `JSON.stringify` output and identical surviving
+localStorage keys after `cleanLS()`. Also re-ran the same exercise
+through real headless Chromium (not just the Node harness) on Free tier
+for a live-DOM/live-`localStorage` confirmation, zero page errors.
+`git diff --stat` against every previously-converted file's compiled
+output was empty both before and after emit — no repeat of the
+`watchlist.ts`-drift bug from the prior pass.
+
+**Cache-busting cascade:** `analysis-cache.js` `?v=2→3` in its 3
+importers (`app.js`, `starter/app.js`, `pro/app.js` — no other `shared/`
+file imports it, so no further hop needed there) → each tier's own
+`app.js` content changed, each tier's `<script src="./app.js?v=N">`
+bumped too (`index.html` 46→47, `starter/index.html`/`pro/index.html`
+47→48). `preview/rolodex/` and `shark/index.html` confirmed untouched.
+
+**Next in Phase 2, not done in this pass:** `shared/watchlist-sync.js`
+(3 importers, depends on the already-converted `watchlist.js`),
+`shared/context-highlight.js`/`shared/settings-modal.js` (2 each),
+`shared/track-record-sync.js` (1) — then both repos' `gates-extended.js`
+last (largest, highest-stakes file, best converted once the pattern is
+well-proven on smaller modules first).
 
 ## Verifying changes before you claim done
 
