@@ -2972,12 +2972,80 @@ neither imports any of `prefs.js`/`track-record.js`/`settings-modal.js`
 (Rolodex hardcodes Yahoo directly rather than importing `prefs.js`, per
 its own section above; Shark is fully monolithic).
 
+### `shared/track-record.js` converted to `.ts` (Aug 16, 2026)
+
+Fourth Phase 2 conversion, next by fan-out (4 importers). Same
+transpile-only workflow: `shared/track-record.ts` authored,
+`tsconfig.build.json`'s `include` widened, `tsc -p tsconfig.build.json`
+emits `shared/track-record.js` in place. Real types added throughout:
+`TrackEntry`/`LogMeta` interfaces for the `tv_accuracy_log` entry shape
+and `logResult()`'s optional `meta` param, `Record<string, {c,t}>` for
+the type/ticker tally accumulators inside `renderTrackRecord()`, and the
+`window.logResult`/`window.clearLog` inline-`onclick` bridges got the
+same `declare global { interface Window {...} }` treatment as
+`watchlist.ts`'s `addTickers` bridge, instead of `as any`.
+
+**A real bug caught before this shipped, not by any test — by the diff
+itself.** Recompiling for this conversion silently reverted
+`shared/watchlist.js`'s `prefs.js` import back to `?v=10`, even though
+the `prefs.ts` conversion (immediately above) had correctly bumped it to
+`?v=11` in every `.js`/`.html` file. Root cause: that bump was applied
+with `sed` scoped to `--include=*.js --include=*.html`, which correctly
+updated the *compiled* `shared/watchlist.js`, but `shared/watchlist.ts`
+— the actual source `tsc` regenerates that file from — still had the
+stale `./prefs.js?v=10` hardcoded, since `.ts` files were never in scope
+for that grep/sed pass. The bump "worked" only until the next `tsc`
+build touched `watchlist.ts` again, at which point it silently
+regenerated the old, wrong import — invisible until a `git diff --stat`
+sanity check (run as a matter of course before committing, not because
+anything looked wrong) showed `shared/watchlist.js` had a 1-line diff it
+had no business having. **This is a new, Phase-2-specific corollary to
+the cache-busting rule, worth stating explicitly:** once a shared
+module has a `.ts` source, that source — not just its compiled `.js` —
+is the thing that has to carry the correct `?v=N` on every import it
+makes of another shared module. Bumping only the emitted `.js` (by hand,
+or via a grep/sed pass scoped to `*.js`/`*.html` the way every prior
+cache-busting cascade in this file has been done) is invisible-broken:
+correct until the next recompile, then silently wrong again. Fixed here
+by correcting `watchlist.ts`'s import to `?v=11` directly and
+recompiling; going forward, any `?v=` bump that touches a module with a
+`.ts` source must include the `.ts` file in the grep/sed scope, not just
+`*.js`/`*.html`.
+
+**Verified three ways:** (1) exact-output comparison, not just an export
+diff — ran the pre- and post-conversion module side by side in a
+minimal Node harness (stubbed `localStorage`/`document`), fed both the
+same synthetic log entries, and confirmed `renderTrackRecord()` produces
+**byte-for-byte identical HTML** from both, not just similar-looking
+output; (2) `tsc -p tsconfig.json` — zero errors internal to
+`track-record.ts`, and after the `watchlist.ts` fix above, `git diff
+--stat` against every previously-converted file's compiled output is
+empty; (3) real headless Chromium on Pro tier — called `logResult()`
+through the compiled module directly (with a real `meta.trigger`),
+confirmed the row's injected HTML, confirmed `getAccuracyLog()` returns
+the pushed entry with `trigger` correctly attached, confirmed
+`renderTrackRecord()` populates `#track-body` with real hit-rate/ticker
+data, confirmed both `window.logResult`/`window.clearLog` bridges exist
+and work, and confirmed `clearLog()` actually empties the log — zero
+page errors throughout.
+
+**Cache-busting cascade:** `track-record.js` `?v=16→17` in its 4
+importers (`shared/track-record-sync.js`'s relative import, `app.js`,
+`starter/app.js`, `pro/app.js`) → `track-record-sync.js`'s own content
+changed as a result, `?v=13→14` in its 1 importer (`pro/app.js` only —
+Free/Starter don't sync track record) → every tier's `app.js` changed,
+each tier's `<script src="./app.js?v=N">` bumped too (`index.html`
+45→46, `starter/index.html`/`pro/index.html` 46→47). `preview/rolodex/`
+and `shark/index.html` confirmed untouched.
+
 **Next in Phase 2, not done in this pass:** the rest of `shared/*.js` by
-fan-out — `shared/track-record.js` (4 importers), `shared/analysis-cache.js`/
-`shared/watchlist-sync.js` (3 each), `shared/context-highlight.js`/
-`shared/settings-modal.js` (2 each), `shared/track-record-sync.js` (1) —
-then both repos' `gates-extended.js` last (largest, highest-stakes file,
-best converted once the pattern is well-proven on smaller modules first).
+fan-out — `shared/analysis-cache.js`/`shared/watchlist-sync.js` (3
+importers each), `shared/context-highlight.js`/`shared/settings-modal.js`
+(2 each), `shared/track-record-sync.js` (1) — then both repos'
+`gates-extended.js` last (largest, highest-stakes file, best converted
+once the pattern is well-proven on smaller modules first). **Before any
+future `?v=` bump on a module with a `.ts` source, check that source's
+own import lines too** — the lesson from the bug caught in this pass.
 
 ## Verifying changes before you claim done
 
