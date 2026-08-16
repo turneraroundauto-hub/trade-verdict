@@ -2825,6 +2825,77 @@ TS-compiled `ticker-cache.js` (not just that the file parses).
 (largest, highest-stakes file, best converted once the pattern is
 well-proven on smaller modules first).
 
+### `shared/watchlist.js` converted to `.ts` (Aug 16, 2026)
+
+Second Phase 2 conversion, picked up immediately after `ticker-cache.ts`
+per the plan above — `watchlist.js` was the natural next step since it
+depends on the now-converted `ticker-cache.js` and is tied for the
+highest fan-out (7 importers) in `shared/`. Same transpile-only workflow:
+`shared/watchlist.ts` authored, `tsconfig.build.json`'s `include` widened
+to cover it, `tsc -p tsconfig.build.json` emits `shared/watchlist.js` in
+place — the compiled output is the real deploy artifact, committed
+alongside the `.ts` source.
+
+**This file is far more DOM-heavy than `ticker-cache.ts`** (gesture
+handling, card rendering, undo toast, drag-to-reorder) — worth being
+explicit about which parts actually got real types vs. which stayed
+loose, since that was a deliberate line, not an oversight:
+- The public API — `initWatchlist`/`setWatchlist`/`addTickers`/
+  `removeTicker`/`updateCardMeta`/etc. — now has real parameter/return
+  types, including `updateCardMeta(ticker: string, td: TickerData | null)`
+  against `shared/types.d.ts`'s real `TickerData` interface (previously
+  JSDoc-only).
+- The four concrete DOM-typing errors this file actually had under
+  `checkJs` (`newsEl.style` on an `Element`-typed `querySelector` result,
+  `.value` on `#context-input`/`#ticker-input` typed as bare
+  `HTMLElement`) got real, minimal casts (`as HTMLElement`,
+  `as HTMLTextAreaElement`, `as HTMLInputElement`) — verified against the
+  actual markup (`grep` confirmed `#context-input` is a `<textarea>`,
+  `#ticker-input` an `<input>`) rather than guessed. The
+  `window.addTickers = addTickers` bridge (the inline `onclick`
+  attribute's only way to reach the module scope) got a real
+  `declare global { interface Window { addTickers: ... } }` augmentation
+  instead of an `as any` escape hatch.
+- The drag/swipe gesture state machine (`ACTIVE`, `onPointerDown`/`Move`/
+  `Up`, `trySwap`, `finishSwipe`/`Reorder`) was deliberately **left
+  untyped** (`any`), matching — not fighting — the same implicit-any
+  behavior this code already had as plain `.js` under `checkJs` (`var
+  ACTIVE=null` already widened to `any` under this repo's
+  `strictNullChecks:false` setting, so typing it explicitly would only
+  add churn without catching anything). Properly typing pointer-event
+  target chains (`e.target.closest(...)`) would mean casting nearly
+  every DOM access in this section for no real payoff — exactly the
+  "real but low-value churn" category `tsconfig.json`'s own comments
+  already called out as deliberately left alone. This is a scoping
+  choice, not a gap: the goal is real types on the data contracts that
+  have actually shipped bugs (`TickerData`, the gesture code has never
+  been the source of one), not maximal annotation coverage.
+
+**Verified two ways, not just that `tsc` compiled clean:** (1) a
+function-signature diff between the pre- and post-conversion
+`shared/watchlist.js` — identical 27-function set, confirming nothing
+was dropped or renamed in the conversion; (2) real headless Chromium
+against a mocked backend — rendered the default 3-card Free-tier
+watchlist with real price data flowing through the compiled output,
+called `addTickers()`/`removeTicker()` through their actual DOM entry
+points (the ticker-input field, `window.addTickers`, and a dynamic
+`import()` of the compiled module for `removeTicker`), confirmed the
+undo toast's opacity/pointer-events casts work correctly end-to-end
+(the exact lines that got new `as HTMLElement` casts), and confirmed
+zero page errors throughout.
+
+**Cache-busting cascade, same shape as the `ticker-cache.ts` conversion:**
+`watchlist.js` `?v=28→29` in its 4 importers (`shared/watchlist-sync.js`'s
+relative import, `app.js`, `starter/app.js`, `pro/app.js`) →
+`watchlist-sync.js`'s own content changed as a result (its import line),
+`?v=21→22` bumped in its 3 importers → each tier's own `app.js` content
+changed (multiple import lines), so each tier's `<script src="./app.js?v=N">`
+bumped too (`index.html` 43→44, `starter/index.html`/`pro/index.html`
+44→45). `preview/rolodex/` and `shark/index.html` both confirmed
+untouched — neither imports `shared/watchlist.js` at all (the Rolodex
+preview deliberately reimplements watchlist state standalone, per its
+own section above; Shark is still fully monolithic).
+
 ## Verifying changes before you claim done
 
 There's no test suite. What's actually been useful:
