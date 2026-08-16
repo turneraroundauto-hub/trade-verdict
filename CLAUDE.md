@@ -2818,13 +2818,6 @@ confirmed zero JS errors on either, confirmed a real ticker card/pill
 actually renders fetched price data end-to-end through the newly
 TS-compiled `ticker-cache.js` (not just that the file parses).
 
-**Next in Phase 2, not done in this pass:** `shared/watchlist.js`
-(depends on the now-converted `ticker-cache.js`, natural next step),
-`shared/prefs.js` (tied for highest fan-out at 7), then the rest of
-`shared/*.js` by fan-out, then both repos' `gates-extended.js` last
-(largest, highest-stakes file, best converted once the pattern is
-well-proven on smaller modules first).
-
 ### `shared/watchlist.js` converted to `.ts` (Aug 16, 2026)
 
 Second Phase 2 conversion, picked up immediately after `ticker-cache.ts`
@@ -2895,6 +2888,96 @@ bumped too (`index.html` 43→44, `starter/index.html`/`pro/index.html`
 untouched — neither imports `shared/watchlist.js` at all (the Rolodex
 preview deliberately reimplements watchlist state standalone, per its
 own section above; Shark is still fully monolithic).
+
+### `shared/prefs.js` converted to `.ts` (Aug 16, 2026)
+
+Third Phase 2 conversion — tied with `watchlist.js` for the highest
+fan-out (6 importers by direct count) among the remaining `shared/*.js`
+files, and unlike `watchlist.js`/`ticker-cache.js` it has **zero internal
+`shared/` dependencies of its own** (no imports at all — it's pure
+localStorage-backed preference logic plus a small amount of DOM at the
+very end), so it converted cleanly with no ordering constraint against
+the other two already-converted files. Same transpile-only workflow:
+`shared/prefs.ts` authored, `tsconfig.build.json`'s `include` widened,
+`tsc -p tsconfig.build.json` emits `shared/prefs.js` in place.
+
+**This file had zero DOM-typing errors under `checkJs` to begin with**
+(unlike `watchlist.js`'s four) — its only DOM touchpoint is
+`refreshTickerLinks()`'s `querySelectorAll('a[data-ticker]')` loop, and
+TypeScript's real return type for that call already carries enough of
+the right shape that no cast was strictly required to compile clean;
+`as HTMLAnchorElement`/`as HTMLElement` casts were added anyway on the
+`.href`/`.dataset` reads for explicitness, not because `tsc` demanded
+them. Everything else got real, meaningful types: `TIMEZONES`/
+`LINK_SITES` are now typed against real `TimezoneInfo`/`LinkSite`
+interfaces (`LinkSite.newsHref` correctly modeled as optional, matching
+that Robinhood is the one site with no `newsHref` and falls back to
+`href` at the call site), and every exported function
+(`buildTemplateFromExample`, `detectTickerInUrl`,
+`isValidCustomTemplate`, the getter/setter pairs for both custom
+templates, `tickerHref`/`newsHref` themselves) has real parameter/return
+types.
+
+**Verified three ways:** (1) an export-name diff between pre- and
+post-conversion `shared/prefs.js` — identical 18-export set; (2)
+`tsc -p tsconfig.json` — zero errors internal to `prefs.ts` itself, only
+the expected `?v=`-import-resolution noise in its consumers; (3) real
+headless Chromium against a mocked backend on Pro tier (a fake-but-valid
+`tv_session` primed per this file's own testing-notes pattern below) —
+confirmed the default Yahoo href renders correctly, switching the Settings
+modal's link-site dropdown to TradingView live-updates an already-rendered
+ticker link via the `onPrefsChange` → `refreshTickerLinks` cascade,
+pasting a real example URL into the custom-link field correctly
+auto-detects the ticker and saves a working template
+(`buildTemplateFromExample`/`detectTickerInUrl`/`isValidCustomTemplate`
+all exercised together, not just unit-tested in isolation), and switching
+the timezone dropdown correctly round-trips through `getTzPref`/
+`getTzIana` — zero page errors throughout. (A first pass at this test
+had a self-inflicted harness bug worth noting for future test-writing in
+this repo: overly broad Playwright route patterns like `**/watchlist**`
+and `**/track**` — meant to mock the backend's `/watchlist` and `/track`
+endpoints — also matched the *local script* fetches for
+`shared/watchlist.js` and `shared/track-record.js`, since those filenames
+contain the same substrings, and Playwright fulfilled them with mocked
+JSON instead of letting the real JS load. Fixed by scoping every mock
+route to the real API host (`https://tra-zacg.onrender.com/watchlist**`
+etc.) instead of a bare path substring — not a bug in the conversion
+itself, but a reminder that this repo's own file-naming overlap with its
+own API paths (`watchlist.js` / `/watchlist`, `track-record.js` /
+`/track`) is a real trap for any future test route pattern too.)
+
+**Cache-busting cascade, the deepest one yet** — `prefs.js` has more
+importers than either prior conversion, and two of them
+(`track-record.js`, `settings-modal.js`) hadn't been touched by this
+migration before, so this pass also bumped their versions without
+converting their content:
+`prefs.js` `?v=10→11` in its 6 importers (`shared/track-record.js`,
+`shared/watchlist.js`, `shared/settings-modal.js`, `app.js`,
+`starter/app.js`, `pro/app.js`) → three of those had their own content
+change as a result (an import line), cascading further: `track-record.js`
+`?v=15→16` in its 4 importers (`shared/track-record-sync.js`'s relative
+import, `app.js`, `starter/app.js`, `pro/app.js`); `watchlist.js`
+`?v=29→30` in its 4 importers (`shared/watchlist-sync.js`'s relative
+import, `app.js`, `starter/app.js`, `pro/app.js`); `settings-modal.js`
+`?v=13→14` in its 2 importers (`starter/app.js`, `pro/app.js` — Free has
+no Settings UI and never imports it) → those cascaded one hop further in
+turn: `track-record-sync.js` `?v=12→13` in its 1 importer (`pro/app.js`
+only — Free/Starter don't sync track record, Pro-only per this file's
+own Frontend architecture section), `watchlist-sync.js` `?v=22→23` in
+its 3 importers → finally every tier's own `app.js` had multiple import
+lines change, so each tier's `<script src="./app.js?v=N">` bumped too
+(`index.html` 44→45, `starter/index.html`/`pro/index.html` 45→46).
+`preview/rolodex/` and `shark/index.html` both confirmed untouched —
+neither imports any of `prefs.js`/`track-record.js`/`settings-modal.js`
+(Rolodex hardcodes Yahoo directly rather than importing `prefs.js`, per
+its own section above; Shark is fully monolithic).
+
+**Next in Phase 2, not done in this pass:** the rest of `shared/*.js` by
+fan-out — `shared/track-record.js` (4 importers), `shared/analysis-cache.js`/
+`shared/watchlist-sync.js` (3 each), `shared/context-highlight.js`/
+`shared/settings-modal.js` (2 each), `shared/track-record-sync.js` (1) —
+then both repos' `gates-extended.js` last (largest, highest-stakes file,
+best converted once the pattern is well-proven on smaller modules first).
 
 ## Verifying changes before you claim done
 
