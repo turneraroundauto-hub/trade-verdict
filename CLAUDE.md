@@ -4363,6 +4363,42 @@ There's no test suite. What's actually been useful:
   should check after deploy (e.g. "confirm the Alpaca plan actually has
   options-data entitlement, spot-check one known-liquid ticker's value").
 
+## Backend: signup confirmation emails redirecting to a dead site (Aug 16, 2026)
+
+Reported live: users confirming their email after signup landed on a dead
+site — the confirmation itself succeeded (Supabase processed the token
+fine), but the link didn't ship them anywhere useful afterward.
+
+**Root cause.** `/auth/signup`'s `authClient().auth.signUp({ email,
+password })` call never passed an `emailRedirectTo` option, so Supabase
+fell back to the project's default **Site URL** (Auth → URL
+Configuration) for the confirmation link instead of the app itself.
+`/auth/reset` already sets `redirectTo` explicitly
+(`https://tradetribunal.app/reset`) — signup was the one auth path that
+never got the equivalent treatment, so this same class of bug (documented
+elsewhere in this file for `/reset`'s own redirect) had a second, unfixed
+instance sitting right next to it the whole time.
+
+**Fix (`Tra` PR #39 / `trade-verdict` PR #167, both merged):** added
+`options: { emailRedirectTo: "https://tradetribunal.app/" }` to the
+`signUp()` call — root, not a tier subpath, since every new signup starts
+as a `free` subscriber (`upsertSubscriber(email, "free", ...)` runs
+immediately after). Mirrored into `trade-verdict`'s copy per the
+two-repo rule; `Tra` is what actually deploys.
+
+**Required companion step, same shape as the Aug 4, 2026 `/reset`
+rollout:** `https://tradetribunal.app/` had to be added to Supabase's
+Auth → URL Configuration → Redirect URLs allowlist, or Supabase would
+keep rejecting the redirect even with the code fix deployed — **done,
+confirmed by Mr. T Aug 16, 2026.**
+
+**Unverified against a live signup** — same standing sandbox limitation
+as every other Supabase/backend change in this file (no reachable
+credentials, no way to actually receive a confirmation email from here).
+To confirm: sign up with a real test email once `Tra`'s deploy picks up
+PR #39, click the confirmation link, and check it lands on
+`https://tradetribunal.app/` instead of the old dead URL.
+
 ## Terminology rule
 
 Verdicts are UP / DOWN / FLAT only, with a magnitude and a sizing action.
