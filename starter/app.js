@@ -1020,6 +1020,16 @@ function positionRoloStack() {
 function scrollToActiveCard() {
   const wrap = els.roloStage.closest(".rolo-wrap");
   if (!wrap) return;
+  if (!els.gateCard.classList.contains("docked")) {
+    els.gateCard.classList.add("docked");
+    els.gateCard.setAttribute("aria-expanded", "false");
+    const prevTransition = els.gateSpacer.style.transition;
+    els.gateSpacer.style.transition = "none";
+    els.gateSpacer.style.height = "0px";
+    void els.gateSpacer.offsetHeight;
+    els.gateSpacer.style.transition = prevTransition;
+    gateDockedLast = true;
+  }
   const roloIndexH = els.roloIndex.getBoundingClientRect().height;
   wrap.style.scrollMarginTop = GATE_DOCKED_H + roloIndexH + "px";
   wrap.scrollIntoView({ behavior: "smooth", block: "start" });

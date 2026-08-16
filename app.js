@@ -1,549 +1,1669 @@
-import { initTickerCache, fetchTickerData } from './shared/ticker-cache.js?v=5';
-import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, onWatchlistSave, refreshNewsHighlights } from './shared/watchlist.js?v=32';
-import { cleanLS, cacheVerdict, getCachedVerdict } from './shared/analysis-cache.js?v=3';
-import { renderTrackRecord } from './shared/track-record.js?v=17';
-import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from './shared/watchlist-sync.js?v=26';
-import { getTzPref, getTzIana, forceDefaults } from './shared/prefs.js?v=11';
-// Free has no Settings UI (see prefs.js) — always ET / Yahoo Finance,
-// regardless of a preference set on Starter/Pro in this same browser.
-forceDefaults();
+// shared/ticker-cache.ts
+var API_URL = "";
+var authH = () => ({});
+var addSecret = (url) => url;
+var tickerCache = {};
+var inFlight = {};
+function initTickerCache(config) {
+  API_URL = config.API_URL;
+  authH = config.authH;
+  addSecret = config.addSecret;
+}
+async function fetchTickerData(symbol, force) {
+  if (tickerCache[symbol] && !force) return tickerCache[symbol];
+  if (inFlight[symbol] && !force) return inFlight[symbol];
+  const p = (async () => {
+    try {
+      const res = await fetch(addSecret(API_URL + "/ticker/" + symbol), { headers: authH() });
+      const data = await res.json();
+      tickerCache[symbol] = data;
+      return data;
+    } catch (e) {
+      return null;
+    } finally {
+      delete inFlight[symbol];
+    }
+  })();
+  inFlight[symbol] = p;
+  return p;
+}
 
-// If user has a paid session in localStorage from paid tier, redirect them.
-// window.location.href doesn't halt script execution -- the rest of this
-// module (including initWatchlist/pullWatchlistFromServer below) would
-// otherwise keep running for the fraction of a second before navigation
-// actually happens. tv_wl is the SAME localStorage key every tier reads
-// from, so Free's maxTickers:3 cap silently truncating it in that window
-// -- and a same-account pullWatchlistFromServer() persisting that
-// truncated list locally -- can leave a paid tier's real watchlist
-// clobbered to 3 tickers on the very next load. Guard everything below
-// that touches watchlist state behind this flag instead.
-var redirectingToPaidTier=false;
-try{
-  var stored=JSON.parse(localStorage.getItem('tv_session')||'null');
-  if(stored&&stored.tier&&stored.tier!=='free'&&stored.redirectUrl){
-    redirectingToPaidTier=true;
-    window.location.href=stored.redirectUrl;
+// shared/prefs.ts
+var TIMEZONES = {
+  ET: { label: "ET (Eastern)", iana: "America/New_York" },
+  CT: { label: "CT (Central)", iana: "America/Chicago" },
+  MT: { label: "MT (Mountain)", iana: "America/Denver" },
+  PT: { label: "PT (Pacific)", iana: "America/Los_Angeles" }
+};
+var LINK_SITES = {
+  yahoo: {
+    label: "Yahoo Finance",
+    href: function(t) {
+      return "https://finance.yahoo.com/quote/" + encodeURIComponent(t);
+    },
+    newsHref: function(t) {
+      return "https://finance.yahoo.com/quote/" + encodeURIComponent(t) + "/news/";
+    }
+  },
+  tradingview: {
+    label: "TradingView",
+    // Bare /symbols/{TICKER}/ has the identical exchange-ambiguity problem
+    // as Google Finance's direct quote page (see the comment above) — this
+    // app has no per-symbol exchange data (checked: nowhere in the frontend
+    // or the mirrored server.js), and TradingView's own bare-symbol
+    // resolution isn't reliably US-biased: confirmed live (Aug 10, 2026)
+    // that a real user's ARCC link landed on Egypt's EGX-listed Arabian
+    // Cement instead of NASDAQ's Ares Capital. Routes through a plain web
+    // search instead (same proven-safe pattern as Yahoo/Google's own
+    // fallback), biased toward tradingview.com with a keyword rather than
+    // the `site:` operator — this app already found `site:` search results
+    // unreliable (Google shows an interstitial banner instead of direct
+    // results, hit earlier this session while building the news-link
+    // feature). UNVERIFIED LIVE: this sandbox blocks tradingview.com and
+    // google.com egress alike, so the actual search-result ranking for a
+    // given ticker couldn't be confirmed — spot-check after deploy.
+    href: function(t) {
+      return "https://www.google.com/search?q=" + encodeURIComponent(t.replace("-USD", " USD") + " stock tradingview");
+    },
+    newsHref: function(t) {
+      return "https://news.google.com/search?q=" + encodeURIComponent(t.replace("-USD", " USD") + " stock tradingview");
+    }
+  },
+  stocktwits: {
+    label: "StockTwits",
+    href: function(t) {
+      return "https://stocktwits.com/symbol/" + encodeURIComponent(t.replace("-USD", ".X"));
+    },
+    newsHref: function(t) {
+      return "https://stocktwits.com/symbol/" + encodeURIComponent(t.replace("-USD", ".X")) + "/news";
+    }
+  },
+  google: {
+    label: "Google Finance",
+    href: function(t) {
+      return "https://www.google.com/search?q=" + encodeURIComponent(t.replace("-USD", " USD") + " stock");
+    },
+    newsHref: function(t) {
+      return "https://news.google.com/search?q=" + encodeURIComponent(t.replace("-USD", " USD") + " stock");
+    }
+  },
+  robinhood: {
+    label: "Robinhood",
+    href: function(t) {
+      return "https://robinhood.com/stocks/" + encodeURIComponent(t.replace("-USD", ""));
+    }
+  },
+  custom: {
+    label: "Custom link\u2026",
+    href: function(t) {
+      return customMarketTemplateHref(t);
+    },
+    newsHref: function(t) {
+      return customNewsTemplateHref(t);
+    }
   }
-}catch(e){}
+};
+var CUSTOM_TEMPLATE_KEY = "tv_link_custom_template";
+var CUSTOM_MARKET_TEMPLATE_KEY = "tv_link_custom_market_template";
+function isValidCustomTemplate(template) {
+  var t = (template || "").trim();
+  if (!/^https?:\/\//i.test(t)) return false;
+  if (!/\{ticker\}/i.test(t)) return false;
+  return true;
+}
+function getCustomTemplate() {
+  return localStorage.getItem(CUSTOM_TEMPLATE_KEY) || "";
+}
+function getCustomMarketTemplate() {
+  return localStorage.getItem(CUSTOM_MARKET_TEMPLATE_KEY) || "";
+}
+function applyTemplate(template, t) {
+  return template.replace(/\{TICKER\}/g, encodeURIComponent(t.toUpperCase())).replace(/\{ticker\}/g, encodeURIComponent(t.toLowerCase()));
+}
+function customMarketTemplateHref(t) {
+  var template = getCustomMarketTemplate();
+  if (!isValidCustomTemplate(template)) return LINK_SITES.yahoo.href(t);
+  return applyTemplate(template, t);
+}
+function customNewsTemplateHref(t) {
+  var template = getCustomTemplate();
+  if (!isValidCustomTemplate(template)) return LINK_SITES.yahoo.newsHref(t);
+  return applyTemplate(template, t);
+}
+var TZ_KEY = "tv_tz_pref";
+var LINK_KEY = "tv_link_site_pref";
+var forced = false;
+function forceDefaults() {
+  forced = true;
+}
+function getTzPref() {
+  if (forced) return "ET";
+  var v = localStorage.getItem(TZ_KEY);
+  return v && TIMEZONES[v] ? v : "ET";
+}
+function getTzIana() {
+  return TIMEZONES[getTzPref()].iana;
+}
+function getLinkSitePref() {
+  if (forced) return "yahoo";
+  var v = localStorage.getItem(LINK_KEY);
+  return v && LINK_SITES[v] ? v : "yahoo";
+}
+function tickerHref(t) {
+  return LINK_SITES[getLinkSitePref()].href(t);
+}
+function newsHref(t) {
+  var site = LINK_SITES[getLinkSitePref()];
+  return (site.newsHref || site.href)(t);
+}
 
-// Recognize a signed-in session (tv_session is shared across all tiers on
-// this origin, so a "free" session bounced back from the Starter login
-// still shows up here) and swap the header button to SIGN OUT instead of
-// SIGN UP / SIGN IN.
-function getStoredSession(){try{return JSON.parse(localStorage.getItem('tv_session')||'null');}catch(e){return null;}}
-function isSessionValid(s){if(!s||!s.token)return false;if(s.expiresAt&&Date.now()/1000>s.expiresAt-60)return false;return true;}
-var sbSession=isSessionValid(getStoredSession())?getStoredSession():null;
-function updateAuthButton(){
-  var btn=document.getElementById('auth-action-btn');if(!btn)return;
-  if(isSessionValid(getStoredSession())){
-    btn.textContent='SIGN OUT';
-    btn.href='javascript:void(0)';
-    btn.onclick=function(e){e.preventDefault();localStorage.removeItem('tv_session');updateAuthButton();};
-    btn.style.color='var(--dim)';btn.style.background='none';btn.style.borderColor='var(--border)';
-  }else{
-    btn.innerHTML='&#128274; SIGN UP / SIGN IN';
-    btn.href='https://tradetribunal.app/starter/';
-    btn.onclick=null;
-    btn.style.color='#40c4ff';btn.style.background='rgba(64,196,255,.1)';btn.style.borderColor='rgba(64,196,255,.4)';
+// shared/context-highlight.ts
+var STOPWORDS = /* @__PURE__ */ new Set([
+  "a",
+  "an",
+  "the",
+  "and",
+  "or",
+  "but",
+  "if",
+  "of",
+  "in",
+  "on",
+  "for",
+  "to",
+  "with",
+  "at",
+  "by",
+  "from",
+  "as",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "been",
+  "being",
+  "it",
+  "its",
+  "this",
+  "that",
+  "these",
+  "those",
+  "after",
+  "before",
+  "over",
+  "under",
+  "into",
+  "out",
+  "up",
+  "down",
+  "than",
+  "then",
+  "so",
+  "not",
+  "no",
+  "yes",
+  "has",
+  "have",
+  "had",
+  "will",
+  "would",
+  "could",
+  "should",
+  "can",
+  "may",
+  "might",
+  "must",
+  "more",
+  "most",
+  "also",
+  "still",
+  "just",
+  "now",
+  "new",
+  "via",
+  "their",
+  "his",
+  "her",
+  "your",
+  "you",
+  "we",
+  "our"
+]);
+function tokenize(text) {
+  return (text || "").toLowerCase().match(/[a-z0-9$%]+/g) || [];
+}
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function highlightContextMatches(headline, contextText) {
+  var safe = escapeHtml(headline || "");
+  var ctxWords = new Set(tokenize(contextText).filter(function(w) {
+    return w.length > 2 && !STOPWORDS.has(w);
+  }));
+  if (ctxWords.size < 2) return safe;
+  var headlineWords = new Set(tokenize(headline));
+  var matches = [];
+  headlineWords.forEach(function(w) {
+    if (ctxWords.has(w)) matches.push(w);
+  });
+  if (matches.length < 2) return safe;
+  var pattern = matches.sort(function(a, b) {
+    return b.length - a.length;
+  }).map(function(w) {
+    return w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }).join("|");
+  var re = new RegExp("\\b(" + pattern + ")\\b", "gi");
+  return safe.replace(re, '<mark class="ctx-match">$1</mark>');
+}
+
+// shared/watchlist.ts
+var watchlist = [];
+var maxTickers = 3;
+var upgradeMessage = "";
+var gesturesBound = false;
+var renderScope = null;
+var postRenderHook = null;
+var cardsReadyPromise = new Promise(function(res) {
+});
+var saveHook = null;
+function onWatchlistSave(cb2) {
+  saveHook = cb2;
+}
+function initWatchlist(config) {
+  maxTickers = config.maxTickers;
+  upgradeMessage = config.upgradeMessage;
+  var _wl = JSON.parse(localStorage.getItem("tv_wl") || JSON.stringify(config.defaultTickers));
+  if (_wl.length > maxTickers) _wl = _wl.slice(0, maxTickers);
+  watchlist = _wl;
+  bindGestures();
+}
+function saveWL() {
+  localStorage.setItem("tv_wl", JSON.stringify(watchlist));
+  var countEl = document.getElementById("ticker-count");
+  if (countEl) countEl.textContent = "CRF \xB7 " + watchlist.length + " TICKERS";
+  if (saveHook) saveHook();
+}
+function setWatchlist(tickers) {
+  var clean = [], dropped = [];
+  tickers.forEach(function(t) {
+    var u = String(t).toUpperCase().trim();
+    if (/^[A-Z]{1,6}$/.test(u)) {
+      if (!clean.includes(u)) clean.push(u);
+    } else if (u) dropped.push(u);
+  });
+  if (clean.length > maxTickers) {
+    dropped = dropped.concat(clean.slice(maxTickers));
+    clean = clean.slice(0, maxTickers);
+  }
+  if (tickers.length && !clean.length) {
+    console.error("setWatchlist: all " + tickers.length + " provided ticker(s) failed validation, keeping existing watchlist unchanged:", tickers);
+    return dropped;
+  }
+  watchlist = clean;
+  saveWL();
+  renderWatchlist();
+  return dropped;
+}
+function parseTickers(raw) {
+  return raw.toUpperCase().replace(/[$#]/g, "").split(/[\s,;|\n]+/).map((t) => t.trim()).filter((t) => /^[A-Z]{1,6}$/.test(t));
+}
+function updateCardMeta(ticker, td) {
+  var card = document.getElementById("card-" + ticker);
+  if (!card) return;
+  var priceEl = card.querySelector(".ticker-price");
+  if (priceEl && td) {
+    priceEl.textContent = td.metrics && td.metrics.price ? "$" + td.metrics.price.toFixed(2) : "N/A";
+  }
+  var phaseEl = card.querySelector(".phase-strip");
+  if (phaseEl && td && td.metrics) {
+    var m = td.metrics;
+    var rp = m.rangePosition !== null && m.rangePosition !== void 0 ? m.rangePosition + "%" : "?";
+    var ph = m.phaseProxy || "?";
+    var phColor = ph === "PHASE_3" ? "var(--red)" : ph === "PHASE_2" ? "var(--amber)" : "var(--green)";
+    var betaStr = m.beta ? "\u03B2" + m.beta.toFixed(1) : "?";
+    var proxyName = td.proxyRule && td.proxyRule.proxy ? td.proxyRule.proxy.name : "";
+    var proxyShort = proxyName.split("(")[0].trim();
+    phaseEl.innerHTML = '<div class="phase-item"><span class="phase-lbl">52W</span><span class="phase-val">' + rp + '</span></div><div class="phase-item"><span class="phase-lbl">PHASE</span><span class="phase-val" style="color:' + phColor + '">' + ph.replace("PHASE_", "") + '</span></div><div class="phase-item"><span class="phase-lbl">\u03B2</span><span class="phase-val">' + betaStr + "</span></div>" + (proxyShort ? '<div class="phase-item"><span class="phase-lbl">PROXY</span><span class="phase-val" style="color:var(--blue);font-size:9px">' + proxyShort + "</span></div>" : "");
+  } else if (phaseEl && td) {
+    phaseEl.innerHTML = '<div class="phase-item"><span class="phase-val" style="color:var(--dim);font-size:9px">No market data for this symbol (index/unsupported ticker)</span></div>';
+  }
+  var newsEl = card.querySelector(".news-line");
+  var news = td && td.news;
+  if (newsEl) {
+    if (news && news.ageHours <= 300) {
+      newsEl.style.display = "block";
+      var ctxEl = document.getElementById("context-input");
+      var headlineHtml = highlightContextMatches(news.headline, ctxEl ? ctxEl.value : "");
+      newsEl.innerHTML = '<a href="' + newsHref(ticker) + '" target="_blank">' + headlineHtml + '</a><span class="news-age">' + news.ageLabel + "</span>";
+    } else newsEl.style.display = "none";
+  }
+}
+function addTickers() {
+  if (watchlist.length >= maxTickers) {
+    alert(upgradeMessage);
+    return;
+  }
+  var input = document.getElementById("ticker-input");
+  var raw = input.value;
+  var tickers = parseTickers(raw);
+  if (!tickers.length) return alert("No valid tickers. Try: AAPL or MU");
+  var newOnes = tickers.filter(function(t) {
+    return !watchlist.includes(t);
+  });
+  watchlist.unshift.apply(watchlist, newOnes);
+  input.value = "";
+  saveWL();
+  renderWatchlist();
+  tickers.forEach(function(t) {
+    fetchTickerData(t).then(function(d) {
+      if (d) updateCardMeta(t, d);
+    });
+  });
+}
+function removeTicker(ticker) {
+  var idx = watchlist.indexOf(ticker);
+  if (idx === -1) return;
+  watchlist = watchlist.filter(function(t) {
+    return t !== ticker;
+  });
+  saveWL();
+  renderWatchlist();
+  showUndoToast(ticker, idx);
+}
+var undoTimer = null;
+function showUndoToast(ticker, idx) {
+  var el = document.getElementById("undo-toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "undo-toast";
+    el.style.cssText = "position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#101c2e;border:1px solid var(--border);border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:14px;font-family:monospace;font-size:12px;color:var(--white);box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:999;opacity:0;transition:opacity .2s;pointer-events:none";
+    document.body.appendChild(el);
+  }
+  if (undoTimer) clearTimeout(undoTimer);
+  el.innerHTML = "<span>Removed " + ticker + '</span><button id="undo-btn" style="background:none;border:none;color:var(--blue);font-family:monospace;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:.06em;pointer-events:auto">UNDO</button>';
+  el.style.pointerEvents = "auto";
+  el.style.opacity = "1";
+  document.getElementById("undo-btn").onclick = function() {
+    if (!watchlist.includes(ticker)) {
+      watchlist.splice(Math.min(idx, watchlist.length), 0, ticker);
+      saveWL();
+      renderWatchlist();
+      fetchTickerData(ticker).then(function(d) {
+        if (d) updateCardMeta(ticker, d);
+      });
+    }
+    hideUndoToast();
+  };
+  undoTimer = setTimeout(hideUndoToast, 4e3);
+}
+function hideUndoToast() {
+  var el = document.getElementById("undo-toast");
+  if (el) {
+    el.style.opacity = "0";
+    el.style.pointerEvents = "none";
+  }
+  if (undoTimer) clearTimeout(undoTimer);
+}
+function renderWatchlist() {
+  var wl = document.getElementById("watchlist");
+  if (!wl) return;
+  var list = renderScope != null ? watchlist.slice(0, renderScope) : watchlist;
+  wl.innerHTML = list.map(function(ticker) {
+    return '<div class="card-wrap" data-ticker="' + ticker + '"><div class="swipe-bg"><span class="swipe-icon">&#128465;</span><span class="swipe-label">DELETE</span></div><div class="card loading" id="card-' + ticker + '"><div class="card-head"><div class="card-left"><div class="ticker-row"><span class="ticker-name"><a class="ticker-a" href="' + tickerHref(ticker) + '" target="_blank">' + ticker + '</a></span><span class="ticker-price">&mdash;</span></div><div class="pregate-strip" id="pregate-' + ticker + `" style="display:none"></div><div class="news-line" style="display:none"></div><div class="phase-strip"></div><div class="reason-txt" style="display:none"></div><div class="card-badges"></div></div><div class="card-right"><div class="drag-handle" title="Drag to reorder">&#10303;</div><div class="card-action"><button class="analyze-btn" onclick="analyzeTicker('` + ticker + `')">ANALYZE</button></div></div></div><div class="log-section" style="display:none"></div><div class="gate-section" style="display:none"></div></div></div>`;
+  }).join("");
+  var resolveThisRender;
+  cardsReadyPromise = new Promise(function(res) {
+    resolveThisRender = res;
+  });
+  hydrateCards(list).then(function() {
+    resolveThisRender();
+    if (postRenderHook) postRenderHook();
+  });
+}
+async function hydrateCards(list) {
+  await Promise.all(list.map(function(t) {
+    return fetchTickerData(t).then(function(d) {
+      if (d) updateCardMeta(t, d);
+      var card = document.getElementById("card-" + t);
+      if (card) card.classList.remove("loading");
+    });
+  }));
+}
+var ACTIVE = null;
+var MOVE_THRESHOLD = 14;
+function bindGestures() {
+  if (gesturesBound) return;
+  var wl = document.getElementById("watchlist");
+  if (!wl) return;
+  gesturesBound = true;
+  wl.addEventListener("pointerdown", onPointerDown);
+}
+function onPointerDown(e) {
+  if (ACTIVE) return;
+  if (e.pointerType === "mouse" && e.button !== 0) return;
+  var wrap = e.target.closest(".card-wrap");
+  if (!wrap) return;
+  var card = wrap.querySelector(".card");
+  if (!card) return;
+  ACTIVE = {
+    pointerId: e.pointerId,
+    wrap,
+    card,
+    ticker: wrap.dataset.ticker,
+    startX: e.clientX,
+    startY: e.clientY,
+    mode: null,
+    pendingDx: 0,
+    swipeBg: wrap.querySelector(".swipe-bg")
+  };
+  if (e.target.closest(".drag-handle")) beginReorder(e);
+  document.addEventListener("pointermove", onPointerMove, { passive: false });
+  document.addEventListener("pointerup", onPointerUp);
+  document.addEventListener("pointercancel", onPointerUp);
+}
+function beginReorder(e) {
+  var g = ACTIVE;
+  g.mode = "reorder";
+  try {
+    g.wrap.setPointerCapture(e.pointerId);
+  } catch (err) {
+  }
+  g.card.style.transition = "none";
+  g.wrap.classList.add("dragging");
+  g.card.classList.add("dragging");
+}
+function deleteThreshold(wrap) {
+  return Math.min(120, wrap.getBoundingClientRect().width * 0.35);
+}
+function onPointerMove(e) {
+  var g = ACTIVE;
+  if (!g || e.pointerId !== g.pointerId) return;
+  var dx = e.clientX - g.startX, dy = e.clientY - g.startY;
+  if (g.mode === null) {
+    if (Math.abs(dx) > MOVE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
+      g.mode = "swipe";
+      try {
+        g.wrap.setPointerCapture(e.pointerId);
+      } catch (err) {
+      }
+      g.card.style.transition = "none";
+      g.wrap.classList.add("swiping");
+    } else if (Math.abs(dy) > MOVE_THRESHOLD) {
+      endGesture();
+      return;
+    } else return;
+  }
+  if (g.mode === "swipe") {
+    e.preventDefault();
+    var clamped = Math.min(0, Math.max(dx, -g.wrap.getBoundingClientRect().width));
+    g.card.style.transform = "translateX(" + clamped + "px)";
+    var progress = Math.min(Math.abs(clamped) / deleteThreshold(g.wrap), 1);
+    g.swipeBg.style.opacity = String(progress);
+    g.pendingDx = clamped;
+  } else if (g.mode === "reorder") {
+    e.preventDefault();
+    while (trySwap(g, e)) {
+    }
+    g.card.style.transform = "translateY(" + (e.clientY - g.startY) + "px)";
+  }
+}
+function trySwap(g, e) {
+  var wl = document.getElementById("watchlist");
+  var wrapRect = g.wrap.getBoundingClientRect();
+  var dy = e.clientY - g.startY;
+  var draggedCenter = wrapRect.top + wrapRect.height / 2 + dy;
+  var next = g.wrap.nextElementSibling;
+  if (next) {
+    var nr = next.getBoundingClientRect();
+    if (draggedCenter > nr.top + nr.height / 2) {
+      wl.insertBefore(next, g.wrap);
+      swapTickers(g.ticker, next.dataset.ticker);
+      g.startY += nr.height;
+      return true;
+    }
+  }
+  var prev = g.wrap.previousElementSibling;
+  if (prev) {
+    var pr = prev.getBoundingClientRect();
+    if (draggedCenter < pr.top + pr.height / 2) {
+      wl.insertBefore(g.wrap, prev);
+      swapTickers(g.ticker, prev.dataset.ticker);
+      g.startY -= pr.height;
+      return true;
+    }
+  }
+  return false;
+}
+function swapTickers(a, b) {
+  var ia = watchlist.indexOf(a), ib = watchlist.indexOf(b);
+  if (ia === -1 || ib === -1) return;
+  var tmp = watchlist[ia];
+  watchlist[ia] = watchlist[ib];
+  watchlist[ib] = tmp;
+  saveWL();
+}
+function onPointerUp(e) {
+  var g = ACTIVE;
+  if (!g || e.pointerId !== g.pointerId) return;
+  if (g.mode === "swipe") finishSwipe(g);
+  else if (g.mode === "reorder") finishReorder(g);
+  endGesture();
+}
+function finishSwipe(g) {
+  var threshold = deleteThreshold(g.wrap);
+  if (Math.abs(g.pendingDx) >= threshold) {
+    var wrap = g.wrap, ticker = g.ticker, w = wrap.getBoundingClientRect().width;
+    g.card.style.transition = "transform .18s ease-in";
+    g.card.style.transform = "translateX(-" + (w + 40) + "px)";
+    wrap.style.overflow = "hidden";
+    wrap.style.transition = "max-height .2s ease .12s,opacity .2s ease .12s,margin .2s ease .12s";
+    requestAnimationFrame(function() {
+      wrap.style.maxHeight = "0px";
+      wrap.style.opacity = "0";
+      wrap.style.marginTop = "0px";
+      wrap.style.marginBottom = "0px";
+    });
+    setTimeout(function() {
+      removeTicker(ticker);
+    }, 220);
+  } else {
+    g.card.style.transition = "transform .18s ease";
+    g.card.style.transform = "translateX(0)";
+    g.swipeBg.style.opacity = "0";
+  }
+  g.wrap.classList.remove("swiping");
+}
+function finishReorder(g) {
+  g.card.style.transition = "transform .15s ease";
+  g.card.style.transform = "translateY(0)";
+  g.wrap.classList.remove("dragging");
+  g.card.classList.remove("dragging");
+  setTimeout(function() {
+    g.card.style.transition = "";
+  }, 160);
+}
+function endGesture() {
+  var g = ACTIVE;
+  if (g) {
+    try {
+      g.wrap.releasePointerCapture(g.pointerId);
+    } catch (err) {
+    }
+  }
+  ACTIVE = null;
+  document.removeEventListener("pointermove", onPointerMove);
+  document.removeEventListener("pointerup", onPointerUp);
+  document.removeEventListener("pointercancel", onPointerUp);
+}
+window.addTickers = addTickers;
+
+// shared/analysis-cache.ts
+var verdictCache = {};
+function lsCK(t) {
+  return "tv_v_" + t + "_" + (/* @__PURE__ */ new Date()).toDateString().replace(/ /g, "_");
+}
+function saveLSVerdict(t, d) {
+  try {
+    localStorage.setItem(lsCK(t), JSON.stringify(d));
+  } catch (e) {
+  }
+}
+function loadLSVerdict(t) {
+  try {
+    var r = localStorage.getItem(lsCK(t));
+    return r ? JSON.parse(r) : null;
+  } catch (e) {
+    return null;
+  }
+}
+function cleanLS() {
+  var today = (/* @__PURE__ */ new Date()).toDateString().replace(/ /g, "_");
+  Object.keys(localStorage).forEach(function(k) {
+    if (k.startsWith("tv_v_") && !k.includes(today)) localStorage.removeItem(k);
+  });
+}
+function cacheVerdict(t, d) {
+  verdictCache[t] = { data: d, date: (/* @__PURE__ */ new Date()).toDateString() };
+  saveLSVerdict(t, d);
+}
+function getCachedVerdict(t) {
+  var e = verdictCache[t];
+  if (e && e.date === (/* @__PURE__ */ new Date()).toDateString()) return e.data;
+  var ls = loadLSVerdict(t);
+  if (ls) {
+    verdictCache[t] = { data: ls, date: (/* @__PURE__ */ new Date()).toDateString() };
+    return ls;
+  }
+  return null;
+}
+
+// shared/watchlist-sync.ts
+var cfg = null;
+var pulling = false;
+function initWatchlistSync(config) {
+  cfg = config;
+}
+var PULL_RETRY_DELAYS_MS = [0, 1500, 4e3];
+async function pullWatchlistFromServer() {
+  if (!cfg) return;
+  var data = null;
+  for (var i = 0; i < PULL_RETRY_DELAYS_MS.length && !data; i++) {
+    if (PULL_RETRY_DELAYS_MS[i]) await new Promise(function(r) {
+      setTimeout(r, PULL_RETRY_DELAYS_MS[i]);
+    });
+    try {
+      var res = await fetch(cfg.addSecret(cfg.API_URL + "/watchlist"), { headers: cfg.authH(), cache: "no-store" });
+      if (res.ok) data = await res.json();
+    } catch (e) {
+    }
+  }
+  if (data) {
+    if (data.tickers && data.tickers.length) {
+      pulling = true;
+      setWatchlist(data.tickers);
+      pulling = false;
+    } else if (watchlist.length) {
+      pushWatchlistToServer(true);
+    }
+  }
+}
+var pushTimer = null;
+function schedulePushWatchlist() {
+  if (!cfg || pulling) return;
+  if (pushTimer) clearTimeout(pushTimer);
+  pushTimer = setTimeout(function() {
+    pushWatchlistToServer(false);
+  }, 1200);
+}
+async function pushWatchlistToServer(seed) {
+  if (!cfg) return;
+  try {
+    await fetch(cfg.addSecret(cfg.API_URL + "/watchlist"), { method: "POST", headers: cfg.authH(), body: JSON.stringify({ tickers: watchlist, seed: !!seed }) });
+  } catch (e) {
+  }
+}
+
+// shared/rolodex.ts
+var GATE_MARQUEE_SPEED = 0.4;
+var ROLO_MARQUEE_SPEED = 0.5;
+var ROLO_MARQUEE_RESUME_MS = 2e3;
+var ROLO_SWIPE_MOVE_THRESHOLD = 14;
+var els;
+var cb;
+var GATE_DOCKED_H = 44;
+var spacerHeight = 0;
+var dockThreshold = 0;
+var gateDockedLast = false;
+function currentGateFullHeight() {
+  return Math.max(0, els.gateFullOverlay.getBoundingClientRect().height - GATE_DOCKED_H);
+}
+function sizeGateSpacer() {
+  spacerHeight = currentGateFullHeight();
+  els.gateSpacer.style.height = (els.gateCard.classList.contains("docked") ? 0 : spacerHeight) + "px";
+  updateGateDockState();
+}
+function updateGateDockState() {
+  const docked = els.scroller.scrollTop >= dockThreshold;
+  els.gateCard.classList.toggle("docked", docked);
+  els.gateCard.setAttribute("aria-expanded", String(!docked));
+  if (docked !== gateDockedLast) {
+    els.gateSpacer.style.height = (docked ? 0 : spacerHeight) + "px";
+    gateDockedLast = docked;
+  }
+}
+function jumpToTop() {
+  els.scroller.scrollTo({ top: 0, behavior: "smooth" });
+}
+var gateMarqueeOneSetW = 0;
+var gateMarqueePos = 0;
+function buildGateMarquee(itemsHTML) {
+  els.gateMarquee.innerHTML = itemsHTML + itemsHTML;
+  gateMarqueePos = 0;
+  requestAnimationFrame(sizeGateMarquee);
+}
+function sizeGateMarquee() {
+  const items = els.gateMarquee.querySelectorAll(".gm-item");
+  if (items.length < 2) {
+    gateMarqueeOneSetW = els.gateMarquee.scrollWidth / 2;
+    return;
+  }
+  const firstPassStart = items[0].getBoundingClientRect().left;
+  const secondPassStart = items[items.length / 2].getBoundingClientRect().left;
+  gateMarqueeOneSetW = secondPassStart - firstPassStart;
+}
+function stepGateMarquee() {
+  if (els.gateCard.classList.contains("docked") && gateMarqueeOneSetW > 0) {
+    gateMarqueePos += GATE_MARQUEE_SPEED;
+    if (gateMarqueePos >= gateMarqueeOneSetW) {
+      gateMarqueePos -= gateMarqueeOneSetW;
+    }
+    els.gateMarquee.scrollLeft = Math.round(gateMarqueePos);
+  }
+  requestAnimationFrame(stepGateMarquee);
+}
+var roloCurrent = 0;
+function getRoloCurrent() {
+  return roloCurrent;
+}
+function syncRoloStageHeight() {
+  const cards = Array.from(els.roloStage.querySelectorAll(".rolo-card"));
+  const activeCard = cards[roloCurrent];
+  if (!activeCard) return;
+  els.roloStage.style.height = activeCard.offsetHeight + "px";
+}
+function positionRoloStack() {
+  const cards = Array.from(els.roloStage.querySelectorAll(".rolo-card"));
+  cards.forEach((card, i) => {
+    const d = i - roloCurrent, abs = Math.abs(d);
+    card.style.pointerEvents = abs === 0 ? "auto" : "none";
+    if (abs === 0) {
+      card.style.transform = "translateY(0) scale(1)";
+      card.style.opacity = "1";
+      card.style.zIndex = "10";
+      card.style.filter = "none";
+    } else if (abs <= 2) {
+      card.style.transform = `translateY(${d < 0 ? -14 * abs : 14 * abs}px) scale(${1 - 0.05 * abs})`;
+      card.style.opacity = String(0.55 - 0.2 * (abs - 1));
+      card.style.zIndex = String(10 - abs);
+      card.style.filter = "brightness(.7)";
+    } else {
+      card.style.transform = `translateY(${d < 0 ? -60 : 60}px) scale(0.85)`;
+      card.style.opacity = "0";
+      card.style.zIndex = "1";
+    }
+  });
+  const chips = Array.from(els.roloIndex.querySelectorAll(".rolo-chip"));
+  chips.forEach((chip) => chip.classList.toggle("active", +(chip.dataset.idx || -1) === roloCurrent));
+  if (els.roloHint) els.roloHint.textContent = cards.length ? roloCurrent + 1 + " / " + cards.length : "\u2014 / \u2014";
+  syncRoloStageHeight();
+}
+function scrollToActiveCard() {
+  const wrap = els.roloStage.closest(".rolo-wrap");
+  if (!wrap) return;
+  if (!els.gateCard.classList.contains("docked")) {
+    els.gateCard.classList.add("docked");
+    els.gateCard.setAttribute("aria-expanded", "false");
+    const prevTransition = els.gateSpacer.style.transition;
+    els.gateSpacer.style.transition = "none";
+    els.gateSpacer.style.height = "0px";
+    void els.gateSpacer.offsetHeight;
+    els.gateSpacer.style.transition = prevTransition;
+    gateDockedLast = true;
+  }
+  const roloIndexH = els.roloIndex.getBoundingClientRect().height;
+  wrap.style.scrollMarginTop = GATE_DOCKED_H + roloIndexH + "px";
+  wrap.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+function goRolo(i) {
+  const count = els.roloStage.querySelectorAll(".rolo-card").length;
+  if (!count) return;
+  roloCurrent = Math.max(0, Math.min(count - 1, i));
+  positionRoloStack();
+  scrollToActiveCard();
+  const watchlist2 = cb.getWatchlist();
+  const sym = watchlist2[roloCurrent];
+  if (sym) cb.onActivate(sym, roloCurrent);
+}
+function clampRoloCurrent() {
+  const watchlist2 = cb.getWatchlist();
+  roloCurrent = Math.min(roloCurrent, Math.max(0, watchlist2.length - 1));
+}
+var roloSwipe = null;
+function roloDeleteThreshold(card) {
+  return Math.min(120, card.getBoundingClientRect().width * 0.35);
+}
+function ensureRoloSwipeBg() {
+  let bg = els.roloStage.querySelector(".rolo-swipe-bg");
+  if (!bg) {
+    bg = document.createElement("div");
+    bg.className = "rolo-swipe-bg";
+    bg.innerHTML = '<span class="swipe-icon">\u{1F5D1}</span><span class="swipe-label">DELETE</span>';
+    els.roloStage.insertBefore(bg, els.roloStage.firstChild);
+  }
+  return bg;
+}
+function onRoloPointerDown(e) {
+  if (roloSwipe) return;
+  if (e.pointerType === "mouse" && e.button !== 0) return;
+  const target = e.target;
+  const card = target.closest(".rolo-card");
+  if (!card) return;
+  const cards = Array.from(els.roloStage.querySelectorAll(".rolo-card"));
+  if (cards.indexOf(card) !== roloCurrent) return;
+  roloSwipe = { pointerId: e.pointerId, card, startX: e.clientX, startY: e.clientY, mode: null, pendingDx: 0 };
+}
+function onRoloPointerMove(e) {
+  const g = roloSwipe;
+  if (!g || e.pointerId !== g.pointerId) return;
+  const dx = e.clientX - g.startX, dy = e.clientY - g.startY;
+  if (g.mode === null) {
+    if (Math.abs(dx) > ROLO_SWIPE_MOVE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
+      g.mode = "swipe";
+      try {
+        g.card.setPointerCapture(e.pointerId);
+      } catch (err) {
+      }
+      g.card.style.transition = "none";
+    } else if (Math.abs(dy) > ROLO_SWIPE_MOVE_THRESHOLD) {
+      endRoloSwipe();
+      return;
+    } else return;
+  }
+  if (g.mode === "swipe") {
+    e.preventDefault();
+    const clamped = Math.min(0, Math.max(dx, -g.card.getBoundingClientRect().width));
+    g.card.style.transform = "translateY(0) scale(1) translateX(" + clamped + "px)";
+    const bg = ensureRoloSwipeBg();
+    const progress = Math.min(Math.abs(clamped) / roloDeleteThreshold(g.card), 1);
+    bg.style.opacity = String(progress);
+    g.pendingDx = clamped;
+  }
+}
+function onRoloPointerUp(e) {
+  const g = roloSwipe;
+  if (!g || e.pointerId !== g.pointerId) return;
+  if (g.mode === "swipe") finishRoloSwipe(g);
+  endRoloSwipe();
+}
+function finishRoloSwipe(g) {
+  const threshold = roloDeleteThreshold(g.card);
+  const bg = ensureRoloSwipeBg();
+  if (Math.abs(g.pendingDx) >= threshold) {
+    const w = g.card.getBoundingClientRect().width;
+    g.card.style.transition = "transform .18s ease-in, opacity .18s ease-in";
+    g.card.style.transform = "translateX(-" + (w + 40) + "px)";
+    g.card.style.opacity = "0";
+    const sym = cb.getWatchlist()[roloCurrent];
+    setTimeout(() => {
+      bg.style.opacity = "0";
+      if (sym) cb.onDeleteConfirmed(sym);
+    }, 180);
+  } else {
+    g.card.style.transition = "transform .18s ease";
+    g.card.style.transform = "translateY(0) scale(1)";
+    bg.style.opacity = "0";
+  }
+}
+function endRoloSwipe() {
+  const g = roloSwipe;
+  if (g) {
+    try {
+      g.card.releasePointerCapture(g.pointerId);
+    } catch (err) {
+    }
+  }
+  roloSwipe = null;
+}
+var roloMarqueeOneSetW = 0;
+var roloMarqueePos = 0;
+var roloMarqueeDataReady = false;
+var roloMarqueePaused = false;
+var roloMarqueeResumeTimer = null;
+var roloItemsPerPass = 1;
+function scheduleRoloMarqueeResume() {
+  if (roloMarqueeResumeTimer) clearTimeout(roloMarqueeResumeTimer);
+  roloMarqueeResumeTimer = setTimeout(() => {
+    roloMarqueePos = els.roloIndex.scrollLeft;
+    roloMarqueePaused = false;
+  }, ROLO_MARQUEE_RESUME_MS);
+}
+function pauseRoloMarquee() {
+  roloMarqueePaused = true;
+  scheduleRoloMarqueeResume();
+}
+function sizeRoloMarquee() {
+  const itemsPerPass = roloItemsPerPass;
+  if (els.roloIndex.children.length >= itemsPerPass * 2) {
+    const firstPassStart = els.roloIndex.children[0].getBoundingClientRect().left;
+    const secondPassStart = els.roloIndex.children[itemsPerPass].getBoundingClientRect().left;
+    roloMarqueeOneSetW = secondPassStart - firstPassStart;
+  } else {
+    roloMarqueeOneSetW = els.roloIndex.scrollWidth / 2;
+  }
+}
+function stepRoloMarquee() {
+  if (!roloMarqueePaused && roloMarqueeDataReady && roloMarqueeOneSetW > 0) {
+    roloMarqueePos += ROLO_MARQUEE_SPEED;
+    if (roloMarqueePos >= roloMarqueeOneSetW) {
+      roloMarqueePos -= roloMarqueeOneSetW;
+    }
+    els.roloIndex.scrollLeft = Math.round(roloMarqueePos);
+  }
+  requestAnimationFrame(stepRoloMarquee);
+}
+function rebuildRoloIndex(watchlist2, buildChip, dividerText) {
+  els.roloIndex.innerHTML = "";
+  roloMarqueePos = 0;
+  roloMarqueeDataReady = false;
+  roloItemsPerPass = watchlist2.length + 1;
+  function appendChipPass() {
+    watchlist2.forEach((sym, i) => {
+      const chip = buildChip(sym, i);
+      chip.addEventListener("click", () => goRolo(i));
+      chip.addEventListener("pointerdown", (e) => e.preventDefault());
+      els.roloIndex.appendChild(chip);
+    });
+    const divider = document.createElement("span");
+    divider.className = "rolo-divider";
+    divider.textContent = dividerText;
+    els.roloIndex.appendChild(divider);
+    return divider;
+  }
+  const firstDivider = appendChipPass();
+  const oneSetW = firstDivider.offsetLeft + firstDivider.offsetWidth;
+  for (let guard = 0; guard < 20 && els.roloIndex.scrollWidth - els.roloIndex.clientWidth < oneSetW; guard++) {
+    appendChipPass();
+  }
+}
+function markRoloMarqueeDataReady() {
+  roloMarqueeDataReady = true;
+}
+function initRolodex(elements, callbacks) {
+  els = elements;
+  cb = callbacks;
+  GATE_DOCKED_H = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--gate-docked-h")) || 44;
+  const contentEl = document.querySelector(".content");
+  dockThreshold = contentEl ? parseFloat(getComputedStyle(contentEl).paddingTop) || 0 : 0;
+  window.addEventListener("resize", sizeGateMarquee);
+  window.addEventListener("resize", sizeGateSpacer);
+  window.addEventListener("resize", sizeRoloMarquee);
+  let gateTickingLocal = false;
+  els.scroller.addEventListener("scroll", () => {
+    if (gateTickingLocal) return;
+    gateTickingLocal = true;
+    requestAnimationFrame(() => {
+      updateGateDockState();
+      gateTickingLocal = false;
+    });
+  }, { passive: true });
+  els.gateCard.addEventListener("click", () => {
+    if (els.gateCard.classList.contains("docked")) jumpToTop();
+  });
+  els.gateCard.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      if (els.gateCard.classList.contains("docked")) jumpToTop();
+    }
+  });
+  els.roloStage.addEventListener("pointerdown", onRoloPointerDown);
+  document.addEventListener("pointermove", onRoloPointerMove, { passive: false });
+  document.addEventListener("pointerup", onRoloPointerUp);
+  document.addEventListener("pointercancel", onRoloPointerUp);
+  els.roloIndex.addEventListener("pointerdown", pauseRoloMarquee);
+  els.roloIndex.addEventListener("pointerup", scheduleRoloMarqueeResume);
+  els.roloIndex.addEventListener("pointercancel", scheduleRoloMarqueeResume);
+  requestAnimationFrame(stepGateMarquee);
+  requestAnimationFrame(stepRoloMarquee);
+}
+
+// app.ts
+forceDefaults();
+var API_URL2 = "https://tra-zacg.onrender.com";
+var APP_SECRET = "Holysmoke42!";
+var TIER = {
+  name: "Free",
+  maxTickers: 3,
+  pulse: false,
+  tracker: false,
+  alpaca: false,
+  credits: "3 credits/week",
+  cache: "15 min cache",
+  nextTier: "Starter",
+  nextPrice: "$9.99/mo",
+  stripeLink: "https://buy.stripe.com/eVq3cw84pczR6lp0oV3VC03",
+  creditsLink: "https://buy.stripe.com/3cI3cwacxarJ8txb3z3VC00",
+  badgeColor: "#8da4b0"
+};
+var market = null;
+function isMarketClosed() {
+  var now = /* @__PURE__ */ new Date();
+  var et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  var day = et.getDay();
+  if (day === 0 || day === 6) return true;
+  var mins = et.getHours() * 60 + et.getMinutes();
+  return mins < 570 || mins >= 960;
+}
+function sigColor(s) {
+  return { GREEN: "var(--green)", RED: "var(--red)", YELLOW: "var(--amber)", "N/A": "var(--ink-dim)" }[s] || "var(--ink-dim)";
+}
+function dirClass(d) {
+  return d === "green" ? "up" : d === "red" ? "down" : d === "flat" ? "flat" : "neutral";
+}
+function tickerHref2(sym) {
+  return "https://finance.yahoo.com/quote/" + encodeURIComponent(sym);
+}
+function newsHref2(sym) {
+  return "https://finance.yahoo.com/quote/" + encodeURIComponent(sym) + "/news/";
+}
+function getStoredSession() {
+  try {
+    return JSON.parse(localStorage.getItem("tv_session") || "null");
+  } catch (e) {
+    return null;
+  }
+}
+function isSessionValid(s) {
+  if (!s || !s.token) return false;
+  if (s.expiresAt && Date.now() / 1e3 > s.expiresAt - 60) return false;
+  return true;
+}
+var sbSession = isSessionValid(getStoredSession()) ? getStoredSession() : null;
+function authH2() {
+  return sbSession && sbSession.token ? { "Content-Type": "application/json", "x-supabase-token": sbSession.token } : { "Content-Type": "application/json", "x-app-secret": APP_SECRET };
+}
+function addSecret2(url) {
+  var sep = url.includes("?") ? "&" : "?";
+  if (sbSession && sbSession.token) return url + sep + "supabase_token=" + encodeURIComponent(sbSession.token);
+  return url + sep + "secret=" + encodeURIComponent(APP_SECRET);
+}
+function updateAuthButton() {
+  var btn = document.getElementById("auth-action-btn");
+  if (!btn) return;
+  if (isSessionValid(getStoredSession())) {
+    btn.textContent = "SIGN OUT";
+    btn.href = "javascript:void(0)";
+    btn.classList.add("signed-in");
+    btn.onclick = function(e) {
+      e.preventDefault();
+      localStorage.removeItem("tv_session");
+      updateAuthButton();
+    };
+  } else {
+    btn.innerHTML = "&#128274; SIGN UP / SIGN IN";
+    btn.href = "https://tradetribunal.app/starter/";
+    btn.classList.remove("signed-in");
+    btn.onclick = null;
   }
 }
 updateAuthButton();
-
-const API_URL='https://tra-zacg.onrender.com';
-const TIER={
-  name:'Free',maxTickers:3,pulse:false,tracker:false,alpaca:false,
-  credits:'3 credits/week',cache:'15 min cache',
-  nextTier:'Starter',nextPrice:'$9.99/mo',
-  stripeLink:'https://buy.stripe.com/eVq3cw84pczR6lp0oV3VC03',creditsLink:'https://buy.stripe.com/3cI3cwacxarJ8txb3z3VC00',
-  badgeColor:'#8da4b0',
-};
-const APP_SECRET='Holysmoke42!';
-let market=null;
-
-// Logged-in visitors (tv_session set by the Starter login flow) are keyed
-// per-account server-side via their Supabase token. Anonymous visitors fall
-// back to the shared APP_SECRET, which the server keys per-IP (see
-// server.js auth middleware) — never per-secret, since every anonymous
-// visitor ships the same secret.
-function authH(){return sbSession&&sbSession.token?{'Content-Type':'application/json','x-supabase-token':sbSession.token}:{'Content-Type':'application/json','x-app-secret':APP_SECRET};}
-function addSecret(url){var sep=url.includes('?')?'&':'?';if(sbSession&&sbSession.token)return url+sep+'supabase_token='+encodeURIComponent(sbSession.token);return url+sep+'secret='+encodeURIComponent(APP_SECRET);}
-
-if(!redirectingToPaidTier){
-  initWatchlist({defaultTickers:['MU','IREN','ALAB'], maxTickers:3, upgradeMessage:'Free tier supports up to 3 tickers.\n\nUpgrade to Starter for more.'});
-  initTickerCache({API_URL:API_URL, authH:authH, addSecret:addSecret});
-
-  // Signed-in-but-free is the lapsed-subscriber case (or a free signup that
-  // created an account) — sync their watchlist so a Starter/Pro/Shark lapse
-  // doesn't wipe it, and so it survives a browser cache/cookie clear. Purely
-  // anonymous visitors have no account to key cloud storage to, so this
-  // stays fully local for them, same as before.
-  if(sbSession&&sbSession.token){
-    initWatchlistSync({API_URL:API_URL, authH:authH, addSecret:addSecret});
-    onWatchlistSave(schedulePushWatchlist);
-    pullWatchlistFromServer();
+var redirectingToPaidTier = false;
+try {
+  storedForRedirect = getStoredSession();
+  if (storedForRedirect && storedForRedirect.tier && storedForRedirect.tier !== "free" && storedForRedirect.redirectUrl) {
+    redirectingToPaidTier = true;
+    window.location.href = storedForRedirect.redirectUrl;
+  }
+} catch (e) {
+}
+var storedForRedirect;
+async function fetchCreditStatus() {
+  try {
+    var res = await fetch(addSecret2(API_URL2 + "/status"), { headers: authH2() });
+    var data = await res.json();
+    var el = document.getElementById("credits-btn");
+    if (!el || data.totalCredits === void 0) return;
+    var loggedIn = !!(sbSession && sbSession.token);
+    var label = (data.totalCredits > 0 ? data.totalCredits : "+") + " CREDITS";
+    if (loggedIn) {
+      el.textContent = label;
+      el.href = TIER.creditsLink;
+      el.target = "_blank";
+    } else {
+      el.textContent = label + " \xB7 WK";
+      el.href = "https://tradetribunal.app/starter/";
+      el.removeAttribute("target");
+    }
+  } catch (e) {
   }
 }
-
-function isMarketClosed(){
-  var now=new Date();
-  var et=new Date(now.toLocaleString('en-US',{timeZone:'America/New_York'}));
-  var day=et.getDay();
-  if(day===0||day===6)return true;
-  var mins=et.getHours()*60+et.getMinutes();
-  return mins<570||mins>=960;
+var GATE_FIELDS = [
+  ["spy", "SPY"],
+  ["qqq", "QQQ"],
+  ["btc", "BTC"],
+  ["soxx", "SOXX"],
+  ["xbi", "XBI"],
+  ["iwm", "IWM"],
+  ["gld", "GLD"],
+  ["uso", "USO"],
+  ["tsm", "TSM"],
+  ["msft", "MSFT"]
+];
+var GATE_LINK_OVERRIDE = { BTC: "BTC-USD" };
+function gateLinkSymbol(label) {
+  return GATE_LINK_OVERRIDE[label] || label;
 }
-
-function sigColor(s){return{GREEN:'var(--green)',RED:'var(--red)',YELLOW:'var(--amber)','N/A':'var(--dim)'}[s]||'var(--dim)'}
-function dirColor(d){return{green:'var(--green)',red:'var(--red)',flat:'var(--amber)'}[d]||'var(--white)'}
-
-function startClock(){
-  function tick(){
-    var now=new Date(),tz=new Date(now.toLocaleString('en-US',{timeZone:getTzIana()}));
-    var h=tz.getHours(),m=tz.getMinutes(),s=tz.getSeconds();
-    var p=function(n){return String(n).padStart(2,'0')};
-    var h12=h%12||12,ampm=h<12?'AM':'PM';
-    var cl=document.getElementById('live-clock');
-    if(cl)cl.textContent=h12+':'+p(m)+':'+p(s)+' '+ampm+' '+getTzPref();
+var gateMarquee = document.getElementById("gateMarquee");
+async function fetchMarket() {
+  try {
+    var res = await fetch(addSecret2(API_URL2 + "/market"), { headers: authH2() });
+    market = await res.json();
+  } catch (e) {
+    market = null;
   }
-  tick();setInterval(tick,1000);
+  renderGate();
+  refreshGateMarquee();
+  requestAnimationFrame(sizeGateSpacer);
 }
-
-function renderMarketTs(){
-  if(!market||!market.timestamp)return;
-  var t=new Date(market.timestamp).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:getTzIana()});
-  document.getElementById('ts').textContent=(market.cached?'⚡ Cached':'🔴 Live')+' · Updated '+t+' '+getTzPref();
+function renderGate() {
+  const status = market && market.gateStatus || "GREEN";
+  const color = sigColor(status);
+  document.getElementById("gateMiniDot").style.background = color;
+  document.getElementById("gateMiniLabel").textContent = status + " GATE";
+  document.getElementById("gateMiniLabel").style.color = color;
+  document.getElementById("gateFullDot").style.background = color;
+  document.getElementById("gateFullLabel").textContent = status + " Gate";
+  document.getElementById("gateFullLabel").style.color = color;
+  document.getElementById("gateNote").textContent = market && market.gateNote || (market ? "" : "Tap to retry \u2014 data unavailable.");
+  const grid = document.getElementById("gateGrid");
+  grid.innerHTML = GATE_FIELDS.map(([key, label]) => {
+    const d = market && market[key];
+    const val = !d || d.change === "?" ? "?" : d.change;
+    const cls = !d || d.change === "?" ? "neutral" : dirClass(d.direction);
+    const sym = gateLinkSymbol(label);
+    return `<div class="gate-stat"><div class="k"><a href="${tickerHref2(sym)}" target="_blank">${label}</a></div><div class="v ${cls}">${val}</div></div>`;
+  }).join("");
+  renderMarketTs();
 }
-
-async function fetchMarket(force){
-  force=force||false;
-  document.getElementById('gate-label').textContent='LOADING...';
-  document.getElementById('gate-label').style.color='var(--dim)';
-  document.getElementById('pulse-text').className='pulse-loading';
-  document.getElementById('pulse-text').textContent='Generating market pulse...';
-  try{
-    var url=force?API_URL+'/market?force=true':API_URL+'/market';
-    var res=await fetch(url,{headers:authH()});
-    var data=await res.json();
-    market=data;
-    var fields=[['spy','spy-val'],['qqq','qqq-val'],['btc','btc-val'],['soxx','soxx-val'],['xbi','xbi-val'],['iwm','iwm-val'],['gld','gld-val'],['uso','uso-val'],['tsm','tsm-val'],['msft','msft-val']];
-    fields.forEach(function(f){
-      var el=document.getElementById(f[1]);if(!el)return;
-      var d=data[f[0]];
-      if(!d||d.change==='?'){el.textContent='?';el.style.color='var(--dim)'}
-      else{el.textContent=d.change;el.style.color=dirColor(d.direction)}
-    });
-    var gc=sigColor(data.gateStatus||'GREEN');
-    document.getElementById('gate-dot').style.background=gc;
-    var gl=document.getElementById('gate-label');
-    gl.style.color=gc;gl.textContent=(data.gateStatus||'GREEN')+' GATE';
-    document.getElementById('gate-note').textContent=data.gateNote||'';
-    var btcEl=document.getElementById('btc-signal');
-    if(data.btcSignal&&data.btcSignal!=='neutral'){
-      btcEl.style.display='block';
-      btcEl.textContent='BTC SIGNAL: '+data.btcSignal.toUpperCase();
-      btcEl.style.color=data.btcSignal==='full conviction'?'var(--green)':data.btcSignal==='risk-off'?'var(--red)':'var(--amber)';
-    }else btcEl.style.display='none';
-    var tsmEl=document.getElementById('tsm-warning');
-    if(data.tsmWarning){tsmEl.style.display='block';tsmEl.textContent=data.tsmWarning}else tsmEl.style.display='none';
-    renderMarketTs();
-    var pulseEl=document.getElementById('pulse-text');
-    if(data.pulse){pulseEl.className='pulse-text';pulseEl.textContent=data.pulse}
-    else{pulseEl.className='pulse-loading';pulseEl.textContent='Generating pulse...'}
-  }catch(e){
-    document.getElementById('gate-label').textContent='DATA ERROR';
-    document.getElementById('gate-label').style.color='var(--red)';
-    document.getElementById('gate-note').textContent='Tap \u21ba REFRESH to retry';
-    document.getElementById('pulse-text').textContent='Unavailable';
+function renderMarketTs() {
+  var tsEl = document.getElementById("marketTs");
+  if (!tsEl) return;
+  if (!market || !market.timestamp) {
+    tsEl.textContent = "";
+    return;
   }
+  var t = new Date(market.timestamp).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: getTzIana() });
+  tsEl.textContent = (market.cached ? "\u26A1 Cached" : "\u{1F534} Live") + " \xB7 Updated " + t + " " + getTzPref();
 }
-
-export async function analyzeTicker(ticker){
-  var card=document.getElementById('card-'+ticker);if(!card)return;
-  var ctx=document.getElementById('context-input').value;
-  var sc={
-    spy:market&&market.spy?market.spy.change:'?',
-    qqq:market&&market.qqq?market.qqq.change:'?',
-    btc:market&&market.btc?market.btc.change:'?',
-    iwm:market&&market.iwm?market.iwm.change:'?',
-    soxx:market&&market.soxx?market.soxx.change:'?',
-    xbi:market&&market.xbi?market.xbi.change:'?',
-    ibb:market&&market.ibb?market.ibb.change:'?',
-    gld:market&&market.gld?market.gld.change:'?',
-    uso:market&&market.uso?market.uso.change:'?',
-    tsm:market&&market.tsm?market.tsm.change:'?',
-    msft:market&&market.msft?market.msft.change:'?',
-    gateStatus:market?market.gateStatus||'GREEN':'GREEN',
-    gateNote:market?market.gateNote||'':'',
-    btcSignal:market?market.btcSignal||'neutral':'neutral'
+function refreshGateMarquee() {
+  const itemsHTML = GATE_FIELDS.map(([key, label]) => {
+    const d = market && market[key];
+    const val = !d || d.change === "?" ? "?" : d.change;
+    const cls = !d || d.change === "?" ? "neutral" : dirClass(d.direction);
+    const sym = gateLinkSymbol(label);
+    return `<span class="gm-item"><a class="sym" href="${tickerHref2(sym)}" target="_blank" onclick="event.stopPropagation()">${label}</a><span class="val ${cls}">${val}</span></span>`;
+  }).join("");
+  buildGateMarquee(itemsHTML);
+}
+function wireAccordionHead(head) {
+  function toggle() {
+    const card = head.closest(".card");
+    const wasExpanded = card.classList.contains("expanded");
+    card.classList.toggle("expanded", !wasExpanded);
+    head.setAttribute("aria-expanded", String(!wasExpanded));
+  }
+  head.addEventListener("click", toggle);
+  head.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggle();
+    }
+  });
+}
+document.querySelectorAll(".card[data-card] > .card-head").forEach(wireAccordionHead);
+var roloStage = document.getElementById("roloStage");
+var roloIndex = document.getElementById("roloIndex");
+var tickerState = /* @__PURE__ */ new Map();
+var TYPE_COLOR = { CANARY: "var(--amber)", SENTIMENT: "var(--blue)", FLOW: "var(--green)" };
+var SIZING_LABEL = { FULL: "Full", HALF: "Half", QUARTER: "\xBC size" };
+var SIZING_COLOR = { FULL: "var(--green)", HALF: "var(--amber)", QUARTER: "var(--amber)" };
+function badgesHTML(result) {
+  if (!result) return "";
+  let html = "";
+  if (result.type) {
+    const c = TYPE_COLOR[result.type] || "var(--ink-dim)";
+    html += `<span class="badge" style="color:${c};border-color:${c}55;background:${c}11">${result.type}</span>`;
+  }
+  if (result.sizing) {
+    if (result.sizing !== "NONE") {
+      const label = SIZING_LABEL[result.sizing] || result.sizing;
+      const c = SIZING_COLOR[result.sizing] || "var(--ink-dim)";
+      html += `<span class="badge" style="color:${c};border-color:${c}55;background:${c}11">${label}</span>`;
+    } else {
+      html += '<span class="badge" style="color:var(--blue);border-color:rgba(74,168,255,.4);background:rgba(74,168,255,.08)">Defined risk</span>';
+    }
+  }
+  return html ? `<div class="card-badges">${html}</div>` : "";
+}
+function confColor(conf) {
+  return conf === "HIGH" ? "var(--green)" : conf === "MEDIUM" ? "var(--amber)" : "var(--red)";
+}
+function pregateStripHTML(result) {
+  if (!result || !result.gates) return "";
+  const waitText = result.wait_for && result.wait_for !== "null" ? result.wait_for : "";
+  if (!waitText) return "";
+  return `<div class="pregate-strip"><div class="pregate-dot" style="background:${confColor(result.confidence)}"></div><div class="pregate-note"><span class="wait-lbl">LOOK FOR: </span>${waitText}</div></div>`;
+}
+function logSectionHTML() {
+  return `<div class="log-row"><span class="log-prompt">TRACK RECORD</span><a class="log-upgrade-btn" href="${TIER.stripeLink}" target="_blank">UPGRADE \u2192 Starter to log results</a></div>`;
+}
+function gateListHTML(result) {
+  if (!result || !result.gates) {
+    return '<div class="gate-list"><div class="gate-clear"><span class="gate-dot" style="background:var(--ink-faint)"></span><span>Tap ANALYZE to run the gates</span></div></div>';
+  }
+  const g = result.gates;
+  const rows = [
+    ["PRE-GATE", g.pre_gate],
+    ["G1  14D", g.g1_prewindow],
+    ["G2  CATALYST", g.g2_catalyst],
+    ["G3  OPEN BAR", g.g3_openbar],
+    ["G4  PHASE", g.g4_phase],
+    ["G5  PROXY", g.g5_korea]
+  ].map(([label, gate]) => {
+    gate = gate || {};
+    if (gate === g.pre_gate && gate.status === "GREEN") {
+      return '<div class="gate-clear"><span class="gate-dot" style="background:var(--green)"></span><span>PRE-GATE clear</span></div>';
+    }
+    return `<div class="gate-row"><span class="gate-dot" style="background:${sigColor(gate.status)}"></span><div><span class="gl">${label}</span>` + (gate.note ? `<div class="gn">${gate.note}</div>` : "") + "</div></div>";
+  }).join("");
+  const conf = `<div class="conf-row"><span class="conf-lbl">CONFIDENCE</span><span class="conf-val" style="color:${confColor(result.confidence)}">${result.confidence || ""}</span></div>`;
+  return '<div class="gate-list">' + rows + logSectionHTML() + conf + "</div>";
+}
+function verdictAreaHTML(sym, result) {
+  const closed = isMarketClosed();
+  const v = (result.verdict || "FLAT").toUpperCase();
+  if (closed) {
+    return `<div class="verdict-container" data-reset="${sym}"><span class="verdict-hold">HOLD</span><span class="verdict-lbl-hold">MKT CLOSED</span></div>`;
+  }
+  if (v === "UP") return `<div class="verdict-container" data-reset="${sym}"><span class="verdict-up">\u{1F44D}</span><span class="verdict-lbl-up">UP</span></div>`;
+  if (v === "DOWN") return `<div class="verdict-container" data-reset="${sym}"><span class="verdict-down">\u{1F44E}</span><span class="verdict-lbl-down">DOWN</span></div>`;
+  return `<div class="verdict-container" data-reset="${sym}"><span class="verdict-hold">HOLD</span><span class="verdict-lbl-hold">WAIT &amp; WATCH</span></div>`;
+}
+function priceDirClass(td) {
+  const pct = td && td.metrics && typeof td.metrics.pct === "number" ? td.metrics.pct : 0;
+  return pct > 0.05 ? "up" : pct < -0.05 ? "down" : "flat";
+}
+function roloCardHTML(sym, state) {
+  const td = state.td;
+  const price = td && td.metrics && td.metrics.price != null ? "$" + td.metrics.price.toFixed(2) : "\u2014";
+  const news = td && td.news;
+  const rawHeadline = news ? news.headline : "No news within the last business week";
+  const ctxEl = document.getElementById("context-input");
+  const headline = news ? highlightContextMatches(rawHeadline, ctxEl ? ctxEl.value : "") : rawHeadline;
+  const age = news ? news.ageLabel : "\u2014";
+  const m = td && td.metrics;
+  const w52 = m && m.rangePosition != null ? m.rangePosition + "%" : "?";
+  const phase = m && m.phaseProxy ? m.phaseProxy.replace("PHASE_", "") : "?";
+  const beta = m && m.beta ? m.beta.toFixed(1) : "?";
+  const proxyName = td && td.proxyRule && td.proxyRule.proxy ? td.proxyRule.proxy.name.split("(")[0].trim() : "?";
+  const proxySymbols = td && td.proxyRule && td.proxyRule.proxy && Array.isArray(td.proxyRule.proxy.symbols) ? td.proxyRule.proxy.symbols : [];
+  const proxyHTML = proxySymbols.length === 1 ? `<a href="${tickerHref2(proxySymbols[0])}" target="_blank">${proxyName}</a>` : proxyName;
+  const analyzing = state.analyzing;
+  const result = state.result;
+  const dir = priceDirClass(td);
+  return `<div class="ticker-row"><div class="ticker-left"><span class="ticker-sym ${dir}"><a href="${tickerHref2(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}">${price}</span></div><div class="ticker-action">` + (result ? verdictAreaHTML(sym, result) : `<button class="btn btn-blue btn-compact" data-analyze="${sym}" ${analyzing ? "disabled" : ""}>${analyzing ? "RUNNING\u2026" : "ANALYZE"}</button>`) + `</div></div>` + pregateStripHTML(result) + `<div class="headline"><a href="${newsHref2(sym)}" target="_blank">${headline}</a> <span class="age">${age}</span></div><div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>\u03B2 <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span></div>` + badgesHTML(result) + gateListHTML(result) + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : "");
+}
+function renderRoloCard(sym) {
+  const card = roloStage.querySelector(`.rolo-card[data-sym="${sym}"]`);
+  if (!card) return;
+  const state = tickerState.get(sym);
+  if (!state) return;
+  card.innerHTML = roloCardHTML(sym, state);
+  card.classList.remove("verdict-up", "verdict-down");
+  const btn = card.querySelector("[data-analyze]");
+  if (btn) btn.addEventListener("click", () => analyzeOne(sym));
+  const resetEl = card.querySelector("[data-reset]");
+  if (resetEl) resetEl.addEventListener("click", () => resetTicker(sym));
+  if (state.result && !isMarketClosed()) {
+    const v = (state.result.verdict || "").toUpperCase();
+    if (v === "UP") card.classList.add("verdict-up");
+    else if (v === "DOWN") card.classList.add("verdict-down");
+  }
+  syncRoloStageHeight();
+}
+function resetTicker(sym) {
+  const state = tickerState.get(sym);
+  if (!state) return;
+  state.result = null;
+  state.error = null;
+  renderRoloCard(sym);
+  renderPill(sym);
+}
+function renderPill(sym) {
+  document.querySelectorAll(`.rolo-chip[data-sym="${sym}"]`).forEach((chip) => {
+    const state = tickerState.get(sym);
+    const td = state && state.td;
+    const price = td && td.metrics && td.metrics.price != null ? "$" + td.metrics.price.toFixed(2) : "\u2014";
+    const perf = "perf-" + priceDirClass(td || null);
+    chip.className = "rolo-chip " + perf + (chip.dataset.idx === String(getRoloCurrent()) ? " active" : "");
+    chip.innerHTML = `<span class="rc-sym">${sym}</span><span class="rc-price">${price}</span>`;
+  });
+}
+function deleteActiveTicker(sym) {
+  tickerState.delete(sym);
+  removeTicker(sym);
+}
+async function renderRolodexFromWatchlist() {
+  document.getElementById("ticker-count").textContent = "CRF \xB7 " + watchlist.length + " TICKERS";
+  roloStage.innerHTML = "";
+  watchlist.forEach((sym) => {
+    if (!tickerState.has(sym)) tickerState.set(sym, { td: null, result: null, analyzing: false, error: null });
+    const card = document.createElement("div");
+    card.className = "rolo-card";
+    card.dataset.sym = sym;
+    roloStage.appendChild(card);
+    renderRoloCard(sym);
+  });
+  rebuildRoloIndex(watchlist, (sym, i) => {
+    const chip = document.createElement("button");
+    chip.className = "rolo-chip";
+    chip.dataset.sym = sym;
+    chip.dataset.idx = String(i);
+    return chip;
+  }, `\u2014 ${watchlist.length} \u2014`);
+  watchlist.forEach((sym) => renderPill(sym));
+  clampRoloCurrent();
+  positionRoloStack();
+  requestAnimationFrame(() => {
+    sizeGateSpacer();
+    sizeRoloMarquee();
+  });
+  await Promise.all(watchlist.map(async (sym) => {
+    const td = await fetchTickerData(sym);
+    const state = tickerState.get(sym);
+    if (state) {
+      state.td = td;
+    }
+    renderRoloCard(sym);
+    renderPill(sym);
+    requestAnimationFrame(() => sizeRoloMarquee());
+  }));
+  requestAnimationFrame(() => {
+    sizeRoloMarquee();
+    markRoloMarqueeDataReady();
+  });
+}
+function refreshRoloCards() {
+  watchlist.forEach((sym) => {
+    if (tickerState.has(sym)) renderRoloCard(sym);
+  });
+}
+async function analyzeOne(sym) {
+  const state = tickerState.get(sym);
+  if (!state || state.analyzing) return;
+  state.analyzing = true;
+  state.error = null;
+  renderRoloCard(sym);
+  const td = state.td || await fetchTickerData(sym);
+  state.td = td;
+  if (td) renderRoloCard(sym);
+  var ctx = document.getElementById("context-input").value;
+  var sc = {
+    spy: market && market.spy ? market.spy.change : "?",
+    qqq: market && market.qqq ? market.qqq.change : "?",
+    btc: market && market.btc ? market.btc.change : "?",
+    iwm: market && market.iwm ? market.iwm.change : "?",
+    soxx: market && market.soxx ? market.soxx.change : "?",
+    xbi: market && market.xbi ? market.xbi.change : "?",
+    ibb: market && market.ibb ? market.ibb.change : "?",
+    gld: market && market.gld ? market.gld.change : "?",
+    uso: market && market.uso ? market.uso.change : "?",
+    tsm: market && market.tsm ? market.tsm.change : "?",
+    msft: market && market.msft ? market.msft.change : "?",
+    gateStatus: market ? market.gateStatus || "GREEN" : "GREEN",
+    gateNote: market ? market.gateNote || "" : "",
+    btcSignal: market ? market.btcSignal || "neutral" : "neutral"
   };
-  card.querySelector('.card-action').innerHTML='<div style="display:flex;flex-direction:column;align-items:center;gap:2px"><div class="spinner"></div><span class="spinner-label">RUNNING</span></div>';
-  var reReset=card.querySelector('.reason-txt');reReset.textContent='';reReset.style.display='none';
-  card.classList.remove('up','down','flat','rim-green','rim-yellow','rim-red','loading');
-  card.querySelector('.ticker-name').classList.remove('up','down','flat');
-  var pe=card.querySelector('.ticker-price');if(pe)pe.classList.remove('up','down','flat');
-  card.querySelector('.card-badges').innerHTML='';
-  var gs=card.querySelector('.gate-section');gs.innerHTML='';gs.style.display='none';
-  var pgs=card.querySelector('.pregate-strip');if(pgs){pgs.innerHTML='';pgs.style.display='none';}
-  var ls=card.querySelector('.log-section');if(ls){ls.innerHTML='';ls.style.display='none';}
-  // Await ticker data FIRST so newsData, openingBar, proxyRule are available
-  var td=await fetchTickerData(ticker);
-  if(td)updateCardMeta(ticker,td);
-
-  try{
-    var res=await fetch(addSecret(API_URL+'/analyze'),{method:'POST',headers:authH(),
-      body:JSON.stringify({
-        ticker:ticker,sectorContext:sc,marketContext:ctx,
-        metricsData:td&&td.metrics?td.metrics:null,
-        newsData:td&&td.news?td.news:null,
-        openingBarData:td&&td.openingBar?td.openingBar:null,
-        proxyRule:td&&td.proxyRule?td.proxyRule:null,
-        gate1Data:td&&td.gate1?td.gate1:null,
-        preGateData:td&&td.preGate?td.preGate:null,
-        weeklyCarryoverData:td&&td.weeklyCarryover?td.weeklyCarryover:null,
-        regimeData:td&&td.regime?td.regime:null
-      })});
-    if(!res.ok){var errData=await res.json().catch(function(){return{}});if(res.status===402&&errData.code==='NO_CREDITS'){handleNoCredits(card,ticker);fetchCreditStatus();return;}throw new Error(errData.error||'Server error '+res.status);}
-    var _r=await res.json();cacheVerdict(ticker,_r);renderCardResult(ticker,_r);fetchCreditStatus();
-  }catch(e){
-    card.querySelector('.card-action').innerHTML='<button class="retry-btn" onclick="analyzeTicker(\''+ticker+'\')">RETRY</button>';
-    var re=card.querySelector('.reason-txt');re.textContent=e.message;re.style.color='var(--red)';re.style.display='';
-  }
-}
-
-export function analyzeAll(){watchlist.forEach(function(t){analyzeTicker(t)})}
-
-function renderCardResult(ticker,data){
-  var card=document.getElementById('card-'+ticker);
-  if(!card)return;
-
-  var v=data.verdict||'FLAT';
-  var isUp=v==='UP',isDown=v==='DOWN';
-
-  // Color the card border and ticker name per direction
-  card.classList.remove('up','down','flat');
-  card.classList.add(isUp?'up':isDown?'down':'flat');
-  var nameEl=card.querySelector('.ticker-name');
-  nameEl.classList.remove('up','down','flat');
-  nameEl.classList.add(isUp?'up':isDown?'down':'flat');
-  var priceEl=card.querySelector('.ticker-price');
-  if(priceEl){priceEl.classList.remove('up','down','flat');priceEl.classList.add(isUp?'up':isDown?'down':'flat')}
-
-  var actionEl=card.querySelector('.card-action');
-
-  // IF market is closed THEN show HOLD, ELSE show the real verdict
-  if(isMarketClosed()){
-    var d=document.createElement('div');
-    d.className='verdict-container';
-    d.onclick=function(){resetCard(ticker)};
-    var s1=document.createElement('span');s1.className='verdict-hold';s1.textContent='HOLD';
-    var s2=document.createElement('span');s2.className='verdict-lbl-hold';s2.textContent='MKT CLOSED';
-    d.appendChild(s1);d.appendChild(s2);
-    actionEl.innerHTML='';actionEl.appendChild(d);
-  } else if(isUp){
-    actionEl.innerHTML='<div class="verdict-container" onclick="resetCard(\u0027'+ticker+'\u0027)"><span class="verdict-up">\ud83d\udc4d</span><span class="verdict-lbl-up">UP</span></div>';
-  } else if(isDown){
-    actionEl.innerHTML='<div class="verdict-container" onclick="resetCard(\u0027'+ticker+'\u0027)"><span class="verdict-down">\ud83d\udc4e</span><span class="verdict-lbl-down">DOWN</span></div>';
-  } else{
-    actionEl.innerHTML='<div class="verdict-container" onclick="resetCard(\u0027'+ticker+'\u0027)"><span class="verdict-hold">HOLD</span><span class="verdict-lbl-hold">WAIT &amp; WATCH</span></div>';
-  }
-
-  // Reason text is intentionally not shown here — it duplicates the
-  // Gate Breakdown dropdown. The element stays in the DOM (hidden) so the
-  // error path above can still surface fetch failures in the same spot.
-  var re=card.querySelector('.reason-txt');
-  re.textContent='';re.style.display='none';
-
-  // Badges
-  var badgesEl=card.querySelector('.card-badges');badgesEl.innerHTML='';
-  if(data.type){var tc={CANARY:'var(--amber)',SENTIMENT:'var(--blue)',FLOW:'var(--green)'}[data.type]||'var(--dim)';badgesEl.innerHTML+='<span class="badge" style="color:'+tc+';border-color:'+tc+'55;background:'+tc+'11">'+data.type+'</span>'}
-  if(data.sizing){
-    if(data.sizing!=='NONE'){var sl={FULL:'Full',HALF:'Half',QUARTER:'\u00bc size'}[data.sizing]||data.sizing;var sc2={FULL:'var(--green)',HALF:'var(--amber)',QUARTER:'var(--amber)'}[data.sizing]||'var(--dim)';badgesEl.innerHTML+='<span class="badge" style="color:'+sc2+';border-color:'+sc2+'55;background:'+sc2+'11">'+sl+'</span>'}
-    else{badgesEl.innerHTML+='<span class="badge" style="color:var(--blue);border-color:rgba(64,196,255,.4);background:rgba(64,196,255,.08)">Defined risk</span>'}
-  }
-
-  // Log buttons
-  var logEl=card.querySelector('.log-section');
-  if(logEl){
-    logEl.innerHTML='<div class="log-row"><span class="log-prompt">TRACK RECORD</span><a class="log-upgrade-btn" href="https://buy.stripe.com/6oU4gA98t57p4dh2x33VC02" target="_blank">UPGRADE \u2192 Pro to log results</a></div>';
-    logEl.style.display='block';
-  }
-
-  // Gate 5 (sector proxy) status dot, front-and-center on the card header.
-  // Text next to the dot is the WAIT FOR guidance (same language previously
-  // shown as its own boxed banner at the bottom of the dropdown) — Pre-Gate
-  // and Gate 5 both have their own rows in the Gate Breakdown dropdown below.
-  var pgEl=card.querySelector('.pregate-strip');
-  if(pgEl&&data.gates){
-    var g5=data.gates.g5_korea||{};
-    var waitText=(data.wait_for&&data.wait_for!=='null')?data.wait_for:'';
-    pgEl.innerHTML='<div class="pregate-dot" style="background:'+sigColor(g5.status)+'"></div>'+(waitText?'<div class="pregate-note"><span class="wait-lbl">WAIT FOR </span><span class="wait-txt">'+waitText+'</span></div>':'');
-    pgEl.style.display='flex';
-  }
-
-  // Gate breakdown
-  var gateEl=card.querySelector('.gate-section');
-  if(data.gates){
-    // Gate 1 dictates the tile rim color (independent of the overall verdict)
-    card.classList.remove('rim-green','rim-yellow','rim-red');
-    var g1s=data.gates.g1_prewindow&&data.gates.g1_prewindow.status;
-    if(g1s==='GREEN')card.classList.add('rim-green');
-    else if(g1s==='YELLOW')card.classList.add('rim-yellow');
-    else if(g1s==='RED')card.classList.add('rim-red');
-
-    var gates=[['PRE-GATE  THESIS',data.gates.pre_gate],['G1  PRE-WINDOW 14D',data.gates.g1_prewindow],['G2  CATALYST',data.gates.g2_catalyst],['G3  OPENING BAR',data.gates.g3_openbar],['G4  PHASE',data.gates.g4_phase],['G5  SECTOR PROXY',data.gates.g5_korea]];
-    var cc=data.confidence==='HIGH'?'var(--green)':data.confidence==='MEDIUM'?'var(--amber)':'var(--red)';
-    var gHtml='<button class="expand-btn" onclick="toggleGates(\u0027'+ticker+'\u0027)"><span>GATE BREAKDOWN</span><span id="arrow-'+ticker+'">\u25bc</span></button><div class="gate-list" id="gates-'+ticker+'" style="display:none">';
-    gates.forEach(function(g){
-      var lbl=g[0],gate=g[1]||{};
-      if(gate===data.gates.pre_gate&&gate.status==='GREEN'){
-        gHtml+='<div class="gate-row gate-row-compact"><div class="gate-dot-sm" style="background:'+sigColor(gate.status)+'"></div><span class="gate-lbl-compact">PRE-GATE clear</span></div>';
+  try {
+    var res = await fetch(addSecret2(API_URL2 + "/analyze"), {
+      method: "POST",
+      headers: authH2(),
+      body: JSON.stringify({
+        ticker: sym,
+        sectorContext: sc,
+        marketContext: ctx,
+        metricsData: td && td.metrics ? td.metrics : null,
+        newsData: td && td.news ? td.news : null,
+        openingBarData: td && td.openingBar ? td.openingBar : null,
+        proxyRule: td && td.proxyRule ? td.proxyRule : null,
+        gate1Data: td && td.gate1 ? td.gate1 : null,
+        preGateData: td && td.preGate ? td.preGate : null,
+        weeklyCarryoverData: td && td.weeklyCarryover ? td.weeklyCarryover : null,
+        regimeData: td && td.regime ? td.regime : null
+      })
+    });
+    if (!res.ok) {
+      var errData = await res.json().catch(function() {
+        return {};
+      });
+      if (res.status === 402 && errData.code === "NO_CREDITS") {
+        handleNoCredits(sym);
+        fetchCreditStatus();
+        state.analyzing = false;
+        renderRoloCard(sym);
+        renderPill(sym);
         return;
       }
-      gHtml+='<div class="gate-row"><div class="gate-dot-sm" style="background:'+sigColor(gate.status)+'"></div><div class="gate-content"><div class="gate-header"><span class="gate-lbl">'+lbl+'</span><span class="gate-stat" style="color:'+sigColor(gate.status)+'">'+(gate.status||'')+'</span></div>'+(gate.note?'<div class="gate-note-txt">'+gate.note+'</div>':'')+'</div></div>';
-    });
-    gHtml+='<div class="conf-row"><span class="conf-lbl">CONFIDENCE</span><span class="conf-val" style="color:'+cc+'">'+data.confidence+'</span></div></div>';
-    gateEl.innerHTML=gHtml;gateEl.style.display='block';
-  }
-}
-
-export function toggleGates(ticker){
-  var el=document.getElementById('gates-'+ticker),arrow=document.getElementById('arrow-'+ticker);
-  var open=el.style.display==='none';el.style.display=open?'block':'none';arrow.textContent=open?'\u25b2':'\u25bc';
-}
-
-export function resetCard(ticker){
-  var card=document.getElementById('card-'+ticker);if(!card)return;
-  card.classList.remove('up','down','flat','rim-green','rim-yellow','rim-red','loading');
-  card.querySelector('.ticker-name').classList.remove('up','down','flat');
-  var pe=card.querySelector('.ticker-price');if(pe)pe.classList.remove('up','down','flat');
-  card.querySelector('.card-action').innerHTML='<button class="analyze-btn" onclick="analyzeTicker(\''+ticker+'\')">ANALYZE</button>';
-  var reReset2=card.querySelector('.reason-txt');reReset2.textContent='';reReset2.style.display='none';
-  card.querySelector('.card-badges').innerHTML='';
-  var gs=card.querySelector('.gate-section');gs.innerHTML='';gs.style.display='none';
-  var pgs=card.querySelector('.pregate-strip');if(pgs){pgs.innerHTML='';pgs.style.display='none';}
-  var ls=card.querySelector('.log-section');if(ls){ls.innerHTML='';ls.style.display='none';}
-}
-
-var GLOSSARY=[
-  {cat:'CRF FRAMEWORK',term:'CRF (Catalyst Response Framework)',def:'A step-by-step checklist this app runs on a stock before giving you a verdict. If enough of the checklist looks good, that\u2019s a thumbs up; if enough looks bad, that\u2019s a thumbs down.',ex:'Think of it like a pre-flight checklist for a trade \u2014 pilots don\u2019t take off until enough boxes are checked.'},
-  {cat:'CRF FRAMEWORK',term:'Pre-Gate \u2014 Thesis Integrity',def:'A quick background check on the company itself, looking for red flags like financial trouble, before the app even looks at the stock\u2019s price. A serious red flag here can override everything else.',ex:'Like checking a used car\u2019s title for a salvage flag before you even look under the hood.'},
-  {cat:'CRF FRAMEWORK',term:'Gate 0 \u2014 Sector Gate',def:'Checks how the overall stock market is doing today. If the whole market is having a bad day, that drags down the outlook for pretty much everything.',ex:'A rising tide lifts all boats \u2014 a sinking one drags them down too.'},
-  {cat:'CRF FRAMEWORK',term:'Gate 1 \u2014 Bidirectional Trend Structure',def:'Looks at whether the stock has already made a big move recently, up or down. A stock that\u2019s already run up a lot is riskier to chase, and one that\u2019s fallen too far too fast is a red flag too.',ex:'Like being wary of a stock that already \u201cran\u201d \u2014 you don\u2019t want to be the last one to the party.'},
-  {cat:'CRF FRAMEWORK',term:'Gate 2 \u2014 Catalyst Congruence',def:'Checks whether recent news about the company actually supports the direction the app is leaning.',ex:'Makes sure the story and the numbers are telling the same story.'},
-  {cat:'CRF FRAMEWORK',term:'Gate 3 \u2014 Opening Bar',def:'Watches how the stock trades in the first few minutes after the market opens, since that early action often hints at where the rest of the day is headed.',ex:'Like judging a race by how strong the runners look at the starting gun.'},
-  {cat:'CRF FRAMEWORK',term:'Gate 4 \u2014 Phase Identification',def:'Figures out whether a stock\u2019s big move is just getting started, already well underway, or has gone so far it might be due for a pullback.',ex:'Early innings vs. late innings of the same game.'},
-  {cat:'CRF FRAMEWORK',term:'Gate 5 \u2014 Dynamic Sector Proxy',def:'Compares the stock to other companies or funds in the same industry, to see if it\u2019s moving with its peers or acting strangely on its own.',ex:'Checking if one kid in class is sick, or if the whole class has the flu.'},
-  {cat:'TICKER CLASSIFICATIONS',term:'Canary',def:'European or institutional base that prices macro risk early. When canaries fall while sentiment names rise, reversal is coming.',ex:'ASML fell before MU/ALAB. Warned 10-21 days early.'},
-  {cat:'TICKER CLASSIFICATIONS',term:'Sentiment',def:'Moves most directly with AI capex or sector confidence, ignoring macro until it breaks.',ex:'MU, NVDA, AMD. Ran +47% into Broadcom miss then crashed 12.8%.'},
-  {cat:'TICKER CLASSIFICATIONS',term:'Flow',def:'Moves on mechanical buying events. Institutions distribute at the opening bar on positive catalyst days.',ex:'ALAB opened $315 on Computex day, flushed to $292 in 30 min on 1.1M shares.'},
-  {cat:'TICKER CLASSIFICATIONS',term:'Phase 1 / 2 / 3',def:'Phase 1 = discovery, <30% of 52-week range, full size. Phase 2 = acceleration, 30-70%, half size. Phase 3 = priced for perfection, >70%, post-flush only.',ex:'ALAB at $88 = Phase 1. At $300 = Phase 2. At $450 = Phase 3 (sold off on blowout beat).'},
-  {cat:'OPTIONS \u2014 GREEKS',term:'Delta (\u0394)',def:'How much an option moves per $1 move in the stock. ATM options ~0.50. Also approximates probability of expiring in-the-money.',ex:'Delta 0.50 call gains $0.50 when stock rises $1.'},
-  {cat:'OPTIONS \u2014 GREEKS',term:'Gamma (\u0393)',def:'Rate of change of delta. High gamma = delta shifts rapidly. Options near expiry and ATM have highest gamma.',ex:'High-gamma option: $1 stock move shifts delta from 0.50 to 0.65.'},
-  {cat:'OPTIONS \u2014 GREEKS',term:'Theta (\u0398)',def:'Time decay per day. Sellers\u2019 friend, buyers\u2019 enemy. Accelerates in final 2 weeks before expiry.',ex:'$2.00 option with theta \u22120.05 loses $0.50 over 10 days even if stock flat.'},
-  {cat:'OPTIONS \u2014 GREEKS',term:'Vega (\u03bd)',def:'Sensitivity to implied volatility. Buying pre-earnings buys vega, but IV collapses after the event (IV crush).',ex:'Buy $3.00 pre-earnings, stock moves your way, IV drops 45pts \u2192 option now $1.80.'},
-  {cat:'OPTIONS \u2014 CONCEPTS',term:'Implied Volatility (IV)',def:'Market\u2019s expectation of future price movement, annualized. High IV = expensive options. Forward-looking, not historical.',ex:'ALAB IV ran 98-115% during parabolic phase. Selling premium more attractive than buying.'},
-  {cat:'OPTIONS \u2014 CONCEPTS',term:'IV Rank (IVR)',def:'Where current IV sits vs past 52 weeks as a percentile. IVR >80 = Phase 3 signal in CRF.',ex:'IVR 85 = IV higher than 85% of readings this year \u2192 Gate 4 RED lean.'},
-  {cat:'OPTIONS \u2014 CONCEPTS',term:'Put/Call Skew',def:'Difference between put IV and call IV at equal distance from current price. Positive skew = bearish institutional hedging.',ex:'CHAT showed consistent +4pt put skew \u2192 Gate 2 bearish lean.'},
-  {cat:'OPTIONS \u2014 CONCEPTS',term:'Expected Move',def:'Market-implied 1-sigma price range by expiration. Stock stays within this range ~68% of the time.',ex:'Stock $50, ATM IV 80%, 30 DTE \u2192 expected move \u00b1$12.30.'},
-  {cat:'OPTIONS \u2014 CONCEPTS',term:'IV Crush',def:'Sharp drop in IV immediately after a catalyst. Options lose value even on correct direction.',ex:'Buy put pre-earnings $3.00. Stock drops 5% but IV collapses 55pts \u2192 put now $1.80.'},
-  {cat:'OPTIONS \u2014 CONCEPTS',term:'Cash-Secured Put',def:'Selling a put while holding cash to buy shares at strike if assigned. Generates income on names you\u2019d want to own.',ex:'ARCC at $18.50 \u2192 sell $18 put for $0.48. Assigned = effective buy at $17.52.'},
-  {cat:'OPTIONS \u2014 CONCEPTS',term:'Gamma Exposure (GEX)',def:'Aggregate dollar impact of dealer hedging. Positive GEX = dealers dampen moves. Negative GEX = dealers amplify moves.',ex:'SPX negative GEX \u2192 Opening Drive gaps extend. Momentum more reliable.'},
-  {cat:'MARKET STRUCTURE',term:'Opening Drive',def:'First 90 minutes (9:30-11:00am ET). Highest volume, highest volatility. Most institutional orders execute here. This app is built for this window.',ex:'Stock gaps up 3% with 2\u00d7 average volume in bar 1 = Opening Drive setup.'},
-  {cat:'MARKET STRUCTURE',term:'Gap Up / Gap Down',def:'Stock opens significantly different from prior close. CRF entry: gap \u22652% from prior close, enter at ask +1%.',ex:'SMMT closed $45, opens $47.50 = +5.5% gap. Check all 5 gates.'},
-  {cat:'MARKET STRUCTURE',term:'Engulfing Candle',def:'Second candle\u2019s body completely contains the first. Bullish engulf = buyers overwhelmed sellers. Gate 3 uses this for Monday signals.',ex:'Monday bar 1 red at $40, bar 2 opens $38 closes $41 = bullish engulf \u2192 Gate 3 GREEN.'},
-  {cat:'MARKET STRUCTURE',term:'Circuit Breaker',def:'Automatic trading halt when market falls a specified percentage. US halts at \u22127%, \u221213%, \u221220%. KOSPI at \u22128%.',ex:'KOSPI circuit breaker June 8 2026 at \u22128.37% \u2192 Gate 5 RED for all AI/semi.'},
-  {cat:'MARKET STRUCTURE',term:'Short Squeeze',def:'Heavily shorted stock rises sharply, forcing shorts to buy to cover, pushing price higher. Brief but explosive.',ex:'IREN 18.7% short float, <2 days to cover. Any positive catalyst could trigger a squeeze.'},
-  {cat:'SECTOR TERMS',term:'KOSPI',def:'Korea Composite Stock Price Index. Leading indicator for US AI/semi names. US names lag KOSPI crashes by 1-3 sessions.',ex:'KOSPI \u22126% Tuesday \u2192 NVDA/MU/ALAB pressure Thursday-Friday.'},
-  {cat:'SECTOR TERMS',term:'TSM (Taiwan Semiconductor)',def:'World\u2019s largest contract chip manufacturer. Single best proxy for global semiconductor health. TSM drop >3% = Gate 5 RED for all AI/semi names.',ex:'TSM \u22124% \u2192 Taiwan semi stress \u2192 risk-off on AI/semi entries.'},
-  {cat:'SECTOR TERMS',term:'XBI / IBB',def:'Biotech ETFs. XBI equal-weighted (smaller companies more impact). XBI is Gate 5 proxy for biotech/medical names.',ex:'XBI \u22122% \u2192 biotech risk-off \u2192 Gate 5 YELLOW or RED for SMMT/VCYT/IMVT.'},
-  {cat:'SECTOR TERMS',term:'SOXX',def:'iShares Semiconductor ETF. Tracks 30 largest US-listed semiconductor companies. Best sector indicator for AI/chip trades.',ex:'SOXX \u22123% while SPY flat = semiconductor-specific stress.'},
-  {cat:'SECTOR TERMS',term:'HBM (High Bandwidth Memory)',def:'RAM designed for AI training. Only Micron, Samsung, SK Hynix make it. Core of MU\u2019s AI thesis.',ex:'Hyperscaler capex slowdown = HBM demand slowdown = MU pressure.'},
-  {cat:'SECTOR TERMS',term:'Neocloud',def:'Companies renting GPU compute to AI developers. Borrow billions to buy Nvidia GPUs, rent at premium.',ex:'IREN, CoreWeave. Revenue real; profitability theoretical for most.'},
-  {cat:'SECTOR TERMS',term:'BDC (Business Development Company)',def:'Fund making loans to mid-sized businesses, required to distribute 90%+ of income as dividends.',ex:'ARCC is the largest publicly traded BDC. Income from loan interest, not appreciation.'},
-  {cat:'TRADING TERMINOLOGY',term:'Long',def:'Buying and owning shares expecting price to rise.',ex:'Buy 100 SMMT at $45. Sell at $50. $500 profit.'},
-  {cat:'TRADING TERMINOLOGY',term:'Short / Short Selling',def:'Borrowing shares, selling immediately, buying back later. Profit if price falls. Loss if rises \u2014 theoretically unlimited.',ex:'Short 100 IREN at $40. Falls to $32 \u2192 $800 profit.'},
-  {cat:'TRADING TERMINOLOGY',term:'Defined Risk',def:'Position where max loss is fixed at entry. Buying options or spreads. Cannot lose more than premium paid.',ex:'Buy 1 put for $200. Stock rallies. Max loss = $200.'},
-  {cat:'TRADING TERMINOLOGY',term:'Stop Loss',def:'Pre-set price at which you automatically exit to limit losses. Set before entry. CRF: \u22123% for high-conviction names.',ex:'Enter SMMT at $45. Stop at $43.65 (\u22123%). Hit $43.65 \u2192 exit immediately.'},
-  {cat:'TRADING TERMINOLOGY',term:'Sector Rotation',def:'Money moving from one sector to another. Sector pulse blurb tracks this daily.',ex:'AI fears \u2192 money rotates from NVDA into GLD and USO.'},
-  {cat:'TRADING TERMINOLOGY',term:'Sell the News',def:'Stock falls after a positive catalyst because good news was already priced in. Phase 3 behavior.',ex:'ALAB beats Q1 by 12%. Stock drops 13% next day. Beat was priced in.'},
-  {cat:'TRADING TERMINOLOGY',term:'14-Day Pre-Window',def:'14 trading days before a catalyst. Over +20% move in this window = Gate 1 RED (exhaustion).',ex:'MU ran +35% in 14 days before record earnings. Gate 1 RED. Sold off on the print.'},
-  {cat:'TRADING TERMINOLOGY',term:'Pyramiding',def:'Adding to a winning position in smaller increments as it moves in your favor.',ex:'100 shares at $45. Rises to $47 \u2192 add 50. Hits $49 \u2192 add 25.'},
-  {cat:'TRADING TERMINOLOGY',term:'GTC (Good Till Cancelled)',def:'Order that stays active until manually cancelled. Use for stop losses on multi-day holds.',ex:'GTC stop at $43.65 on SMMT triggers automatically even if it gaps down overnight.'},
-  {cat:'OPTIONS — GREEKS',term:'Rho (ρ)',def:'Sensitivity to a 1% change in interest rates. Smallest of the four Greeks for short-dated options — matters on LEAPS-length duration, negligible for the Opening Drive holds this app is built around.',ex:'A 6-month call with Rho 0.15 gains ~$0.15 per 1% rate hike — a rounding error next to a same-day 3% move driven by Delta/Gamma.'},
-  {cat:'OPTIONS — CONCEPTS',term:'Call Option',def:'Right (not obligation) to buy 100 shares at the strike price before expiration. Buyers profit if the stock rises above strike + premium paid.',ex:'Buy 1 SMMT $50 call for $2.00. Stock closes $55 at expiry → intrinsic value $5.00, profit $3.00/share.'},
-  {cat:'OPTIONS — CONCEPTS',term:'Put Option',def:'Right (not obligation) to sell 100 shares at the strike price before expiration. Buyers profit if the stock falls below strike − premium paid.',ex:'Buy 1 IREN $35 put for $1.50. Stock drops to $30 at expiry → intrinsic value $5.00, profit $3.50/share.'},
-  {cat:'OPTIONS — CONCEPTS',term:'Strike Price',def:'The fixed price at which an option’s owner can buy (call) or sell (put) the underlying. Set when the contract is created and never changes.',ex:'A $45 call and a $50 call on the same expiry are different contracts — the $45 strike is already in-the-money at a $47 stock price, the $50 strike is not.'},
-  {cat:'OPTIONS — CONCEPTS',term:'DTE (Days to Expiration)',def:'Calendar days remaining until an option contract expires. Theta decay accelerates as DTE shrinks, especially inside the final 2 weeks.',ex:'A 30 DTE option loses value slowly. The same strike at 3 DTE bleeds premium daily even on a flat stock.'},
-  {cat:'OPTIONS — CONCEPTS',term:'ITM / ATM / OTM',def:'In-the-money (has intrinsic value — call strike below spot, put strike above), at-the-money (strike ≈ spot), out-of-the-money (no intrinsic value yet, pure premium). Delta approximates the odds of finishing ITM.',ex:'Stock at $50: the $45 call is ITM, the $50 call is ATM, the $55 call is OTM.'},
-  {cat:'TRADING TERMINOLOGY',term:'Bid / Ask (Bid-Ask Spread)',def:'Bid = highest price a buyer will pay right now. Ask = lowest price a seller will accept. The spread between them is a real, invisible cost — wider on illiquid names and thin extended-hours books.',ex:'IREN bid $39.98 / ask $40.05 — a market order to buy fills near $40.05, not the $40.00 last-trade price shown on the card.'},
-  {cat:'TRADING TERMINOLOGY',term:'Limit Order',def:'An order that only fills at your specified price or better. Guarantees price, not execution — can go unfilled if the stock never trades there.',ex:'Limit buy SMMT at $45.00 while it’s trading $45.20 — sits unfilled until the price comes down to you (or never).'},
-  {cat:'TRADING TERMINOLOGY',term:'Market Order',def:'An order that fills immediately at the best available price. Guarantees execution, not price — on a fast-moving or thin name you can pay meaningfully more than the last quote.',ex:'A market buy during a gap-up Opening Drive can fill 1-2% above the price you saw when you clicked.'},
-  {cat:'TRADING TERMINOLOGY',term:'Ladder / Laddering',def:'Splitting one order into several smaller limit orders staggered across a price range instead of one order at one price. Improves average fill price on size that would otherwise move a thin book.',ex:'Instead of one 500-share market buy, ladder 100 shares each at $45.00/$45.10/$45.20/$45.30/$45.40.'},
-  {cat:'MARKET STRUCTURE',term:'VWAP (Volume-Weighted Average Price)',def:'The running average price of a stock for the session, weighted by volume at each price. Resets daily. Widely used intraday as a fair-value line — price above VWAP favors longs, below favors shorts.',ex:'Stock pops to $52 but VWAP sits at $49.80 — a lot of the day’s volume already changed hands well below the current price.'},
-  {cat:'MARKET STRUCTURE',term:'Relative Volume (RVOL)',def:'Current volume compared to the average volume for this point in the session. RVOL >2x on an Opening Drive gap is what separates a real institutional move from noise.',ex:'ALAB gaps up 4% on 1.1M shares in the first 5 minutes vs a normal 5-minute average of 280K → RVOL ~4x, high-conviction signal.'},
-  {cat:'MARKET STRUCTURE',term:'Support / Resistance',def:'Price levels where a stock has historically reversed. Support = a floor buyers defended before. Resistance = a ceiling sellers defended before. Neither is guaranteed to hold twice.',ex:'PLUG bounced at $2.10 three times this quarter — that’s support until it isn’t; a close below it on volume is the tell it broke.'},
-  {cat:'MARKET STRUCTURE',term:'Extended Hours (Pre-Market / Post-Market)',def:'Trading outside the 9:30am-4:00pm ET regular session: pre-market (4:00-9:30am ET) and post-market (4:00-8:00pm ET) on IEX Exchange’s formal extended sessions. Real prints, but on a much thinner book than the regular consolidated tape — moves here can reverse hard once the full tape opens.',ex:'CIFR prints $24.16 pre-market on light volume, opens the regular session at $22.10 once the full tape weighs in.'},
-  {cat:'MARKET STRUCTURE',term:'Beta (β)',def:'A stock’s volatility relative to the overall market (SPY), where 1.0 = moves in line with the market, >1 amplifies market moves, <1 dampens them. Shown on each card as β. A negative beta means the stock tends to move opposite the market — treat it as effectively uncorrelated to its assigned Gate 5 proxy rather than confirming or denying that proxy read.',ex:'IREN at β2.1 is expected to move ~2.1% for every 1% SPY move. A rare β−0.3 name would be expected to drift up on a red SPY day.'},
-  {cat:'MARKET STRUCTURE',term:'Intraday',def:'Within a single trading day — opened and evaluated before the next session begins, as opposed to a multi-day swing or long-term hold. This app’s entire CRF framework is built around intraday timing: the Opening Drive window, Gate 3’s same-day bar sequence, and same-day stop-loss discipline.',ex:'An intraday call on SMMT is graded against its move by that day’s close, not next week’s — Gate 3’s opening-bar sequence only exists because the framework is timing a single session.'},
-  {cat:'CRF FRAMEWORK',term:'Verdict Icons — 👍 UP / 👎 DOWN / HOLD',def:'👍 means the app leans bullish (expects the stock to rise), 👎 means it leans bearish (expects it to fall), and HOLD means it’s not confident enough either way, or the market’s closed.',ex:'Simple as a thumbs up or thumbs down on a movie — just for a stock’s next move instead.'},
-];
-
-var glossaryBuilt=false;
-function buildGlossary(){
-  if(glossaryBuilt)return;glossaryBuilt=true;
-  var body=document.getElementById('glossary-body');if(!body)return;
-  var cats={};
-  GLOSSARY.forEach(function(g){if(!cats[g.cat])cats[g.cat]=[];cats[g.cat].push(g)});
-  var html='';
-  Object.entries(cats).forEach(function(entry){
-    var cat=entry[0],terms=entry[1];
-    html+='<div class="glossary-cat" data-cat="'+cat+'">'+cat+'</div>';
-    terms.forEach(function(t){
-      html+='<div class="glossary-term visible" data-term="'+t.term.toLowerCase()+'" data-def="'+t.def.toLowerCase()+'">'
-        +'<div class="glossary-term-name">'+t.term+'</div>'
-        +'<div class="glossary-term-def">'+t.def+'</div>'
-        +(t.ex?'<div class="glossary-term-example">e.g. '+t.ex+'</div>':'')
-        +'</div>';
-    });
-  });
-  body.innerHTML=html;
-}
-
-export function toggleGlossary(){
-  var panel=document.getElementById('glossary-panel');
-  var arrow=document.getElementById('glossary-arrow');
-  var header=document.getElementById('glossary-header');
-  var open=panel.classList.toggle('open');
-  arrow.classList.toggle('open',open);
-  header.classList.toggle('open',open);
-  if(open)buildGlossary();
-}
-
-export function filterGlossary(query){
-  buildGlossary();
-  var q=query.toLowerCase().trim();
-  var terms=document.querySelectorAll('.glossary-term');
-  var anyVisible=false;
-  terms.forEach(function(el){
-    var match=!q||el.dataset.term.includes(q)||el.dataset.def.includes(q);
-    el.classList.toggle('visible',match);if(match)anyVisible=true;
-  });
-  document.querySelectorAll('.glossary-cat').forEach(function(catEl){
-    var next=catEl.nextElementSibling,hasVisible=false;
-    while(next&&!next.classList.contains('glossary-cat')){if(next.classList.contains('visible'))hasVisible=true;next=next.nextElementSibling}
-    catEl.style.display=hasVisible||!q?'block':'none';
-  });
-  var nr=document.getElementById('glossary-no-results');
-  if(nr)nr.style.display=(!anyVisible&&q)?'block':'none';
-}
-
-function enforceMarketState(){
-  if(isMarketClosed()){
-    watchlist.forEach(function(t){
-      var card=document.getElementById('card-'+t);
-      if(!card)return;
-      var ae=card.querySelector('.card-action');
-      if(!ae)return;
-      if(ae.querySelector('.verdict-up')||ae.querySelector('.verdict-down')){
-        var d=document.createElement('div');
-        d.className='verdict-container';
-        d.onclick=function(){resetCard(t)};
-        var s1=document.createElement('span');s1.className='verdict-hold';s1.textContent='HOLD';
-        var s2=document.createElement('span');s2.className='verdict-lbl-hold';s2.textContent='MKT CLOSED';
-        d.appendChild(s1);d.appendChild(s2);
-        ae.innerHTML='';ae.appendChild(d);
-      }
-    });
-  }
-}
-
-// Purchasing credits requires attributing the Stripe payment to an
-// account (server.js keys the purchase webhook off email), so the buy
-// link only makes sense for logged-in visitors. Anonymous visitors see
-// their remaining weekly count as a link to sign in instead — never a
-// dead, unclickable button.
-async function fetchCreditStatus(){
-  try{
-    var res=await fetch(addSecret(API_URL+'/status'),{headers:authH()});
-    var data=await res.json();
-    var el=document.getElementById('credits-btn');
-    if(!el||data.totalCredits===undefined)return;
-    var loggedIn=!!(sbSession&&sbSession.token);
-    var label=(data.totalCredits>0?data.totalCredits:'+')+' CREDITS';
-    if(loggedIn){
-      el.textContent=label;
-      el.href=TIER.creditsLink;
-      el.target='_blank';
-      el.style.pointerEvents='';el.style.opacity='';
-    }else{
-      el.textContent=label+' · WK';
-      el.href='https://tradetribunal.app/starter/';
-      el.removeAttribute('target');
-      el.style.pointerEvents='';el.style.opacity='';
+      throw new Error(errData.error || "Server error " + res.status);
     }
-  }catch(e){}
+    var _r = await res.json();
+    cacheVerdict(sym, _r);
+    state.result = _r;
+    state.analyzing = false;
+    renderRoloCard(sym);
+    renderPill(sym);
+    fetchCreditStatus();
+  } catch (e) {
+    state.analyzing = false;
+    state.error = e.message;
+    renderRoloCard(sym);
+    renderPill(sym);
+  }
 }
-
-// Next weekly reset boundary — matches credits.js's fixed 7-day epoch
-// buckets (WEEK_MS), so the countdown shown here lines up with when the
-// server actually refreshes the balance.
-var comebackTimer=null;
-function startComebackTimer(){
-  if(comebackTimer)clearInterval(comebackTimer);
-  comebackTimer=setInterval(function(){
-    var WEEK_MS=7*24*60*60*1000;
-    var nextReset=(Math.floor(Date.now()/WEEK_MS)+1)*WEEK_MS;
-    var diff=nextReset-Date.now();
-    var d=Math.floor(diff/86400000),h=Math.floor((diff%86400000)/3600000),m=Math.floor((diff%3600000)/60000),s=Math.floor((diff%60000)/1000);
-    var el=document.getElementById('comeback-timer');
-    if(el)el.textContent=d+'d '+String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
-  },1000);
+function analyzeAll() {
+  watchlist.forEach((sym) => analyzeOne(sym));
 }
-
-// ── NO CREDITS ────────────────────────────────────────────────────
-function handleNoCredits(card,ticker){
-  var cached=getCachedVerdict(ticker);
-  if(cached){renderCardResult(ticker,cached);return;}
-  // Anonymous visitors can't have a $0.99 purchase attributed to them
-  // (server keys purchases by account email) — point them at sign-in
-  // instead of a buy link that won't actually credit their balance.
-  var buyBtn=document.getElementById('comeback-buy-btn');
-  if(buyBtn){
-    if(sbSession&&sbSession.token){
-      buyBtn.textContent='+ BUY CREDITS $0.99';
-      buyBtn.href='https://buy.stripe.com/3cI3cwacxarJ8txb3z3VC00';
-    }else{
-      buyBtn.textContent='SIGN IN TO ADD CREDITS';
-      buyBtn.href='https://tradetribunal.app/starter/';
-      buyBtn.removeAttribute('target');
+function handleNoCredits(sym) {
+  const state = tickerState.get(sym);
+  const cached = getCachedVerdict(sym);
+  if (cached) {
+    state.result = cached;
+    state.error = null;
+    renderRoloCard(sym);
+    return;
+  }
+  showComebackScreen();
+}
+var comebackTimer = null;
+function startComebackTimer() {
+  if (comebackTimer) clearInterval(comebackTimer);
+  comebackTimer = setInterval(function() {
+    var WEEK_MS = 7 * 24 * 60 * 60 * 1e3;
+    var nextReset = (Math.floor(Date.now() / WEEK_MS) + 1) * WEEK_MS;
+    var diff = nextReset - Date.now();
+    var d = Math.floor(diff / 864e5), h = Math.floor(diff % 864e5 / 36e5), m = Math.floor(diff % 36e5 / 6e4), s = Math.floor(diff % 6e4 / 1e3);
+    var el = document.getElementById("comeback-timer");
+    if (el) el.textContent = d + "d " + String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+  }, 1e3);
+}
+function showComebackScreen() {
+  var buyBtn = document.getElementById("comeback-buy-btn");
+  if (buyBtn) {
+    if (sbSession && sbSession.token) {
+      buyBtn.textContent = "+ BUY CREDITS $0.99";
+      buyBtn.href = "https://buy.stripe.com/3cI3cwacxarJ8txb3z3VC00";
+    } else {
+      buyBtn.textContent = "SIGN IN TO ADD CREDITS";
+      buyBtn.href = "https://tradetribunal.app/starter/";
+      buyBtn.removeAttribute("target");
     }
   }
-  document.getElementById('comeback-screen').style.display='flex';
+  var screen = document.getElementById("comeback-screen");
+  if (screen) screen.style.display = "flex";
   startComebackTimer();
 }
-
-if(!redirectingToPaidTier){
-  cleanLS();
-  document.getElementById('ticker-count').textContent='CRF \u00b7 '+watchlist.length+' TICKERS';
-  renderWatchlist();renderTrackRecord();startClock();
-  var ctxInputEl=document.getElementById('context-input');
-  if(ctxInputEl){
-    var ctxDebounce=null;
-    ctxInputEl.addEventListener('input',function(){
-      clearTimeout(ctxDebounce);
-      ctxDebounce=setTimeout(refreshNewsHighlights,250);
-    });
-  }
-  fetchMarket();setTimeout(fetchCreditStatus,2000);
-  setInterval(function(){fetchMarket()},4*60*1000);
-  enforceMarketState();setInterval(enforceMarketState,60*1000);
+function closeComebackScreen() {
+  var screen = document.getElementById("comeback-screen");
+  if (screen) screen.style.display = "none";
 }
-
-window.fetchMarket = fetchMarket;
-window.analyzeAll = analyzeAll;
-window.analyzeTicker = analyzeTicker;
-window.resetCard = resetCard;
-window.toggleGates = toggleGates;
-window.toggleGlossary = toggleGlossary;
-window.filterGlossary = filterGlossary;
+var ctxDebounce = null;
+function wireContextHighlight() {
+  var ctxInputEl = document.getElementById("context-input");
+  if (!ctxInputEl) return;
+  ctxInputEl.addEventListener("input", function() {
+    if (ctxDebounce) clearTimeout(ctxDebounce);
+    ctxDebounce = setTimeout(refreshRoloCards, 250);
+  });
+}
+function enforceMarketState() {
+  if (isMarketClosed()) {
+    const sym = watchlist[getRoloCurrent()];
+    if (sym && tickerState.has(sym)) renderRoloCard(sym);
+  }
+}
+var GLOSSARY = [
+  { cat: "CRF FRAMEWORK", term: "CRF (Catalyst Response Framework)", def: "A step-by-step checklist this app runs on a stock before giving you a verdict. If enough of the checklist looks good, that\u2019s a thumbs up; if enough looks bad, that\u2019s a thumbs down.", ex: "Think of it like a pre-flight checklist for a trade \u2014 pilots don\u2019t take off until enough boxes are checked." },
+  { cat: "CRF FRAMEWORK", term: "Pre-Gate \u2014 Thesis Integrity", def: "A quick background check on the company itself, looking for red flags like financial trouble, before the app even looks at the stock\u2019s price. A serious red flag here can override everything else.", ex: "Like checking a used car\u2019s title for a salvage flag before you even look under the hood." },
+  { cat: "CRF FRAMEWORK", term: "Gate 0 \u2014 Sector Gate", def: "Checks how the overall stock market is doing today. If the whole market is having a bad day, that drags down the outlook for pretty much everything.", ex: "A rising tide lifts all boats \u2014 a sinking one drags them down too." },
+  { cat: "CRF FRAMEWORK", term: "Gate 1 \u2014 Bidirectional Trend Structure", def: "Looks at whether the stock has already made a big move recently, up or down. A stock that\u2019s already run up a lot is riskier to chase, and one that\u2019s fallen too far too fast is a red flag too.", ex: "Like being wary of a stock that already \u201Cran\u201D \u2014 you don\u2019t want to be the last one to the party." },
+  { cat: "CRF FRAMEWORK", term: "Gate 2 \u2014 Catalyst Congruence", def: "Checks whether recent news about the company actually supports the direction the app is leaning.", ex: "Makes sure the story and the numbers are telling the same story." },
+  { cat: "CRF FRAMEWORK", term: "Gate 3 \u2014 Opening Bar", def: "Watches how the stock trades in the first few minutes after the market opens, since that early action often hints at where the rest of the day is headed.", ex: "Like judging a race by how strong the runners look at the starting gun." },
+  { cat: "CRF FRAMEWORK", term: "Gate 4 \u2014 Phase Identification", def: "Figures out whether a stock\u2019s big move is just getting started, already well underway, or has gone so far it might be due for a pullback.", ex: "Early innings vs. late innings of the same game." },
+  { cat: "CRF FRAMEWORK", term: "Gate 5 \u2014 Dynamic Sector Proxy", def: "Compares the stock to other companies or funds in the same industry, to see if it\u2019s moving with its peers or acting strangely on its own.", ex: "Checking if one kid in class is sick, or if the whole class has the flu." },
+  { cat: "TICKER CLASSIFICATIONS", term: "Canary", def: "European or institutional base that prices macro risk early. When canaries fall while sentiment names rise, reversal is coming.", ex: "ASML fell before MU/ALAB. Warned 10-21 days early." },
+  { cat: "TICKER CLASSIFICATIONS", term: "Sentiment", def: "Moves most directly with AI capex or sector confidence, ignoring macro until it breaks.", ex: "MU, NVDA, AMD. Ran +47% into Broadcom miss then crashed 12.8%." },
+  { cat: "TICKER CLASSIFICATIONS", term: "Flow", def: "Moves on mechanical buying events. Institutions distribute at the opening bar on positive catalyst days.", ex: "ALAB opened $315 on Computex day, flushed to $292 in 30 min on 1.1M shares." },
+  { cat: "TICKER CLASSIFICATIONS", term: "Phase 1 / 2 / 3", def: "Phase 1 = discovery, <30% of 52-week range, full size. Phase 2 = acceleration, 30-70%, half size. Phase 3 = priced for perfection, >70%, post-flush only.", ex: "ALAB at $88 = Phase 1. At $300 = Phase 2. At $450 = Phase 3 (sold off on blowout beat)." },
+  { cat: "OPTIONS \u2014 GREEKS", term: "Delta (\u0394)", def: "How much an option moves per $1 move in the stock. ATM options ~0.50. Also approximates probability of expiring in-the-money.", ex: "Delta 0.50 call gains $0.50 when stock rises $1." },
+  { cat: "OPTIONS \u2014 GREEKS", term: "Gamma (\u0393)", def: "Rate of change of delta. High gamma = delta shifts rapidly. Options near expiry and ATM have highest gamma.", ex: "High-gamma option: $1 stock move shifts delta from 0.50 to 0.65." },
+  { cat: "OPTIONS \u2014 GREEKS", term: "Theta (\u0398)", def: "Time decay per day. Sellers\u2019 friend, buyers\u2019 enemy. Accelerates in final 2 weeks before expiry.", ex: "$2.00 option with theta \u22120.05 loses $0.50 over 10 days even if stock flat." },
+  { cat: "OPTIONS \u2014 GREEKS", term: "Vega (\u03BD)", def: "Sensitivity to implied volatility. Buying pre-earnings buys vega, but IV collapses after the event (IV crush).", ex: "Buy $3.00 pre-earnings, stock moves your way, IV drops 45pts \u2192 option now $1.80." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Implied Volatility (IV)", def: "Market\u2019s expectation of future price movement, annualized. High IV = expensive options. Forward-looking, not historical.", ex: "ALAB IV ran 98-115% during parabolic phase. Selling premium more attractive than buying." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "IV Rank (IVR)", def: "Where current IV sits vs past 52 weeks as a percentile. IVR >80 = Phase 3 signal in CRF.", ex: "IVR 85 = IV higher than 85% of readings this year \u2192 Gate 4 RED lean." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Put/Call Skew", def: "Difference between put IV and call IV at equal distance from current price. Positive skew = bearish institutional hedging.", ex: "CHAT showed consistent +4pt put skew \u2192 Gate 2 bearish lean." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Expected Move", def: "Market-implied 1-sigma price range by expiration. Stock stays within this range ~68% of the time.", ex: "Stock $50, ATM IV 80%, 30 DTE \u2192 expected move \xB1$12.30." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "IV Crush", def: "Sharp drop in IV immediately after a catalyst. Options lose value even on correct direction.", ex: "Buy put pre-earnings $3.00. Stock drops 5% but IV collapses 55pts \u2192 put now $1.80." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Cash-Secured Put", def: "Selling a put while holding cash to buy shares at strike if assigned. Generates income on names you\u2019d want to own.", ex: "ARCC at $18.50 \u2192 sell $18 put for $0.48. Assigned = effective buy at $17.52." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Gamma Exposure (GEX)", def: "Aggregate dollar impact of dealer hedging. Positive GEX = dealers dampen moves. Negative GEX = dealers amplify moves.", ex: "SPX negative GEX \u2192 Opening Drive gaps extend. Momentum more reliable." },
+  { cat: "MARKET STRUCTURE", term: "Opening Drive", def: "First 90 minutes (9:30-11:00am ET). Highest volume, highest volatility. Most institutional orders execute here. This app is built for this window.", ex: "Stock gaps up 3% with 2\xD7 average volume in bar 1 = Opening Drive setup." },
+  { cat: "MARKET STRUCTURE", term: "Gap Up / Gap Down", def: "Stock opens significantly different from prior close. CRF entry: gap \u22652% from prior close, enter at ask +1%.", ex: "SMMT closed $45, opens $47.50 = +5.5% gap. Check all 5 gates." },
+  { cat: "MARKET STRUCTURE", term: "Engulfing Candle", def: "Second candle\u2019s body completely contains the first. Bullish engulf = buyers overwhelmed sellers. Gate 3 uses this for Monday signals.", ex: "Monday bar 1 red at $40, bar 2 opens $38 closes $41 = bullish engulf \u2192 Gate 3 GREEN." },
+  { cat: "MARKET STRUCTURE", term: "Circuit Breaker", def: "Automatic trading halt when market falls a specified percentage. US halts at \u22127%, \u221213%, \u221220%. KOSPI at \u22128%.", ex: "KOSPI circuit breaker June 8 2026 at \u22128.37% \u2192 Gate 5 RED for all AI/semi." },
+  { cat: "MARKET STRUCTURE", term: "Short Squeeze", def: "Heavily shorted stock rises sharply, forcing shorts to buy to cover, pushing price higher. Brief but explosive.", ex: "IREN 18.7% short float, <2 days to cover. Any positive catalyst could trigger a squeeze." },
+  { cat: "SECTOR TERMS", term: "KOSPI", def: "Korea Composite Stock Price Index. Leading indicator for US AI/semi names. US names lag KOSPI crashes by 1-3 sessions.", ex: "KOSPI \u22126% Tuesday \u2192 NVDA/MU/ALAB pressure Thursday-Friday." },
+  { cat: "SECTOR TERMS", term: "TSM (Taiwan Semiconductor)", def: "World\u2019s largest contract chip manufacturer. Single best proxy for global semiconductor health. TSM drop >3% = Gate 5 RED for all AI/semi names.", ex: "TSM \u22124% \u2192 Taiwan semi stress \u2192 risk-off on AI/semi entries." },
+  { cat: "SECTOR TERMS", term: "XBI / IBB", def: "Biotech ETFs. XBI equal-weighted (smaller companies more impact). XBI is Gate 5 proxy for biotech/medical names.", ex: "XBI \u22122% \u2192 biotech risk-off \u2192 Gate 5 YELLOW or RED for SMMT/VCYT/IMVT." },
+  { cat: "SECTOR TERMS", term: "SOXX", def: "iShares Semiconductor ETF. Tracks 30 largest US-listed semiconductor companies. Best sector indicator for AI/chip trades.", ex: "SOXX \u22123% while SPY flat = semiconductor-specific stress." },
+  { cat: "SECTOR TERMS", term: "HBM (High Bandwidth Memory)", def: "RAM designed for AI training. Only Micron, Samsung, SK Hynix make it. Core of MU\u2019s AI thesis.", ex: "Hyperscaler capex slowdown = HBM demand slowdown = MU pressure." },
+  { cat: "SECTOR TERMS", term: "Neocloud", def: "Companies renting GPU compute to AI developers. Borrow billions to buy Nvidia GPUs, rent at premium.", ex: "IREN, CoreWeave. Revenue real; profitability theoretical for most." },
+  { cat: "SECTOR TERMS", term: "BDC (Business Development Company)", def: "Fund making loans to mid-sized businesses, required to distribute 90%+ of income as dividends.", ex: "ARCC is the largest publicly traded BDC. Income from loan interest, not appreciation." },
+  { cat: "TRADING TERMINOLOGY", term: "Long", def: "Buying and owning shares expecting price to rise.", ex: "Buy 100 SMMT at $45. Sell at $50. $500 profit." },
+  { cat: "TRADING TERMINOLOGY", term: "Short / Short Selling", def: "Borrowing shares, selling immediately, buying back later. Profit if price falls. Loss if rises \u2014 theoretically unlimited.", ex: "Short 100 IREN at $40. Falls to $32 \u2192 $800 profit." },
+  { cat: "TRADING TERMINOLOGY", term: "Defined Risk", def: "Position where max loss is fixed at entry. Buying options or spreads. Cannot lose more than premium paid.", ex: "Buy 1 put for $200. Stock rallies. Max loss = $200." },
+  { cat: "TRADING TERMINOLOGY", term: "Stop Loss", def: "Pre-set price at which you automatically exit to limit losses. Set before entry. CRF: \u22123% for high-conviction names.", ex: "Enter SMMT at $45. Stop at $43.65 (\u22123%). Hit $43.65 \u2192 exit immediately." },
+  { cat: "TRADING TERMINOLOGY", term: "Sector Rotation", def: "Money moving from one sector to another. Sector pulse blurb tracks this daily.", ex: "AI fears \u2192 money rotates from NVDA into GLD and USO." },
+  { cat: "TRADING TERMINOLOGY", term: "Sell the News", def: "Stock falls after a positive catalyst because good news was already priced in. Phase 3 behavior.", ex: "ALAB beats Q1 by 12%. Stock drops 13% next day. Beat was priced in." },
+  { cat: "TRADING TERMINOLOGY", term: "14-Day Pre-Window", def: "14 trading days before a catalyst. Over +20% move in this window = Gate 1 RED (exhaustion).", ex: "MU ran +35% in 14 days before record earnings. Gate 1 RED. Sold off on the print." },
+  { cat: "TRADING TERMINOLOGY", term: "Pyramiding", def: "Adding to a winning position in smaller increments as it moves in your favor.", ex: "100 shares at $45. Rises to $47 \u2192 add 50. Hits $49 \u2192 add 25." },
+  { cat: "TRADING TERMINOLOGY", term: "GTC (Good Till Cancelled)", def: "Order that stays active until manually cancelled. Use for stop losses on multi-day holds.", ex: "GTC stop at $43.65 on SMMT triggers automatically even if it gaps down overnight." },
+  { cat: "OPTIONS \u2014 GREEKS", term: "Rho (\u03C1)", def: "Sensitivity to a 1% change in interest rates. Smallest of the four Greeks for short-dated options \u2014 matters on LEAPS-length duration, negligible for the Opening Drive holds this app is built around.", ex: "A 6-month call with Rho 0.15 gains ~$0.15 per 1% rate hike \u2014 a rounding error next to a same-day 3% move driven by Delta/Gamma." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Call Option", def: "Right (not obligation) to buy 100 shares at the strike price before expiration. Buyers profit if the stock rises above strike + premium paid.", ex: "Buy 1 SMMT $50 call for $2.00. Stock closes $55 at expiry \u2192 intrinsic value $5.00, profit $3.00/share." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Put Option", def: "Right (not obligation) to sell 100 shares at the strike price before expiration. Buyers profit if the stock falls below strike \u2212 premium paid.", ex: "Buy 1 IREN $35 put for $1.50. Stock drops to $30 at expiry \u2192 intrinsic value $5.00, profit $3.50/share." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Strike Price", def: "The fixed price at which an option\u2019s owner can buy (call) or sell (put) the underlying. Set when the contract is created and never changes.", ex: "A $45 call and a $50 call on the same expiry are different contracts \u2014 the $45 strike is already in-the-money at a $47 stock price, the $50 strike is not." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "DTE (Days to Expiration)", def: "Calendar days remaining until an option contract expires. Theta decay accelerates as DTE shrinks, especially inside the final 2 weeks.", ex: "A 30 DTE option loses value slowly. The same strike at 3 DTE bleeds premium daily even on a flat stock." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "ITM / ATM / OTM", def: "In-the-money (has intrinsic value \u2014 call strike below spot, put strike above), at-the-money (strike \u2248 spot), out-of-the-money (no intrinsic value yet, pure premium). Delta approximates the odds of finishing ITM.", ex: "Stock at $50: the $45 call is ITM, the $50 call is ATM, the $55 call is OTM." },
+  { cat: "TRADING TERMINOLOGY", term: "Bid / Ask (Bid-Ask Spread)", def: "Bid = highest price a buyer will pay right now. Ask = lowest price a seller will accept. The spread between them is a real, invisible cost \u2014 wider on illiquid names and thin extended-hours books.", ex: "IREN bid $39.98 / ask $40.05 \u2014 a market order to buy fills near $40.05, not the $40.00 last-trade price shown on the card." },
+  { cat: "TRADING TERMINOLOGY", term: "Limit Order", def: "An order that only fills at your specified price or better. Guarantees price, not execution \u2014 can go unfilled if the stock never trades there.", ex: "Limit buy SMMT at $45.00 while it\u2019s trading $45.20 \u2014 sits unfilled until the price comes down to you (or never)." },
+  { cat: "TRADING TERMINOLOGY", term: "Market Order", def: "An order that fills immediately at the best available price. Guarantees execution, not price \u2014 on a fast-moving or thin name you can pay meaningfully more than the last quote.", ex: "A market buy during a gap-up Opening Drive can fill 1-2% above the price you saw when you clicked." },
+  { cat: "TRADING TERMINOLOGY", term: "Ladder / Laddering", def: "Splitting one order into several smaller limit orders staggered across a price range instead of one order at one price. Improves average fill price on size that would otherwise move a thin book.", ex: "Instead of one 500-share market buy, ladder 100 shares each at $45.00/$45.10/$45.20/$45.30/$45.40." },
+  { cat: "MARKET STRUCTURE", term: "VWAP (Volume-Weighted Average Price)", def: "The running average price of a stock for the session, weighted by volume at each price. Resets daily. Widely used intraday as a fair-value line \u2014 price above VWAP favors longs, below favors shorts.", ex: "Stock pops to $52 but VWAP sits at $49.80 \u2014 a lot of the day\u2019s volume already changed hands well below the current price." },
+  { cat: "MARKET STRUCTURE", term: "Relative Volume (RVOL)", def: "Current volume compared to the average volume for this point in the session. RVOL >2x on an Opening Drive gap is what separates a real institutional move from noise.", ex: "ALAB gaps up 4% on 1.1M shares in the first 5 minutes vs a normal 5-minute average of 280K \u2192 RVOL ~4x, high-conviction signal." },
+  { cat: "MARKET STRUCTURE", term: "Support / Resistance", def: "Price levels where a stock has historically reversed. Support = a floor buyers defended before. Resistance = a ceiling sellers defended before. Neither is guaranteed to hold twice.", ex: "PLUG bounced at $2.10 three times this quarter \u2014 that\u2019s support until it isn\u2019t; a close below it on volume is the tell it broke." },
+  { cat: "MARKET STRUCTURE", term: "Extended Hours (Pre-Market / Post-Market)", def: "Trading outside the 9:30am-4:00pm ET regular session: pre-market (4:00-9:30am ET) and post-market (4:00-8:00pm ET) on IEX Exchange\u2019s formal extended sessions. Real prints, but on a much thinner book than the regular consolidated tape \u2014 moves here can reverse hard once the full tape opens.", ex: "CIFR prints $24.16 pre-market on light volume, opens the regular session at $22.10 once the full tape weighs in." },
+  { cat: "MARKET STRUCTURE", term: "Beta (\u03B2)", def: "A stock\u2019s volatility relative to the overall market (SPY), where 1.0 = moves in line with the market, >1 amplifies market moves, <1 dampens them. Shown on each card as \u03B2. A negative beta means the stock tends to move opposite the market \u2014 treat it as effectively uncorrelated to its assigned Gate 5 proxy rather than confirming or denying that proxy read.", ex: "IREN at \u03B22.1 is expected to move ~2.1% for every 1% SPY move. A rare \u03B2\u22120.3 name would be expected to drift up on a red SPY day." },
+  { cat: "MARKET STRUCTURE", term: "Intraday", def: "Within a single trading day \u2014 opened and evaluated before the next session begins, as opposed to a multi-day swing or long-term hold. This app\u2019s entire CRF framework is built around intraday timing: the Opening Drive window, Gate 3\u2019s same-day bar sequence, and same-day stop-loss discipline.", ex: "An intraday call on SMMT is graded against its move by that day\u2019s close, not next week\u2019s \u2014 Gate 3\u2019s opening-bar sequence only exists because the framework is timing a single session." },
+  { cat: "CRF FRAMEWORK", term: "Verdict Icons \u2014 \u{1F44D} UP / \u{1F44E} DOWN / HOLD", def: "\u{1F44D} means the app leans bullish (expects the stock to rise), \u{1F44E} means it leans bearish (expects it to fall), and HOLD means it\u2019s not confident enough either way, or the market\u2019s closed.", ex: "Simple as a thumbs up or thumbs down on a movie \u2014 just for a stock\u2019s next move instead." }
+];
+var glossaryBuilt = false;
+function buildGlossary() {
+  if (glossaryBuilt) return;
+  glossaryBuilt = true;
+  var body = document.getElementById("glossary-body");
+  if (!body) return;
+  var cats = {};
+  GLOSSARY.forEach(function(g) {
+    if (!cats[g.cat]) cats[g.cat] = [];
+    cats[g.cat].push(g);
+  });
+  var html = "";
+  Object.entries(cats).forEach(function(entry) {
+    var cat = entry[0], terms = entry[1];
+    html += '<div class="glossary-cat" data-cat="' + cat + '">' + cat + "</div>";
+    terms.forEach(function(t) {
+      html += '<div class="glossary-term visible" data-term="' + t.term.toLowerCase() + '" data-def="' + t.def.toLowerCase() + '"><div class="glossary-term-name">' + t.term + '</div><div class="glossary-term-def">' + t.def + "</div>" + (t.ex ? '<div class="glossary-term-example">e.g. ' + t.ex + "</div>" : "") + "</div>";
+    });
+  });
+  body.innerHTML = html;
+}
+function toggleGlossary() {
+  var panel = document.getElementById("glossary-panel");
+  var arrow = document.getElementById("glossary-arrow");
+  var header = document.getElementById("glossary-header");
+  var open = panel.classList.toggle("open");
+  arrow.classList.toggle("open", open);
+  header.classList.toggle("open", open);
+  if (open) buildGlossary();
+}
+function filterGlossary(query) {
+  buildGlossary();
+  var q = query.toLowerCase().trim();
+  var terms = document.querySelectorAll(".glossary-term");
+  var anyVisible = false;
+  terms.forEach(function(el) {
+    var match = !q || el.dataset.term.includes(q) || el.dataset.def.includes(q);
+    el.classList.toggle("visible", match);
+    if (match) anyVisible = true;
+  });
+  document.querySelectorAll(".glossary-cat").forEach(function(catEl) {
+    var next = catEl.nextElementSibling, hasVisible = false;
+    while (next && !next.classList.contains("glossary-cat")) {
+      if (next.classList.contains("visible")) hasVisible = true;
+      next = next.nextElementSibling;
+    }
+    catEl.style.display = hasVisible || !q ? "block" : "none";
+  });
+  var nr = document.getElementById("glossary-no-results");
+  if (nr) nr.style.display = !anyVisible && q ? "block" : "none";
+}
+document.getElementById("glossary-header").addEventListener("click", toggleGlossary);
+document.getElementById("glossary-search").addEventListener("input", (e) => filterGlossary(e.target.value));
+function initApp() {
+  cleanLS();
+  document.getElementById("ticker-count").textContent = "CRF \xB7 " + watchlist.length + " TICKERS";
+  wireContextHighlight();
+  fetchMarket();
+  sizeGateSpacer();
+  renderRolodexFromWatchlist();
+  setTimeout(fetchCreditStatus, 2e3);
+  setInterval(function() {
+    fetchMarket();
+  }, 4 * 60 * 1e3);
+  enforceMarketState();
+  setInterval(enforceMarketState, 60 * 1e3);
+}
+async function boot() {
+  if (redirectingToPaidTier) return;
+  initWatchlist({ defaultTickers: ["MU", "IREN", "ALAB"], maxTickers: 3, upgradeMessage: "Free tier supports up to 3 tickers.\n\nUpgrade to Starter for more." });
+  initTickerCache({ API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
+  onWatchlistSave(function() {
+    schedulePushWatchlist();
+    renderRolodexFromWatchlist();
+  });
+  initRolodex({
+    scroller: document.getElementById("scroller"),
+    gateCard: document.getElementById("gateCard"),
+    gateFullOverlay: document.getElementById("gateFullOverlay"),
+    gateSpacer: document.getElementById("gateSpacer"),
+    gateMarquee,
+    roloIndex,
+    roloStage,
+    roloHint: document.getElementById("roloHint")
+  }, {
+    getWatchlist: () => watchlist,
+    onActivate: (sym) => {
+      const state = tickerState.get(sym);
+      if (state && !state.result && !state.analyzing) analyzeOne(sym);
+    },
+    onDeleteConfirmed: deleteActiveTicker
+  });
+  if (sbSession && sbSession.token) {
+    initWatchlistSync({ API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
+    await pullWatchlistFromServer();
+  }
+  document.getElementById("analyzeAllBtn").addEventListener("click", analyzeAll);
+  document.getElementById("importBtn").addEventListener("click", addTickers);
+  const comebackClose = document.getElementById("comeback-close-btn");
+  if (comebackClose) comebackClose.addEventListener("click", closeComebackScreen);
+  initApp();
+}
+boot();

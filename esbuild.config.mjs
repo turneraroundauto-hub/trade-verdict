@@ -74,12 +74,15 @@ const normalizeSharedImports = {
 };
 
 const entryPoints = [
-  // Starter is the first (and, as of this writing, only) tier converted
-  // to a bundled entry point. Free/Pro's own future Rolodex builds add
-  // their own entries here once they exist -- each gets its own bundle,
-  // not one shared across tiers, since the tiers' business logic
-  // (real /analyze body, TIER config, card content) genuinely differs.
+  // Starter was the first tier converted to a bundled entry point. Free
+  // is the second (Aug 16, 2026) -- its own Rolodex build at the repo
+  // root, consuming shared/rolodex.ts the same way. Pro's own future
+  // Rolodex build adds a third entry here once it exists -- each tier
+  // gets its own bundle, not one shared across tiers, since the tiers'
+  // business logic (real /analyze body, TIER config, card content)
+  // genuinely differs.
   { in: 'starter/app.ts', out: 'starter/app' },
+  { in: 'app.ts', out: 'app' },
 ];
 
 for (const entry of entryPoints) {
