@@ -932,11 +932,11 @@ function stepRoloMarquee() {
   }
   requestAnimationFrame(stepRoloMarquee);
 }
-function rebuildRoloIndex(watchlist2, buildChip, dividerText) {
+function rebuildRoloIndex(watchlist2, buildChip, dividerText, buildExtraChip) {
   els.roloIndex.innerHTML = "";
   roloMarqueePos = 0;
   roloMarqueeDataReady = false;
-  roloItemsPerPass = watchlist2.length + 1;
+  roloItemsPerPass = watchlist2.length + (buildExtraChip ? 1 : 0) + 1;
   function appendChipPass() {
     watchlist2.forEach((sym, i) => {
       const chip = buildChip(sym, i);
@@ -944,6 +944,11 @@ function rebuildRoloIndex(watchlist2, buildChip, dividerText) {
       chip.addEventListener("pointerdown", (e) => e.preventDefault());
       els.roloIndex.appendChild(chip);
     });
+    if (buildExtraChip) {
+      const extra = buildExtraChip();
+      extra.addEventListener("pointerdown", (e) => e.preventDefault());
+      els.roloIndex.appendChild(extra);
+    }
     const divider = document.createElement("span");
     divider.className = "rolo-divider";
     divider.textContent = dividerText;
@@ -1323,6 +1328,14 @@ function deleteActiveTicker(sym) {
   tickerState.delete(sym);
   removeTicker(sym);
 }
+function buildUpsellChip() {
+  const a = document.createElement("a");
+  a.className = "rolo-chip-upsell";
+  a.href = TIER.stripeLink;
+  a.target = "_blank";
+  a.textContent = "Starter?";
+  return a;
+}
 async function renderRolodexFromWatchlist() {
   document.getElementById("ticker-count").textContent = "CRF \xB7 " + watchlist.length + " TICKERS";
   roloStage.innerHTML = "";
@@ -1340,7 +1353,7 @@ async function renderRolodexFromWatchlist() {
     chip.dataset.sym = sym;
     chip.dataset.idx = String(i);
     return chip;
-  }, `\u2014 ${watchlist.length} \u2014`);
+  }, `\u2014 ${watchlist.length} \u2014`, buildUpsellChip);
   watchlist.forEach((sym) => renderPill(sym));
   clampRoloCurrent();
   positionRoloStack();

@@ -4185,6 +4185,59 @@ deferred, per Tier status above). `preview/rolodex/` itself is untouched
 — it remains the mocked-`/analyze`, isolated-from-`shared/` staging
 ground it always was, not superseded by this real build.
 
+## Frontend: Free's ticker pill strip gets a permanent "Starter?" upsell pill (Aug 16, 2026)
+
+Direct instruction: add a non-ticker pill reading "Starter?" to Free's
+`#roloIndex` marquee that links to the Starter upgrade Stripe page —
+explicitly not counted as a ticker.
+
+**Extended `shared/rolodex.ts`'s `rebuildRoloIndex()` with an optional
+4th `buildExtraChip` parameter**, rather than building this directly in
+`app.ts` outside the shared marquee mechanism. A one-off pill appended
+after `rebuildRoloIndex()` finishes (outside its repeating-pass loop)
+would only ever be reachable by dragging past the last pass — the
+continuous auto-scroll marquee never legitimately scrolls that far, since
+`stepRoloMarquee()` only ever cycles `scrollLeft` between `0` and
+`roloMarqueeOneSetW` (one pass's width). `buildExtraChip`, when supplied,
+gets appended once per repeated pass (after the real ticker chips, before
+the divider) so it repeats naturally alongside them and is genuinely
+visible during normal marquee playback, not just via a manual drag.
+`roloItemsPerPass` (used by `sizeRoloMarquee()`'s child-index-based
+pass-width fallback) is bumped by one whenever `buildExtraChip` is
+supplied, so that measurement still points at the correct second-pass
+start. Fully backward compatible — omitting the 4th argument (Starter's
+own call site, unchanged) behaves identically to before.
+
+**Kept deliberately outside every ticker-aware mechanism, not just
+visually different.** `buildUpsellChip()` (`app.ts`) returns a plain
+`<a>` styled with a new `.rolo-chip-upsell` class, not `.rolo-chip` —
+so it's automatically excluded from `positionRoloStack()`'s active-chip
+toggling (`.rolo-chip` class-scoped query) and `renderPill()`'s
+per-symbol updates (`.rolo-chip[data-sym="..."]`, which it doesn't
+match either way, having no `data-sym`) by construction, not by a
+special-case check. It's never added to `watchlist`, never passed
+through `goRolo()`/`analyzeOne()`, and the `"— N —"` divider text is
+still computed from `watchlist.length` alone — so it doesn't count
+toward the 3-ticker cap, the ticker-count header, or the divider count,
+exactly as asked. A plain `<a href="..." target="_blank">` needs no
+click handler of its own; the existing native-focus-scroll suppression
+(`pointerdown → preventDefault()`, already applied to every appended
+element inside a pass) is applied to it the same as any real chip, so
+tapping it can't fight the marquee's own scroll position.
+
+Verified via headless Chromium: the pill renders once per marquee pass
+(3 real chips × 3 tickers = 9 real chips, 3 upsell pills, matching);
+correct text ("Starter?"), `href` (the Starter Stripe link), and
+`target="_blank"`; the ticker-count header and the `"— 3 —"` divider are
+both unaffected; the marquee still auto-scrolls; tapping the pill opens
+a new tab and leaves the currently-active ticker card/pill completely
+unchanged (no `goRolo()` side effect). Re-ran Free's full existing
+regression suite (anonymous and signed-in-but-free) — all pass, zero new
+errors. `starter/app.js` (unaffected — Starter's own `rebuildRoloIndex()`
+call site doesn't pass the new argument) re-verified via its own
+existing regression suite for the same reason as always: this change
+touches the shared `rolodex.ts` module.
+
 ## Verifying changes before you claim done
 
 There's no test suite. What's actually been useful:
