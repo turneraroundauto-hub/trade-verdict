@@ -1,1189 +1,2708 @@
-import { initTickerCache, fetchTickerData } from '../shared/ticker-cache.js?v=5';
-import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, setWatchlist, removeTicker, setRenderScope, getOverflow, onRenderWatchlist, onWatchlistSave, cardsReady, refreshNewsHighlights } from '../shared/watchlist.js?v=32';
-import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache.js?v=3';
-import { renderTrackRecord, logResult, getAccuracyLog, clearLog, onLogSave } from '../shared/track-record.js?v=17';
-import { initTrackRecordSync, pullTrackRecordFromServer, schedulePushTrackRecord } from '../shared/track-record-sync.js?v=15';
-import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=26';
-import { tickerHref, newsHref, getTzPref, getTzIana, onPrefsChange, refreshTickerLinks } from '../shared/prefs.js?v=11';
-import '../shared/settings-modal.js?v=15';
-import { highlightContextMatches } from '../shared/context-highlight.js?v=2';
-
-const API_URL='https://tra-zacg.onrender.com';
-const SUPABASE_URL='https://oinomcikdyisrbfeeirp.supabase.co';
-const SUPABASE_ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9pbm9tY2lrZHlpc3JiZmVlaXJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ2NzM3NzgsImV4cCI6MjEwMDI0OTc3OH0.PiMDYsSZjNd4Iw-0wbQH4niDvUmW8ymycmiyb5Raf1w';
-
-const TIER = {
-  name:         'Pro',
-  maxTickers:   999,
-  pulse:        true,
-  tracker:      true,
-  alpaca:       false,
-  credits:      '100 credits/mo',
-  cache:        '1 min cache',
-  nextTier:     "Shark",
-  nextPrice:    "$39.99/mo",
-  stripeLink:   "https://buy.stripe.com/14A8wQdoJ7fx6lpb3z3VC01",
-  creditsLink:  'https://buy.stripe.com/3cI3cwacxarJ8txb3z3VC00',
-  badgeColor:   '#ce93d8',
-};
-
-// Pro's card/watchlist split: watchlist itself stays unlimited (maxTickers
-// below), but only the first CARD_CAP tickers, in watchlist order, ever
-// render as full analysis cards — the rest render as compact price/%chg
-// rows with no ANALYZE button and no credit cost. See setRenderScope() in
-// shared/watchlist.js.
-const CARD_CAP=15;
-
-let market=null;
-// Last /analyze result per ticker — kept so the Analyst View panel and the
-// track-record log buttons can read gate/proxy detail without a re-fetch.
-var lastAnalysis={};
-
-function isMarketClosed(){
-  var now=new Date();
-  var et=new Date(now.toLocaleString('en-US',{timeZone:'America/New_York'}));
-  var day=et.getDay();
-  if(day===0||day===6)return true;
-  var mins=et.getHours()*60+et.getMinutes();
-  return mins<570||mins>=960;
+// shared/ticker-cache.ts
+var API_URL = "";
+var authH = () => ({});
+var addSecret = (url) => url;
+var tickerCache = {};
+var inFlight = {};
+function initTickerCache(config) {
+  API_URL = config.API_URL;
+  authH = config.authH;
+  addSecret = config.addSecret;
 }
-
-function sigColor(s){return{GREEN:'var(--green)',RED:'var(--red)',YELLOW:'var(--amber)','N/A':'var(--dim)'}[s]||'var(--dim)'}
-function dirColor(d){return{green:'var(--green)',red:'var(--red)',flat:'var(--amber)'}[d]||'var(--white)'}
-
-function startClock(){
-  function tick(){
-    var now=new Date(),tz=new Date(now.toLocaleString('en-US',{timeZone:getTzIana()}));
-    var h=tz.getHours(),m=tz.getMinutes(),s=tz.getSeconds();
-    var p=function(n){return String(n).padStart(2,'0')};
-    var h12=h%12||12,ampm=h<12?'AM':'PM';
-    var cl=document.getElementById('live-clock');
-    if(cl)cl.textContent=h12+':'+p(m)+':'+p(s)+' '+ampm+' '+getTzPref();
-  }
-  tick();setInterval(tick,1000);
-}
-
-function renderMarketTs(){
-  if(!market||!market.timestamp)return;
-  var t=new Date(market.timestamp).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:getTzIana()});
-  document.getElementById('ts').textContent=(market.cached?'⚡ Cached':'🔴 Live')+' · Updated '+t+' '+getTzPref();
-}
-
-async function fetchMarket(force){
-  force=force||false;
-  document.getElementById('gate-label').textContent='LOADING...';
-  document.getElementById('gate-label').style.color='var(--dim)';
-  document.getElementById('pulse-text').className='pulse-loading';
-  document.getElementById('pulse-text').textContent='Generating market pulse...';
-  try{
-    var url=force?addSecret(API_URL+'/market?force=true'):addSecret(API_URL+'/market');
-    var res=await fetch(url,{headers:authH()});
-    var data=await res.json();
-    market=data;
-    var fields=[['spy','spy-val'],['qqq','qqq-val'],['btc','btc-val'],['soxx','soxx-val'],['xbi','xbi-val'],['iwm','iwm-val'],['gld','gld-val'],['uso','uso-val'],['tsm','tsm-val'],['msft','msft-val']];
-    fields.forEach(function(f){
-      var el=document.getElementById(f[1]);if(!el)return;
-      var d=data[f[0]];
-      if(!d||d.change==='?'){el.textContent='?';el.style.color='var(--dim)'}
-      else{el.textContent=d.change;el.style.color=dirColor(d.direction)}
-    });
-    var gc=sigColor(data.gateStatus||'GREEN');
-    document.getElementById('gate-dot').style.background=gc;
-    var gl=document.getElementById('gate-label');
-    gl.style.color=gc;gl.textContent=(data.gateStatus||'GREEN')+' GATE';
-    document.getElementById('gate-note').textContent=data.gateNote||'';
-    var btcEl=document.getElementById('btc-signal');
-    if(data.btcSignal&&data.btcSignal!=='neutral'){
-      btcEl.style.display='block';
-      btcEl.textContent='BTC SIGNAL: '+data.btcSignal.toUpperCase();
-      btcEl.style.color=data.btcSignal==='full conviction'?'var(--green)':data.btcSignal==='risk-off'?'var(--red)':'var(--amber)';
-    }else btcEl.style.display='none';
-    var tsmEl=document.getElementById('tsm-warning');
-    if(data.tsmWarning){tsmEl.style.display='block';tsmEl.textContent=data.tsmWarning}else tsmEl.style.display='none';
-    renderMarketTs();
-    var pulseEl=document.getElementById('pulse-text');
-    if(data.pulse){pulseEl.className='pulse-text';pulseEl.textContent=data.pulse}
-    else{pulseEl.className='pulse-loading';pulseEl.textContent='Generating pulse...'}
-  }catch(e){
-    document.getElementById('gate-label').textContent='DATA ERROR';
-    document.getElementById('gate-label').style.color='var(--red)';
-    document.getElementById('gate-note').textContent='Tap ↻ REFRESH to retry';
-    document.getElementById('pulse-text').textContent='Unavailable';
-  }
-}
-
-export async function analyzeTicker(ticker){
-  var card=document.getElementById('card-'+ticker);if(!card)return;
-  var ctx=document.getElementById('context-input').value;
-  var sc={
-    spy:market&&market.spy?market.spy.change:'?',
-    qqq:market&&market.qqq?market.qqq.change:'?',
-    btc:market&&market.btc?market.btc.change:'?',
-    iwm:market&&market.iwm?market.iwm.change:'?',
-    soxx:market&&market.soxx?market.soxx.change:'?',
-    xbi:market&&market.xbi?market.xbi.change:'?',
-    ibb:market&&market.ibb?market.ibb.change:'?',
-    gld:market&&market.gld?market.gld.change:'?',
-    uso:market&&market.uso?market.uso.change:'?',
-    tsm:market&&market.tsm?market.tsm.change:'?',
-    msft:market&&market.msft?market.msft.change:'?',
-    gateStatus:market?market.gateStatus||'GREEN':'GREEN',
-    gateNote:market?market.gateNote||'':'',
-    btcSignal:market?market.btcSignal||'neutral':'neutral'
-  };
-  card.querySelector('.card-action').innerHTML='<div style="display:flex;flex-direction:column;align-items:center;gap:2px"><div class="spinner"></div><span class="spinner-label">RUNNING</span></div>';
-  var reReset=card.querySelector('.reason-txt');reReset.textContent='';reReset.style.display='none';
-  card.classList.remove('up','down','flat','rim-green','rim-yellow','rim-red','loading');
-  card.querySelector('.ticker-name').classList.remove('up','down','flat');
-  var pe=card.querySelector('.ticker-price');if(pe)pe.classList.remove('up','down','flat');
-  card.querySelector('.card-badges').innerHTML='';
-  var gs=card.querySelector('.gate-section');gs.innerHTML='';gs.style.display='none';
-  var pgs=card.querySelector('.pregate-strip');if(pgs){pgs.innerHTML='';pgs.style.display='none';}
-  var ls=card.querySelector('.log-section');if(ls){ls.innerHTML='';ls.style.display='none';}
-  var as=card.querySelector('.analyst-section');if(as){as.innerHTML='';as.style.display='none';}
-  // Await ticker data FIRST so newsData, openingBar, proxyRule are available
-  var td=await fetchTickerData(ticker);
-  if(td)updateCardMeta(ticker,td);
-
-  try{
-    var res=await fetch(addSecret(API_URL+'/analyze'),{method:'POST',headers:authH(),
-      body:JSON.stringify({
-        ticker:ticker,sectorContext:sc,marketContext:ctx,
-        metricsData:td&&td.metrics?td.metrics:null,
-        newsData:td&&td.news?td.news:null,
-        openingBarData:td&&td.openingBar?td.openingBar:null,
-        proxyRule:td&&td.proxyRule?td.proxyRule:null,
-        gate1Data:td&&td.gate1?td.gate1:null,
-        preGateData:td&&td.preGate?td.preGate:null,
-        weeklyCarryoverData:td&&td.weeklyCarryover?td.weeklyCarryover:null,
-        regimeData:td&&td.regime?td.regime:null
-      })});
-    if(!res.ok){
-      var errData=await res.json().catch(function(){return{}});
-      if(res.status===402&&errData.code==='NO_CREDITS'){
-        handleNoCredits(card,ticker);fetchCreditStatus();return;
-      }
-      throw new Error(errData.error||'Server error '+res.status);
+async function fetchTickerData(symbol, force) {
+  if (tickerCache[symbol] && !force) return tickerCache[symbol];
+  if (inFlight[symbol] && !force) return inFlight[symbol];
+  const p = (async () => {
+    try {
+      const res = await fetch(addSecret(API_URL + "/ticker/" + symbol), { headers: authH() });
+      const data = await res.json();
+      tickerCache[symbol] = data;
+      return data;
+    } catch (e) {
+      return null;
+    } finally {
+      delete inFlight[symbol];
     }
-    var _r=await res.json();cacheVerdict(ticker,_r);renderCardResult(ticker,_r,td);fetchCreditStatus();
-  }catch(e){
-    card.querySelector('.card-action').innerHTML='<button class="retry-btn" onclick="analyzeTicker(\''+ticker+'\')">RETRY</button>';
-    var re=card.querySelector('.reason-txt');re.textContent=e.message;re.style.color='var(--red)';re.style.display='';
-  }
+  })();
+  inFlight[symbol] = p;
+  return p;
 }
 
-// Analyze All only ever hits the card window (max CARD_CAP), never the full
-// unlimited watchlist — at 3 analyses/credit that caps the cost of one tap
-// at CARD_CAP/3 credits (5, at the current 15-card cap), and keeps it
-// predictable regardless of how many tickers are tracked in total.
-//
-// Runs in small batches (4 at a time) instead of firing all CARD_CAP calls
-// simultaneously — a full burst means that many concurrent /ticker/:symbol
-// cache-miss chains hitting Finnhub/Alpaca/SEC at once, which is exactly
-// the kind of spike that trips a provider's rate limiter (SEC's full-text
-// search especially) and shows up as slow or timed-out individual tickers.
-// Batching trades a little total wall-clock time for reliability.
-var ANALYZE_ALL_BATCH = 4;
-export async function analyzeAll(){
-  var tickers=watchlist.slice(0,CARD_CAP);
-  for(var i=0;i<tickers.length;i+=ANALYZE_ALL_BATCH){
-    await Promise.all(tickers.slice(i,i+ANALYZE_ALL_BATCH).map(function(t){return analyzeTicker(t)}));
-  }
-}
-
-// ── PRO — trigger classification ────────────────────────────────────
-// Mirrors the exact override-authority reason prefixes server.js writes to
-// parsed.reason (see /analyze) so the track-record breakdown attributes each
-// logged verdict to the real mechanism that produced it, not a guess.
-function classifyTrigger(data){
-  var reason=(data&&data.reason)||'';
-  if(reason.indexOf('Pre-Gate thesis-integrity override')===0)return'pre-gate';
-  if(reason.indexOf('Broad market failure')===0)return'gate0';
-  if(reason.indexOf('Gate 1 structural breakdown override')===0)return'gate1';
-  if(reason.indexOf('Gate 5 forceDown')===0)return'gate5';
-  if(data&&data.verdict==='DOWN')return'corroboration';
-  return'standard';
-}
-var TRIGGER_LABELS={
-  'pre-gate':'PRE-GATE OVERRIDE','gate0':'GATE 0 OVERRIDE','gate1':'GATE 1 OVERRIDE',
-  'gate5':'GATE 5 OVERRIDE','corroboration':'2+ GATE CORROBORATION','standard':'STANDARD VERDICT'
+// shared/prefs.ts
+var TIMEZONES = {
+  ET: { label: "ET (Eastern)", iana: "America/New_York" },
+  CT: { label: "CT (Central)", iana: "America/Chicago" },
+  MT: { label: "MT (Mountain)", iana: "America/Denver" },
+  PT: { label: "PT (Pacific)", iana: "America/Los_Angeles" }
 };
+var LINK_SITES = {
+  yahoo: {
+    label: "Yahoo Finance",
+    href: function(t) {
+      return "https://finance.yahoo.com/quote/" + encodeURIComponent(t);
+    },
+    newsHref: function(t) {
+      return "https://finance.yahoo.com/quote/" + encodeURIComponent(t) + "/news/";
+    }
+  },
+  tradingview: {
+    label: "TradingView",
+    // Bare /symbols/{TICKER}/ has the identical exchange-ambiguity problem
+    // as Google Finance's direct quote page (see the comment above) — this
+    // app has no per-symbol exchange data (checked: nowhere in the frontend
+    // or the mirrored server.js), and TradingView's own bare-symbol
+    // resolution isn't reliably US-biased: confirmed live (Aug 10, 2026)
+    // that a real user's ARCC link landed on Egypt's EGX-listed Arabian
+    // Cement instead of NASDAQ's Ares Capital. Routes through a plain web
+    // search instead (same proven-safe pattern as Yahoo/Google's own
+    // fallback), biased toward tradingview.com with a keyword rather than
+    // the `site:` operator — this app already found `site:` search results
+    // unreliable (Google shows an interstitial banner instead of direct
+    // results, hit earlier this session while building the news-link
+    // feature). UNVERIFIED LIVE: this sandbox blocks tradingview.com and
+    // google.com egress alike, so the actual search-result ranking for a
+    // given ticker couldn't be confirmed — spot-check after deploy.
+    href: function(t) {
+      return "https://www.google.com/search?q=" + encodeURIComponent(t.replace("-USD", " USD") + " stock tradingview");
+    },
+    newsHref: function(t) {
+      return "https://news.google.com/search?q=" + encodeURIComponent(t.replace("-USD", " USD") + " stock tradingview");
+    }
+  },
+  stocktwits: {
+    label: "StockTwits",
+    href: function(t) {
+      return "https://stocktwits.com/symbol/" + encodeURIComponent(t.replace("-USD", ".X"));
+    },
+    newsHref: function(t) {
+      return "https://stocktwits.com/symbol/" + encodeURIComponent(t.replace("-USD", ".X")) + "/news";
+    }
+  },
+  google: {
+    label: "Google Finance",
+    href: function(t) {
+      return "https://www.google.com/search?q=" + encodeURIComponent(t.replace("-USD", " USD") + " stock");
+    },
+    newsHref: function(t) {
+      return "https://news.google.com/search?q=" + encodeURIComponent(t.replace("-USD", " USD") + " stock");
+    }
+  },
+  robinhood: {
+    label: "Robinhood",
+    href: function(t) {
+      return "https://robinhood.com/stocks/" + encodeURIComponent(t.replace("-USD", ""));
+    }
+  },
+  custom: {
+    label: "Custom link\u2026",
+    href: function(t) {
+      return customMarketTemplateHref(t);
+    },
+    newsHref: function(t) {
+      return customNewsTemplateHref(t);
+    }
+  }
+};
+var CUSTOM_TEMPLATE_KEY = "tv_link_custom_template";
+var CUSTOM_MARKET_TEMPLATE_KEY = "tv_link_custom_market_template";
+function isValidCustomTemplate(template) {
+  var t = (template || "").trim();
+  if (!/^https?:\/\//i.test(t)) return false;
+  if (!/\{ticker\}/i.test(t)) return false;
+  return true;
+}
+function buildTemplateFromExample(exampleUrl, exampleTicker) {
+  var url = (exampleUrl || "").trim();
+  var ticker = (exampleTicker || "").trim();
+  if (!ticker || !/^https?:\/\//i.test(url)) return null;
+  var escaped = ticker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  var re = new RegExp("(^|[^A-Za-z0-9])(" + escaped + ")(?=[^A-Za-z0-9]|$)", "gi");
+  var found = false;
+  var result = url.replace(re, function(_match, boundary, matched) {
+    found = true;
+    var placeholder = matched === matched.toUpperCase() ? "{TICKER}" : "{ticker}";
+    return boundary + placeholder;
+  });
+  return found ? result : null;
+}
+var URL_NON_TICKER_WORDS = /* @__PURE__ */ new Set([
+  "quote",
+  "quotes",
+  "stock",
+  "stocks",
+  "symbol",
+  "symbols",
+  "news",
+  "chart",
+  "charts",
+  "charting",
+  "market",
+  "markets",
+  "markt",
+  "investing",
+  "finance",
+  "financials",
+  "company",
+  "overview",
+  "summary",
+  "profile",
+  "research",
+  "www",
+  "com",
+  "us",
+  "en",
+  "html",
+  "htm",
+  "index",
+  "nasdaq",
+  "nyse",
+  "amex",
+  "otc",
+  "otcmkts",
+  "arca",
+  "bats",
+  "cboe"
+]);
+function looksLikeTicker(s) {
+  return /^[A-Za-z]{1,5}(\.[A-Za-z]{1,2})?$/.test(s);
+}
+function detectTickerInUrl(rawUrl) {
+  var url;
+  try {
+    url = new URL((rawUrl || "").trim());
+  } catch (e) {
+    return null;
+  }
+  var segments = url.pathname.split("/").filter(Boolean);
+  for (var i = segments.length - 1; i >= 0; i--) {
+    var seg;
+    try {
+      seg = decodeURIComponent(segments[i]);
+    } catch (e) {
+      seg = segments[i];
+    }
+    if (looksLikeTicker(seg) && !URL_NON_TICKER_WORDS.has(seg.toLowerCase())) return seg;
+    if (seg.indexOf("-") !== -1) {
+      var parts = seg.split("-");
+      for (var j = parts.length - 1; j >= 0; j--) {
+        if (looksLikeTicker(parts[j]) && !URL_NON_TICKER_WORDS.has(parts[j].toLowerCase())) return parts[j];
+      }
+    }
+  }
+  var queryKeys = ["symbol", "ticker", "q", "s"];
+  for (var k = 0; k < queryKeys.length; k++) {
+    var v = url.searchParams.get(queryKeys[k]);
+    if (!v) continue;
+    var last = v.indexOf(":") !== -1 ? v.split(":").pop() : v;
+    if (looksLikeTicker(last)) return last;
+  }
+  return null;
+}
+function getCustomTemplate() {
+  return localStorage.getItem(CUSTOM_TEMPLATE_KEY) || "";
+}
+function setCustomTemplate(template) {
+  if (forced) return false;
+  var t = (template || "").trim();
+  if (!isValidCustomTemplate(t)) return false;
+  localStorage.setItem(CUSTOM_TEMPLATE_KEY, t);
+  listeners.forEach(function(cb2) {
+    cb2();
+  });
+  return true;
+}
+function getCustomMarketTemplate() {
+  return localStorage.getItem(CUSTOM_MARKET_TEMPLATE_KEY) || "";
+}
+function setCustomMarketTemplate(template) {
+  if (forced) return false;
+  var t = (template || "").trim();
+  if (!isValidCustomTemplate(t)) return false;
+  localStorage.setItem(CUSTOM_MARKET_TEMPLATE_KEY, t);
+  listeners.forEach(function(cb2) {
+    cb2();
+  });
+  return true;
+}
+function applyTemplate(template, t) {
+  return template.replace(/\{TICKER\}/g, encodeURIComponent(t.toUpperCase())).replace(/\{ticker\}/g, encodeURIComponent(t.toLowerCase()));
+}
+function customMarketTemplateHref(t) {
+  var template = getCustomMarketTemplate();
+  if (!isValidCustomTemplate(template)) return LINK_SITES.yahoo.href(t);
+  return applyTemplate(template, t);
+}
+function customNewsTemplateHref(t) {
+  var template = getCustomTemplate();
+  if (!isValidCustomTemplate(template)) return LINK_SITES.yahoo.newsHref(t);
+  return applyTemplate(template, t);
+}
+var TZ_KEY = "tv_tz_pref";
+var LINK_KEY = "tv_link_site_pref";
+var listeners = [];
+var forced = false;
+function getTzPref() {
+  if (forced) return "ET";
+  var v = localStorage.getItem(TZ_KEY);
+  return v && TIMEZONES[v] ? v : "ET";
+}
+function setTzPref(tz) {
+  if (forced || !TIMEZONES[tz]) return;
+  localStorage.setItem(TZ_KEY, tz);
+  listeners.forEach(function(cb2) {
+    cb2();
+  });
+}
+function getTzIana() {
+  return TIMEZONES[getTzPref()].iana;
+}
+function getLinkSitePref() {
+  if (forced) return "yahoo";
+  var v = localStorage.getItem(LINK_KEY);
+  return v && LINK_SITES[v] ? v : "yahoo";
+}
+function setLinkSitePref(site) {
+  if (forced || !LINK_SITES[site]) return;
+  localStorage.setItem(LINK_KEY, site);
+  listeners.forEach(function(cb2) {
+    cb2();
+  });
+}
+function tickerHref(t) {
+  return LINK_SITES[getLinkSitePref()].href(t);
+}
+function newsHref(t) {
+  var site = LINK_SITES[getLinkSitePref()];
+  return (site.newsHref || site.href)(t);
+}
+function onPrefsChange(cb2) {
+  listeners.push(cb2);
+}
+function refreshTickerLinks(root) {
+  (root || document).querySelectorAll("a[data-ticker]").forEach(function(a) {
+    a.href = tickerHref(a.dataset.ticker);
+  });
+}
 
-export function logResultUI(ticker,verdict,correct,btnEl){
-  var rowEl=btnEl.closest('.log-row');if(!rowEl)return;
-  var meta={trigger:classifyTrigger(lastAnalysis[ticker])};
-  logResult(ticker,verdict,correct,rowEl,meta);
+// shared/context-highlight.ts
+var STOPWORDS = /* @__PURE__ */ new Set([
+  "a",
+  "an",
+  "the",
+  "and",
+  "or",
+  "but",
+  "if",
+  "of",
+  "in",
+  "on",
+  "for",
+  "to",
+  "with",
+  "at",
+  "by",
+  "from",
+  "as",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "been",
+  "being",
+  "it",
+  "its",
+  "this",
+  "that",
+  "these",
+  "those",
+  "after",
+  "before",
+  "over",
+  "under",
+  "into",
+  "out",
+  "up",
+  "down",
+  "than",
+  "then",
+  "so",
+  "not",
+  "no",
+  "yes",
+  "has",
+  "have",
+  "had",
+  "will",
+  "would",
+  "could",
+  "should",
+  "can",
+  "may",
+  "might",
+  "must",
+  "more",
+  "most",
+  "also",
+  "still",
+  "just",
+  "now",
+  "new",
+  "via",
+  "their",
+  "his",
+  "her",
+  "your",
+  "you",
+  "we",
+  "our"
+]);
+function tokenize(text) {
+  return (text || "").toLowerCase().match(/[a-z0-9$%]+/g) || [];
+}
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function highlightContextMatches(headline, contextText) {
+  var safe = escapeHtml(headline || "");
+  var ctxWords = new Set(tokenize(contextText).filter(function(w) {
+    return w.length > 2 && !STOPWORDS.has(w);
+  }));
+  if (ctxWords.size < 2) return safe;
+  var headlineWords = new Set(tokenize(headline));
+  var matches = [];
+  headlineWords.forEach(function(w) {
+    if (ctxWords.has(w)) matches.push(w);
+  });
+  if (matches.length < 2) return safe;
+  var pattern = matches.sort(function(a, b) {
+    return b.length - a.length;
+  }).map(function(w) {
+    return w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }).join("|");
+  var re = new RegExp("\\b(" + pattern + ")\\b", "gi");
+  return safe.replace(re, '<mark class="ctx-match">$1</mark>');
+}
+
+// shared/watchlist.ts
+var watchlist = [];
+var maxTickers = 3;
+var upgradeMessage = "";
+var gesturesBound = false;
+var renderScope = null;
+var postRenderHook = null;
+var cardsReadyPromise = new Promise(function(res) {
+});
+var saveHook = null;
+function onWatchlistSave(cb2) {
+  saveHook = cb2;
+}
+function initWatchlist(config) {
+  maxTickers = config.maxTickers;
+  upgradeMessage = config.upgradeMessage;
+  var _wl = JSON.parse(localStorage.getItem("tv_wl") || JSON.stringify(config.defaultTickers));
+  if (_wl.length > maxTickers) _wl = _wl.slice(0, maxTickers);
+  watchlist = _wl;
+  bindGestures();
+}
+function saveWL() {
+  localStorage.setItem("tv_wl", JSON.stringify(watchlist));
+  var countEl = document.getElementById("ticker-count");
+  if (countEl) countEl.textContent = "CRF \xB7 " + watchlist.length + " TICKERS";
+  if (saveHook) saveHook();
+}
+function setWatchlist(tickers) {
+  var clean = [], dropped = [];
+  tickers.forEach(function(t) {
+    var u = String(t).toUpperCase().trim();
+    if (/^[A-Z]{1,6}$/.test(u)) {
+      if (!clean.includes(u)) clean.push(u);
+    } else if (u) dropped.push(u);
+  });
+  if (clean.length > maxTickers) {
+    dropped = dropped.concat(clean.slice(maxTickers));
+    clean = clean.slice(0, maxTickers);
+  }
+  if (tickers.length && !clean.length) {
+    console.error("setWatchlist: all " + tickers.length + " provided ticker(s) failed validation, keeping existing watchlist unchanged:", tickers);
+    return dropped;
+  }
+  watchlist = clean;
+  saveWL();
+  renderWatchlist();
+  return dropped;
+}
+function parseTickers(raw) {
+  return raw.toUpperCase().replace(/[$#]/g, "").split(/[\s,;|\n]+/).map((t) => t.trim()).filter((t) => /^[A-Z]{1,6}$/.test(t));
+}
+function updateCardMeta(ticker, td) {
+  var card = document.getElementById("card-" + ticker);
+  if (!card) return;
+  var priceEl = card.querySelector(".ticker-price");
+  if (priceEl && td) {
+    priceEl.textContent = td.metrics && td.metrics.price ? "$" + td.metrics.price.toFixed(2) : "N/A";
+  }
+  var phaseEl = card.querySelector(".phase-strip");
+  if (phaseEl && td && td.metrics) {
+    var m = td.metrics;
+    var rp = m.rangePosition !== null && m.rangePosition !== void 0 ? m.rangePosition + "%" : "?";
+    var ph = m.phaseProxy || "?";
+    var phColor = ph === "PHASE_3" ? "var(--red)" : ph === "PHASE_2" ? "var(--amber)" : "var(--green)";
+    var betaStr = m.beta ? "\u03B2" + m.beta.toFixed(1) : "?";
+    var proxyName = td.proxyRule && td.proxyRule.proxy ? td.proxyRule.proxy.name : "";
+    var proxyShort = proxyName.split("(")[0].trim();
+    phaseEl.innerHTML = '<div class="phase-item"><span class="phase-lbl">52W</span><span class="phase-val">' + rp + '</span></div><div class="phase-item"><span class="phase-lbl">PHASE</span><span class="phase-val" style="color:' + phColor + '">' + ph.replace("PHASE_", "") + '</span></div><div class="phase-item"><span class="phase-lbl">\u03B2</span><span class="phase-val">' + betaStr + "</span></div>" + (proxyShort ? '<div class="phase-item"><span class="phase-lbl">PROXY</span><span class="phase-val" style="color:var(--blue);font-size:9px">' + proxyShort + "</span></div>" : "");
+  } else if (phaseEl && td) {
+    phaseEl.innerHTML = '<div class="phase-item"><span class="phase-val" style="color:var(--dim);font-size:9px">No market data for this symbol (index/unsupported ticker)</span></div>';
+  }
+  var newsEl = card.querySelector(".news-line");
+  var news = td && td.news;
+  if (newsEl) {
+    if (news && news.ageHours <= 300) {
+      newsEl.style.display = "block";
+      var ctxEl = document.getElementById("context-input");
+      var headlineHtml = highlightContextMatches(news.headline, ctxEl ? ctxEl.value : "");
+      newsEl.innerHTML = '<a href="' + newsHref(ticker) + '" target="_blank">' + headlineHtml + '</a><span class="news-age">' + news.ageLabel + "</span>";
+    } else newsEl.style.display = "none";
+  }
+}
+function addTickers() {
+  if (watchlist.length >= maxTickers) {
+    alert(upgradeMessage);
+    return;
+  }
+  var input = document.getElementById("ticker-input");
+  var raw = input.value;
+  var tickers = parseTickers(raw);
+  if (!tickers.length) return alert("No valid tickers. Try: AAPL or MU");
+  var newOnes = tickers.filter(function(t) {
+    return !watchlist.includes(t);
+  });
+  watchlist.unshift.apply(watchlist, newOnes);
+  input.value = "";
+  saveWL();
+  renderWatchlist();
+  tickers.forEach(function(t) {
+    fetchTickerData(t).then(function(d) {
+      if (d) updateCardMeta(t, d);
+    });
+  });
+}
+function removeTicker(ticker) {
+  var idx = watchlist.indexOf(ticker);
+  if (idx === -1) return;
+  watchlist = watchlist.filter(function(t) {
+    return t !== ticker;
+  });
+  saveWL();
+  renderWatchlist();
+  showUndoToast(ticker, idx);
+}
+var undoTimer = null;
+function showUndoToast(ticker, idx) {
+  var el = document.getElementById("undo-toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "undo-toast";
+    el.style.cssText = "position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#101c2e;border:1px solid var(--border);border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:14px;font-family:monospace;font-size:12px;color:var(--white);box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:999;opacity:0;transition:opacity .2s;pointer-events:none";
+    document.body.appendChild(el);
+  }
+  if (undoTimer) clearTimeout(undoTimer);
+  el.innerHTML = "<span>Removed " + ticker + '</span><button id="undo-btn" style="background:none;border:none;color:var(--blue);font-family:monospace;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:.06em;pointer-events:auto">UNDO</button>';
+  el.style.pointerEvents = "auto";
+  el.style.opacity = "1";
+  document.getElementById("undo-btn").onclick = function() {
+    if (!watchlist.includes(ticker)) {
+      watchlist.splice(Math.min(idx, watchlist.length), 0, ticker);
+      saveWL();
+      renderWatchlist();
+      fetchTickerData(ticker).then(function(d) {
+        if (d) updateCardMeta(ticker, d);
+      });
+    }
+    hideUndoToast();
+  };
+  undoTimer = setTimeout(hideUndoToast, 4e3);
+}
+function hideUndoToast() {
+  var el = document.getElementById("undo-toast");
+  if (el) {
+    el.style.opacity = "0";
+    el.style.pointerEvents = "none";
+  }
+  if (undoTimer) clearTimeout(undoTimer);
+}
+function renderWatchlist() {
+  var wl = document.getElementById("watchlist");
+  if (!wl) return;
+  var list = renderScope != null ? watchlist.slice(0, renderScope) : watchlist;
+  wl.innerHTML = list.map(function(ticker) {
+    return '<div class="card-wrap" data-ticker="' + ticker + '"><div class="swipe-bg"><span class="swipe-icon">&#128465;</span><span class="swipe-label">DELETE</span></div><div class="card loading" id="card-' + ticker + '"><div class="card-head"><div class="card-left"><div class="ticker-row"><span class="ticker-name"><a class="ticker-a" href="' + tickerHref(ticker) + '" target="_blank">' + ticker + '</a></span><span class="ticker-price">&mdash;</span></div><div class="pregate-strip" id="pregate-' + ticker + `" style="display:none"></div><div class="news-line" style="display:none"></div><div class="phase-strip"></div><div class="reason-txt" style="display:none"></div><div class="card-badges"></div></div><div class="card-right"><div class="drag-handle" title="Drag to reorder">&#10303;</div><div class="card-action"><button class="analyze-btn" onclick="analyzeTicker('` + ticker + `')">ANALYZE</button></div></div></div><div class="log-section" style="display:none"></div><div class="gate-section" style="display:none"></div></div></div>`;
+  }).join("");
+  var resolveThisRender;
+  cardsReadyPromise = new Promise(function(res) {
+    resolveThisRender = res;
+  });
+  hydrateCards(list).then(function() {
+    resolveThisRender();
+    if (postRenderHook) postRenderHook();
+  });
+}
+async function hydrateCards(list) {
+  await Promise.all(list.map(function(t) {
+    return fetchTickerData(t).then(function(d) {
+      if (d) updateCardMeta(t, d);
+      var card = document.getElementById("card-" + t);
+      if (card) card.classList.remove("loading");
+    });
+  }));
+}
+var ACTIVE = null;
+var MOVE_THRESHOLD = 14;
+function bindGestures() {
+  if (gesturesBound) return;
+  var wl = document.getElementById("watchlist");
+  if (!wl) return;
+  gesturesBound = true;
+  wl.addEventListener("pointerdown", onPointerDown);
+}
+function onPointerDown(e) {
+  if (ACTIVE) return;
+  if (e.pointerType === "mouse" && e.button !== 0) return;
+  var wrap = e.target.closest(".card-wrap");
+  if (!wrap) return;
+  var card = wrap.querySelector(".card");
+  if (!card) return;
+  ACTIVE = {
+    pointerId: e.pointerId,
+    wrap,
+    card,
+    ticker: wrap.dataset.ticker,
+    startX: e.clientX,
+    startY: e.clientY,
+    mode: null,
+    pendingDx: 0,
+    swipeBg: wrap.querySelector(".swipe-bg")
+  };
+  if (e.target.closest(".drag-handle")) beginReorder(e);
+  document.addEventListener("pointermove", onPointerMove, { passive: false });
+  document.addEventListener("pointerup", onPointerUp);
+  document.addEventListener("pointercancel", onPointerUp);
+}
+function beginReorder(e) {
+  var g = ACTIVE;
+  g.mode = "reorder";
+  try {
+    g.wrap.setPointerCapture(e.pointerId);
+  } catch (err) {
+  }
+  g.card.style.transition = "none";
+  g.wrap.classList.add("dragging");
+  g.card.classList.add("dragging");
+}
+function deleteThreshold(wrap) {
+  return Math.min(120, wrap.getBoundingClientRect().width * 0.35);
+}
+function onPointerMove(e) {
+  var g = ACTIVE;
+  if (!g || e.pointerId !== g.pointerId) return;
+  var dx = e.clientX - g.startX, dy = e.clientY - g.startY;
+  if (g.mode === null) {
+    if (Math.abs(dx) > MOVE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
+      g.mode = "swipe";
+      try {
+        g.wrap.setPointerCapture(e.pointerId);
+      } catch (err) {
+      }
+      g.card.style.transition = "none";
+      g.wrap.classList.add("swiping");
+    } else if (Math.abs(dy) > MOVE_THRESHOLD) {
+      endGesture();
+      return;
+    } else return;
+  }
+  if (g.mode === "swipe") {
+    e.preventDefault();
+    var clamped = Math.min(0, Math.max(dx, -g.wrap.getBoundingClientRect().width));
+    g.card.style.transform = "translateX(" + clamped + "px)";
+    var progress = Math.min(Math.abs(clamped) / deleteThreshold(g.wrap), 1);
+    g.swipeBg.style.opacity = String(progress);
+    g.pendingDx = clamped;
+  } else if (g.mode === "reorder") {
+    e.preventDefault();
+    while (trySwap(g, e)) {
+    }
+    g.card.style.transform = "translateY(" + (e.clientY - g.startY) + "px)";
+  }
+}
+function trySwap(g, e) {
+  var wl = document.getElementById("watchlist");
+  var wrapRect = g.wrap.getBoundingClientRect();
+  var dy = e.clientY - g.startY;
+  var draggedCenter = wrapRect.top + wrapRect.height / 2 + dy;
+  var next = g.wrap.nextElementSibling;
+  if (next) {
+    var nr = next.getBoundingClientRect();
+    if (draggedCenter > nr.top + nr.height / 2) {
+      wl.insertBefore(next, g.wrap);
+      swapTickers(g.ticker, next.dataset.ticker);
+      g.startY += nr.height;
+      return true;
+    }
+  }
+  var prev = g.wrap.previousElementSibling;
+  if (prev) {
+    var pr = prev.getBoundingClientRect();
+    if (draggedCenter < pr.top + pr.height / 2) {
+      wl.insertBefore(g.wrap, prev);
+      swapTickers(g.ticker, prev.dataset.ticker);
+      g.startY -= pr.height;
+      return true;
+    }
+  }
+  return false;
+}
+function swapTickers(a, b) {
+  var ia = watchlist.indexOf(a), ib = watchlist.indexOf(b);
+  if (ia === -1 || ib === -1) return;
+  var tmp = watchlist[ia];
+  watchlist[ia] = watchlist[ib];
+  watchlist[ib] = tmp;
+  saveWL();
+}
+function onPointerUp(e) {
+  var g = ACTIVE;
+  if (!g || e.pointerId !== g.pointerId) return;
+  if (g.mode === "swipe") finishSwipe(g);
+  else if (g.mode === "reorder") finishReorder(g);
+  endGesture();
+}
+function finishSwipe(g) {
+  var threshold = deleteThreshold(g.wrap);
+  if (Math.abs(g.pendingDx) >= threshold) {
+    var wrap = g.wrap, ticker = g.ticker, w = wrap.getBoundingClientRect().width;
+    g.card.style.transition = "transform .18s ease-in";
+    g.card.style.transform = "translateX(-" + (w + 40) + "px)";
+    wrap.style.overflow = "hidden";
+    wrap.style.transition = "max-height .2s ease .12s,opacity .2s ease .12s,margin .2s ease .12s";
+    requestAnimationFrame(function() {
+      wrap.style.maxHeight = "0px";
+      wrap.style.opacity = "0";
+      wrap.style.marginTop = "0px";
+      wrap.style.marginBottom = "0px";
+    });
+    setTimeout(function() {
+      removeTicker(ticker);
+    }, 220);
+  } else {
+    g.card.style.transition = "transform .18s ease";
+    g.card.style.transform = "translateX(0)";
+    g.swipeBg.style.opacity = "0";
+  }
+  g.wrap.classList.remove("swiping");
+}
+function finishReorder(g) {
+  g.card.style.transition = "transform .15s ease";
+  g.card.style.transform = "translateY(0)";
+  g.wrap.classList.remove("dragging");
+  g.card.classList.remove("dragging");
+  setTimeout(function() {
+    g.card.style.transition = "";
+  }, 160);
+}
+function endGesture() {
+  var g = ACTIVE;
+  if (g) {
+    try {
+      g.wrap.releasePointerCapture(g.pointerId);
+    } catch (err) {
+    }
+  }
+  ACTIVE = null;
+  document.removeEventListener("pointermove", onPointerMove);
+  document.removeEventListener("pointerup", onPointerUp);
+  document.removeEventListener("pointercancel", onPointerUp);
+}
+window.addTickers = addTickers;
+
+// shared/analysis-cache.ts
+var verdictCache = {};
+function lsCK(t) {
+  return "tv_v_" + t + "_" + (/* @__PURE__ */ new Date()).toDateString().replace(/ /g, "_");
+}
+function saveLSVerdict(t, d) {
+  try {
+    localStorage.setItem(lsCK(t), JSON.stringify(d));
+  } catch (e) {
+  }
+}
+function loadLSVerdict(t) {
+  try {
+    var r = localStorage.getItem(lsCK(t));
+    return r ? JSON.parse(r) : null;
+  } catch (e) {
+    return null;
+  }
+}
+function cleanLS() {
+  var today = (/* @__PURE__ */ new Date()).toDateString().replace(/ /g, "_");
+  Object.keys(localStorage).forEach(function(k) {
+    if (k.startsWith("tv_v_") && !k.includes(today)) localStorage.removeItem(k);
+  });
+}
+function cacheVerdict(t, d) {
+  verdictCache[t] = { data: d, date: (/* @__PURE__ */ new Date()).toDateString() };
+  saveLSVerdict(t, d);
+}
+function getCachedVerdict(t) {
+  var e = verdictCache[t];
+  if (e && e.date === (/* @__PURE__ */ new Date()).toDateString()) return e.data;
+  var ls = loadLSVerdict(t);
+  if (ls) {
+    verdictCache[t] = { data: ls, date: (/* @__PURE__ */ new Date()).toDateString() };
+    return ls;
+  }
+  return null;
+}
+
+// shared/track-record.ts
+var LOG_KEY = "tv_accuracy_log";
+function getLog() {
+  try {
+    return JSON.parse(localStorage.getItem(LOG_KEY) || "[]");
+  } catch (e) {
+    return [];
+  }
+}
+var saveHook2 = null;
+function saveLog(log) {
+  localStorage.setItem(LOG_KEY, JSON.stringify(log));
+  if (saveHook2) saveHook2();
+}
+function logResult(ticker, verdict, correct, rowEl, meta) {
+  var log = getLog();
+  var entry = {
+    ticker,
+    verdict,
+    correct,
+    ts: (/* @__PURE__ */ new Date()).toISOString(),
+    session: (/* @__PURE__ */ new Date()).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "America/New_York" })
+  };
+  if (meta && meta.trigger) entry.trigger = meta.trigger;
+  log.push(entry);
+  if (log.length > 200) log = log.slice(-200);
+  saveLog(log);
+  var color = correct ? "var(--green)" : "var(--red)";
+  var label = correct ? "\u2713 LOGGED RIGHT" : "\u2717 LOGGED WRONG";
+  rowEl.innerHTML = '<span class="log-recorded" style="color:' + color + ";background:" + color + "11;border:1px solid " + color + '44">' + label + "</span>";
+  renderTrackRecord();
+}
+function clearLog() {
+  if (!confirm("Clear all logged trades?")) return;
+  saveLog([]);
+  renderTrackRecord();
+}
+function replaceLog(entries) {
+  saveLog(entries);
+  renderTrackRecord();
+}
+function getAccuracyLog() {
+  return getLog();
+}
+function renderTrackRecord() {
+  var log = getLog();
+  var body = document.getElementById("track-body");
+  if (!body) return;
+  if (!log.length) {
+    body.innerHTML = '<div class="track-empty">No trades logged yet.<br>After each verdict tap \u2713 RIGHT or \u2717 WRONG.</div>';
+    return;
+  }
+  var total = log.length, correct = log.filter(function(e) {
+    return e.correct;
+  }).length;
+  var rate = Math.round(correct / total * 100);
+  var rateColor = rate >= 65 ? "var(--green)" : rate >= 50 ? "var(--amber)" : "var(--red)";
+  var byType = { UP: { c: 0, t: 0 }, DOWN: { c: 0, t: 0 }, FLAT: { c: 0, t: 0 } };
+  log.forEach(function(e) {
+    var v = e.verdict || "UP";
+    if (!byType[v]) byType[v] = { c: 0, t: 0 };
+    byType[v].t++;
+    if (e.correct) byType[v].c++;
+  });
+  var typeRate = function(v) {
+    return byType[v].t ? Math.round(byType[v].c / byType[v].t * 100) + "%" : "&mdash;";
+  };
+  var byTicker = {};
+  log.forEach(function(e) {
+    if (!byTicker[e.ticker]) byTicker[e.ticker] = { c: 0, t: 0 };
+    byTicker[e.ticker].t++;
+    if (e.correct) byTicker[e.ticker].c++;
+  });
+  var topTickers = Object.entries(byTicker).sort(function(a, b) {
+    return b[1].t - a[1].t;
+  }).slice(0, 3).map(function(x) {
+    return '<a class="ticker-a" href="' + tickerHref(x[0]) + '" target="_blank">' + x[0] + "</a> " + Math.round(x[1].c / x[1].t * 100) + "%";
+  }).join(" \xB7 ") || "&mdash;";
+  var streak = 0, streakType = null;
+  for (var i = log.length - 1; i >= 0; i--) {
+    if (streakType === null) streakType = log[i].correct;
+    if (log[i].correct === streakType) streak++;
+    else break;
+  }
+  var streakLabel = streak > 1 ? streak + " " + (streakType ? "\u2713" : "\u2717") + " streak" : "&mdash;";
+  var streakColor = streakType ? "var(--green)" : "var(--red)";
+  var recent20 = log.slice(-20);
+  var pips = recent20.map(function(e) {
+    return '<div class="trend-pip" style="background:' + (e.correct ? "var(--green)" : "var(--red)") + '"></div>';
+  }).join("");
+  var recent8 = [].concat(log).reverse().slice(0, 8).map(function(e) {
+    var vColor = e.verdict === "UP" ? "var(--green)" : e.verdict === "DOWN" ? "var(--red)" : "var(--amber)";
+    var rColor = e.correct ? "var(--green)" : "var(--red)";
+    var t = new Date(e.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "America/New_York" });
+    return '<div class="track-log-item"><span class="tli-ticker"><a class="ticker-a" href="' + tickerHref(e.ticker) + '" target="_blank">' + e.ticker + '</a></span><span class="tli-verdict" style="color:' + vColor + '">' + e.verdict + '</span><span class="tli-result" style="color:' + rColor + '">' + (e.correct ? "\u2713 RIGHT" : "\u2717 WRONG") + '</span><span class="tli-time">' + e.session + " " + t + " ET</span></div>";
+  }).join("");
+  body.innerHTML = '<div class="track-rate"><span class="track-rate-num" style="color:' + rateColor + '">' + rate + '%</span><div><div class="track-rate-label">HIT RATE</div><div class="track-rate-count">' + correct + " right of " + total + ' logged</div></div></div><div class="track-grid"><div class="track-stat"><span class="track-stat-lbl">\u{1F44D} UP</span><span class="track-stat-val">' + typeRate("UP") + '</span><span class="track-stat-sub">' + byType.UP.c + "/" + byType.UP.t + '</span></div><div class="track-stat"><span class="track-stat-lbl">\u{1F44E} DOWN</span><span class="track-stat-val">' + typeRate("DOWN") + '</span><span class="track-stat-sub">' + byType.DOWN.c + "/" + byType.DOWN.t + '</span></div><div class="track-stat"><span class="track-stat-lbl">HOLD</span><span class="track-stat-val">' + typeRate("FLAT") + '</span><span class="track-stat-sub">' + byType.FLAT.c + "/" + byType.FLAT.t + '</span></div></div><div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap"><div><div class="track-stat-lbl">STREAK</div><div style="font-family:monospace;font-size:var(--fs-sm);font-weight:700;color:' + streakColor + '">' + streakLabel + '</div></div><div><div class="track-stat-lbl">TOP TICKERS</div><div style="font-family:monospace;font-size:var(--fs-sm)">' + topTickers + "</div></div></div>" + (recent20.length ? '<div class="trend-bar"><span class="trend-bar-lbl">LAST ' + recent20.length + "</span>" + pips + "</div>" : "") + '<div class="track-log-title" style="margin-top:12px">RECENT TRADES</div>' + recent8;
+}
+window.logResult = logResult;
+window.clearLog = clearLog;
+
+// shared/track-record-sync.ts
+var cfg = null;
+var pulling = false;
+function initTrackRecordSync(config) {
+  cfg = config;
+}
+var PULL_RETRY_DELAYS_MS = [0, 1500, 4e3];
+async function pullTrackRecordFromServer() {
+  if (!cfg) return;
+  var data = null;
+  for (var i = 0; i < PULL_RETRY_DELAYS_MS.length && !data; i++) {
+    if (PULL_RETRY_DELAYS_MS[i]) await new Promise(function(r) {
+      setTimeout(r, PULL_RETRY_DELAYS_MS[i]);
+    });
+    try {
+      var res = await fetch(cfg.addSecret(cfg.API_URL + "/track"), { headers: cfg.authH(), cache: "no-store" });
+      if (res.ok) data = await res.json();
+    } catch (e) {
+    }
+  }
+  if (data) {
+    if (data.entries && data.entries.length) {
+      pulling = true;
+      replaceLog(data.entries);
+      pulling = false;
+    } else if (getAccuracyLog().length) {
+      pushTrackRecordToServer(true);
+    }
+  }
+}
+var pushTimer = null;
+function schedulePushTrackRecord() {
+  if (!cfg || pulling) return;
+  if (pushTimer) clearTimeout(pushTimer);
+  pushTimer = setTimeout(function() {
+    pushTrackRecordToServer(false);
+  }, 1200);
+}
+async function pushTrackRecordToServer(seed) {
+  if (!cfg) return;
+  try {
+    await fetch(cfg.addSecret(cfg.API_URL + "/track"), { method: "POST", headers: cfg.authH(), body: JSON.stringify({ entries: getAccuracyLog(), seed: !!seed }) });
+  } catch (e) {
+  }
+}
+
+// shared/watchlist-sync.ts
+var cfg2 = null;
+var pulling2 = false;
+function initWatchlistSync(config) {
+  cfg2 = config;
+}
+var PULL_RETRY_DELAYS_MS2 = [0, 1500, 4e3];
+async function pullWatchlistFromServer() {
+  if (!cfg2) return;
+  var data = null;
+  for (var i = 0; i < PULL_RETRY_DELAYS_MS2.length && !data; i++) {
+    if (PULL_RETRY_DELAYS_MS2[i]) await new Promise(function(r) {
+      setTimeout(r, PULL_RETRY_DELAYS_MS2[i]);
+    });
+    try {
+      var res = await fetch(cfg2.addSecret(cfg2.API_URL + "/watchlist"), { headers: cfg2.authH(), cache: "no-store" });
+      if (res.ok) data = await res.json();
+    } catch (e) {
+    }
+  }
+  if (data) {
+    if (data.tickers && data.tickers.length) {
+      pulling2 = true;
+      setWatchlist(data.tickers);
+      pulling2 = false;
+    } else if (watchlist.length) {
+      pushWatchlistToServer(true);
+    }
+  }
+}
+var pushTimer2 = null;
+function schedulePushWatchlist() {
+  if (!cfg2 || pulling2) return;
+  if (pushTimer2) clearTimeout(pushTimer2);
+  pushTimer2 = setTimeout(function() {
+    pushWatchlistToServer(false);
+  }, 1200);
+}
+async function pushWatchlistToServer(seed) {
+  if (!cfg2) return;
+  try {
+    await fetch(cfg2.addSecret(cfg2.API_URL + "/watchlist"), { method: "POST", headers: cfg2.authH(), body: JSON.stringify({ tickers: watchlist, seed: !!seed }) });
+  } catch (e) {
+  }
+}
+
+// shared/settings-modal.ts
+function ensureModal() {
+  var el = document.getElementById("settings-modal");
+  if (el) return el;
+  el = document.createElement("div");
+  el.id = "settings-modal";
+  el.style.cssText = "display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center;padding:16px;box-sizing:border-box";
+  el.innerHTML = '<div style="background:#101c2e;border:1px solid var(--border);border-radius:10px;padding:20px;max-width:340px;width:100%;font-family:monospace;color:var(--white)" onclick="event.stopPropagation()"><div style="font-size:13px;font-weight:700;letter-spacing:.06em;margin-bottom:16px">SETTINGS</div><div style="font-size:10px;color:var(--dim);margin-bottom:6px">TIME ZONE</div><select id="settings-tz" style="width:100%;margin-bottom:16px;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:12px;padding:8px;border-radius:6px"></select><div style="font-size:10px;color:var(--dim);margin-bottom:6px">TICKER &amp; NEWS LINKS OPEN IN</div><select id="settings-link-site" style="width:100%;margin-bottom:8px;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:12px;padding:8px;border-radius:6px"></select><div id="settings-custom-wrap" style="display:none;margin-bottom:18px"><div style="font-size:9px;color:var(--dim);margin-bottom:5px">MARKET DATA (TICKER) URL</div><input type="text" id="settings-custom-market-url" placeholder="Paste your favorite stock quote URL" style="width:100%;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:11px;padding:8px;border-radius:6px;box-sizing:border-box"><div id="settings-custom-market-status" style="font-size:10px;margin-top:8px;margin-bottom:16px"></div><div style="font-size:9px;color:var(--dim);margin-bottom:5px">NEWS URL</div><input type="text" id="settings-custom-ex-url" placeholder="Paste your favorite market news URL" style="width:100%;background:#0a1420;border:1px solid var(--border);color:var(--white);font-family:monospace;font-size:11px;padding:8px;border-radius:6px;box-sizing:border-box"><div id="settings-custom-status" style="font-size:10px;margin-top:8px"></div><div style="font-size:10px;color:var(--amber);margin-top:8px">Blank or invalid = Yahoo Finance is used instead, per field.</div></div><button type="button" id="settings-close-btn" style="width:100%;background:var(--blue);border:none;color:#03101f;font-family:monospace;font-size:12px;font-weight:700;padding:10px;border-radius:6px;cursor:pointer;letter-spacing:.04em">DONE</button></div>';
+  document.body.appendChild(el);
+  el.addEventListener("click", closeSettingsModal);
+  document.getElementById("settings-close-btn").addEventListener("click", closeSettingsModal);
+  var tzSel = document.getElementById("settings-tz");
+  Object.keys(TIMEZONES).forEach(function(k) {
+    var o = document.createElement("option");
+    o.value = k;
+    o.textContent = TIMEZONES[k].label;
+    tzSel.appendChild(o);
+  });
+  tzSel.addEventListener("change", function() {
+    setTzPref(tzSel.value);
+  });
+  var linkSel = document.getElementById("settings-link-site");
+  Object.keys(LINK_SITES).forEach(function(k) {
+    var o = document.createElement("option");
+    o.value = k;
+    o.textContent = LINK_SITES[k].label;
+    linkSel.appendChild(o);
+  });
+  var customWrap = document.getElementById("settings-custom-wrap");
+  var exUrl = document.getElementById("settings-custom-ex-url");
+  var customStatus = document.getElementById("settings-custom-status");
+  var marketUrl = document.getElementById("settings-custom-market-url");
+  var marketStatus = document.getElementById("settings-custom-market-status");
+  function refreshCustomVisibility() {
+    customWrap.style.display = linkSel.value === "custom" ? "block" : "none";
+  }
+  linkSel.addEventListener("change", function() {
+    setLinkSitePref(linkSel.value);
+    refreshCustomVisibility();
+  });
+  function showCurrentTemplate() {
+    var saved = getCustomTemplate();
+    customStatus.textContent = saved ? "Currently: " + saved : "No link saved yet \u2014 using Yahoo Finance.";
+    customStatus.style.color = "var(--dim)";
+  }
+  function showCurrentMarketTemplate() {
+    var saved = getCustomMarketTemplate();
+    marketStatus.textContent = saved ? "Currently: " + saved : "No link saved yet \u2014 using Yahoo Finance.";
+    marketStatus.style.color = "var(--dim)";
+  }
+  exUrl.addEventListener("input", function() {
+    var raw = exUrl.value.trim();
+    if (!raw) {
+      showCurrentTemplate();
+      return;
+    }
+    var withScheme = /^https?:\/\//i.test(raw) ? raw : "https://" + raw;
+    var detected = detectTickerInUrl(withScheme);
+    var template = detected ? buildTemplateFromExample(withScheme, detected) : null;
+    if (template) {
+      setCustomTemplate(template);
+      customStatus.textContent = "Saved \u2014 news links now use this.";
+      customStatus.style.color = "var(--green)";
+    } else {
+      customStatus.textContent = "Couldn't find a ticker in that URL \u2014 try pasting a single stock's page instead.";
+      customStatus.style.color = "var(--red)";
+    }
+  });
+  marketUrl.addEventListener("input", function() {
+    var raw = marketUrl.value.trim();
+    if (!raw) {
+      showCurrentMarketTemplate();
+      return;
+    }
+    var withScheme = /^https?:\/\//i.test(raw) ? raw : "https://" + raw;
+    var detected = detectTickerInUrl(withScheme);
+    var template = detected ? buildTemplateFromExample(withScheme, detected) : null;
+    if (template) {
+      setCustomMarketTemplate(template);
+      marketStatus.textContent = "Saved \u2014 ticker links now use this.";
+      marketStatus.style.color = "var(--green)";
+    } else {
+      marketStatus.textContent = "Couldn't find a ticker in that URL \u2014 try pasting a single stock's page instead.";
+      marketStatus.style.color = "var(--red)";
+    }
+  });
+  return el;
+}
+function openSettingsModal() {
+  var el = ensureModal();
+  document.getElementById("settings-tz").value = getTzPref();
+  document.getElementById("settings-link-site").value = getLinkSitePref();
+  document.getElementById("settings-custom-ex-url").value = "";
+  var saved = getCustomTemplate();
+  var statusEl = document.getElementById("settings-custom-status");
+  statusEl.textContent = saved ? "Currently: " + saved : "No link saved yet \u2014 using Yahoo Finance.";
+  statusEl.style.color = "var(--dim)";
+  document.getElementById("settings-custom-market-url").value = "";
+  var savedMarket = getCustomMarketTemplate();
+  var marketStatusEl = document.getElementById("settings-custom-market-status");
+  marketStatusEl.textContent = savedMarket ? "Currently: " + savedMarket : "No link saved yet \u2014 using Yahoo Finance.";
+  marketStatusEl.style.color = "var(--dim)";
+  document.getElementById("settings-custom-wrap").style.display = getLinkSitePref() === "custom" ? "block" : "none";
+  el.style.display = "flex";
+}
+function closeSettingsModal() {
+  var el = document.getElementById("settings-modal");
+  if (el) el.style.display = "none";
+}
+window.openSettingsModal = openSettingsModal;
+window.closeSettingsModal = closeSettingsModal;
+
+// shared/rolodex.ts
+var GATE_MARQUEE_SPEED = 0.4;
+var ROLO_MARQUEE_SPEED = 0.5;
+var ROLO_MARQUEE_RESUME_MS = 2e3;
+var ROLO_SWIPE_MOVE_THRESHOLD = 14;
+var els;
+var cb;
+var GATE_DOCKED_H = 44;
+var spacerHeight = 0;
+var dockThreshold = 0;
+var gateDockedLast = false;
+function currentGateFullHeight() {
+  return Math.max(0, els.gateFullOverlay.getBoundingClientRect().height - GATE_DOCKED_H);
+}
+function sizeGateSpacer() {
+  spacerHeight = currentGateFullHeight();
+  els.gateSpacer.style.height = (els.gateCard.classList.contains("docked") ? 0 : spacerHeight) + "px";
+  updateGateDockState();
+}
+function updateGateDockState() {
+  const docked = els.scroller.scrollTop >= dockThreshold;
+  els.gateCard.classList.toggle("docked", docked);
+  els.gateCard.setAttribute("aria-expanded", String(!docked));
+  if (docked !== gateDockedLast) {
+    els.gateSpacer.style.height = (docked ? 0 : spacerHeight) + "px";
+    gateDockedLast = docked;
+  }
+}
+function jumpToTop() {
+  els.scroller.scrollTo({ top: 0, behavior: "smooth" });
+}
+var gateMarqueeOneSetW = 0;
+var gateMarqueePos = 0;
+function buildGateMarquee(itemsHTML) {
+  els.gateMarquee.innerHTML = itemsHTML + itemsHTML;
+  gateMarqueePos = 0;
+  requestAnimationFrame(sizeGateMarquee);
+}
+function sizeGateMarquee() {
+  const items = els.gateMarquee.querySelectorAll(".gm-item");
+  if (items.length < 2) {
+    gateMarqueeOneSetW = els.gateMarquee.scrollWidth / 2;
+    return;
+  }
+  const firstPassStart = items[0].getBoundingClientRect().left;
+  const secondPassStart = items[items.length / 2].getBoundingClientRect().left;
+  gateMarqueeOneSetW = secondPassStart - firstPassStart;
+}
+function stepGateMarquee() {
+  if (els.gateCard.classList.contains("docked") && gateMarqueeOneSetW > 0) {
+    gateMarqueePos += GATE_MARQUEE_SPEED;
+    if (gateMarqueePos >= gateMarqueeOneSetW) {
+      gateMarqueePos -= gateMarqueeOneSetW;
+    }
+    els.gateMarquee.scrollLeft = Math.round(gateMarqueePos);
+  }
+  requestAnimationFrame(stepGateMarquee);
+}
+var roloCurrent = 0;
+function getRoloCurrent() {
+  return roloCurrent;
+}
+function syncRoloStageHeight() {
+  const cards = Array.from(els.roloStage.querySelectorAll(".rolo-card"));
+  const activeCard = cards[roloCurrent];
+  if (!activeCard) return;
+  els.roloStage.style.height = activeCard.offsetHeight + "px";
+}
+function positionRoloStack() {
+  const cards = Array.from(els.roloStage.querySelectorAll(".rolo-card"));
+  cards.forEach((card, i) => {
+    const d = i - roloCurrent, abs = Math.abs(d);
+    card.style.pointerEvents = abs === 0 ? "auto" : "none";
+    if (abs === 0) {
+      card.style.transform = "translateY(0) scale(1)";
+      card.style.opacity = "1";
+      card.style.zIndex = "10";
+      card.style.filter = "none";
+    } else if (abs <= 2) {
+      card.style.transform = `translateY(${d < 0 ? -14 * abs : 14 * abs}px) scale(${1 - 0.05 * abs})`;
+      card.style.opacity = String(0.55 - 0.2 * (abs - 1));
+      card.style.zIndex = String(10 - abs);
+      card.style.filter = "brightness(.7)";
+    } else {
+      card.style.transform = `translateY(${d < 0 ? -60 : 60}px) scale(0.85)`;
+      card.style.opacity = "0";
+      card.style.zIndex = "1";
+    }
+  });
+  const chips = Array.from(els.roloIndex.querySelectorAll(".rolo-chip"));
+  chips.forEach((chip) => chip.classList.toggle("active", +(chip.dataset.idx || -1) === roloCurrent));
+  if (els.roloHint) els.roloHint.textContent = cards.length ? roloCurrent + 1 + " / " + cards.length : "\u2014 / \u2014";
+  syncRoloStageHeight();
+}
+function scrollToActiveCard() {
+  const wrap = els.roloStage.closest(".rolo-wrap");
+  if (!wrap) return;
+  if (!els.gateCard.classList.contains("docked")) {
+    els.gateCard.classList.add("docked");
+    els.gateCard.setAttribute("aria-expanded", "false");
+    const prevTransition = els.gateSpacer.style.transition;
+    els.gateSpacer.style.transition = "none";
+    els.gateSpacer.style.height = "0px";
+    void els.gateSpacer.offsetHeight;
+    els.gateSpacer.style.transition = prevTransition;
+    gateDockedLast = true;
+  }
+  const roloIndexH = els.roloIndex.getBoundingClientRect().height;
+  wrap.style.scrollMarginTop = GATE_DOCKED_H + roloIndexH + "px";
+  wrap.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+function goRolo(i) {
+  const count = els.roloStage.querySelectorAll(".rolo-card").length;
+  if (!count) return;
+  roloCurrent = Math.max(0, Math.min(count - 1, i));
+  positionRoloStack();
+  scrollToActiveCard();
+  const watchlist2 = cb.getWatchlist();
+  const sym = watchlist2[roloCurrent];
+  if (sym) cb.onActivate(sym, roloCurrent);
+}
+function clampRoloCurrent() {
+  const watchlist2 = cb.getWatchlist();
+  roloCurrent = Math.min(roloCurrent, Math.max(0, watchlist2.length - 1));
+}
+var roloSwipe = null;
+function roloDeleteThreshold(card) {
+  return Math.min(120, card.getBoundingClientRect().width * 0.35);
+}
+function ensureRoloSwipeBg() {
+  let bg = els.roloStage.querySelector(".rolo-swipe-bg");
+  if (!bg) {
+    bg = document.createElement("div");
+    bg.className = "rolo-swipe-bg";
+    bg.innerHTML = '<span class="swipe-icon">\u{1F5D1}</span><span class="swipe-label">DELETE</span>';
+    els.roloStage.insertBefore(bg, els.roloStage.firstChild);
+  }
+  return bg;
+}
+function onRoloPointerDown(e) {
+  if (roloSwipe) return;
+  if (e.pointerType === "mouse" && e.button !== 0) return;
+  const target = e.target;
+  const card = target.closest(".rolo-card");
+  if (!card) return;
+  const cards = Array.from(els.roloStage.querySelectorAll(".rolo-card"));
+  if (cards.indexOf(card) !== roloCurrent) return;
+  roloSwipe = { pointerId: e.pointerId, card, startX: e.clientX, startY: e.clientY, mode: null, pendingDx: 0 };
+}
+function onRoloPointerMove(e) {
+  const g = roloSwipe;
+  if (!g || e.pointerId !== g.pointerId) return;
+  const dx = e.clientX - g.startX, dy = e.clientY - g.startY;
+  if (g.mode === null) {
+    if (Math.abs(dx) > ROLO_SWIPE_MOVE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
+      g.mode = "swipe";
+      try {
+        g.card.setPointerCapture(e.pointerId);
+      } catch (err) {
+      }
+      g.card.style.transition = "none";
+    } else if (Math.abs(dy) > ROLO_SWIPE_MOVE_THRESHOLD) {
+      endRoloSwipe();
+      return;
+    } else return;
+  }
+  if (g.mode === "swipe") {
+    e.preventDefault();
+    const clamped = Math.min(0, Math.max(dx, -g.card.getBoundingClientRect().width));
+    g.card.style.transform = "translateY(0) scale(1) translateX(" + clamped + "px)";
+    const bg = ensureRoloSwipeBg();
+    const progress = Math.min(Math.abs(clamped) / roloDeleteThreshold(g.card), 1);
+    bg.style.opacity = String(progress);
+    g.pendingDx = clamped;
+  }
+}
+function onRoloPointerUp(e) {
+  const g = roloSwipe;
+  if (!g || e.pointerId !== g.pointerId) return;
+  if (g.mode === "swipe") finishRoloSwipe(g);
+  endRoloSwipe();
+}
+function finishRoloSwipe(g) {
+  const threshold = roloDeleteThreshold(g.card);
+  const bg = ensureRoloSwipeBg();
+  if (Math.abs(g.pendingDx) >= threshold) {
+    const w = g.card.getBoundingClientRect().width;
+    g.card.style.transition = "transform .18s ease-in, opacity .18s ease-in";
+    g.card.style.transform = "translateX(-" + (w + 40) + "px)";
+    g.card.style.opacity = "0";
+    const sym = cb.getWatchlist()[roloCurrent];
+    setTimeout(() => {
+      bg.style.opacity = "0";
+      if (sym) cb.onDeleteConfirmed(sym);
+    }, 180);
+  } else {
+    g.card.style.transition = "transform .18s ease";
+    g.card.style.transform = "translateY(0) scale(1)";
+    bg.style.opacity = "0";
+  }
+}
+function endRoloSwipe() {
+  const g = roloSwipe;
+  if (g) {
+    try {
+      g.card.releasePointerCapture(g.pointerId);
+    } catch (err) {
+    }
+  }
+  roloSwipe = null;
+}
+var roloMarqueeOneSetW = 0;
+var roloMarqueePos = 0;
+var roloMarqueeDataReady = false;
+var roloMarqueePaused = false;
+var roloMarqueeResumeTimer = null;
+var roloItemsPerPass = 1;
+function scheduleRoloMarqueeResume() {
+  if (roloMarqueeResumeTimer) clearTimeout(roloMarqueeResumeTimer);
+  roloMarqueeResumeTimer = setTimeout(() => {
+    roloMarqueePos = els.roloIndex.scrollLeft;
+    roloMarqueePaused = false;
+  }, ROLO_MARQUEE_RESUME_MS);
+}
+function pauseRoloMarquee() {
+  roloMarqueePaused = true;
+  scheduleRoloMarqueeResume();
+}
+function sizeRoloMarquee() {
+  const itemsPerPass = roloItemsPerPass;
+  if (els.roloIndex.children.length >= itemsPerPass * 2) {
+    const firstPassStart = els.roloIndex.children[0].getBoundingClientRect().left;
+    const secondPassStart = els.roloIndex.children[itemsPerPass].getBoundingClientRect().left;
+    roloMarqueeOneSetW = secondPassStart - firstPassStart;
+  } else {
+    roloMarqueeOneSetW = els.roloIndex.scrollWidth / 2;
+  }
+}
+function stepRoloMarquee() {
+  if (!roloMarqueePaused && roloMarqueeDataReady && roloMarqueeOneSetW > 0) {
+    roloMarqueePos += ROLO_MARQUEE_SPEED;
+    if (roloMarqueePos >= roloMarqueeOneSetW) {
+      roloMarqueePos -= roloMarqueeOneSetW;
+    }
+    els.roloIndex.scrollLeft = Math.round(roloMarqueePos);
+  }
+  requestAnimationFrame(stepRoloMarquee);
+}
+function rebuildRoloIndex(watchlist2, buildChip, dividerText, buildExtraChip) {
+  els.roloIndex.innerHTML = "";
+  roloMarqueePos = 0;
+  roloMarqueeDataReady = false;
+  roloItemsPerPass = watchlist2.length + (buildExtraChip ? 1 : 0) + 1;
+  function appendChipPass() {
+    watchlist2.forEach((sym, i) => {
+      const chip = buildChip(sym, i);
+      chip.addEventListener("click", () => goRolo(i));
+      chip.addEventListener("pointerdown", (e) => e.preventDefault());
+      els.roloIndex.appendChild(chip);
+    });
+    if (buildExtraChip) {
+      const extra = buildExtraChip();
+      extra.addEventListener("pointerdown", (e) => e.preventDefault());
+      els.roloIndex.appendChild(extra);
+    }
+    const divider = document.createElement("span");
+    divider.className = "rolo-divider";
+    divider.textContent = dividerText;
+    els.roloIndex.appendChild(divider);
+    return divider;
+  }
+  const firstDivider = appendChipPass();
+  const oneSetW = firstDivider.offsetLeft + firstDivider.offsetWidth;
+  for (let guard = 0; guard < 20 && els.roloIndex.scrollWidth - els.roloIndex.clientWidth < oneSetW; guard++) {
+    appendChipPass();
+  }
+}
+function markRoloMarqueeDataReady() {
+  roloMarqueeDataReady = true;
+}
+function initRolodex(elements, callbacks) {
+  els = elements;
+  cb = callbacks;
+  GATE_DOCKED_H = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--gate-docked-h")) || 44;
+  const contentEl = document.querySelector(".content");
+  dockThreshold = contentEl ? parseFloat(getComputedStyle(contentEl).paddingTop) || 0 : 0;
+  window.addEventListener("resize", sizeGateMarquee);
+  window.addEventListener("resize", sizeGateSpacer);
+  window.addEventListener("resize", sizeRoloMarquee);
+  let gateTickingLocal = false;
+  els.scroller.addEventListener("scroll", () => {
+    if (gateTickingLocal) return;
+    gateTickingLocal = true;
+    requestAnimationFrame(() => {
+      updateGateDockState();
+      gateTickingLocal = false;
+    });
+  }, { passive: true });
+  els.gateCard.addEventListener("click", () => {
+    if (els.gateCard.classList.contains("docked")) jumpToTop();
+  });
+  els.gateCard.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      if (els.gateCard.classList.contains("docked")) jumpToTop();
+    }
+  });
+  els.roloStage.addEventListener("pointerdown", onRoloPointerDown);
+  document.addEventListener("pointermove", onRoloPointerMove, { passive: false });
+  document.addEventListener("pointerup", onRoloPointerUp);
+  document.addEventListener("pointercancel", onRoloPointerUp);
+  els.roloIndex.addEventListener("pointerdown", pauseRoloMarquee);
+  els.roloIndex.addEventListener("pointerup", scheduleRoloMarqueeResume);
+  els.roloIndex.addEventListener("pointercancel", scheduleRoloMarqueeResume);
+  requestAnimationFrame(stepGateMarquee);
+  requestAnimationFrame(stepRoloMarquee);
+}
+
+// pro/app.ts
+var API_URL2 = "https://tra-zacg.onrender.com";
+var CARD_CAP = 15;
+var market = null;
+var lastAnalysis = {};
+function isMarketClosed() {
+  var now = /* @__PURE__ */ new Date();
+  var et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  var day = et.getDay();
+  if (day === 0 || day === 6) return true;
+  var mins = et.getHours() * 60 + et.getMinutes();
+  return mins < 570 || mins >= 960;
+}
+function sigColor(s) {
+  return { GREEN: "var(--green)", RED: "var(--red)", YELLOW: "var(--amber)", "N/A": "var(--ink-dim)" }[s] || "var(--ink-dim)";
+}
+function dirClass(d) {
+  return d === "green" ? "up" : d === "red" ? "down" : d === "flat" ? "flat" : "neutral";
+}
+function pctColor(p) {
+  return p > 0 ? "var(--green)" : p < 0 ? "var(--red)" : "var(--ink-dim)";
+}
+function fmtPct(p) {
+  return (p > 0 ? "+" : "") + p.toFixed(2) + "%";
+}
+var sbSession = null;
+function getStoredSession() {
+  try {
+    return JSON.parse(localStorage.getItem("tv_session") || "null");
+  } catch (e) {
+    return null;
+  }
+}
+function storeSession(s) {
+  if (s) localStorage.setItem("tv_session", JSON.stringify(s));
+  else localStorage.removeItem("tv_session");
+}
+function isSessionValid(s) {
+  if (!s || !s.token) return false;
+  if (s.expiresAt && Date.now() / 1e3 > s.expiresAt - 60) return false;
+  return true;
+}
+function authH2() {
+  return { "Content-Type": "application/json" };
+}
+function addSecret2(url) {
+  if (sbSession && sbSession.token) {
+    var sep = url.includes("?") ? "&" : "?";
+    return url + sep + "supabase_token=" + encodeURIComponent(sbSession.token);
+  }
+  return url;
+}
+function showScreen(id) {
+  ["auth-screen", "app-root"].forEach(function(s) {
+    var el = document.getElementById(s);
+    if (el) el.style.display = s === id ? s === "app-root" ? "block" : "flex" : "none";
+  });
+}
+function authLogout() {
+  storeSession(null);
+  sbSession = null;
+  showScreen("auth-screen");
+}
+function toggleProfileMenu(e) {
+  if (e) e.stopPropagation();
+  var m = document.getElementById("profile-menu");
+  if (!m) return;
+  m.classList.toggle("open");
+}
+document.addEventListener("click", function(e) {
+  var m = document.getElementById("profile-menu");
+  if (!m || !m.classList.contains("open")) return;
+  if (!e.target.closest(".profile-wrap")) m.classList.remove("open");
+});
+async function fetchCreditStatus() {
+  try {
+    var res = await fetch(addSecret2(API_URL2 + "/status"), { headers: authH2() });
+    var data = await res.json();
+    var el = document.getElementById("credits-btn");
+    if (el && data.totalCredits !== void 0) {
+      el.textContent = (data.totalCredits > 0 ? data.totalCredits : "+") + " CREDITS";
+    }
+  } catch (e) {
+  }
+}
+var authMode = "login";
+function bindAuthEvents() {
+  var eyeBtn = document.getElementById("eye-btn");
+  var resetLink = document.getElementById("reset-link");
+  var authBtn = document.getElementById("auth-btn");
+  var authToggle = document.getElementById("auth-toggle");
+  var pwInput = document.getElementById("auth-password");
+  var emailInput = document.getElementById("auth-email");
+  if (eyeBtn) eyeBtn.addEventListener("click", function() {
+    var inp = document.getElementById("auth-password");
+    inp.type = inp.type === "password" ? "text" : "password";
+    eyeBtn.innerHTML = inp.type === "password" ? "&#128065;" : "&#128584;";
+  });
+  if (resetLink) resetLink.addEventListener("click", function() {
+    var email = document.getElementById("auth-email").value.trim();
+    var err = document.getElementById("auth-error");
+    if (!email) {
+      err.style.color = "var(--red)";
+      err.textContent = "Enter your email first";
+      return;
+    }
+    err.style.color = "var(--dim)";
+    err.textContent = "Sending reset link...";
+    fetch(API_URL2 + "/auth/reset", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) }).then(function(r) {
+      return r.json();
+    }).then(function() {
+      err.style.color = "var(--green)";
+      err.textContent = "Reset link sent! Check your email.";
+    }).catch(function(e) {
+      err.style.color = "var(--red)";
+      err.textContent = e.message;
+    });
+  });
+  if (authBtn) authBtn.addEventListener("click", function() {
+    if (authMode === "login") handleLogin();
+    else handleSignup();
+  });
+  if (authToggle) authToggle.addEventListener("click", () => toggleAuthMode());
+  if (pwInput) pwInput.addEventListener("keydown", function(e) {
+    if (e.key === "Enter") authBtn && authBtn.click();
+  });
+  if (emailInput) emailInput.addEventListener("keydown", function(e) {
+    if (e.key === "Enter") pwInput && pwInput.focus();
+  });
+}
+function toggleAuthMode(mode) {
+  authMode = mode || (authMode === "login" ? "signup" : "login");
+  var isL = authMode === "login";
+  document.getElementById("auth-title").textContent = isL ? "SIGN IN" : "CREATE ACCOUNT";
+  document.getElementById("auth-btn").textContent = isL ? "SIGN IN" : "CREATE ACCOUNT";
+  document.getElementById("auth-toggle").textContent = isL ? "New user? Create account" : "Already have an account? Sign in";
+  document.getElementById("auth-error").textContent = "";
+  document.getElementById("auth-error").style.color = "var(--red)";
+  var rl = document.getElementById("reset-link");
+  if (rl) rl.style.display = isL ? "inline" : "none";
+}
+async function handleLogin() {
+  var email = document.getElementById("auth-email").value.trim(), password = document.getElementById("auth-password").value, btn = document.getElementById("auth-btn"), err = document.getElementById("auth-error");
+  err.textContent = "";
+  btn.disabled = true;
+  btn.textContent = "SIGNING IN...";
+  try {
+    var r = await fetch(API_URL2 + "/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
+    if (!r.ok) {
+      var e = await r.json();
+      throw new Error(e.error || "Login failed");
+    }
+    var session = await r.json();
+    storeSession(session);
+    sbSession = session;
+    btn.textContent = "SIGN IN";
+    btn.disabled = false;
+    checkTierAccess(session);
+  } catch (e2) {
+    err.textContent = e2.message;
+    btn.textContent = "SIGN IN";
+    btn.disabled = false;
+  }
+}
+async function handleSignup() {
+  var email = document.getElementById("auth-email").value.trim(), password = document.getElementById("auth-password").value, btn = document.getElementById("auth-btn"), err = document.getElementById("auth-error");
+  err.textContent = "";
+  err.style.color = "var(--red)";
+  if (!email || !password) {
+    err.textContent = "Email and password required";
+    return;
+  }
+  if (password.length < 6) {
+    err.textContent = "Password must be at least 6 characters";
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = "CREATING...";
+  try {
+    var r = await fetch(API_URL2 + "/auth/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
+    if (!r.ok) {
+      var e = await r.json();
+      throw new Error(e.error || "Signup failed");
+    }
+    err.style.color = "var(--green)";
+    err.textContent = "Account created! Check your email to confirm, then sign in.";
+    btn.textContent = "SIGN IN";
+    btn.disabled = false;
+    toggleAuthMode("login");
+  } catch (e2) {
+    err.textContent = e2.message;
+    btn.textContent = "CREATE ACCOUNT";
+    btn.disabled = false;
+  }
+}
+var GATE_FIELDS = [
+  ["spy", "SPY"],
+  ["qqq", "QQQ"],
+  ["btc", "BTC"],
+  ["soxx", "SOXX"],
+  ["xbi", "XBI"],
+  ["iwm", "IWM"],
+  ["gld", "GLD"],
+  ["uso", "USO"],
+  ["tsm", "TSM"],
+  ["msft", "MSFT"]
+];
+var GATE_LINK_OVERRIDE = { BTC: "BTC-USD" };
+function gateLinkSymbol(label) {
+  return GATE_LINK_OVERRIDE[label] || label;
+}
+var gateMarquee = document.getElementById("gateMarquee");
+async function fetchMarket(force) {
+  try {
+    var url = force ? addSecret2(API_URL2 + "/market?force=true") : addSecret2(API_URL2 + "/market");
+    var res = await fetch(url, { headers: authH2() });
+    market = await res.json();
+  } catch (e) {
+    market = null;
+  }
+  renderGate();
+  renderPulse();
+  refreshGateMarquee();
+  requestAnimationFrame(sizeGateSpacer);
+}
+function renderPulse() {
+  var pulseEl = document.getElementById("pulse-text");
+  if (!pulseEl) return;
+  if (market && market.pulse) {
+    pulseEl.className = "pulse-text";
+    pulseEl.textContent = market.pulse;
+  } else if (market) {
+    pulseEl.className = "pulse-loading";
+    pulseEl.textContent = "Generating pulse...";
+  } else {
+    pulseEl.className = "pulse-loading";
+    pulseEl.textContent = "Unavailable";
+  }
+}
+function renderGate() {
+  const status = market && market.gateStatus || "GREEN";
+  const color = sigColor(status);
+  document.getElementById("gateMiniDot").style.background = color;
+  document.getElementById("gateMiniLabel").textContent = status + " GATE";
+  document.getElementById("gateMiniLabel").style.color = color;
+  document.getElementById("gateFullDot").style.background = color;
+  document.getElementById("gateFullLabel").textContent = status + " Gate";
+  document.getElementById("gateFullLabel").style.color = color;
+  document.getElementById("gateNote").textContent = market && market.gateNote || (market ? "" : "Tap to retry \u2014 data unavailable.");
+  const grid = document.getElementById("gateGrid");
+  grid.innerHTML = GATE_FIELDS.map(([key, label]) => {
+    const d = market && market[key];
+    const val = !d || d.change === "?" ? "?" : d.change;
+    const cls = !d || d.change === "?" ? "neutral" : dirClass(d.direction);
+    const sym = gateLinkSymbol(label);
+    return `<div class="gate-stat"><div class="k"><a href="${tickerHref(sym)}" target="_blank" data-ticker="${sym}">${label}</a></div><div class="v ${cls}">${val}</div></div>`;
+  }).join("");
+  renderMarketTs();
+}
+function renderMarketTs() {
+  var tsEl = document.getElementById("marketTs");
+  if (!tsEl) return;
+  if (!market || !market.timestamp) {
+    tsEl.textContent = "";
+    return;
+  }
+  var t = new Date(market.timestamp).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: getTzIana() });
+  tsEl.textContent = (market.cached ? "\u26A1 Cached" : "\u{1F534} Live") + " \xB7 Updated " + t + " " + getTzPref();
+}
+function refreshGateMarquee() {
+  const itemsHTML = GATE_FIELDS.map(([key, label]) => {
+    const d = market && market[key];
+    const val = !d || d.change === "?" ? "?" : d.change;
+    const cls = !d || d.change === "?" ? "neutral" : dirClass(d.direction);
+    const sym = gateLinkSymbol(label);
+    return `<span class="gm-item"><a class="sym" href="${tickerHref(sym)}" target="_blank" data-ticker="${sym}" onclick="event.stopPropagation()">${label}</a><span class="val ${cls}">${val}</span></span>`;
+  }).join("");
+  buildGateMarquee(itemsHTML);
+}
+function wireAccordionHead(head) {
+  function toggle() {
+    const card = head.closest(".card");
+    const wasExpanded = card.classList.contains("expanded");
+    card.classList.toggle("expanded", !wasExpanded);
+    head.setAttribute("aria-expanded", String(!wasExpanded));
+    if (!wasExpanded) {
+      const kind = card.dataset.card;
+      if (kind === "watchlist") renderOverflowList();
+      else if (kind === "proxy") renderProxyExplorer();
+      else if (kind === "heatmap") renderHeatMap();
+    }
+  }
+  head.addEventListener("click", toggle);
+  head.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggle();
+    }
+  });
+}
+document.querySelectorAll(".card[data-card] > .card-head").forEach(wireAccordionHead);
+var roloStage = document.getElementById("roloStage");
+var roloIndex = document.getElementById("roloIndex");
+var tickerState = /* @__PURE__ */ new Map();
+var TYPE_COLOR = { CANARY: "var(--amber)", SENTIMENT: "var(--blue)", FLOW: "var(--green)" };
+var SIZING_LABEL = { FULL: "Full", HALF: "Half", QUARTER: "\xBC size" };
+var SIZING_COLOR = { FULL: "var(--green)", HALF: "var(--amber)", QUARTER: "var(--amber)" };
+function badgesHTML(result) {
+  if (!result) return "";
+  let html = "";
+  if (result.type) {
+    const c = TYPE_COLOR[result.type] || "var(--ink-dim)";
+    html += `<span class="badge" style="color:${c};border-color:${c}55;background:${c}11">${result.type}</span>`;
+  }
+  if (result.sizing) {
+    if (result.sizing !== "NONE") {
+      const label = SIZING_LABEL[result.sizing] || result.sizing;
+      const c = SIZING_COLOR[result.sizing] || "var(--ink-dim)";
+      html += `<span class="badge" style="color:${c};border-color:${c}55;background:${c}11">${label}</span>`;
+    } else {
+      html += '<span class="badge" style="color:var(--blue);border-color:rgba(74,168,255,.4);background:rgba(74,168,255,.08)">Defined risk</span>';
+    }
+  }
+  return html ? `<div class="card-badges">${html}</div>` : "";
+}
+function confColor(conf) {
+  return conf === "HIGH" ? "var(--green)" : conf === "MEDIUM" ? "var(--amber)" : "var(--red)";
+}
+function pregateStripHTML(result) {
+  if (!result || !result.gates) return "";
+  const waitText = result.wait_for && result.wait_for !== "null" ? result.wait_for : "";
+  if (!waitText) return "";
+  return `<div class="pregate-strip"><div class="pregate-dot" style="background:${confColor(result.confidence)}"></div><div class="pregate-note"><span class="wait-lbl">LOOK FOR: </span>${waitText}</div></div>`;
+}
+function classifyTrigger(data) {
+  var reason = data && data.reason || "";
+  if (reason.indexOf("Pre-Gate thesis-integrity override") === 0) return "pre-gate";
+  if (reason.indexOf("Broad market failure") === 0) return "gate0";
+  if (reason.indexOf("Gate 1 structural breakdown override") === 0) return "gate1";
+  if (reason.indexOf("Gate 5 forceDown") === 0) return "gate5";
+  if (data && data.verdict === "DOWN") return "corroboration";
+  return "standard";
+}
+var TRIGGER_LABELS = {
+  "pre-gate": "PRE-GATE OVERRIDE",
+  "gate0": "GATE 0 OVERRIDE",
+  "gate1": "GATE 1 OVERRIDE",
+  "gate5": "GATE 5 OVERRIDE",
+  "corroboration": "2+ GATE CORROBORATION",
+  "standard": "STANDARD VERDICT"
+};
+function logResultUI(ticker, verdict, correct, btnEl) {
+  var rowEl = btnEl.closest(".log-row");
+  if (!rowEl) return;
+  var meta = { trigger: classifyTrigger(lastAnalysis[ticker]) };
+  logResult(ticker, verdict, correct, rowEl, meta);
   renderGateAttribution();
   renderTickerAccuracy();
+  schedulePushTrackRecord();
 }
-
-function renderCardResult(ticker,data,td){
-  var card=document.getElementById('card-'+ticker);
-  if(!card)return;
-  lastAnalysis[ticker]=data;
-
-  var v=data.verdict||'FLAT';
-  var isUp=v==='UP',isDown=v==='DOWN';
-
-  // Color the card border and ticker name per direction
-  card.classList.remove('up','down','flat');
-  card.classList.add(isUp?'up':isDown?'down':'flat');
-  var nameEl=card.querySelector('.ticker-name');
-  nameEl.classList.remove('up','down','flat');
-  nameEl.classList.add(isUp?'up':isDown?'down':'flat');
-  var priceEl=card.querySelector('.ticker-price');
-  if(priceEl){priceEl.classList.remove('up','down','flat');priceEl.classList.add(isUp?'up':isDown?'down':'flat')}
-
-  var actionEl=card.querySelector('.card-action');
-
-  // IF market is closed THEN show HOLD, ELSE show the real verdict
-  if(isMarketClosed()){
-    var d=document.createElement('div');
-    d.className='verdict-container';
-    d.onclick=function(){resetCard(ticker)};
-    var s1=document.createElement('span');s1.className='verdict-hold';s1.textContent='HOLD';
-    var s2=document.createElement('span');s2.className='verdict-lbl-hold';s2.textContent='MKT CLOSED';
-    d.appendChild(s1);d.appendChild(s2);
-    actionEl.innerHTML='';actionEl.appendChild(d);
-  } else if(isUp){
-    actionEl.innerHTML='<div class="verdict-container" onclick="resetCard(\''+ticker+'\')"><span class="verdict-up">👍</span><span class="verdict-lbl-up">UP</span></div>';
-  } else if(isDown){
-    actionEl.innerHTML='<div class="verdict-container" onclick="resetCard(\''+ticker+'\')"><span class="verdict-down">👎</span><span class="verdict-lbl-down">DOWN</span></div>';
-  } else{
-    actionEl.innerHTML='<div class="verdict-container" onclick="resetCard(\''+ticker+'\')"><span class="verdict-hold">HOLD</span><span class="verdict-lbl-hold">WAIT &amp; WATCH</span></div>';
-  }
-
-  // Reason text is intentionally not shown here — it duplicates the
-  // Gate Breakdown dropdown, and the override text (when present) surfaces
-  // in the Analyst View's VERDICT REASON row instead. Element stays in the
-  // DOM (hidden) so the error path above can still surface fetch failures.
-  var re=card.querySelector('.reason-txt');
-  re.textContent='';re.style.display='none';
-
-  // Badges
-  var badgesEl=card.querySelector('.card-badges');badgesEl.innerHTML='';
-  if(data.type){var tc={CANARY:'var(--amber)',SENTIMENT:'var(--blue)',FLOW:'var(--green)'}[data.type]||'var(--dim)';badgesEl.innerHTML+='<span class="badge" style="color:'+tc+';border-color:'+tc+'55;background:'+tc+'11">'+data.type+'</span>'}
-  if(data.sizing){
-    if(data.sizing!=='NONE'){var sl={FULL:'Full',HALF:'Half',QUARTER:'¼ size'}[data.sizing]||data.sizing;var sc2={FULL:'var(--green)',HALF:'var(--amber)',QUARTER:'var(--amber)'}[data.sizing]||'var(--dim)';badgesEl.innerHTML+='<span class="badge" style="color:'+sc2+';border-color:'+sc2+'55;background:'+sc2+'11">'+sl+'</span>'}
-    else{badgesEl.innerHTML+='<span class="badge" style="color:var(--blue);border-color:rgba(64,196,255,.4);background:rgba(64,196,255,.08)">Defined risk</span>'}
-  }
-
-  // Log buttons — Pro's tracker is unlocked, no upgrade gate. Bug present in
-  // the pre-rebuild pro/index.html (missing closing paren on this.closest())
-  // is fixed here by passing the button element in instead of chaining
-  // closest() inline in the HTML string.
-  var logEl=card.querySelector('.log-section');
-  if(logEl){
-    logEl.innerHTML='<div class="log-row"><span class="log-prompt">WAS IT RIGHT?</span>'
-      +'<button class="log-btn log-btn-right" onclick="logResultUI(\''+ticker+'\',\''+v+'\',true,this)">✓ RIGHT</button>'
-      +'<button class="log-btn log-btn-wrong" onclick="logResultUI(\''+ticker+'\',\''+v+'\',false,this)">✗ WRONG</button>'
-      +'<button class="log-btn log-btn-skip" onclick="this.closest(\'.log-row\').style.display=\'none\'">SKIP</button></div>';
-    logEl.style.display='block';
-  }
-
-  // Gate 5 (sector proxy) status dot, front-and-center on the card header.
-  var pgEl=card.querySelector('.pregate-strip');
-  if(pgEl&&data.gates){
-    var g5=data.gates.g5_korea||{};
-    var waitText=(data.wait_for&&data.wait_for!=='null')?data.wait_for:'';
-    pgEl.innerHTML='<div class="pregate-dot" style="background:'+sigColor(g5.status)+'"></div>'+(waitText?'<div class="pregate-note"><span class="wait-lbl">WAIT FOR </span><span class="wait-txt">'+waitText+'</span></div>':'');
-    pgEl.style.display='flex';
-  }
-
-  // Gate breakdown
-  var gateEl=card.querySelector('.gate-section');
-  if(data.gates){
-    // Gate 1 dictates the tile rim color (independent of the overall verdict)
-    card.classList.remove('rim-green','rim-yellow','rim-red');
-    var g1s=data.gates.g1_prewindow&&data.gates.g1_prewindow.status;
-    if(g1s==='GREEN')card.classList.add('rim-green');
-    else if(g1s==='YELLOW')card.classList.add('rim-yellow');
-    else if(g1s==='RED')card.classList.add('rim-red');
-
-    var gates=[['PRE-GATE  THESIS',data.gates.pre_gate],['G1  PRE-WINDOW 14D',data.gates.g1_prewindow],['G2  CATALYST',data.gates.g2_catalyst],['G3  OPENING BAR',data.gates.g3_openbar],['G4  PHASE',data.gates.g4_phase],['G5  SECTOR PROXY',data.gates.g5_korea]];
-    var cc=data.confidence==='HIGH'?'var(--green)':data.confidence==='MEDIUM'?'var(--amber)':'var(--red)';
-    var gHtml='<button class="expand-btn" onclick="toggleGates(\''+ticker+'\')"><span>GATE BREAKDOWN</span><span id="arrow-'+ticker+'">▼</span></button><div class="gate-list" id="gates-'+ticker+'" style="display:none">';
-    gates.forEach(function(g){
-      var lbl=g[0],gate=g[1]||{};
-      if(gate===data.gates.pre_gate&&gate.status==='GREEN'){
-        gHtml+='<div class="gate-row gate-row-compact"><div class="gate-dot-sm" style="background:'+sigColor(gate.status)+'"></div><span class="gate-lbl-compact">PRE-GATE clear</span></div>';
-        return;
-      }
-      gHtml+='<div class="gate-row"><div class="gate-dot-sm" style="background:'+sigColor(gate.status)+'"></div><div class="gate-content"><div class="gate-header"><span class="gate-lbl">'+lbl+'</span><span class="gate-stat" style="color:'+sigColor(gate.status)+'">'+(gate.status||'')+'</span></div>'+(gate.note?'<div class="gate-note-txt">'+gate.note+'</div>':'')+'</div></div>';
-    });
-    gHtml+='<div class="conf-row"><span class="conf-lbl">CONFIDENCE</span><span class="conf-val" style="color:'+cc+'">'+data.confidence+'</span></div></div>';
-    gateEl.innerHTML=gHtml;gateEl.style.display='block';
-  }
-
-  renderAnalystView(ticker,data,td);
+function logSectionHTML(sym, verdict) {
+  return `<div class="log-row"><span class="log-prompt">WAS IT RIGHT?</span><button class="log-btn log-btn-right" data-log="${sym}" data-verdict="${verdict}" data-correct="true">\u2713 RIGHT</button><button class="log-btn log-btn-wrong" data-log="${sym}" data-verdict="${verdict}" data-correct="false">\u2717 WRONG</button><button class="log-btn log-btn-skip" data-log-skip="1">SKIP</button></div>`;
 }
-
-// ── PRO — Analyst View ────────────────────────────────────────────
-// Adds the reasoning the standard Gate Breakdown doesn't carry: the exact
-// override mechanism (if any), the corroboration-rule tally the server used
-// to decide it, the resolved Gate 5 proxy tier/basket, and any risk flags —
-// all sourced from data already returned by /ticker + /analyze, no new
-// backend fields required.
-function renderAnalystView(ticker,data,td){
-  var card=document.getElementById('card-'+ticker);
-  if(!card)return;
-  // shared/watchlist.js's card template (used by every tier) doesn't carry
-  // an analyst-section slot — Pro is the only tier that needs one, so it's
-  // created here on first use rather than forking the shared template.
-  var wrap=card.querySelector('.analyst-section');
-  if(!wrap){wrap=document.createElement('div');wrap.className='analyst-section';wrap.style.display='none';card.appendChild(wrap);}
-  if(!data.gates)return;
-
-  var trigger=classifyTrigger(data);
-  var triggerColor={
-    'pre-gate':'var(--red)','gate0':'var(--red)','gate1':'var(--red)','gate5':'var(--red)',
-    'corroboration':'var(--amber)','standard':'var(--dim)'
-  }[trigger];
-
-  var g=data.gates;
-  var redCount=['g1_prewindow','g2_catalyst','g4_phase','g5_korea'].filter(function(k){
-    return g[k]&&g[k].status==='RED';
+function analystViewHTML(sym, result, td) {
+  if (!result || !result.gates) return "";
+  var trigger = classifyTrigger(result);
+  var triggerColor = {
+    "pre-gate": "var(--red)",
+    "gate0": "var(--red)",
+    "gate1": "var(--red)",
+    "gate5": "var(--red)",
+    "corroboration": "var(--amber)",
+    "standard": "var(--ink-dim)"
+  };
+  var g = result.gates;
+  var redCount = ["g1_prewindow", "g2_catalyst", "g4_phase", "g5_korea"].filter(function(k) {
+    return g[k] && g[k].status === "RED";
   }).length;
-
-  var rule=td&&td.proxyRule;
-  var proxyHtml='';
-  if(rule&&rule.proxy){
-    var tier=rule.tier||'primary';
-    var tierColor={'primary':'var(--green)','secondary':'var(--amber)','fundamentals-confirmed':'var(--blue)','fundamentals-speculative':'var(--red)'}[tier]||'var(--dim)';
-    proxyHtml='<div class="analyst-row"><span class="analyst-lbl">PROXY TIER</span>'
-      +'<span class="proxy-tier-badge" style="color:'+tierColor+';border-color:'+tierColor+'55;background:'+tierColor+'11">'+tier.toUpperCase().replace(/-/g,' ')+'</span></div>'
-      +'<div class="analyst-note">'+rule.proxy.name+(rule.dynamicallyResolved?' — dynamically resolved (Gate 5)':' — fixed sector proxy')+'</div>';
-    if(rule.elevatedCapCeiling||rule.autoExecuteStop){
-      proxyHtml+='<div class="analyst-row"><span class="analyst-lbl">RISK FLAGS</span>'
-        +(rule.elevatedCapCeiling?'<span class="proxy-tier-badge" style="color:var(--amber);border-color:rgba(255,171,0,.4);background:rgba(255,171,0,.1)">ELEVATED CAP CEILING</span>':'')
-        +(rule.autoExecuteStop?'<span class="proxy-tier-badge" style="color:var(--red);border-color:rgba(255,23,68,.4);background:rgba(255,23,68,.1)">AUTO-EXECUTE STOP</span>':'')
-        +'</div>';
+  var rule = td && td.proxyRule;
+  var proxyHtml = "";
+  if (rule && rule.proxy) {
+    var tier = rule.tier || "primary";
+    var tierColor = { primary: "var(--green)", secondary: "var(--amber)", "fundamentals-confirmed": "var(--blue)", "fundamentals-speculative": "var(--red)" };
+    var tc = tierColor[tier] || "var(--ink-dim)";
+    proxyHtml = `<div class="analyst-row"><span class="analyst-lbl">PROXY TIER</span><span class="proxy-tier-badge" style="color:${tc};border-color:${tc}55;background:${tc}11">${tier.toUpperCase().replace(/-/g, " ")}</span></div><div class="analyst-note">${rule.proxy.name}${rule.dynamicallyResolved ? " \u2014 dynamically resolved (Gate 5)" : " \u2014 fixed sector proxy"}</div>`;
+    if (rule.elevatedCapCeiling || rule.autoExecuteStop) {
+      proxyHtml += `<div class="analyst-row"><span class="analyst-lbl">RISK FLAGS</span>` + (rule.elevatedCapCeiling ? '<span class="proxy-tier-badge" style="color:var(--amber);border-color:rgba(255,182,45,.4);background:rgba(255,182,45,.1)">ELEVATED CAP CEILING</span>' : "") + (rule.autoExecuteStop ? '<span class="proxy-tier-badge" style="color:var(--red);border-color:rgba(255,59,92,.4);background:rgba(255,59,92,.1)">AUTO-EXECUTE STOP</span>' : "") + "</div>";
     }
   }
-
-  var html='<button class="expand-btn expand-btn-purple" onclick="toggleAnalyst(\''+ticker+'\')"><span>ANALYST VIEW</span><span id="analyst-arrow-'+ticker+'">▼</span></button>'
-    +'<div class="analyst-list" id="analyst-'+ticker+'" style="display:none">'
-    +'<div class="analyst-row"><span class="analyst-lbl">TRIGGER</span><span class="analyst-val" style="color:'+triggerColor+'">'+TRIGGER_LABELS[trigger]+'</span></div>'
-    +'<div class="analyst-row"><span class="analyst-lbl">CORROBORATION</span><span class="analyst-val">'+redCount+'/4 non-exempt gates RED</span></div>'
-    +(data.reason?'<div class="analyst-row"><span class="analyst-lbl">VERDICT REASON</span></div><div class="analyst-note">'+data.reason+'</div>':'')
-    +proxyHtml
-    +'</div>';
-  wrap.innerHTML=html;wrap.style.display='block';
+  return `<button class="expand-btn expand-btn-purple" data-toggle-analyst="${sym}"><span>ANALYST VIEW</span><span class="analyst-arrow">\u25BC</span></button><div class="analyst-list" data-analyst-body="${sym}" style="display:none"><div class="analyst-row"><span class="analyst-lbl">TRIGGER</span><span class="analyst-val" style="color:${triggerColor[trigger]}">${TRIGGER_LABELS[trigger]}</span></div><div class="analyst-row"><span class="analyst-lbl">CORROBORATION</span><span class="analyst-val">${redCount}/4 non-exempt gates RED</span></div>` + (result.reason ? `<div class="analyst-row"><span class="analyst-lbl">VERDICT REASON</span></div><div class="analyst-note">${result.reason}</div>` : "") + proxyHtml + "</div>";
 }
-
-export function toggleAnalyst(ticker){
-  var el=document.getElementById('analyst-'+ticker),arrow=document.getElementById('analyst-arrow-'+ticker);
-  if(!el||!arrow)return;
-  var open=el.style.display==='none';el.style.display=open?'block':'none';arrow.textContent=open?'▲':'▼';
+function gateListHTML(sym, result) {
+  if (!result || !result.gates) {
+    return '<div class="gate-list"><div class="gate-clear"><span class="gate-dot" style="background:var(--ink-faint)"></span><span>Tap ANALYZE to run the gates</span></div></div>';
+  }
+  const g = result.gates;
+  const rows = [
+    ["PRE-GATE", g.pre_gate],
+    ["G1  14D", g.g1_prewindow],
+    ["G2  CATALYST", g.g2_catalyst],
+    ["G3  OPEN BAR", g.g3_openbar],
+    ["G4  PHASE", g.g4_phase],
+    ["G5  PROXY", g.g5_korea]
+  ].map(([label, gate]) => {
+    gate = gate || {};
+    if (gate === g.pre_gate && gate.status === "GREEN") {
+      return '<div class="gate-clear"><span class="gate-dot" style="background:var(--green)"></span><span>PRE-GATE clear</span></div>';
+    }
+    return `<div class="gate-row"><span class="gate-dot" style="background:${sigColor(gate.status)}"></span><div><span class="gl">${label}</span>` + (gate.note ? `<div class="gn">${gate.note}</div>` : "") + "</div></div>";
+  }).join("");
+  const conf = `<div class="conf-row"><span class="conf-lbl">CONFIDENCE</span><span class="conf-val" style="color:${confColor(result.confidence)}">${result.confidence || ""}</span></div>`;
+  const v = (result.verdict || "FLAT").toUpperCase();
+  return '<div class="gate-list">' + rows + logSectionHTML(sym, v) + conf + "</div>";
 }
-
-export function toggleGates(ticker){
-  var el=document.getElementById('gates-'+ticker),arrow=document.getElementById('arrow-'+ticker);
-  var open=el.style.display==='none';el.style.display=open?'block':'none';arrow.textContent=open?'▲':'▼';
+function verdictAreaHTML(sym, result) {
+  const closed = isMarketClosed();
+  const v = (result.verdict || "FLAT").toUpperCase();
+  if (closed) {
+    return `<div class="verdict-container" data-reset="${sym}"><span class="verdict-hold">HOLD</span><span class="verdict-lbl-hold">MKT CLOSED</span></div>`;
+  }
+  if (v === "UP") return `<div class="verdict-container" data-reset="${sym}"><span class="verdict-up">\u{1F44D}</span><span class="verdict-lbl-up">UP</span></div>`;
+  if (v === "DOWN") return `<div class="verdict-container" data-reset="${sym}"><span class="verdict-down">\u{1F44E}</span><span class="verdict-lbl-down">DOWN</span></div>`;
+  return `<div class="verdict-container" data-reset="${sym}"><span class="verdict-hold">HOLD</span><span class="verdict-lbl-hold">WAIT &amp; WATCH</span></div>`;
 }
-
-export function resetCard(ticker){
-  var card=document.getElementById('card-'+ticker);if(!card)return;
-  card.classList.remove('up','down','flat','rim-green','rim-yellow','rim-red','loading');
-  card.querySelector('.ticker-name').classList.remove('up','down','flat');
-  var pe=card.querySelector('.ticker-price');if(pe)pe.classList.remove('up','down','flat');
-  card.querySelector('.card-action').innerHTML='<button class="analyze-btn" onclick="analyzeTicker(\''+ticker+'\')">ANALYZE</button>';
-  var reReset2=card.querySelector('.reason-txt');reReset2.textContent='';reReset2.style.display='none';
-  card.querySelector('.card-badges').innerHTML='';
-  var gs=card.querySelector('.gate-section');gs.innerHTML='';gs.style.display='none';
-  var pgs=card.querySelector('.pregate-strip');if(pgs){pgs.innerHTML='';pgs.style.display='none';}
-  var ls=card.querySelector('.log-section');if(ls){ls.innerHTML='';ls.style.display='none';}
-  var as=card.querySelector('.analyst-section');if(as){as.innerHTML='';as.style.display='none';}
+function priceDirClass(td) {
+  const pct = td && td.metrics && typeof td.metrics.pct === "number" ? td.metrics.pct : 0;
+  return pct > 0.05 ? "up" : pct < -0.05 ? "down" : "flat";
 }
-
-// ── PRO — Compact watchlist (tickers beyond the CARD_CAP window) ────
-// Price + today's %-change + a short news link, no ANALYZE button and no
-// credit cost — this is the "unlimited, unanalyzed" half of the watchlist.
-// Rendering is driven entirely by shared/watchlist.js's postRenderHook, so
-// it stays correct after any add/remove/undo/promote without this file
-// needing to know every place `watchlist` can change.
-//
-// Sortable by %-change (compactSortDir, toggled via the arrow button in the
-// section header) — this needs every row's data available before building
-// HTML, so unlike the old skeleton-then-fill version this awaits all of
-// them first. fetchTickerData() is memoized per symbol, so on any re-render
-// after the first (toggling sort, a promote/import elsewhere) this resolves
-// instantly from cache rather than re-hitting the network.
-//
-// Fires every row's fetch concurrently rather than in gated batches of 5
-// (removed Aug 5, 2026) — same reasoning as hydrateCards()'s batching
-// removal: it predated Tra's Finnhub/Alpaca throttles and the ticker-cache
-// in-flight de-dupe, and was left stacking artificial wall-clock delay on
-// top of both once they existed. A 33-ticker overflow list was serializing
-// into 7 sequential waves of 5, each gated on that wave's slowest ticker.
-var compactSortDir=1; // 1 = ascending (lowest→highest), -1 = descending
-
-export function toggleCompactSort(){
-  compactSortDir=-compactSortDir;
-  var btn=document.getElementById('compact-sort-btn');
-  if(btn)btn.textContent=compactSortDir===1?'▲':'▼';
-  renderCompactList();
+function roloCardHTML(sym, state) {
+  const td = state.td;
+  const price = td && td.metrics && td.metrics.price != null ? "$" + td.metrics.price.toFixed(2) : "\u2014";
+  const news = td && td.news;
+  const rawHeadline = news ? news.headline : "No news within the last business week";
+  const ctxEl = document.getElementById("context-input");
+  const headline = news ? highlightContextMatches(rawHeadline, ctxEl ? ctxEl.value : "") : rawHeadline;
+  const age = news ? news.ageLabel : "\u2014";
+  const m = td && td.metrics;
+  const w52 = m && m.rangePosition != null ? m.rangePosition + "%" : "?";
+  const phase = m && m.phaseProxy ? m.phaseProxy.replace("PHASE_", "") : "?";
+  const beta = m && m.beta ? m.beta.toFixed(1) : "?";
+  const proxyName = td && td.proxyRule && td.proxyRule.proxy ? td.proxyRule.proxy.name.split("(")[0].trim() : "?";
+  const proxySymbols = td && td.proxyRule && td.proxyRule.proxy && Array.isArray(td.proxyRule.proxy.symbols) ? td.proxyRule.proxy.symbols : [];
+  const proxyHTML = proxySymbols.length === 1 ? `<a href="${tickerHref(proxySymbols[0])}" target="_blank">${proxyName}</a>` : proxyName;
+  const analyzing = state.analyzing;
+  const result = state.result;
+  const dir = priceDirClass(td);
+  return `<div class="ticker-row"><div class="ticker-left"><span class="ticker-sym ${dir}"><a href="${tickerHref(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}">${price}</span></div><div class="ticker-action">` + (result ? verdictAreaHTML(sym, result) : `<button class="btn btn-blue btn-compact" data-analyze="${sym}" ${analyzing ? "disabled" : ""}>${analyzing ? "RUNNING\u2026" : "ANALYZE"}</button>`) + `</div></div>` + pregateStripHTML(result) + `<div class="headline"><a href="${newsHref(sym)}" target="_blank">${headline}</a> <span class="age">${age}</span></div><div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>\u03B2 <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span></div>` + badgesHTML(result) + gateListHTML(sym, result) + analystViewHTML(sym, result, td) + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : "");
 }
-
-export async function renderCompactList(){
-  var el=document.getElementById('watchlist-compact');
-  if(!el)return;
-  var overflow=getOverflow();
-  var cardCountEl=document.getElementById('card-count');
-  if(cardCountEl)cardCountEl.textContent=Math.min(watchlist.length,CARD_CAP)+'/'+CARD_CAP;
-  var compactCountEl=document.getElementById('compact-count');
-  if(compactCountEl)compactCountEl.textContent=overflow.length;
-  if(!overflow.length){el.innerHTML='<div class="track-empty">Everything tracked fits in cards above.</div>';return}
-  el.innerHTML='<div class="track-empty">Loading watchlist…</div>';
-  var rows=await Promise.all(overflow.map(async function(t){
-    var td=await fetchTickerData(t);
-    return{
-      ticker:t,
-      price:td&&td.metrics&&td.metrics.price!=null?td.metrics.price:null,
-      pct:td&&td.metrics&&typeof td.metrics.pct==='number'?td.metrics.pct:null,
-      news:td&&td.news,
-    };
-  }));
-  // Rows with no live pct sort to the end regardless of direction — an
-  // unknown value isn't meaningfully "low" or "high".
-  rows.sort(function(a,b){
-    var pa=a.pct==null?(compactSortDir===1?Infinity:-Infinity):a.pct;
-    var pb=b.pct==null?(compactSortDir===1?Infinity:-Infinity):b.pct;
-    return(pa-pb)*compactSortDir;
+function wireCardButtons(card, sym) {
+  const btn = card.querySelector("[data-analyze]");
+  if (btn) btn.addEventListener("click", () => analyzeOne(sym));
+  const resetEl = card.querySelector("[data-reset]");
+  if (resetEl) resetEl.addEventListener("click", () => resetTicker(sym));
+  const analystToggle = card.querySelector("[data-toggle-analyst]");
+  if (analystToggle) analystToggle.addEventListener("click", () => {
+    const body = card.querySelector(`[data-analyst-body="${sym}"]`);
+    const arrow = analystToggle.querySelector(".analyst-arrow");
+    if (!body) return;
+    const open = body.style.display === "none";
+    body.style.display = open ? "block" : "none";
+    if (arrow) arrow.textContent = open ? "\u25B2" : "\u25BC";
+    syncRoloStageHeight();
   });
-  var ctxEl=document.getElementById('context-input');
-  var ctxVal=ctxEl?ctxEl.value:'';
-  el.innerHTML=rows.map(function(r){
-    var t=r.ticker;
-    var hasNews=r.news&&r.news.ageHours<=300;
-    return '<div class="compact-row-wrap" data-ticker="'+t+'">'
-      +'<div class="compact-swipe-bg"><span class="swipe-icon">&#128465;</span><span class="swipe-label">DELETE</span></div>'
-      +'<div class="compact-row" id="compact-'+t+'">'
-      +'<div class="compact-row-main">'
-      +'<div class="compact-row-top"><span class="compact-ticker"><a class="ticker-a" href="'+tickerHref(t)+'" target="_blank">'+t+'</a></span>'
-      +'<span class="compact-price">'+(r.price!=null?'$'+parseFloat(r.price).toFixed(2):'&mdash;')+'</span>'
-      +'<span class="compact-pct" style="color:'+(r.pct!=null?pctColor(r.pct):'var(--dim)')+'">'+(r.pct!=null?fmtPct(r.pct):'&mdash;')+'</span></div>'
-      +'<div class="compact-news"'+(hasNews?'':' style="display:none"')+'>'+(hasNews?'<a href="'+newsHref(t)+'" target="_blank">'+highlightContextMatches(r.news.headline,ctxVal)+'</a>':'')+'</div>'
-      +'</div>'
-      +'<button type="button" class="compact-plus-btn" title="Add as card" onclick="promoteToCard(\''+t+'\')">+</button>'
-      +'</div></div>';
-  }).join('');
+  const rightBtn = card.querySelector('[data-log][data-correct="true"]');
+  const wrongBtn = card.querySelector('[data-log][data-correct="false"]');
+  const skipBtn = card.querySelector("[data-log-skip]");
+  if (rightBtn) rightBtn.addEventListener("click", () => logResultUI(sym, rightBtn.dataset.verdict, true, rightBtn));
+  if (wrongBtn) wrongBtn.addEventListener("click", () => logResultUI(sym, wrongBtn.dataset.verdict, false, wrongBtn));
+  if (skipBtn) skipBtn.addEventListener("click", () => {
+    skipBtn.closest(".log-row").style.display = "none";
+  });
+}
+function renderRoloCard(sym) {
+  const card = roloStage.querySelector(`.rolo-card[data-sym="${sym}"]`);
+  if (!card) return;
+  const state = tickerState.get(sym);
+  if (!state) return;
+  card.innerHTML = roloCardHTML(sym, state);
+  card.classList.remove("verdict-up", "verdict-down");
+  wireCardButtons(card, sym);
+  if (state.result && !isMarketClosed()) {
+    const v = (state.result.verdict || "").toUpperCase();
+    if (v === "UP") card.classList.add("verdict-up");
+    else if (v === "DOWN") card.classList.add("verdict-down");
+  }
+  syncRoloStageHeight();
+}
+function resetTicker(sym) {
+  const state = tickerState.get(sym);
+  if (!state) return;
+  state.result = null;
+  state.error = null;
+  renderRoloCard(sym);
+  renderPill(sym);
+}
+function renderPill(sym) {
+  document.querySelectorAll(`.rolo-chip[data-sym="${sym}"]`).forEach((chip) => {
+    const state = tickerState.get(sym);
+    const td = state && state.td;
+    const price = td && td.metrics && td.metrics.price != null ? "$" + td.metrics.price.toFixed(2) : "\u2014";
+    const perf = "perf-" + priceDirClass(td || null);
+    chip.className = "rolo-chip " + perf + (chip.dataset.idx === String(getRoloCurrent()) ? " active" : "");
+    chip.innerHTML = `<span class="rc-sym">${sym}</span><span class="rc-price">${price}</span>`;
+  });
+}
+function deleteActiveTicker(sym) {
+  tickerState.delete(sym);
+  removeTicker(sym);
+}
+function cardWindow() {
+  return watchlist.slice(0, CARD_CAP);
+}
+var pillHydrationDone = Promise.resolve();
+async function renderRolodexFromWatchlist() {
+  document.getElementById("ticker-count").textContent = "CRF \xB7 " + watchlist.length + " TICKERS";
+  const cardCountEl = document.getElementById("card-count");
+  if (cardCountEl) cardCountEl.textContent = Math.min(watchlist.length, CARD_CAP) + "/" + CARD_CAP;
+  const window2 = cardWindow();
+  roloStage.innerHTML = "";
+  window2.forEach((sym) => {
+    if (!tickerState.has(sym)) tickerState.set(sym, { td: null, result: null, analyzing: false, error: null });
+    const card = document.createElement("div");
+    card.className = "rolo-card";
+    card.dataset.sym = sym;
+    roloStage.appendChild(card);
+    renderRoloCard(sym);
+  });
+  rebuildRoloIndex(window2, (sym, i) => {
+    const chip = document.createElement("button");
+    chip.className = "rolo-chip";
+    chip.dataset.sym = sym;
+    chip.dataset.idx = String(i);
+    return chip;
+  }, `\u2014 ${window2.length} \u2014`);
+  window2.forEach((sym) => renderPill(sym));
+  clampRoloCurrent();
+  positionRoloStack();
+  requestAnimationFrame(() => {
+    sizeGateSpacer();
+    sizeRoloMarquee();
+  });
+  let resolveHydration;
+  pillHydrationDone = new Promise((res) => {
+    resolveHydration = res;
+  });
+  await Promise.all(window2.map(async (sym) => {
+    const td = await fetchTickerData(sym);
+    const state = tickerState.get(sym);
+    if (state) {
+      state.td = td;
+    }
+    renderRoloCard(sym);
+    renderPill(sym);
+    requestAnimationFrame(() => sizeRoloMarquee());
+  }));
+  resolveHydration();
+  requestAnimationFrame(() => {
+    sizeRoloMarquee();
+    markRoloMarqueeDataReady();
+  });
+  renderOverflowListIfOpen();
+}
+function refreshRoloCards() {
+  cardWindow().forEach((sym) => {
+    if (tickerState.has(sym)) renderRoloCard(sym);
+  });
+  renderOverflowListIfOpen();
+}
+async function analyzeOne(sym) {
+  const state = tickerState.get(sym);
+  if (!state || state.analyzing) return;
+  state.analyzing = true;
+  state.error = null;
+  renderRoloCard(sym);
+  const td = state.td || await fetchTickerData(sym);
+  state.td = td;
+  if (td) renderRoloCard(sym);
+  var ctx = document.getElementById("context-input").value;
+  var sc = {
+    spy: market && market.spy ? market.spy.change : "?",
+    qqq: market && market.qqq ? market.qqq.change : "?",
+    btc: market && market.btc ? market.btc.change : "?",
+    iwm: market && market.iwm ? market.iwm.change : "?",
+    soxx: market && market.soxx ? market.soxx.change : "?",
+    xbi: market && market.xbi ? market.xbi.change : "?",
+    ibb: market && market.ibb ? market.ibb.change : "?",
+    gld: market && market.gld ? market.gld.change : "?",
+    uso: market && market.uso ? market.uso.change : "?",
+    tsm: market && market.tsm ? market.tsm.change : "?",
+    msft: market && market.msft ? market.msft.change : "?",
+    gateStatus: market ? market.gateStatus || "GREEN" : "GREEN",
+    gateNote: market ? market.gateNote || "" : "",
+    btcSignal: market ? market.btcSignal || "neutral" : "neutral"
+  };
+  try {
+    var res = await fetch(addSecret2(API_URL2 + "/analyze"), {
+      method: "POST",
+      headers: authH2(),
+      body: JSON.stringify({
+        ticker: sym,
+        sectorContext: sc,
+        marketContext: ctx,
+        metricsData: td && td.metrics ? td.metrics : null,
+        newsData: td && td.news ? td.news : null,
+        openingBarData: td && td.openingBar ? td.openingBar : null,
+        proxyRule: td && td.proxyRule ? td.proxyRule : null,
+        gate1Data: td && td.gate1 ? td.gate1 : null,
+        preGateData: td && td.preGate ? td.preGate : null,
+        weeklyCarryoverData: td && td.weeklyCarryover ? td.weeklyCarryover : null,
+        regimeData: td && td.regime ? td.regime : null
+      })
+    });
+    if (!res.ok) {
+      var errData = await res.json().catch(function() {
+        return {};
+      });
+      if (res.status === 402 && errData.code === "NO_CREDITS") {
+        handleNoCredits(sym);
+        fetchCreditStatus();
+        state.analyzing = false;
+        renderRoloCard(sym);
+        renderPill(sym);
+        return;
+      }
+      throw new Error(errData.error || "Server error " + res.status);
+    }
+    var _r = await res.json();
+    cacheVerdict(sym, _r);
+    lastAnalysis[sym] = _r;
+    state.result = _r;
+    state.analyzing = false;
+    renderRoloCard(sym);
+    renderPill(sym);
+    fetchCreditStatus();
+  } catch (e) {
+    state.analyzing = false;
+    state.error = e.message;
+    renderRoloCard(sym);
+    renderPill(sym);
+  }
+}
+function analyzeAll() {
+  cardWindow().forEach((sym) => analyzeOne(sym));
+}
+function handleNoCredits(sym) {
+  const state = tickerState.get(sym);
+  const cached = getCachedVerdict(sym);
+  if (cached) {
+    state.result = cached;
+    state.error = null;
+    renderRoloCard(sym);
+    return;
+  }
+  state.error = "No credits remaining \u2014 buy more or upgrade to Shark.";
+}
+var compactSortDir = 1;
+function toggleCompactSort() {
+  compactSortDir = -compactSortDir;
+  var btn = document.getElementById("compact-sort-btn");
+  if (btn) btn.textContent = compactSortDir === 1 ? "\u25B2" : "\u25BC";
+  renderOverflowList();
+}
+function overflowTickers() {
+  return watchlist.slice(CARD_CAP);
+}
+function renderOverflowListIfOpen() {
+  var card = document.querySelector('.card[data-card="watchlist"]');
+  if (card && card.classList.contains("expanded")) renderOverflowList();
+  var countEl = document.getElementById("compact-count");
+  if (countEl) countEl.textContent = String(overflowTickers().length);
+}
+var compactGesturesBound = false;
+async function renderOverflowList() {
+  var el = document.getElementById("watchlist-compact");
+  if (!el) return;
+  var overflow = overflowTickers();
+  var countEl = document.getElementById("compact-count");
+  if (countEl) countEl.textContent = String(overflow.length);
+  if (!overflow.length) {
+    el.innerHTML = '<div class="track-empty">Everything tracked fits in the top ' + CARD_CAP + " cards.</div>";
+    return;
+  }
+  el.innerHTML = '<div class="track-empty">Loading watchlist\u2026</div>';
+  var rows = await Promise.all(overflow.map(async function(t) {
+    var td = await fetchTickerData(t);
+    return { ticker: t, price: td && td.metrics && td.metrics.price != null ? td.metrics.price : null, pct: td && td.metrics && typeof td.metrics.pct === "number" ? td.metrics.pct : null, news: td && td.news };
+  }));
+  rows.sort(function(a, b) {
+    var pa = a.pct == null ? compactSortDir === 1 ? Infinity : -Infinity : a.pct;
+    var pb = b.pct == null ? compactSortDir === 1 ? Infinity : -Infinity : b.pct;
+    return (pa - pb) * compactSortDir;
+  });
+  var ctxEl = document.getElementById("context-input");
+  var ctxVal = ctxEl ? ctxEl.value : "";
+  el.innerHTML = rows.map(function(r) {
+    var t = r.ticker;
+    var hasNews = r.news && r.news.ageHours <= 300;
+    return '<div class="compact-row-wrap" data-ticker="' + t + '"><div class="compact-swipe-bg"><span class="swipe-icon">&#128465;</span><span class="swipe-label">DELETE</span></div><div class="compact-row"><div class="compact-row-main"><div class="compact-row-top"><span class="compact-ticker"><a class="ticker-a" href="' + tickerHref(t) + '" target="_blank">' + t + '</a></span><span class="compact-price">' + (r.price != null ? "$" + r.price.toFixed(2) : "&mdash;") + '</span><span class="compact-pct" style="color:' + (r.pct != null ? pctColor(r.pct) : "var(--ink-dim)") + '">' + (r.pct != null ? fmtPct(r.pct) : "&mdash;") + '</span></div><div class="compact-news"' + (hasNews ? "" : ' style="display:none"') + ">" + (hasNews ? '<a href="' + newsHref(t) + '" target="_blank">' + highlightContextMatches(r.news.headline, ctxVal) + "</a>" : "") + '</div></div><button type="button" class="compact-plus-btn" title="Add as card" data-promote="' + t + '">+</button></div></div>';
+  }).join("");
+  el.querySelectorAll("[data-promote]").forEach((btn) => btn.addEventListener("click", () => promoteToCard(btn.dataset.promote)));
   bindCompactGestures();
 }
-
-// Moves a compact-row ticker into the last card slot (index CARD_CAP-1).
-// Whatever was already there shifts to index CARD_CAP — i.e. becomes the
-// new top compact row — which is the "swap the bottom card into the
-// watchlist" behavior, achieved by reordering the one underlying array
-// setWatchlist() already validates/persists/re-renders.
-export function promoteToCard(ticker){
-  var idx=watchlist.indexOf(ticker);
-  if(idx<0||idx<CARD_CAP)return;
-  var arr=watchlist.slice();
-  arr.splice(idx,1);
-  arr.splice(CARD_CAP-1,0,ticker);
+function promoteToCard(ticker) {
+  var idx = watchlist.indexOf(ticker);
+  if (idx < 0 || idx < CARD_CAP) return;
+  var arr = watchlist.slice();
+  arr.splice(idx, 1);
+  arr.splice(CARD_CAP - 1, 0, ticker);
   setWatchlist(arr);
 }
-
-// Swipe-to-delete only — no drag-reorder, since position among non-card
-// rows isn't meaningful. Deletion reuses shared's exported removeTicker()
-// directly: same undo-toast, same postRenderHook re-sync, for free.
-var COMPACT_MOVE_THRESHOLD=14;
-var compactActive=null;
-var compactGesturesBound=false;
-
-function bindCompactGestures(){
-  if(compactGesturesBound)return;
-  var el=document.getElementById('watchlist-compact');
-  if(!el)return;
-  compactGesturesBound=true;
-  el.addEventListener('pointerdown',onCompactPointerDown);
+var COMPACT_MOVE_THRESHOLD = 14;
+var compactActive = null;
+function bindCompactGestures() {
+  if (compactGesturesBound) return;
+  var el = document.getElementById("watchlist-compact");
+  if (!el) return;
+  compactGesturesBound = true;
+  el.addEventListener("pointerdown", onCompactPointerDown);
 }
-
-function onCompactPointerDown(e){
-  if(compactActive)return;
-  if(e.pointerType==='mouse'&&e.button!==0)return;
-  // Same fix as shared/watchlist.js's card gesture: don't exclude by target
-  // type here — onCompactPointerMove only intercepts once movement clears
-  // COMPACT_MOVE_THRESHOLD, so a tap on the + button still fires its click
-  // untouched, but a swipe can now start from anywhere on the row,
-  // including on top of the news link.
-  var wrap=e.target.closest('.compact-row-wrap');
-  if(!wrap)return;
-  var row=wrap.querySelector('.compact-row');
-  if(!row)return;
-  compactActive={pointerId:e.pointerId,wrap:wrap,row:row,ticker:wrap.dataset.ticker,startX:e.clientX,startY:e.clientY,dragging:false,pendingDx:0,swipeBg:wrap.querySelector('.compact-swipe-bg')};
-  document.addEventListener('pointermove',onCompactPointerMove,{passive:false});
-  document.addEventListener('pointerup',onCompactPointerUp);
-  document.addEventListener('pointercancel',onCompactPointerUp);
+function onCompactPointerDown(e) {
+  if (compactActive) return;
+  if (e.pointerType === "mouse" && e.button !== 0) return;
+  var wrap = e.target.closest(".compact-row-wrap");
+  if (!wrap) return;
+  var row = wrap.querySelector(".compact-row");
+  if (!row) return;
+  compactActive = { pointerId: e.pointerId, wrap, row, ticker: wrap.dataset.ticker, startX: e.clientX, startY: e.clientY, dragging: false, pendingDx: 0, swipeBg: wrap.querySelector(".compact-swipe-bg") };
+  document.addEventListener("pointermove", onCompactPointerMove, { passive: false });
+  document.addEventListener("pointerup", onCompactPointerUp);
+  document.addEventListener("pointercancel", onCompactPointerUp);
 }
-
-function compactDeleteThreshold(wrap){return Math.min(120,wrap.getBoundingClientRect().width*0.35)}
-
-function onCompactPointerMove(e){
-  var g=compactActive;if(!g||e.pointerId!==g.pointerId)return;
-  var dx=e.clientX-g.startX,dy=e.clientY-g.startY;
-  if(!g.dragging){
-    if(Math.abs(dx)>COMPACT_MOVE_THRESHOLD&&Math.abs(dx)>Math.abs(dy)){
-      g.dragging=true;
-      try{g.wrap.setPointerCapture(e.pointerId)}catch(err){}
-      g.row.style.transition='none';
-      g.wrap.classList.add('swiping');
-    }else if(Math.abs(dy)>COMPACT_MOVE_THRESHOLD){endCompactGesture();return}
-    else return;
+function compactDeleteThreshold(wrap) {
+  return Math.min(120, wrap.getBoundingClientRect().width * 0.35);
+}
+function onCompactPointerMove(e) {
+  var g = compactActive;
+  if (!g || e.pointerId !== g.pointerId) return;
+  var dx = e.clientX - g.startX, dy = e.clientY - g.startY;
+  if (!g.dragging) {
+    if (Math.abs(dx) > COMPACT_MOVE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
+      g.dragging = true;
+      try {
+        g.wrap.setPointerCapture(e.pointerId);
+      } catch (err) {
+      }
+      g.row.style.transition = "none";
+      g.wrap.classList.add("swiping");
+    } else if (Math.abs(dy) > COMPACT_MOVE_THRESHOLD) {
+      endCompactGesture();
+      return;
+    } else return;
   }
   e.preventDefault();
-  var clamped=Math.min(0,Math.max(dx,-g.wrap.getBoundingClientRect().width));
-  g.row.style.transform='translateX('+clamped+'px)';
-  var progress=Math.min(Math.abs(clamped)/compactDeleteThreshold(g.wrap),1);
-  g.swipeBg.style.opacity=String(progress);
-  g.pendingDx=clamped;
+  var clamped = Math.min(0, Math.max(dx, -g.wrap.getBoundingClientRect().width));
+  g.row.style.transform = "translateX(" + clamped + "px)";
+  var progress = Math.min(Math.abs(clamped) / compactDeleteThreshold(g.wrap), 1);
+  g.swipeBg.style.opacity = String(progress);
+  g.pendingDx = clamped;
 }
-
-function onCompactPointerUp(e){
-  var g=compactActive;if(!g||e.pointerId!==g.pointerId)return;
-  var threshold=compactDeleteThreshold(g.wrap);
-  if(g.dragging&&Math.abs(g.pendingDx)>=threshold){
-    var wrap=g.wrap,ticker=g.ticker,w=wrap.getBoundingClientRect().width;
-    g.row.style.transition='transform .18s ease-in';
-    g.row.style.transform='translateX(-'+(w+40)+'px)';
-    wrap.style.overflow='hidden';
-    wrap.style.transition='max-height .2s ease .12s,opacity .2s ease .12s,margin .2s ease .12s';
-    requestAnimationFrame(function(){wrap.style.maxHeight='0px';wrap.style.opacity='0';wrap.style.marginTop='0px';wrap.style.marginBottom='0px';});
-    setTimeout(function(){removeTicker(ticker)},220);
-  }else if(g.dragging){
-    g.row.style.transition='transform .18s ease';
-    g.row.style.transform='translateX(0)';
-    g.swipeBg.style.opacity='0';
-    g.wrap.classList.remove('swiping');
+function onCompactPointerUp(e) {
+  var g = compactActive;
+  if (!g || e.pointerId !== g.pointerId) return;
+  var threshold = compactDeleteThreshold(g.wrap);
+  if (g.dragging && Math.abs(g.pendingDx) >= threshold) {
+    var wrap = g.wrap, ticker = g.ticker, w = wrap.getBoundingClientRect().width;
+    g.row.style.transition = "transform .18s ease-in";
+    g.row.style.transform = "translateX(-" + (w + 40) + "px)";
+    wrap.style.overflow = "hidden";
+    wrap.style.transition = "max-height .2s ease .12s,opacity .2s ease .12s,margin .2s ease .12s";
+    requestAnimationFrame(function() {
+      wrap.style.maxHeight = "0px";
+      wrap.style.opacity = "0";
+      wrap.style.marginTop = "0px";
+      wrap.style.marginBottom = "0px";
+    });
+    setTimeout(function() {
+      removeTicker(ticker);
+    }, 220);
+  } else if (g.dragging) {
+    g.row.style.transition = "transform .18s ease";
+    g.row.style.transform = "translateX(0)";
+    g.swipeBg.style.opacity = "0";
+    g.wrap.classList.remove("swiping");
   }
   endCompactGesture();
 }
-
-function endCompactGesture(){
-  var g=compactActive;
-  if(g){try{g.wrap.releasePointerCapture(g.pointerId)}catch(err){}}
-  compactActive=null;
-  document.removeEventListener('pointermove',onCompactPointerMove);
-  document.removeEventListener('pointerup',onCompactPointerUp);
-  document.removeEventListener('pointercancel',onCompactPointerUp);
+function endCompactGesture() {
+  var g = compactActive;
+  if (g) {
+    try {
+      g.wrap.releasePointerCapture(g.pointerId);
+    } catch (err) {
+    }
+  }
+  compactActive = null;
+  document.removeEventListener("pointermove", onCompactPointerMove);
+  document.removeEventListener("pointerup", onCompactPointerUp);
+  document.removeEventListener("pointercancel", onCompactPointerUp);
 }
-
-// ── PRO — Proxy Resolution Explorer ─────────────────────────────────
-// Lists every watchlisted ticker's resolved Dynamic Proxy Resolution result,
-// plus a live coherence strip: the ticker's today %-change next to its
-// resolved proxy's today %-change, so a decoupling is visible before Gate 5
-// ever flags it. Proxy symbols are always drawn from the same tracked-symbol
-// set /market already returns (SPY/QQQ/IWM/XBI/SOXX/TSM/MSFT/GLD/USO/BTC) —
-// confirmed against every PROXY_RULES entry and DEFAULT_PROXY in server.js —
-// except LMT (Defense), IBB (Biotech's secondary leg), and KOSPI (AI/Semi's
-// documented gap, see server.js's forceDown-authority comment), none of
-// which /market tracks; those render "no live feed" instead of guessing.
-
-// Mirrors the case thresholds gates-extended.js's proxyCoherenceCheck() uses
-// for the fixed Korea/Taiwan check — reused here purely as a display
-// heuristic across ALL resolved proxies, not as an enforcement rule. The
-// actual verdict-affecting coherence check still only runs server-side.
-var COHERENCE_FLAT_BAND_PCT=1.0;
-var COHERENCE_DECOUPLE_PCT=2.0;
-function classifyCoherence(tickerPct,proxyPct){
-  if(Math.abs(tickerPct)<=COHERENCE_FLAT_BAND_PCT)return{label:'LAG RISK',color:'var(--amber)'};
-  var proxyDown=proxyPct<0;
-  var opposite=(proxyDown&&tickerPct>0)||(!proxyDown&&tickerPct<0);
-  if(opposite&&Math.abs(tickerPct)>=COHERENCE_DECOUPLE_PCT)return{label:'DECOUPLING',color:'var(--red)'};
-  return{label:'TRACKING',color:'var(--green)'};
+var COHERENCE_FLAT_BAND_PCT = 1;
+var COHERENCE_DECOUPLE_PCT = 2;
+function classifyCoherence(tickerPct, proxyPct) {
+  if (Math.abs(tickerPct) <= COHERENCE_FLAT_BAND_PCT) return { label: "LAG RISK", color: "var(--amber)" };
+  var proxyDown = proxyPct < 0;
+  var opposite = proxyDown && tickerPct > 0 || !proxyDown && tickerPct < 0;
+  if (opposite && Math.abs(tickerPct) >= COHERENCE_DECOUPLE_PCT) return { label: "DECOUPLING", color: "var(--red)" };
+  return { label: "TRACKING", color: "var(--green)" };
 }
-
-function pctColor(p){return p>0?'var(--green)':p<0?'var(--red)':'var(--dim)'}
-function fmtPct(p){return(p>0?'+':'')+p.toFixed(2)+'%'}
-
-// Every ticker/proxy symbol shown gets a live link out to its own quote
-// page — the point isn't the specific site, it's that every number this
-// panel asserts (price, %change, the proxy relationship itself) has a
-// one-click way to independently check it rather than just trusting the
-// app's own math. Site is user-selectable (Settings) via shared/prefs.js.
-function tickerLink(symbol){return'<a href="'+tickerHref(symbol)+'" target="_blank" class="proxy-verify-link">'+symbol+'</a>'}
-
-var TIER_RANK={'primary':0,'secondary':1,'fundamentals-confirmed':2,'fundamentals-speculative':3};
-var COHERENCE_RANK={'TRACKING':0,'LAG RISK':1,'DECOUPLING':2};
-// key: null (insertion order) | 'level' | 'coherence'. dir: 1 = ascending, -1 = descending.
-var proxySort={key:null,dir:1};
-
-export function setProxySort(key){
-  if(proxySort.key===key)proxySort.dir=-proxySort.dir;
-  else{proxySort.key=key;proxySort.dir=1;}
+function tickerLink(symbol) {
+  return `<a href="${tickerHref(symbol)}" target="_blank" class="proxy-verify-link">${symbol}</a>`;
+}
+var TIER_RANK = { primary: 0, secondary: 1, "fundamentals-confirmed": 2, "fundamentals-speculative": 3 };
+var COHERENCE_RANK = { TRACKING: 0, "LAG RISK": 1, DECOUPLING: 2 };
+var proxySort = { key: null, dir: 1 };
+function setProxySort(key) {
+  if (proxySort.key === key) proxySort.dir = -proxySort.dir;
+  else {
+    proxySort.key = key;
+    proxySort.dir = 1;
+  }
   updateProxySortButtons();
   renderProxyExplorer();
 }
-
-function updateProxySortButtons(){
-  ['level','coherence'].forEach(function(k){
-    var btn=document.getElementById('proxy-sort-'+k);if(!btn)return;
-    var active=proxySort.key===k;
-    var arrow=btn.querySelector('.sort-arrow');
-    if(arrow)arrow.textContent=active?(proxySort.dir===1?'▲':'▼'):'⇅';
-    btn.classList.toggle('sort-btn-active',active);
+function updateProxySortButtons() {
+  ["level", "coherence"].forEach(function(k) {
+    var btn = document.getElementById("proxy-sort-" + k);
+    if (!btn) return;
+    var active = proxySort.key === k;
+    var arrow = btn.querySelector(".sort-arrow");
+    if (arrow) arrow.textContent = active ? proxySort.dir === 1 ? "\u25B2" : "\u25BC" : "\u21C5";
+    btn.classList.toggle("sort-btn-active", active);
   });
 }
-
-// Items with no rank (no proxyRule at all, or no live coherence feed) sort
-// last UNCONDITIONALLY — multiplying a sentinel rank by `dir` was the bug
-// here: it pushed them to the FRONT in descending order instead, since a
-// large sentinel times -1 becomes the smallest value. Missing data isn't
-// "highest" or "lowest," so direction shouldn't touch it at all.
-function sortByRank(rows,rankFn,dir){
-  rows.sort(function(a,b){
-    var ra=rankFn(a),rb=rankFn(b);
-    if(ra==null&&rb==null)return 0;
-    if(ra==null)return 1;
-    if(rb==null)return -1;
-    return(ra-rb)*dir;
+function sortByRank(rows, rankFn, dir) {
+  rows.sort(function(a, b) {
+    var ra = rankFn(a), rb = rankFn(b);
+    if (ra == null && rb == null) return 0;
+    if (ra == null) return 1;
+    if (rb == null) return -1;
+    return (ra - rb) * dir;
   });
 }
-
-var proxyExplorerGen=0;
-export async function renderProxyExplorer(force){
-  var body=document.getElementById('proxy-explorer-body');if(!body)return;
-  if(!watchlist.length){body.innerHTML='<div class="track-empty">Watchlist is empty.</div>';return}
-  body.innerHTML='<div class="track-empty">Loading proxy resolutions…</div>';
-
-  // Wait for the card window's own hydration to finish before firing any
-  // fetch of our own — opening this panel while cards are still loading
-  // used to throw PRE's fetches (up to the full watchlist) straight into
-  // the same rate-limited backend queues the cards were relying on,
-  // slowing down the 15 tickers users actually look at first. No-op once
-  // cards have already finished (the common case — most panel opens
-  // happen well after initial load).
-  await cardsReady();
-  if(!watchlist.length)return; // watchlist could have emptied while we waited
-
-  // Card window (top CARD_CAP) resolves and paints first; anything beyond
-  // that streams in as each ticker's own fetch finishes instead of the
-  // whole panel blocking on the slowest ticker in a large watchlist.
-  var myGen=++proxyExplorerGen;
-  var priority=watchlist.slice(0,CARD_CAP);
-  var rest=watchlist.slice(CARD_CAP);
-  var resultsByTicker={};
-
-  async function buildRow(t){
-    var td=await fetchTickerData(t,force);
-    var rule=td&&td.proxyRule;
-    var tickerPct=td&&td.metrics?td.metrics.pct:null;
-    var liveSymbols=rule&&rule.proxy?(rule.proxy.symbols||[]).filter(function(s){return market&&market[s.toLowerCase()]&&typeof market[s.toLowerCase()].pct==='number'}):[];
-    var coherence=null;
-    if(rule&&rule.proxy&&typeof tickerPct==='number'&&liveSymbols.length){
-      var proxyPcts=liveSymbols.map(function(s){return market[s.toLowerCase()].pct});
-      var avgProxyPct=proxyPcts.reduce(function(a,b){return a+b},0)/proxyPcts.length;
-      coherence=classifyCoherence(tickerPct,avgProxyPct);
-    }
-    return{ticker:t,rule:rule,tickerPct:tickerPct,tier:rule?rule.tier||'primary':null,liveSymbols:liveSymbols,coherence:coherence};
+var proxyExplorerGen = 0;
+async function renderProxyExplorer(force) {
+  var body = document.getElementById("proxy-explorer-body");
+  if (!body) return;
+  if (!watchlist.length) {
+    body.innerHTML = '<div class="track-empty">Watchlist is empty.</div>';
+    return;
   }
-
-  function paint(){
-    if(myGen!==proxyExplorerGen)return; // a newer render superseded this one
-    var rows=watchlist.filter(function(t){return resultsByTicker[t]}).map(function(t){return resultsByTicker[t]});
-    if(proxySort.key==='level'){
-      sortByRank(rows,function(r){return r.tier!=null?TIER_RANK[r.tier]:null},proxySort.dir);
-    }else if(proxySort.key==='coherence'){
-      sortByRank(rows,function(r){return r.coherence?COHERENCE_RANK[r.coherence.label]:null},proxySort.dir);
+  body.innerHTML = '<div class="track-empty">Loading proxy resolutions\u2026</div>';
+  await pillHydrationDone;
+  if (!watchlist.length) return;
+  var myGen = ++proxyExplorerGen;
+  var priority = cardWindow();
+  var rest = overflowTickers();
+  var resultsByTicker = {};
+  async function buildRow(t) {
+    var td = await fetchTickerData(t, force);
+    var rule = td && td.proxyRule;
+    var tickerPct = td && td.metrics ? td.metrics.pct : null;
+    var liveSymbols = rule && rule.proxy ? (rule.proxy.symbols || []).filter((s) => market && market[s.toLowerCase()] && typeof market[s.toLowerCase()].pct === "number") : [];
+    var coherence = null;
+    if (rule && rule.proxy && typeof tickerPct === "number" && liveSymbols.length) {
+      var proxyPcts = liveSymbols.map((s) => market[s.toLowerCase()].pct);
+      var avgProxyPct = proxyPcts.reduce((a, b) => a + b, 0) / proxyPcts.length;
+      coherence = classifyCoherence(tickerPct, avgProxyPct);
     }
-
-    var tierColor={'primary':'var(--green)','secondary':'var(--amber)','fundamentals-confirmed':'var(--blue)','fundamentals-speculative':'var(--red)'};
-    body.innerHTML=rows.map(function(r){
-      if(!r.rule||!r.rule.proxy)return'<div class="proxy-item"><div class="proxy-item-head"><span class="proxy-ticker">'+tickerLink(r.ticker)+'</span><span class="analyst-val" style="color:var(--dim)">unavailable</span></div></div>';
-      var tier=r.tier||'primary';
-      var tc=tierColor[tier]||'var(--dim)';
-      var verifyLinks=[tickerLink(r.ticker)].concat((r.rule.proxy.symbols||[]).map(tickerLink)).join(' &middot; ');
-
+    return { ticker: t, rule, tickerPct, tier: rule ? rule.tier || "primary" : null, liveSymbols, coherence };
+  }
+  function paint() {
+    if (myGen !== proxyExplorerGen) return;
+    var rows = watchlist.filter((t) => resultsByTicker[t]).map((t) => resultsByTicker[t]);
+    if (proxySort.key === "level") sortByRank(rows, (r) => r.tier != null ? TIER_RANK[r.tier] : null, proxySort.dir);
+    else if (proxySort.key === "coherence") sortByRank(rows, (r) => r.coherence ? COHERENCE_RANK[r.coherence.label] : null, proxySort.dir);
+    var tierColor = { primary: "var(--green)", secondary: "var(--amber)", "fundamentals-confirmed": "var(--blue)", "fundamentals-speculative": "var(--red)" };
+    body.innerHTML = rows.map((r) => {
+      if (!r.rule || !r.rule.proxy) return `<div class="proxy-item"><div class="proxy-item-head"><span class="proxy-ticker">${tickerLink(r.ticker)}</span><span class="analyst-val" style="color:var(--ink-dim)">unavailable</span></div></div>`;
+      var tier = r.tier || "primary";
+      var tc = tierColor[tier] || "var(--ink-dim)";
+      var verifyLinks = [tickerLink(r.ticker)].concat((r.rule.proxy.symbols || []).map(tickerLink)).join(" &middot; ");
       var coherenceHtml;
-      if(!r.coherence){
-        coherenceHtml='<div class="proxy-coherence"><span class="analyst-lbl">LIVE COHERENCE</span><span class="analyst-val" style="color:var(--dim)">no live feed for this proxy</span></div>';
-      }else{
-        var chips=r.liveSymbols.map(function(s){var p=market[s.toLowerCase()].pct;return'<span class="proxy-live-chip">'+tickerLink(s)+' <b style="color:'+pctColor(p)+'">'+fmtPct(p)+'</b></span>'}).join('');
-        coherenceHtml='<div class="proxy-coherence">'
-          +'<div class="analyst-row" style="padding:0"><span class="analyst-lbl">LIVE COHERENCE</span><span class="proxy-tier-badge" style="color:'+r.coherence.color+';border-color:'+r.coherence.color+'55;background:'+r.coherence.color+'11">'+r.coherence.label+'</span></div>'
-          +'<div class="proxy-live-row"><span class="proxy-live-chip">'+tickerLink(r.ticker)+' <b style="color:'+pctColor(r.tickerPct)+'">'+fmtPct(r.tickerPct)+'</b></span>'+chips+'</div>'
-          +'</div>';
+      if (!r.coherence) {
+        coherenceHtml = '<div class="proxy-coherence"><span class="analyst-lbl">LIVE COHERENCE</span><span class="analyst-val" style="color:var(--ink-dim)">no live feed for this proxy</span></div>';
+      } else {
+        var chips = r.liveSymbols.map((s) => {
+          var p = market[s.toLowerCase()].pct;
+          return `<span class="proxy-live-chip">${tickerLink(s)} <b style="color:${pctColor(p)}">${fmtPct(p)}</b></span>`;
+        }).join("");
+        coherenceHtml = `<div class="proxy-coherence"><div class="analyst-row" style="padding:0"><span class="analyst-lbl">LIVE COHERENCE</span><span class="proxy-tier-badge" style="color:${r.coherence.color};border-color:${r.coherence.color}55;background:${r.coherence.color}11">${r.coherence.label}</span></div><div class="proxy-live-row"><span class="proxy-live-chip">${tickerLink(r.ticker)} <b style="color:${pctColor(r.tickerPct)}">${fmtPct(r.tickerPct)}</b></span>${chips}</div></div>`;
       }
-
-      return'<div class="proxy-item"><div class="proxy-item-head"><span class="proxy-ticker">'+tickerLink(r.ticker)+'</span>'
-        +'<span class="proxy-tier-badge" style="color:'+tc+';border-color:'+tc+'55;background:'+tc+'11">'+tier.toUpperCase().replace(/-/g,' ')+'</span></div>'
-        +'<div class="proxy-detail">'+r.rule.proxy.name+'</div>'
-        +'<div class="proxy-detail" style="color:var(--dim)">'+(r.rule.category||'')+(r.rule.dynamicallyResolved?' · dynamically resolved (quarterly recompute)':' · fixed sector proxy')+'</div>'
-        +(r.rule.proxy.rationale?'<div class="proxy-detail">'+r.rule.proxy.rationale+'</div>':'')
-        +'<div class="proxy-verify-row"><span class="analyst-lbl">VERIFY</span>'+verifyLinks+'</div>'
-        +coherenceHtml
-        +'</div>';
-    }).join('')
-    +(rest.length&&rows.length<watchlist.length?'<div class="track-empty">Loading '+(watchlist.length-rows.length)+' more…</div>':'')
-    +'<div class="proxy-shark-tease"><a href="../shark/coming-soon.html">&#9889; SHARK &mdash; real-time Alpaca data &amp; deeper proxy analytics &rarr;</a></div>';
+      return `<div class="proxy-item"><div class="proxy-item-head"><span class="proxy-ticker">${tickerLink(r.ticker)}</span><span class="proxy-tier-badge" style="color:${tc};border-color:${tc}55;background:${tc}11">${tier.toUpperCase().replace(/-/g, " ")}</span></div><div class="proxy-detail">${r.rule.proxy.name}</div><div class="proxy-detail" style="color:var(--ink-dim)">${r.rule.category || ""}${r.rule.dynamicallyResolved ? " \xB7 dynamically resolved (quarterly recompute)" : " \xB7 fixed sector proxy"}</div>` + (r.rule.proxy.rationale ? `<div class="proxy-detail">${r.rule.proxy.rationale}</div>` : "") + `<div class="proxy-verify-row"><span class="analyst-lbl">VERIFY</span>${verifyLinks}</div>` + coherenceHtml + "</div>";
+    }).join("") + (rest.length && rows.length < watchlist.length ? `<div class="track-empty">Loading ${watchlist.length - rows.length} more\u2026</div>` : "") + '<div class="proxy-shark-tease"><a href="../shark/coming-soon.html">&#9889; SHARK &mdash; real-time Alpaca data &amp; deeper proxy analytics &rarr;</a></div>';
   }
-
-  await Promise.all(priority.map(async function(t){resultsByTicker[t]=await buildRow(t);}));
+  await Promise.all(priority.map(async (t) => {
+    resultsByTicker[t] = await buildRow(t);
+  }));
   paint();
-
-  rest.forEach(function(t){
-    buildRow(t).then(function(row){resultsByTicker[t]=row;paint();});
-  });
-}
-
-export function refreshProxyExplorer(){renderProxyExplorer(true)}
-
-export function toggleProxyExplorer(){
-  var panel=document.getElementById('proxy-explorer-panel');
-  var arrow=document.getElementById('proxy-explorer-arrow');
-  var header=document.getElementById('proxy-explorer-header');
-  var open=panel.classList.toggle('open');
-  arrow.classList.toggle('open',open);
-  header.classList.toggle('open',open);
-  if(open)renderProxyExplorer();
-}
-
-export function openProxyExplorer(){
-  var m=document.getElementById('profile-menu');if(m)m.classList.remove('open');
-  var panel=document.getElementById('proxy-explorer-panel');
-  if(panel&&!panel.classList.contains('open'))toggleProxyExplorer();
-  var section=document.getElementById('proxy-explorer-section');
-  if(section)section.scrollIntoView({behavior:'smooth',block:'start'});
-}
-
-// ── PRO — track-record gate-attribution breakdown ──────────────────
-// Same tv_accuracy_log the shared module already renders as a plain
-// right/wrong list — this groups it by which mechanism drove each logged
-// verdict (see classifyTrigger above) so Pro can see accuracy by gate/
-// override, not just an aggregate hit rate.
-function renderGateAttribution(){
-  var el=document.getElementById('track-gate-breakdown');if(!el)return;
-  var log=getAccuracyLog().filter(function(e){return e.trigger});
-  if(!log.length){el.innerHTML='';return}
-  var by={};
-  log.forEach(function(e){
-    var k=e.trigger;
-    if(!by[k])by[k]={c:0,t:0};
-    by[k].t++;if(e.correct)by[k].c++;
-  });
-  var order=['pre-gate','gate0','gate1','gate5','corroboration','standard'];
-  var rows=order.filter(function(k){return by[k]}).map(function(k){
-    var s=by[k];var rate=Math.round((s.c/s.t)*100);
-    var color=rate>=65?'var(--green)':rate>=50?'var(--amber)':'var(--red)';
-    return'<div class="trigger-row"><span class="trigger-lbl">'+TRIGGER_LABELS[k]+'</span><span class="trigger-val" style="color:'+color+'">'+rate+'%</span><span class="trigger-sub">'+s.c+'/'+s.t+'</span></div>';
-  }).join('');
-  el.innerHTML='<div class="track-log-title" style="margin-top:12px">ACCURACY BY TRIGGER</div>'+rows;
-}
-
-// Same log, grouped by ticker instead of trigger — "TOP TICKERS" in the
-// shared summary only shows the top 3 as a single inline line; this is the
-// full breakdown, sorted by most-logged first.
-function renderTickerAccuracy(){
-  var el=document.getElementById('track-ticker-breakdown');if(!el)return;
-  var log=getAccuracyLog();
-  if(!log.length){el.innerHTML='';return}
-  var by={};
-  log.forEach(function(e){
-    if(!by[e.ticker])by[e.ticker]={c:0,t:0};
-    by[e.ticker].t++;if(e.correct)by[e.ticker].c++;
-  });
-  var rows=Object.entries(by).sort(function(a,b){return b[1].t-a[1].t}).map(function(entry){
-    var ticker=entry[0],s=entry[1];var rate=Math.round((s.c/s.t)*100);
-    var color=rate>=65?'var(--green)':rate>=50?'var(--amber)':'var(--red)';
-    return'<div class="trigger-row"><span class="trigger-lbl"><a class="ticker-a" href="'+tickerHref(ticker)+'" target="_blank">'+ticker+'</a></span><span class="trigger-val" style="color:'+color+'">'+rate+'%</span><span class="trigger-sub">'+s.c+'/'+s.t+'</span></div>';
-  }).join('');
-  el.innerHTML='<div class="track-log-title" style="margin-top:12px">ACCURACY BY TICKER</div>'+rows;
-}
-
-// ── PRO — Sector Heat Map ───────────────────────────────────────────
-// Same /market data the sector bar already displays as plain colored text —
-// this renders it (plus each watchlisted ticker's own %-change) as tiles
-// whose background intensity scales with the size of the move, so a scan
-// of the grid reads the day at a glance instead of reading ten numbers.
-var HEATMAP_SECTORS=[['spy','SPY'],['qqq','QQQ'],['iwm','IWM'],['xbi','XBI'],['soxx','SOXX'],['tsm','TSM'],['msft','MSFT'],['btc','BTC'],['gld','GLD'],['uso','USO']];
-var HEATMAP_MAX_PCT=3; // %-move that reaches full tile-color intensity
-
-function heatTileHtml(label,pct,ticker){
-  var tagAttr=ticker?' data-ticker="'+ticker+'"':'';
-  if(typeof pct!=='number')return'<div class="heat-tile heat-tile-empty"'+tagAttr+'><span class="heat-tile-lbl"><a class="ticker-a" href="'+tickerHref(label)+'" target="_blank">'+label+'</a></span><span class="heat-tile-val">?</span></div>';
-  var intensity=Math.min(Math.abs(pct)/HEATMAP_MAX_PCT,1);
-  var rgb=pct>=0?'0,230,118':pct<0?'255,23,68':'96,125,139';
-  var bg='rgba('+rgb+','+(0.08+intensity*0.32).toFixed(2)+')';
-  var border='rgba('+rgb+','+(0.25+intensity*0.5).toFixed(2)+')';
-  return'<div class="heat-tile" style="background:'+bg+';border-color:'+border+'"'+tagAttr+'><span class="heat-tile-lbl"><a class="ticker-a" href="'+tickerHref(label)+'" target="_blank">'+label+'</a></span><span class="heat-tile-val">'+fmtPct(pct)+'</span></div>';
-}
-
-var heatMapGen=0;
-export async function renderHeatMap(force){
-  var sectorEl=document.getElementById('heatmap-sectors');
-  var wlEl=document.getElementById('heatmap-watchlist');
-  if(!sectorEl||!wlEl)return;
-  sectorEl.innerHTML=HEATMAP_SECTORS.map(function(s){
-    var d=market&&market[s[0]];
-    return heatTileHtml(s[1],d&&typeof d.pct==='number'?d.pct:null);
-  }).join('');
-  if(!watchlist.length){wlEl.innerHTML='<div class="track-empty">Watchlist is empty.</div>';return}
-
-  // Card window (top CARD_CAP) resolves first; the rest update their own
-  // tile in place as each ticker's own fetch finishes, instead of every
-  // tile sitting on "?" until the slowest ticker in a large watchlist
-  // finally comes back.
-  var myGen=++heatMapGen;
-  wlEl.innerHTML=watchlist.map(function(t){return heatTileHtml(t,null,t)}).join('');
-
-  function paintTile(t,pct){
-    if(myGen!==heatMapGen)return; // a newer render superseded this one
-    var el=wlEl.querySelector('[data-ticker="'+t+'"]');
-    if(!el)return;
-    el.outerHTML=heatTileHtml(t,pct,t);
-  }
-
-  // Wait for the card window's own hydration to finish before firing any
-  // fetch of our own — see the matching comment in renderProxyExplorer.
-  // Tiles stay visible as "?" placeholders while this waits.
-  await cardsReady();
-  if(myGen!==heatMapGen)return; // a newer render started while we waited
-
-  var priority=watchlist.slice(0,CARD_CAP);
-  var rest=watchlist.slice(CARD_CAP);
-
-  await Promise.all(priority.map(async function(t){
-    var td=await fetchTickerData(t,force);
-    paintTile(t,td&&td.metrics?td.metrics.pct:null);
-  }));
-
-  rest.forEach(function(t){
-    fetchTickerData(t,force).then(function(td){
-      paintTile(t,td&&td.metrics?td.metrics.pct:null);
+  rest.forEach((t) => {
+    buildRow(t).then((row) => {
+      resultsByTicker[t] = row;
+      paint();
     });
   });
 }
-
-export function refreshHeatMap(){renderHeatMap(true)}
-
-export function toggleHeatMap(){
-  var panel=document.getElementById('heatmap-panel');
-  var arrow=document.getElementById('heatmap-arrow');
-  var header=document.getElementById('heatmap-header');
-  var open=panel.classList.toggle('open');
-  arrow.classList.toggle('open',open);
-  header.classList.toggle('open',open);
-  if(open)renderHeatMap();
+function refreshProxyExplorer() {
+  renderProxyExplorer(true);
 }
-
-// ── PRO — Export watchlist + cards as one CSV ────────────────────────
-// One file across both lists — cards and the compact watchlist are just two
-// windows over the same underlying array, so the export doesn't split them
-// into separate files, just tags each row so it's still clear which side a
-// ticker was on. IV comes from td.iv (server-side /ticker, Pro+Shark only —
-// see Tra's tierConfig.iv / fetchImpliedVolatility, sourced from Alpaca
-// options snapshots since Finnhub's free tier has no IV data at all). It's
-// UNVERIFIED against a live Alpaca options subscription as of this writing —
-// td.iv may legitimately be null for tickers with no listed options, or for
-// every ticker if the Alpaca account lacks options-data entitlement, in
-// which case this still falls back to N/A rather than showing a stale/wrong
-// number.
-export async function exportWatchlistCSV(btnEl){
-  if(!watchlist.length)return alert('Watchlist is empty — nothing to export.');
-  if(btnEl){var old=btnEl.textContent;btnEl.textContent='EXPORTING…';btnEl.disabled=true;}
-  var rows=await Promise.all(watchlist.map(async function(t,i){
-    var td=await fetchTickerData(t);
-    var price=td&&td.metrics&&td.metrics.price!=null?td.metrics.price:'';
-    var pct=td&&td.metrics&&typeof td.metrics.pct==='number'?td.metrics.pct.toFixed(2):'';
-    var iv=td&&typeof td.iv==='number'?(td.iv*100).toFixed(1)+'%':'N/A';
-    return[t,i<CARD_CAP?'CARD':'WATCHLIST',price,iv,pct];
+function renderGateAttribution() {
+  var el = document.getElementById("track-gate-breakdown");
+  if (!el) return;
+  var log = getAccuracyLog().filter((e) => e.trigger);
+  if (!log.length) {
+    el.innerHTML = "";
+    return;
+  }
+  var by = {};
+  log.forEach((e) => {
+    var k = e.trigger;
+    if (!by[k]) by[k] = { c: 0, t: 0 };
+    by[k].t++;
+    if (e.correct) by[k].c++;
+  });
+  var order = ["pre-gate", "gate0", "gate1", "gate5", "corroboration", "standard"];
+  var rows = order.filter((k) => by[k]).map((k) => {
+    var s = by[k];
+    var rate = Math.round(s.c / s.t * 100);
+    var color = rate >= 65 ? "var(--green)" : rate >= 50 ? "var(--amber)" : "var(--red)";
+    return `<div class="trigger-row"><span class="trigger-lbl">${TRIGGER_LABELS[k]}</span><span class="trigger-val" style="color:${color}">${rate}%</span><span class="trigger-sub">${s.c}/${s.t}</span></div>`;
+  }).join("");
+  el.innerHTML = '<div class="track-log-title" style="margin-top:12px">ACCURACY BY TRIGGER</div>' + rows;
+}
+function renderTickerAccuracy() {
+  var el = document.getElementById("track-ticker-breakdown");
+  if (!el) return;
+  var log = getAccuracyLog();
+  if (!log.length) {
+    el.innerHTML = "";
+    return;
+  }
+  var by = {};
+  log.forEach((e) => {
+    if (!by[e.ticker]) by[e.ticker] = { c: 0, t: 0 };
+    by[e.ticker].t++;
+    if (e.correct) by[e.ticker].c++;
+  });
+  var rows = Object.entries(by).sort((a, b) => b[1].t - a[1].t).map(([ticker, s]) => {
+    var rate = Math.round(s.c / s.t * 100);
+    var color = rate >= 65 ? "var(--green)" : rate >= 50 ? "var(--amber)" : "var(--red)";
+    return `<div class="trigger-row"><span class="trigger-lbl"><a class="ticker-a" href="${tickerHref(ticker)}" target="_blank">${ticker}</a></span><span class="trigger-val" style="color:${color}">${rate}%</span><span class="trigger-sub">${s.c}/${s.t}</span></div>`;
+  }).join("");
+  el.innerHTML = '<div class="track-log-title" style="margin-top:12px">ACCURACY BY TICKER</div>' + rows;
+}
+function refreshTrackRecordCard() {
+  renderTrackRecord();
+  renderGateAttribution();
+  renderTickerAccuracy();
+}
+var HEATMAP_SECTORS = [["spy", "SPY"], ["qqq", "QQQ"], ["iwm", "IWM"], ["xbi", "XBI"], ["soxx", "SOXX"], ["tsm", "TSM"], ["msft", "MSFT"], ["btc", "BTC"], ["gld", "GLD"], ["uso", "USO"]];
+var HEATMAP_MAX_PCT = 3;
+function heatTileHtml(label, pct, ticker) {
+  var tagAttr = ticker ? ` data-ticker="${ticker}"` : "";
+  if (typeof pct !== "number") return `<div class="heat-tile heat-tile-empty"${tagAttr}><span class="heat-tile-lbl"><a class="ticker-a" href="${tickerHref(label)}" target="_blank">${label}</a></span><span class="heat-tile-val">?</span></div>`;
+  var intensity = Math.min(Math.abs(pct) / HEATMAP_MAX_PCT, 1);
+  var rgb = pct >= 0 ? "0,230,118" : pct < 0 ? "255,59,92" : "96,125,139";
+  var bg = `rgba(${rgb},${(0.08 + intensity * 0.32).toFixed(2)})`;
+  var border = `rgba(${rgb},${(0.25 + intensity * 0.5).toFixed(2)})`;
+  return `<div class="heat-tile" style="background:${bg};border-color:${border}"${tagAttr}><span class="heat-tile-lbl"><a class="ticker-a" href="${tickerHref(label)}" target="_blank">${label}</a></span><span class="heat-tile-val">${fmtPct(pct)}</span></div>`;
+}
+var heatMapGen = 0;
+async function renderHeatMap(force) {
+  var sectorEl = document.getElementById("heatmap-sectors");
+  var wlEl = document.getElementById("heatmap-watchlist");
+  if (!sectorEl || !wlEl) return;
+  sectorEl.innerHTML = HEATMAP_SECTORS.map(([key, label]) => {
+    var d = market && market[key];
+    return heatTileHtml(label, d && typeof d.pct === "number" ? d.pct : null);
+  }).join("");
+  if (!watchlist.length) {
+    wlEl.innerHTML = '<div class="track-empty">Watchlist is empty.</div>';
+    return;
+  }
+  var myGen = ++heatMapGen;
+  wlEl.innerHTML = watchlist.map((t) => heatTileHtml(t, null, t)).join("");
+  function paintTile(t, pct) {
+    if (myGen !== heatMapGen) return;
+    var el = wlEl.querySelector(`[data-ticker="${t}"]`);
+    if (!el) return;
+    el.outerHTML = heatTileHtml(t, pct, t);
+  }
+  await pillHydrationDone;
+  if (myGen !== heatMapGen) return;
+  var priority = cardWindow();
+  var rest = overflowTickers();
+  await Promise.all(priority.map(async (t) => {
+    var td = await fetchTickerData(t, force);
+    paintTile(t, td && td.metrics ? td.metrics.pct : null);
   }));
-  var csvEsc=function(v){var s=String(v);return/[",\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s};
-  var csv=[['Ticker','List','Price','IV','Change%']].concat(rows)
-    .map(function(r){return r.map(csvEsc).join(',')}).join('\r\n');
-  var blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
-  var url=URL.createObjectURL(blob);
-  var a=document.createElement('a');
-  a.href=url;a.download='trade-tribunal-watchlist-'+new Date().toISOString().slice(0,10)+'.csv';
-  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  rest.forEach((t) => {
+    fetchTickerData(t, force).then((td) => paintTile(t, td && td.metrics ? td.metrics.pct : null));
+  });
+}
+function refreshHeatMap() {
+  renderHeatMap(true);
+}
+async function exportWatchlistCSV(btnEl) {
+  if (!watchlist.length) return alert("Watchlist is empty \u2014 nothing to export.");
+  var old = null;
+  if (btnEl) {
+    old = btnEl.textContent;
+    btnEl.textContent = "EXPORTING\u2026";
+    btnEl.disabled = true;
+  }
+  var rows = await Promise.all(watchlist.map(async function(t, i) {
+    var td = await fetchTickerData(t);
+    var price = td && td.metrics && td.metrics.price != null ? td.metrics.price : "";
+    var pct = td && td.metrics && typeof td.metrics.pct === "number" ? td.metrics.pct.toFixed(2) : "";
+    var iv = td && typeof td.iv === "number" ? (td.iv * 100).toFixed(1) + "%" : "N/A";
+    return [t, i < CARD_CAP ? "CARD" : "WATCHLIST", price, iv, pct];
+  }));
+  var csvEsc = function(v) {
+    var s = String(v);
+    return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  var csv = [["Ticker", "List", "Price", "IV", "Change%"]].concat(rows).map(function(r) {
+    return r.map(csvEsc).join(",");
+  }).join("\r\n");
+  var blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url;
+  a.download = "trade-tribunal-watchlist-" + (/* @__PURE__ */ new Date()).toISOString().slice(0, 10) + ".csv";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  if(btnEl){btnEl.textContent=old;btnEl.disabled=false;}
-}
-
-var GLOSSARY=[
-  {cat:'CRF FRAMEWORK',term:'CRF (Catalyst Response Framework)',def:'A step-by-step checklist this app runs on a stock before giving you a verdict. If enough of the checklist looks good, that’s a thumbs up; if enough looks bad, that’s a thumbs down.',ex:'Think of it like a pre-flight checklist for a trade — pilots don’t take off until enough boxes are checked.'},
-  {cat:'CRF FRAMEWORK',term:'Pre-Gate — Thesis Integrity',def:'A quick background check on the company itself, looking for red flags like financial trouble, before the app even looks at the stock’s price. A serious red flag here can override everything else.',ex:'Like checking a used car’s title for a salvage flag before you even look under the hood.'},
-  {cat:'CRF FRAMEWORK',term:'Gate 0 — Sector Gate',def:'Checks how the overall stock market is doing today. If the whole market is having a bad day, that drags down the outlook for pretty much everything.',ex:'A rising tide lifts all boats — a sinking one drags them down too.'},
-  {cat:'CRF FRAMEWORK',term:'Gate 1 — Bidirectional Trend Structure',def:'Looks at whether the stock has already made a big move recently, up or down. A stock that’s already run up a lot is riskier to chase, and one that’s fallen too far too fast is a red flag too.',ex:'Like being wary of a stock that already “ran” — you don’t want to be the last one to the party.'},
-  {cat:'CRF FRAMEWORK',term:'Gate 2 — Catalyst Congruence',def:'Checks whether recent news about the company actually supports the direction the app is leaning.',ex:'Makes sure the story and the numbers are telling the same story.'},
-  {cat:'CRF FRAMEWORK',term:'Gate 3 — Opening Bar',def:'Watches how the stock trades in the first few minutes after the market opens, since that early action often hints at where the rest of the day is headed.',ex:'Like judging a race by how strong the runners look at the starting gun.'},
-  {cat:'CRF FRAMEWORK',term:'Gate 4 — Phase Identification',def:'Figures out whether a stock’s big move is just getting started, already well underway, or has gone so far it might be due for a pullback.',ex:'Early innings vs. late innings of the same game.'},
-  {cat:'CRF FRAMEWORK',term:'Gate 5 — Dynamic Sector Proxy',def:'Compares the stock to other companies or funds in the same industry, to see if it’s moving with its peers or acting strangely on its own.',ex:'Checking if one kid in class is sick, or if the whole class has the flu.'},
-  {cat:'TICKER CLASSIFICATIONS',term:'Canary',def:'European or institutional base that prices macro risk early. When canaries fall while sentiment names rise, reversal is coming.',ex:'ASML fell before MU/ALAB. Warned 10-21 days early.'},
-  {cat:'TICKER CLASSIFICATIONS',term:'Sentiment',def:'Moves most directly with AI capex or sector confidence, ignoring macro until it breaks.',ex:'MU, NVDA, AMD. Ran +47% into Broadcom miss then crashed 12.8%.'},
-  {cat:'TICKER CLASSIFICATIONS',term:'Flow',def:'Moves on mechanical buying events. Institutions distribute at the opening bar on positive catalyst days.',ex:'ALAB opened $315 on Computex day, flushed to $292 in 30 min on 1.1M shares.'},
-  {cat:'TICKER CLASSIFICATIONS',term:'Proxy tier (Gate 5)',def:'A label showing how confident the app is in the industry comparison it picked for this stock — some comparisons are well-tested, others are more of an educated guess.',ex:'Like the difference between a doctor’s confirmed diagnosis and an educated guess based on symptoms.'},
-  {cat:'OPTIONS — GREEKS',term:'Delta (Δ)',def:'How much an option moves per $1 move in the stock. ATM options ~0.50. Also approximates probability of expiring in-the-money.',ex:'Delta 0.50 call gains $0.50 when stock rises $1.'},
-  {cat:'OPTIONS — GREEKS',term:'Gamma (Γ)',def:'Rate of change of delta. High gamma = delta shifts rapidly. Options near expiry and ATM have highest gamma.',ex:'High-gamma option: $1 stock move shifts delta from 0.50 to 0.65.'},
-  {cat:'OPTIONS — GREEKS',term:'Theta (Θ)',def:'Time decay per day. Sellers’ friend, buyers’ enemy. Accelerates in final 2 weeks before expiry.',ex:'$2.00 option with theta −0.05 loses $0.50 over 10 days even if stock flat.'},
-  {cat:'OPTIONS — GREEKS',term:'Vega (ν)',def:'Sensitivity to implied volatility. Buying pre-earnings buys vega, but IV collapses after the event (IV crush).',ex:'Buy $3.00 pre-earnings, stock moves your way, IV drops 45pts → option now $1.80.'},
-  {cat:'OPTIONS — CONCEPTS',term:'Implied Volatility (IV)',def:'Market’s expectation of future price movement, annualized. High IV = expensive options. Forward-looking, not historical.',ex:'ALAB IV ran 98-115% during parabolic phase. Selling premium more attractive than buying.'},
-  {cat:'OPTIONS — CONCEPTS',term:'IV Rank (IVR)',def:'Where current IV sits vs past 52 weeks as a percentile. IVR >80 = Phase 3 signal in CRF.',ex:'IVR 85 = IV higher than 85% of readings this year → Gate 4 RED lean.'},
-  {cat:'OPTIONS — CONCEPTS',term:'Put/Call Skew',def:'Difference between put IV and call IV at equal distance from current price. Positive skew = bearish institutional hedging.',ex:'CHAT showed consistent +4pt put skew → Gate 2 bearish lean.'},
-  {cat:'OPTIONS — CONCEPTS',term:'Expected Move',def:'Market-implied 1-sigma price range by expiration. Stock stays within this range ~68% of the time.',ex:'Stock $50, ATM IV 80%, 30 DTE → expected move ±$12.30.'},
-  {cat:'OPTIONS — CONCEPTS',term:'IV Crush',def:'Sharp drop in IV immediately after a catalyst. Options lose value even on correct direction.',ex:'Buy put pre-earnings $3.00. Stock drops 5% but IV collapses 55pts → put now $1.80.'},
-  {cat:'OPTIONS — CONCEPTS',term:'Cash-Secured Put',def:'Selling a put while holding cash to buy shares at strike if assigned. Generates income on names you’d want to own.',ex:'ARCC at $18.50 → sell $18 put for $0.48. Assigned = effective buy at $17.52.'},
-  {cat:'OPTIONS — CONCEPTS',term:'Gamma Exposure (GEX)',def:'Aggregate dollar impact of dealer hedging. Positive GEX = dealers dampen moves. Negative GEX = dealers amplify moves. Acts as a weighting overlay on Gate 0, not a pass/fail rule.',ex:'SPX negative GEX → Opening Drive gaps extend. Momentum more reliable.'},
-  {cat:'MARKET STRUCTURE',term:'Opening Drive',def:'First 90 minutes (9:30-11:00am ET). Highest volume, highest volatility. Most institutional orders execute here. This app is built for this window.',ex:'Stock gaps up 3% with 2× average volume in bar 1 = Opening Drive setup.'},
-  {cat:'MARKET STRUCTURE',term:'Gap Up / Gap Down',def:'Stock opens significantly different from prior close. CRF entry: gap ≥2% from prior close, enter at ask +1%.',ex:'SMMT closed $45, opens $47.50 = +5.5% gap. Check all gates.'},
-  {cat:'MARKET STRUCTURE',term:'Engulfing Candle',def:'Second candle’s body completely contains the first. Bullish engulf = buyers overwhelmed sellers. Gate 3 uses this for Monday signals.',ex:'Monday bar 1 red at $40, bar 2 opens $38 closes $41 = bullish engulf → Gate 3 GREEN.'},
-  {cat:'MARKET STRUCTURE',term:'Circuit Breaker',def:'Automatic trading halt when market falls a specified percentage. US halts at −7%, −13%, −20%. KOSPI at −8%.',ex:'KOSPI circuit breaker → Gate 5 RED for all AI/semi names via the Korea/Taiwan proxy exception.'},
-  {cat:'MARKET STRUCTURE',term:'Short Squeeze',def:'Heavily shorted stock rises sharply, forcing shorts to buy to cover, pushing price higher. Brief but explosive.',ex:'IREN 18.7% short float, <2 days to cover. Any positive catalyst could trigger a squeeze.'},
-  {cat:'SECTOR TERMS',term:'KOSPI',def:'Korea Composite Stock Price Index. Leading indicator for US AI/semi names. US names lag KOSPI crashes by 1-3 sessions.',ex:'KOSPI −6% Tuesday → NVDA/MU/ALAB pressure Thursday-Friday.'},
-  {cat:'SECTOR TERMS',term:'TSM (Taiwan Semiconductor)',def:'World’s largest contract chip manufacturer. Single best proxy for global semiconductor health. TSM drop >3% = Gate 5 RED for all AI/semi names (Korea/Taiwan proxy exception — takes priority over the dynamic algorithm for this group).',ex:'TSM −4% → Taiwan semi stress → risk-off on AI/semi entries.'},
-  {cat:'SECTOR TERMS',term:'XBI / IBB',def:'Biotech ETFs. XBI equal-weighted (smaller companies more impact). XBI is Gate 5’s fixed proxy for biotech/medical names.',ex:'XBI −2% → biotech risk-off → Gate 5 YELLOW or RED for SMMT/VCYT/IMVT.'},
-  {cat:'SECTOR TERMS',term:'SOXX',def:'iShares Semiconductor ETF. Tracks 30 largest US-listed semiconductor companies. Best sector indicator for AI/chip trades.',ex:'SOXX −3% while SPY flat = semiconductor-specific stress.'},
-  {cat:'SECTOR TERMS',term:'HBM (High Bandwidth Memory)',def:'RAM designed for AI training. Only Micron, Samsung, SK Hynix make it. Core of MU’s AI thesis.',ex:'Hyperscaler capex slowdown = HBM demand slowdown = MU pressure.'},
-  {cat:'SECTOR TERMS',term:'Neocloud',def:'Companies renting GPU compute to AI developers. Borrow billions to buy Nvidia GPUs, rent at premium.',ex:'IREN, CoreWeave. Revenue real; profitability theoretical for most.'},
-  {cat:'SECTOR TERMS',term:'BDC (Business Development Company)',def:'Fund making loans to mid-sized businesses, required to distribute 90%+ of income as dividends.',ex:'ARCC is the largest publicly traded BDC. Income from loan interest, not appreciation.'},
-  {cat:'TRADING TERMINOLOGY',term:'Long',def:'Buying and owning shares expecting price to rise.',ex:'Buy 100 SMMT at $45. Sell at $50. $500 profit.'},
-  {cat:'TRADING TERMINOLOGY',term:'Short / Short Selling',def:'Borrowing shares, selling immediately, buying back later. Profit if price falls. Loss if rises — theoretically unlimited.',ex:'Short 100 IREN at $40. Falls to $32 → $800 profit.'},
-  {cat:'TRADING TERMINOLOGY',term:'Defined Risk',def:'Position where max loss is fixed at entry. Buying options or spreads. Cannot lose more than premium paid.',ex:'Buy 1 put for $200. Stock rallies. Max loss = $200.'},
-  {cat:'TRADING TERMINOLOGY',term:'Stop Loss',def:'Pre-set price at which you automatically exit to limit losses. Set before entry. CRF: −3% for high-conviction names.',ex:'Enter SMMT at $45. Stop at $43.65 (−3%). Hit $43.65 → exit immediately.'},
-  {cat:'TRADING TERMINOLOGY',term:'Sector Rotation',def:'Money moving from one sector to another. Sector pulse blurb tracks this daily.',ex:'AI fears → money rotates from NVDA into GLD and USO.'},
-  {cat:'TRADING TERMINOLOGY',term:'Sell the News',def:'Stock falls after a positive catalyst because good news was already priced in. Phase 3 behavior.',ex:'ALAB beats Q1 by 12%. Stock drops 13% next day. Beat was priced in.'},
-  {cat:'TRADING TERMINOLOGY',term:'14-Day Pre-Window',def:'14 trading days before a catalyst. Over +20% move in this window = Gate 1 RED (uptrend exhaustion branch).',ex:'MU ran +35% in 14 days before record earnings. Gate 1 RED. Sold off on the print.'},
-  {cat:'TRADING TERMINOLOGY',term:'Pyramiding',def:'Adding to a winning position in smaller increments as it moves in your favor.',ex:'100 shares at $45. Rises to $47 → add 50. Hits $49 → add 25.'},
-  {cat:'TRADING TERMINOLOGY',term:'GTC (Good Till Cancelled)',def:'Order that stays active until manually cancelled. Use for stop losses on multi-day holds.',ex:'GTC stop at $43.65 on SMMT triggers automatically even if it gaps down overnight.'},
-  {cat:'OPTIONS — GREEKS',term:'Rho (ρ)',def:'Sensitivity to a 1% change in interest rates. Smallest of the four Greeks for short-dated options — matters on LEAPS-length duration, negligible for the Opening Drive holds this app is built around.',ex:'A 6-month call with Rho 0.15 gains ~$0.15 per 1% rate hike — a rounding error next to a same-day 3% move driven by Delta/Gamma.'},
-  {cat:'OPTIONS — CONCEPTS',term:'Call Option',def:'Right (not obligation) to buy 100 shares at the strike price before expiration. Buyers profit if the stock rises above strike + premium paid.',ex:'Buy 1 SMMT $50 call for $2.00. Stock closes $55 at expiry → intrinsic value $5.00, profit $3.00/share.'},
-  {cat:'OPTIONS — CONCEPTS',term:'Put Option',def:'Right (not obligation) to sell 100 shares at the strike price before expiration. Buyers profit if the stock falls below strike − premium paid.',ex:'Buy 1 IREN $35 put for $1.50. Stock drops to $30 at expiry → intrinsic value $5.00, profit $3.50/share.'},
-  {cat:'OPTIONS — CONCEPTS',term:'Strike Price',def:'The fixed price at which an option’s owner can buy (call) or sell (put) the underlying. Set when the contract is created and never changes.',ex:'A $45 call and a $50 call on the same expiry are different contracts — the $45 strike is already in-the-money at a $47 stock price, the $50 strike is not.'},
-  {cat:'OPTIONS — CONCEPTS',term:'DTE (Days to Expiration)',def:'Calendar days remaining until an option contract expires. Theta decay accelerates as DTE shrinks, especially inside the final 2 weeks.',ex:'A 30 DTE option loses value slowly. The same strike at 3 DTE bleeds premium daily even on a flat stock.'},
-  {cat:'OPTIONS — CONCEPTS',term:'ITM / ATM / OTM',def:'In-the-money (has intrinsic value — call strike below spot, put strike above), at-the-money (strike ≈ spot), out-of-the-money (no intrinsic value yet, pure premium). Delta approximates the odds of finishing ITM.',ex:'Stock at $50: the $45 call is ITM, the $50 call is ATM, the $55 call is OTM.'},
-  {cat:'TRADING TERMINOLOGY',term:'Bid / Ask (Bid-Ask Spread)',def:'Bid = highest price a buyer will pay right now. Ask = lowest price a seller will accept. The spread between them is a real, invisible cost — wider on illiquid names and thin extended-hours books.',ex:'IREN bid $39.98 / ask $40.05 — a market order to buy fills near $40.05, not the $40.00 last-trade price shown on the card.'},
-  {cat:'TRADING TERMINOLOGY',term:'Limit Order',def:'An order that only fills at your specified price or better. Guarantees price, not execution — can go unfilled if the stock never trades there.',ex:'Limit buy SMMT at $45.00 while it’s trading $45.20 — sits unfilled until the price comes down to you (or never).'},
-  {cat:'TRADING TERMINOLOGY',term:'Market Order',def:'An order that fills immediately at the best available price. Guarantees execution, not price — on a fast-moving or thin name you can pay meaningfully more than the last quote.',ex:'A market buy during a gap-up Opening Drive can fill 1-2% above the price you saw when you clicked.'},
-  {cat:'TRADING TERMINOLOGY',term:'Ladder / Laddering',def:'Splitting one order into several smaller limit orders staggered across a price range instead of one order at one price. Improves average fill price on size that would otherwise move a thin book.',ex:'Instead of one 500-share market buy, ladder 100 shares each at $45.00/$45.10/$45.20/$45.30/$45.40.'},
-  {cat:'MARKET STRUCTURE',term:'VWAP (Volume-Weighted Average Price)',def:'The running average price of a stock for the session, weighted by volume at each price. Resets daily. Widely used intraday as a fair-value line — price above VWAP favors longs, below favors shorts.',ex:'Stock pops to $52 but VWAP sits at $49.80 — a lot of the day’s volume already changed hands well below the current price.'},
-  {cat:'MARKET STRUCTURE',term:'Relative Volume (RVOL)',def:'Current volume compared to the average volume for this point in the session. RVOL >2x on an Opening Drive gap is what separates a real institutional move from noise.',ex:'ALAB gaps up 4% on 1.1M shares in the first 5 minutes vs a normal 5-minute average of 280K → RVOL ~4x, high-conviction signal.'},
-  {cat:'MARKET STRUCTURE',term:'Support / Resistance',def:'Price levels where a stock has historically reversed. Support = a floor buyers defended before. Resistance = a ceiling sellers defended before. Neither is guaranteed to hold twice.',ex:'PLUG bounced at $2.10 three times this quarter — that’s support until it isn’t; a close below it on volume is the tell it broke.'},
-  {cat:'MARKET STRUCTURE',term:'Extended Hours (Pre-Market / Post-Market)',def:'Trading outside the 9:30am-4:00pm ET regular session: pre-market (4:00-9:30am ET) and post-market (4:00-8:00pm ET) on IEX Exchange’s formal extended sessions. Real prints, but on a much thinner book than the regular consolidated tape — moves here can reverse hard once the full tape opens.',ex:'CIFR prints $24.16 pre-market on light volume, opens the regular session at $22.10 once the full tape weighs in.'},
-  {cat:'CRF FRAMEWORK',term:'Proxy Resolution Explorer',def:'A Pro-only panel where you can see which industry comparison the app picked for each stock on your watchlist, and how strong that comparison is.',ex:'A behind-the-scenes look at the “who’s this stock compared to” decision for every ticker you’re tracking.'},
-  {cat:'CRF FRAMEWORK',term:'Sector Heat Map',def:'A Pro-only panel showing how different industries are doing today at a glance, so you can quickly spot which sectors are green and which are red.',ex:'Like a weather map, but for which parts of the stock market are stormy right now.'},
-  {cat:'MARKET STRUCTURE',term:'Beta (β)',def:'A stock’s volatility relative to the overall market (SPY), where 1.0 = moves in line with the market, >1 amplifies market moves, <1 dampens them. Shown on each card as β. A negative beta means the stock tends to move opposite the market — treat it as effectively uncorrelated to its assigned Gate 5 proxy rather than confirming or denying that proxy read.',ex:'IREN at β2.1 is expected to move ~2.1% for every 1% SPY move. A rare β−0.3 name would be expected to drift up on a red SPY day.'},
-  {cat:'MARKET STRUCTURE',term:'Intraday',def:'Within a single trading day — opened and evaluated before the next session begins, as opposed to a multi-day swing or long-term hold. This app’s entire CRF framework is built around intraday timing: the Opening Drive window, Gate 3’s same-day bar sequence, and same-day stop-loss discipline.',ex:'An intraday call on SMMT is graded against its move by that day’s close, not next week’s — Gate 3’s opening-bar sequence only exists because the framework is timing a single session.'},
-  {cat:'CRF FRAMEWORK',term:'Verdict Icons — 👍 UP / 👎 DOWN / HOLD',def:'👍 means the app leans bullish (expects the stock to rise), 👎 means it leans bearish (expects it to fall), and HOLD means it’s not confident enough either way, or the market’s closed.',ex:'Simple as a thumbs up or thumbs down on a movie — just for a stock’s next move instead.'},
-];
-
-var glossaryBuilt=false;
-function buildGlossary(){
-  if(glossaryBuilt)return;glossaryBuilt=true;
-  var body=document.getElementById('glossary-body');if(!body)return;
-  var cats={};
-  GLOSSARY.forEach(function(g){if(!cats[g.cat])cats[g.cat]=[];cats[g.cat].push(g)});
-  var html='';
-  Object.entries(cats).forEach(function(entry){
-    var cat=entry[0],terms=entry[1];
-    html+='<div class="glossary-cat" data-cat="'+cat+'">'+cat+'</div>';
-    terms.forEach(function(t){
-      html+='<div class="glossary-term visible" data-term="'+t.term.toLowerCase()+'" data-def="'+t.def.toLowerCase()+'">'
-        +'<div class="glossary-term-name">'+t.term+'</div>'
-        +'<div class="glossary-term-def">'+t.def+'</div>'
-        +(t.ex?'<div class="glossary-term-example">e.g. '+t.ex+'</div>':'')
-        +'</div>';
-    });
-  });
-  body.innerHTML=html;
-}
-
-export function toggleGlossary(){
-  var panel=document.getElementById('glossary-panel');
-  var arrow=document.getElementById('glossary-arrow');
-  var header=document.getElementById('glossary-header');
-  var open=panel.classList.toggle('open');
-  arrow.classList.toggle('open',open);
-  header.classList.toggle('open',open);
-  if(open)buildGlossary();
-}
-
-export function filterGlossary(query){
-  buildGlossary();
-  var q=query.toLowerCase().trim();
-  var terms=document.querySelectorAll('.glossary-term');
-  var anyVisible=false;
-  terms.forEach(function(el){
-    var match=!q||el.dataset.term.includes(q)||el.dataset.def.includes(q);
-    el.classList.toggle('visible',match);if(match)anyVisible=true;
-  });
-  document.querySelectorAll('.glossary-cat').forEach(function(catEl){
-    var next=catEl.nextElementSibling,hasVisible=false;
-    while(next&&!next.classList.contains('glossary-cat')){if(next.classList.contains('visible'))hasVisible=true;next=next.nextElementSibling}
-    catEl.style.display=hasVisible||!q?'block':'none';
-  });
-  var nr=document.getElementById('glossary-no-results');
-  if(nr)nr.style.display=(!anyVisible&&q)?'block':'none';
-}
-
-function enforceMarketState(){
-  if(isMarketClosed()){
-    watchlist.forEach(function(t){
-      var card=document.getElementById('card-'+t);
-      if(!card)return;
-      var ae=card.querySelector('.card-action');
-      if(!ae)return;
-      if(ae.querySelector('.verdict-up')||ae.querySelector('.verdict-down')){
-        var d=document.createElement('div');
-        d.className='verdict-container';
-        d.onclick=function(){resetCard(t)};
-        var s1=document.createElement('span');s1.className='verdict-hold';s1.textContent='HOLD';
-        var s2=document.createElement('span');s2.className='verdict-lbl-hold';s2.textContent='MKT CLOSED';
-        d.appendChild(s1);d.appendChild(s2);
-        ae.innerHTML='';ae.appendChild(d);
-      }
-    });
+  if (btnEl) {
+    btnEl.textContent = old;
+    btnEl.disabled = false;
   }
 }
-
-// ── SUPABASE AUTH ─────────────────────────────────────────────────
-var sbSession=null;
-function getStoredSession(){try{return JSON.parse(localStorage.getItem('tv_session')||'null');}catch(e){return null;}}
-function storeSession(s){if(s)localStorage.setItem('tv_session',JSON.stringify(s));else localStorage.removeItem('tv_session');}
-function isSessionValid(s){if(!s||!s.token)return false;if(s.expiresAt&&Date.now()/1000>s.expiresAt-60)return false;return true;}
-function authH(){return {'Content-Type':'application/json'};}
-function addSecret(url){if(sbSession&&sbSession.token){var sep=url.includes('?')?'&':'?';return url+sep+'supabase_token='+encodeURIComponent(sbSession.token);}return url;}
-function showScreen(id){['auth-screen','comeback-screen','app-root'].forEach(function(s){var el=document.getElementById(s);if(el)el.style.display=s===id?(s==='app-root'?'block':'flex'):'none';});}
-export function authLogout(){storeSession(null);sbSession=null;showScreen('auth-screen');}
-
-// ── PROFILE MENU ──────────────────────────────────────────────────
-export function toggleProfileMenu(e){
-  if(e)e.stopPropagation();
-  var m=document.getElementById('profile-menu');if(!m)return;
-  m.classList.toggle('open');
-}
-document.addEventListener('click',function(e){
-  var m=document.getElementById('profile-menu');
-  if(!m||!m.classList.contains('open'))return;
-  if(!e.target.closest('.profile-wrap'))m.classList.remove('open');
-});
-
-// ── CREDIT DISPLAY ────────────────────────────────────────────────
-async function fetchCreditStatus(){try{var res=await fetch(addSecret(API_URL+'/status'),{headers:authH()});var data=await res.json();var el=document.getElementById('credits-btn');if(el&&data.totalCredits!==undefined){el.textContent=(data.totalCredits>0?data.totalCredits:'+')+' CREDITS';}}catch(e){}}
-
-// ── NO CREDITS ────────────────────────────────────────────────────
-function handleNoCredits(card,ticker){
-  var cached=getCachedVerdict(ticker);
-  if(cached){renderCardResult(ticker,cached);var ae=card.querySelector('.card-action');if(ae){var n=document.createElement('div');n.style.cssText='font-family:monospace;font-size:8px;color:var(--amber);text-align:center;margin-top:4px';n.textContent='Cached — no credits remaining';ae.appendChild(n);}return;}
-  var ae=card.querySelector('.card-action');if(!ae)return;
-  ae.innerHTML='<div style="text-align:center;padding:4px"><div style="font-family:monospace;font-size:9px;color:var(--amber);margin-bottom:6px">No credits remaining</div><a href="https://buy.stripe.com/3cI3cwacxarJ8txb3z3VC00" target="_blank" style="font-family:monospace;font-size:9px;font-weight:700;color:var(--amber);background:rgba(255,171,0,.12);border:1px solid rgba(255,171,0,.4);border-radius:4px;padding:5px 10px;text-decoration:none">+ BUY CREDITS $0.99</a><br><a href="../shark/coming-soon.html" style="font-family:monospace;font-size:9px;color:var(--dim);margin-top:4px;display:block">or upgrade to Shark</a></div>';
-}
-
-// ── COUNTDOWN TIMER ───────────────────────────────────────────────
-var comebackTimer=null;
-function startComebackTimer(){if(comebackTimer)clearInterval(comebackTimer);comebackTimer=setInterval(function(){var now=new Date(),midnight=new Date();midnight.setHours(24,0,0,0);var diff=midnight-now,h=Math.floor(diff/3600000),m=Math.floor((diff%3600000)/60000),s=Math.floor((diff%60000)/1000);var el=document.getElementById('comeback-timer');if(el)el.textContent=String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');},1000);}
-
-// ── AUTH FLOW ─────────────────────────────────────────────────────
-var authMode='login';
-function bindAuthEvents(){
-  var eyeBtn=document.getElementById('eye-btn');
-  var resetLink=document.getElementById('reset-link');
-  var authBtn=document.getElementById('auth-btn');
-  var authToggle=document.getElementById('auth-toggle');
-  var pwInput=document.getElementById('auth-password');
-  var emailInput=document.getElementById('auth-email');
-  if(eyeBtn)eyeBtn.addEventListener('click',function(){var inp=document.getElementById('auth-password');inp.type=inp.type==='password'?'text':'password';eyeBtn.innerHTML=inp.type==='password'?'&#128065;':'&#128584;';});
-  if(resetLink)resetLink.addEventListener('click',function(){var email=document.getElementById('auth-email').value.trim();var err=document.getElementById('auth-error');if(!email){err.style.color='var(--red)';err.textContent='Enter your email first';return;}err.style.color='var(--dim)';err.textContent='Sending reset link...';fetch(API_URL+'/auth/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})}).then(function(r){return r.json();}).then(function(){err.style.color='var(--green)';err.textContent='Reset link sent! Check your email.';}).catch(function(e){err.style.color='var(--red)';err.textContent=e.message;});});
-  if(authBtn)authBtn.addEventListener('click',function(){if(authMode==='login')handleLogin();else handleSignup();});
-  if(authToggle)authToggle.addEventListener('click',toggleAuthMode);
-  if(pwInput)pwInput.addEventListener('keydown',function(e){if(e.key==='Enter')authBtn&&authBtn.click();});
-  if(emailInput)emailInput.addEventListener('keydown',function(e){if(e.key==='Enter')pwInput&&pwInput.focus();});
-}
-function toggleAuthMode(mode){authMode=mode||(authMode==='login'?'signup':'login');var isL=authMode==='login';document.getElementById('auth-title').textContent=isL?'SIGN IN':'CREATE ACCOUNT';document.getElementById('auth-btn').textContent=isL?'SIGN IN':'CREATE ACCOUNT';document.getElementById('auth-toggle').textContent=isL?'New user? Create account':'Already have an account? Sign in';document.getElementById('auth-error').textContent='';document.getElementById('auth-error').style.color='var(--red)';var rl=document.getElementById('reset-link');if(rl)rl.style.display=isL?'inline':'none';}
-async function handleLogin(){var email=document.getElementById('auth-email').value.trim(),password=document.getElementById('auth-password').value,btn=document.getElementById('auth-btn'),err=document.getElementById('auth-error');err.textContent='';btn.disabled=true;btn.textContent='SIGNING IN...';try{var r=await fetch(API_URL+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});if(!r.ok){var e=await r.json();throw new Error(e.error||'Login failed');}var session=await r.json();storeSession(session);sbSession=session;btn.textContent='SIGN IN';btn.disabled=false;checkTierAccess(session);}catch(e){err.textContent=e.message;btn.textContent='SIGN IN';btn.disabled=false;}}
-async function handleSignup(){var email=document.getElementById('auth-email').value.trim(),password=document.getElementById('auth-password').value,btn=document.getElementById('auth-btn'),err=document.getElementById('auth-error');err.textContent='';err.style.color='var(--red)';if(!email||!password){err.textContent='Email and password required';return;}if(password.length<6){err.textContent='Password must be at least 6 characters';return;}btn.disabled=true;btn.textContent='CREATING...';try{var r=await fetch(API_URL+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});if(!r.ok){var e=await r.json();throw new Error(e.error||'Signup failed');}err.style.color='var(--green)';err.textContent='Account created! Check your email to confirm, then sign in.';btn.textContent='SIGN IN';btn.disabled=false;toggleAuthMode('login');}catch(e){err.textContent=e.message;btn.textContent='CREATE ACCOUNT';btn.disabled=false;}}
-
-var ctxDebounce=null;
-function wireContextHighlight(){
-  var ctxInputEl=document.getElementById('context-input');
-  if(!ctxInputEl)return;
-  ctxInputEl.addEventListener('input',function(){
-    clearTimeout(ctxDebounce);
-    ctxDebounce=setTimeout(function(){refreshNewsHighlights();renderCompactList();},250);
+var ctxDebounce = null;
+function wireContextHighlight() {
+  var ctxInputEl = document.getElementById("context-input");
+  if (!ctxInputEl) return;
+  ctxInputEl.addEventListener("input", function() {
+    if (ctxDebounce) clearTimeout(ctxDebounce);
+    ctxDebounce = setTimeout(() => {
+      refreshRoloCards();
+    }, 250);
   });
 }
-function initApp(){cleanLS();document.getElementById('ticker-count').textContent='CRF · '+watchlist.length+' TICKERS';renderWatchlist();renderTrackRecord();renderGateAttribution();renderTickerAccuracy();startClock();refreshTickerLinks();wireContextHighlight();onPrefsChange(function(){renderWatchlist();renderTrackRecord();renderGateAttribution();renderTickerAccuracy();renderMarketTs();refreshTickerLinks();});fetchMarket();setTimeout(fetchCreditStatus,2000);setInterval(function(){fetchMarket();var pep=document.getElementById('proxy-explorer-panel');if(pep&&pep.classList.contains('open'))renderProxyExplorer();var hep=document.getElementById('heatmap-panel');if(hep&&hep.classList.contains('open'))renderHeatMap();},4*60*1000);enforceMarketState();setInterval(enforceMarketState,60*1000);if(sbSession&&sbSession.email){var pb=document.getElementById('profile-btn');if(pb)pb.textContent=sbSession.email.charAt(0).toUpperCase();var pme=document.getElementById('profile-menu-email');if(pme)pme.textContent=sbSession.email;}}
-async function checkTierAccess(session){
-  var expectedTier='pro';
-  var err=document.getElementById('auth-error');
-  if(session.tier!==expectedTier){
-    if(err){
-      err.style.color='var(--amber)';
-      if(session.tier==='free'){
-        err.textContent=session.hasSubscribed
-          ?'Your PRO subscription is no longer active. Redirecting to free tier...'
-          :'No active PRO subscription. Redirecting to free tier...';
-      }else{
-        err.textContent='Redirecting to your '+session.tier.toUpperCase()+' tier...';
+function enforceMarketState() {
+  if (isMarketClosed()) {
+    const sym = cardWindow()[getRoloCurrent()];
+    if (sym && tickerState.has(sym)) renderRoloCard(sym);
+  }
+}
+var GLOSSARY = [
+  { cat: "CRF FRAMEWORK", term: "CRF (Catalyst Response Framework)", def: "A step-by-step checklist this app runs on a stock before giving you a verdict. If enough of the checklist looks good, that\u2019s a thumbs up; if enough looks bad, that\u2019s a thumbs down.", ex: "Think of it like a pre-flight checklist for a trade \u2014 pilots don\u2019t take off until enough boxes are checked." },
+  { cat: "CRF FRAMEWORK", term: "Pre-Gate \u2014 Thesis Integrity", def: "A quick background check on the company itself, looking for red flags like financial trouble, before the app even looks at the stock\u2019s price. A serious red flag here can override everything else.", ex: "Like checking a used car\u2019s title for a salvage flag before you even look under the hood." },
+  { cat: "CRF FRAMEWORK", term: "Gate 0 \u2014 Sector Gate", def: "Checks how the overall stock market is doing today. If the whole market is having a bad day, that drags down the outlook for pretty much everything.", ex: "A rising tide lifts all boats \u2014 a sinking one drags them down too." },
+  { cat: "CRF FRAMEWORK", term: "Gate 1 \u2014 Bidirectional Trend Structure", def: "Looks at whether the stock has already made a big move recently, up or down. A stock that\u2019s already run up a lot is riskier to chase, and one that\u2019s fallen too far too fast is a red flag too.", ex: "Like being wary of a stock that already \u201Cran\u201D \u2014 you don\u2019t want to be the last one to the party." },
+  { cat: "CRF FRAMEWORK", term: "Gate 2 \u2014 Catalyst Congruence", def: "Checks whether recent news about the company actually supports the direction the app is leaning.", ex: "Makes sure the story and the numbers are telling the same story." },
+  { cat: "CRF FRAMEWORK", term: "Gate 3 \u2014 Opening Bar", def: "Watches how the stock trades in the first few minutes after the market opens, since that early action often hints at where the rest of the day is headed.", ex: "Like judging a race by how strong the runners look at the starting gun." },
+  { cat: "CRF FRAMEWORK", term: "Gate 4 \u2014 Phase Identification", def: "Figures out whether a stock\u2019s big move is just getting started, already well underway, or has gone so far it might be due for a pullback.", ex: "Early innings vs. late innings of the same game." },
+  { cat: "CRF FRAMEWORK", term: "Gate 5 \u2014 Dynamic Sector Proxy", def: "Compares the stock to other companies or funds in the same industry, to see if it\u2019s moving with its peers or acting strangely on its own.", ex: "Checking if one kid in class is sick, or if the whole class has the flu." },
+  { cat: "TICKER CLASSIFICATIONS", term: "Canary", def: "European or institutional base that prices macro risk early. When canaries fall while sentiment names rise, reversal is coming.", ex: "ASML fell before MU/ALAB. Warned 10-21 days early." },
+  { cat: "TICKER CLASSIFICATIONS", term: "Sentiment", def: "Moves most directly with AI capex or sector confidence, ignoring macro until it breaks.", ex: "MU, NVDA, AMD. Ran +47% into Broadcom miss then crashed 12.8%." },
+  { cat: "TICKER CLASSIFICATIONS", term: "Flow", def: "Moves on mechanical buying events. Institutions distribute at the opening bar on positive catalyst days.", ex: "ALAB opened $315 on Computex day, flushed to $292 in 30 min on 1.1M shares." },
+  { cat: "TICKER CLASSIFICATIONS", term: "Proxy tier (Gate 5)", def: "A label showing how confident the app is in the industry comparison it picked for this stock \u2014 some comparisons are well-tested, others are more of an educated guess.", ex: "Like the difference between a doctor\u2019s confirmed diagnosis and an educated guess based on symptoms." },
+  { cat: "OPTIONS \u2014 GREEKS", term: "Delta (\u0394)", def: "How much an option moves per $1 move in the stock. ATM options ~0.50. Also approximates probability of expiring in-the-money.", ex: "Delta 0.50 call gains $0.50 when stock rises $1." },
+  { cat: "OPTIONS \u2014 GREEKS", term: "Gamma (\u0393)", def: "Rate of change of delta. High gamma = delta shifts rapidly. Options near expiry and ATM have highest gamma.", ex: "High-gamma option: $1 stock move shifts delta from 0.50 to 0.65." },
+  { cat: "OPTIONS \u2014 GREEKS", term: "Theta (\u0398)", def: "Time decay per day. Sellers\u2019 friend, buyers\u2019 enemy. Accelerates in final 2 weeks before expiry.", ex: "$2.00 option with theta \u22120.05 loses $0.50 over 10 days even if stock flat." },
+  { cat: "OPTIONS \u2014 GREEKS", term: "Vega (\u03BD)", def: "Sensitivity to implied volatility. Buying pre-earnings buys vega, but IV collapses after the event (IV crush).", ex: "Buy $3.00 pre-earnings, stock moves your way, IV drops 45pts \u2192 option now $1.80." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Implied Volatility (IV)", def: "Market\u2019s expectation of future price movement, annualized. High IV = expensive options. Forward-looking, not historical.", ex: "ALAB IV ran 98-115% during parabolic phase. Selling premium more attractive than buying." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "IV Rank (IVR)", def: "Where current IV sits vs past 52 weeks as a percentile. IVR >80 = Phase 3 signal in CRF.", ex: "IVR 85 = IV higher than 85% of readings this year \u2192 Gate 4 RED lean." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Put/Call Skew", def: "Difference between put IV and call IV at equal distance from current price. Positive skew = bearish institutional hedging.", ex: "CHAT showed consistent +4pt put skew \u2192 Gate 2 bearish lean." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Expected Move", def: "Market-implied 1-sigma price range by expiration. Stock stays within this range ~68% of the time.", ex: "Stock $50, ATM IV 80%, 30 DTE \u2192 expected move \xB1$12.30." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "IV Crush", def: "Sharp drop in IV immediately after a catalyst. Options lose value even on correct direction.", ex: "Buy put pre-earnings $3.00. Stock drops 5% but IV collapses 55pts \u2192 put now $1.80." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Cash-Secured Put", def: "Selling a put while holding cash to buy shares at strike if assigned. Generates income on names you\u2019d want to own.", ex: "ARCC at $18.50 \u2192 sell $18 put for $0.48. Assigned = effective buy at $17.52." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Gamma Exposure (GEX)", def: "Aggregate dollar impact of dealer hedging. Positive GEX = dealers dampen moves. Negative GEX = dealers amplify moves. Acts as a weighting overlay on Gate 0, not a pass/fail rule.", ex: "SPX negative GEX \u2192 Opening Drive gaps extend. Momentum more reliable." },
+  { cat: "MARKET STRUCTURE", term: "Opening Drive", def: "First 90 minutes (9:30-11:00am ET). Highest volume, highest volatility. Most institutional orders execute here. This app is built for this window.", ex: "Stock gaps up 3% with 2\xD7 average volume in bar 1 = Opening Drive setup." },
+  { cat: "MARKET STRUCTURE", term: "Gap Up / Gap Down", def: "Stock opens significantly different from prior close. CRF entry: gap \u22652% from prior close, enter at ask +1%.", ex: "SMMT closed $45, opens $47.50 = +5.5% gap. Check all gates." },
+  { cat: "MARKET STRUCTURE", term: "Engulfing Candle", def: "Second candle\u2019s body completely contains the first. Bullish engulf = buyers overwhelmed sellers. Gate 3 uses this for Monday signals.", ex: "Monday bar 1 red at $40, bar 2 opens $38 closes $41 = bullish engulf \u2192 Gate 3 GREEN." },
+  { cat: "MARKET STRUCTURE", term: "Circuit Breaker", def: "Automatic trading halt when market falls a specified percentage. US halts at \u22127%, \u221213%, \u221220%. KOSPI at \u22128%.", ex: "KOSPI circuit breaker \u2192 Gate 5 RED for all AI/semi names via the Korea/Taiwan proxy exception." },
+  { cat: "MARKET STRUCTURE", term: "Short Squeeze", def: "Heavily shorted stock rises sharply, forcing shorts to buy to cover, pushing price higher. Brief but explosive.", ex: "IREN 18.7% short float, <2 days to cover. Any positive catalyst could trigger a squeeze." },
+  { cat: "SECTOR TERMS", term: "KOSPI", def: "Korea Composite Stock Price Index. Leading indicator for US AI/semi names. US names lag KOSPI crashes by 1-3 sessions.", ex: "KOSPI \u22126% Tuesday \u2192 NVDA/MU/ALAB pressure Thursday-Friday." },
+  { cat: "SECTOR TERMS", term: "TSM (Taiwan Semiconductor)", def: "World\u2019s largest contract chip manufacturer. Single best proxy for global semiconductor health. TSM drop >3% = Gate 5 RED for all AI/semi names (Korea/Taiwan proxy exception \u2014 takes priority over the dynamic algorithm for this group).", ex: "TSM \u22124% \u2192 Taiwan semi stress \u2192 risk-off on AI/semi entries." },
+  { cat: "SECTOR TERMS", term: "XBI / IBB", def: "Biotech ETFs. XBI equal-weighted (smaller companies more impact). XBI is Gate 5\u2019s fixed proxy for biotech/medical names.", ex: "XBI \u22122% \u2192 biotech risk-off \u2192 Gate 5 YELLOW or RED for SMMT/VCYT/IMVT." },
+  { cat: "SECTOR TERMS", term: "SOXX", def: "iShares Semiconductor ETF. Tracks 30 largest US-listed semiconductor companies. Best sector indicator for AI/chip trades.", ex: "SOXX \u22123% while SPY flat = semiconductor-specific stress." },
+  { cat: "SECTOR TERMS", term: "HBM (High Bandwidth Memory)", def: "RAM designed for AI training. Only Micron, Samsung, SK Hynix make it. Core of MU\u2019s AI thesis.", ex: "Hyperscaler capex slowdown = HBM demand slowdown = MU pressure." },
+  { cat: "SECTOR TERMS", term: "Neocloud", def: "Companies renting GPU compute to AI developers. Borrow billions to buy Nvidia GPUs, rent at premium.", ex: "IREN, CoreWeave. Revenue real; profitability theoretical for most." },
+  { cat: "SECTOR TERMS", term: "BDC (Business Development Company)", def: "Fund making loans to mid-sized businesses, required to distribute 90%+ of income as dividends.", ex: "ARCC is the largest publicly traded BDC. Income from loan interest, not appreciation." },
+  { cat: "TRADING TERMINOLOGY", term: "Long", def: "Buying and owning shares expecting price to rise.", ex: "Buy 100 SMMT at $45. Sell at $50. $500 profit." },
+  { cat: "TRADING TERMINOLOGY", term: "Short / Short Selling", def: "Borrowing shares, selling immediately, buying back later. Profit if price falls. Loss if rises \u2014 theoretically unlimited.", ex: "Short 100 IREN at $40. Falls to $32 \u2192 $800 profit." },
+  { cat: "TRADING TERMINOLOGY", term: "Defined Risk", def: "Position where max loss is fixed at entry. Buying options or spreads. Cannot lose more than premium paid.", ex: "Buy 1 put for $200. Stock rallies. Max loss = $200." },
+  { cat: "TRADING TERMINOLOGY", term: "Stop Loss", def: "Pre-set price at which you automatically exit to limit losses. Set before entry. CRF: \u22123% for high-conviction names.", ex: "Enter SMMT at $45. Stop at $43.65 (\u22123%). Hit $43.65 \u2192 exit immediately." },
+  { cat: "TRADING TERMINOLOGY", term: "Sector Rotation", def: "Money moving from one sector to another. Sector pulse blurb tracks this daily.", ex: "AI fears \u2192 money rotates from NVDA into GLD and USO." },
+  { cat: "TRADING TERMINOLOGY", term: "Sell the News", def: "Stock falls after a positive catalyst because good news was already priced in. Phase 3 behavior.", ex: "ALAB beats Q1 by 12%. Stock drops 13% next day. Beat was priced in." },
+  { cat: "TRADING TERMINOLOGY", term: "14-Day Pre-Window", def: "14 trading days before a catalyst. Over +20% move in this window = Gate 1 RED (uptrend exhaustion branch).", ex: "MU ran +35% in 14 days before record earnings. Gate 1 RED. Sold off on the print." },
+  { cat: "TRADING TERMINOLOGY", term: "Pyramiding", def: "Adding to a winning position in smaller increments as it moves in your favor.", ex: "100 shares at $45. Rises to $47 \u2192 add 50. Hits $49 \u2192 add 25." },
+  { cat: "TRADING TERMINOLOGY", term: "GTC (Good Till Cancelled)", def: "Order that stays active until manually cancelled. Use for stop losses on multi-day holds.", ex: "GTC stop at $43.65 on SMMT triggers automatically even if it gaps down overnight." },
+  { cat: "OPTIONS \u2014 GREEKS", term: "Rho (\u03C1)", def: "Sensitivity to a 1% change in interest rates. Smallest of the four Greeks for short-dated options \u2014 matters on LEAPS-length duration, negligible for the Opening Drive holds this app is built around.", ex: "A 6-month call with Rho 0.15 gains ~$0.15 per 1% rate hike \u2014 a rounding error next to a same-day 3% move driven by Delta/Gamma." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Call Option", def: "Right (not obligation) to buy 100 shares at the strike price before expiration. Buyers profit if the stock rises above strike + premium paid.", ex: "Buy 1 SMMT $50 call for $2.00. Stock closes $55 at expiry \u2192 intrinsic value $5.00, profit $3.00/share." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Put Option", def: "Right (not obligation) to sell 100 shares at the strike price before expiration. Buyers profit if the stock falls below strike \u2212 premium paid.", ex: "Buy 1 IREN $35 put for $1.50. Stock drops to $30 at expiry \u2192 intrinsic value $5.00, profit $3.50/share." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Strike Price", def: "The fixed price at which an option\u2019s owner can buy (call) or sell (put) the underlying. Set when the contract is created and never changes.", ex: "A $45 call and a $50 call on the same expiry are different contracts \u2014 the $45 strike is already in-the-money at a $47 stock price, the $50 strike is not." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "DTE (Days to Expiration)", def: "Calendar days remaining until an option contract expires. Theta decay accelerates as DTE shrinks, especially inside the final 2 weeks.", ex: "A 30 DTE option loses value slowly. The same strike at 3 DTE bleeds premium daily even on a flat stock." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "ITM / ATM / OTM", def: "In-the-money (has intrinsic value \u2014 call strike below spot, put strike above), at-the-money (strike \u2248 spot), out-of-the-money (no intrinsic value yet, pure premium). Delta approximates the odds of finishing ITM.", ex: "Stock at $50: the $45 call is ITM, the $50 call is ATM, the $55 call is OTM." },
+  { cat: "TRADING TERMINOLOGY", term: "Bid / Ask (Bid-Ask Spread)", def: "Bid = highest price a buyer will pay right now. Ask = lowest price a seller will accept. The spread between them is a real, invisible cost \u2014 wider on illiquid names and thin extended-hours books.", ex: "IREN bid $39.98 / ask $40.05 \u2014 a market order to buy fills near $40.05, not the $40.00 last-trade price shown on the card." },
+  { cat: "TRADING TERMINOLOGY", term: "Limit Order", def: "An order that only fills at your specified price or better. Guarantees price, not execution \u2014 can go unfilled if the stock never trades there.", ex: "Limit buy SMMT at $45.00 while it\u2019s trading $45.20 \u2014 sits unfilled until the price comes down to you (or never)." },
+  { cat: "TRADING TERMINOLOGY", term: "Market Order", def: "An order that fills immediately at the best available price. Guarantees execution, not price \u2014 on a fast-moving or thin name you can pay meaningfully more than the last quote.", ex: "A market buy during a gap-up Opening Drive can fill 1-2% above the price you saw when you clicked." },
+  { cat: "TRADING TERMINOLOGY", term: "Ladder / Laddering", def: "Splitting one order into several smaller limit orders staggered across a price range instead of one order at one price. Improves average fill price on size that would otherwise move a thin book.", ex: "Instead of one 500-share market buy, ladder 100 shares each at $45.00/$45.10/$45.20/$45.30/$45.40." },
+  { cat: "MARKET STRUCTURE", term: "VWAP (Volume-Weighted Average Price)", def: "The running average price of a stock for the session, weighted by volume at each price. Resets daily. Widely used intraday as a fair-value line \u2014 price above VWAP favors longs, below favors shorts.", ex: "Stock pops to $52 but VWAP sits at $49.80 \u2014 a lot of the day\u2019s volume already changed hands well below the current price." },
+  { cat: "MARKET STRUCTURE", term: "Relative Volume (RVOL)", def: "Current volume compared to the average volume for this point in the session. RVOL >2x on an Opening Drive gap is what separates a real institutional move from noise.", ex: "ALAB gaps up 4% on 1.1M shares in the first 5 minutes vs a normal 5-minute average of 280K \u2192 RVOL ~4x, high-conviction signal." },
+  { cat: "MARKET STRUCTURE", term: "Support / Resistance", def: "Price levels where a stock has historically reversed. Support = a floor buyers defended before. Resistance = a ceiling sellers defended before. Neither is guaranteed to hold twice.", ex: "PLUG bounced at $2.10 three times this quarter \u2014 that\u2019s support until it isn\u2019t; a close below it on volume is the tell it broke." },
+  { cat: "MARKET STRUCTURE", term: "Extended Hours (Pre-Market / Post-Market)", def: "Trading outside the 9:30am-4:00pm ET regular session: pre-market (4:00-9:30am ET) and post-market (4:00-8:00pm ET) on IEX Exchange\u2019s formal extended sessions. Real prints, but on a much thinner book than the regular consolidated tape \u2014 moves here can reverse hard once the full tape opens.", ex: "CIFR prints $24.16 pre-market on light volume, opens the regular session at $22.10 once the full tape weighs in." },
+  { cat: "CRF FRAMEWORK", term: "Proxy Resolution Explorer", def: "A Pro-only panel where you can see which industry comparison the app picked for each stock on your watchlist, and how strong that comparison is.", ex: "A behind-the-scenes look at the \u201Cwho\u2019s this stock compared to\u201D decision for every ticker you\u2019re tracking." },
+  { cat: "CRF FRAMEWORK", term: "Sector Heat Map", def: "A Pro-only panel showing how different industries are doing today at a glance, so you can quickly spot which sectors are green and which are red.", ex: "Like a weather map, but for which parts of the stock market are stormy right now." },
+  { cat: "MARKET STRUCTURE", term: "Beta (\u03B2)", def: "A stock\u2019s volatility relative to the overall market (SPY), where 1.0 = moves in line with the market, >1 amplifies market moves, <1 dampens them. Shown on each card as \u03B2. A negative beta means the stock tends to move opposite the market \u2014 treat it as effectively uncorrelated to its assigned Gate 5 proxy rather than confirming or denying that proxy read.", ex: "IREN at \u03B22.1 is expected to move ~2.1% for every 1% SPY move. A rare \u03B2\u22120.3 name would be expected to drift up on a red SPY day." },
+  { cat: "MARKET STRUCTURE", term: "Intraday", def: "Within a single trading day \u2014 opened and evaluated before the next session begins, as opposed to a multi-day swing or long-term hold. This app\u2019s entire CRF framework is built around intraday timing: the Opening Drive window, Gate 3\u2019s same-day bar sequence, and same-day stop-loss discipline.", ex: "An intraday call on SMMT is graded against its move by that day\u2019s close, not next week\u2019s \u2014 Gate 3\u2019s opening-bar sequence only exists because the framework is timing a single session." },
+  { cat: "CRF FRAMEWORK", term: "Verdict Icons \u2014 \u{1F44D} UP / \u{1F44E} DOWN / HOLD", def: "\u{1F44D} means the app leans bullish (expects the stock to rise), \u{1F44E} means it leans bearish (expects it to fall), and HOLD means it\u2019s not confident enough either way, or the market\u2019s closed.", ex: "Simple as a thumbs up or thumbs down on a movie \u2014 just for a stock\u2019s next move instead." }
+];
+var glossaryBuilt = false;
+function buildGlossary() {
+  if (glossaryBuilt) return;
+  glossaryBuilt = true;
+  var body = document.getElementById("glossary-body");
+  if (!body) return;
+  var cats = {};
+  GLOSSARY.forEach(function(g) {
+    if (!cats[g.cat]) cats[g.cat] = [];
+    cats[g.cat].push(g);
+  });
+  var html = "";
+  Object.entries(cats).forEach(function(entry) {
+    var cat = entry[0], terms = entry[1];
+    html += '<div class="glossary-cat" data-cat="' + cat + '">' + cat + "</div>";
+    terms.forEach(function(t) {
+      html += '<div class="glossary-term visible" data-term="' + t.term.toLowerCase() + '" data-def="' + t.def.toLowerCase() + '"><div class="glossary-term-name">' + t.term + '</div><div class="glossary-term-def">' + t.def + "</div>" + (t.ex ? '<div class="glossary-term-example">e.g. ' + t.ex + "</div>" : "") + "</div>";
+    });
+  });
+  body.innerHTML = html;
+}
+function toggleGlossary() {
+  var panel = document.getElementById("glossary-panel");
+  var arrow = document.getElementById("glossary-arrow");
+  var header = document.getElementById("glossary-header");
+  var open = panel.classList.toggle("open");
+  arrow.classList.toggle("open", open);
+  header.classList.toggle("open", open);
+  if (open) buildGlossary();
+}
+function filterGlossary(query) {
+  buildGlossary();
+  var q = query.toLowerCase().trim();
+  var terms = document.querySelectorAll(".glossary-term");
+  var anyVisible = false;
+  terms.forEach(function(el) {
+    var match = !q || el.dataset.term.includes(q) || el.dataset.def.includes(q);
+    el.classList.toggle("visible", match);
+    if (match) anyVisible = true;
+  });
+  document.querySelectorAll(".glossary-cat").forEach(function(catEl) {
+    var next = catEl.nextElementSibling, hasVisible = false;
+    while (next && !next.classList.contains("glossary-cat")) {
+      if (next.classList.contains("visible")) hasVisible = true;
+      next = next.nextElementSibling;
+    }
+    catEl.style.display = hasVisible || !q ? "block" : "none";
+  });
+  var nr = document.getElementById("glossary-no-results");
+  if (nr) nr.style.display = !anyVisible && q ? "block" : "none";
+}
+document.getElementById("glossary-header").addEventListener("click", toggleGlossary);
+document.getElementById("glossary-search").addEventListener("input", (e) => filterGlossary(e.target.value));
+function initApp() {
+  cleanLS();
+  document.getElementById("ticker-count").textContent = "CRF \xB7 " + watchlist.length + " TICKERS";
+  wireContextHighlight();
+  onPrefsChange(function() {
+    refreshRoloCards();
+    renderMarketTs();
+    refreshTickerLinks(document.getElementById("gateGrid"));
+    refreshTickerLinks(gateMarquee);
+  });
+  fetchMarket();
+  sizeGateSpacer();
+  renderRolodexFromWatchlist();
+  refreshTrackRecordCard();
+  setTimeout(fetchCreditStatus, 2e3);
+  setInterval(function() {
+    fetchMarket();
+    var proxyCard = document.querySelector('.card[data-card="proxy"]');
+    if (proxyCard && proxyCard.classList.contains("expanded")) renderProxyExplorer();
+    var heatCard = document.querySelector('.card[data-card="heatmap"]');
+    if (heatCard && heatCard.classList.contains("expanded")) renderHeatMap();
+  }, 4 * 60 * 1e3);
+  enforceMarketState();
+  setInterval(enforceMarketState, 60 * 1e3);
+  if (sbSession && sbSession.email) {
+    var pb = document.getElementById("profile-btn");
+    if (pb) pb.textContent = sbSession.email.charAt(0).toUpperCase();
+    var pme = document.getElementById("profile-menu-email");
+    if (pme) pme.textContent = sbSession.email;
+  }
+}
+async function checkTierAccess(session) {
+  var expectedTier = "pro";
+  var err = document.getElementById("auth-error");
+  if (session.tier !== expectedTier) {
+    if (err) {
+      err.style.color = "var(--amber)";
+      if (session.tier === "free") {
+        err.textContent = session.hasSubscribed ? "Your PRO subscription is no longer active. Redirecting to free tier..." : "No active PRO subscription. Redirecting to free tier...";
+      } else {
+        err.textContent = "Redirecting to your " + session.tier.toUpperCase() + " tier...";
       }
     }
-    setTimeout(function(){
-      if(session.redirectUrl){window.location.href=session.redirectUrl;}
-      else{window.location.href='https://tradetribunal.app/';}
-    },1500);
+    setTimeout(function() {
+      if (session.redirectUrl) {
+        window.location.href = session.redirectUrl;
+      } else {
+        window.location.href = "https://tradetribunal.app/";
+      }
+    }, 1500);
     return false;
   }
-  initWatchlistSync({API_URL:API_URL, authH:authH, addSecret:addSecret});
-  onWatchlistSave(schedulePushWatchlist);
+  initWatchlistSync({ API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
+  onWatchlistSave(function() {
+    schedulePushWatchlist();
+    renderRolodexFromWatchlist();
+  });
   await pullWatchlistFromServer();
-  initTrackRecordSync({API_URL:API_URL, authH:authH, addSecret:addSecret});
-  onLogSave(schedulePushTrackRecord);
+  initTrackRecordSync({ API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
   await pullTrackRecordFromServer();
-  showScreen('app-root');initApp();
+  showScreen("app-root");
+  initApp();
   return true;
 }
-
-async function checkAuth(){
-  var stored=getStoredSession();
-  if(!stored||!isSessionValid(stored)){showScreen('auth-screen');bindAuthEvents();return;}
-  sbSession=stored;
-  // Refresh tier from server (subscriber row may have changed since login)
-  try{
-    var r=await fetch(API_URL+'/auth/me?supabase_token='+encodeURIComponent(stored.token));
-    if(r.ok){
-      var fresh=await r.json();
-      if(fresh.tier){
-        stored.tier=fresh.tier;
-        stored.hasSubscribed=!!fresh.hasSubscribed;
-        var URLS={free:'https://tradetribunal.app/',starter:'https://tradetribunal.app/starter/',pro:'https://tradetribunal.app/pro/',shark:'https://tradetribunal.app/shark/'};
-        stored.redirectUrl=URLS[fresh.tier]||URLS.free;
+async function checkAuth() {
+  var stored = getStoredSession();
+  if (!stored || !isSessionValid(stored)) {
+    showScreen("auth-screen");
+    bindAuthEvents();
+    return;
+  }
+  sbSession = stored;
+  try {
+    var r = await fetch(API_URL2 + "/auth/me?supabase_token=" + encodeURIComponent(stored.token));
+    if (r.ok) {
+      var fresh = await r.json();
+      if (fresh.tier) {
+        stored.tier = fresh.tier;
+        stored.hasSubscribed = !!fresh.hasSubscribed;
+        var URLS = { free: "https://tradetribunal.app/", starter: "https://tradetribunal.app/starter/", pro: "https://tradetribunal.app/pro/", shark: "https://tradetribunal.app/shark/" };
+        stored.redirectUrl = URLS[fresh.tier] || URLS.free;
         storeSession(stored);
-        sbSession=stored;
+        sbSession = stored;
       }
     }
-  }catch(e){}
+  } catch (e) {
+  }
   checkTierAccess(stored);
   bindAuthEvents();
 }
-
-initWatchlist({defaultTickers:['SMMT','VCYT','TWST','IMVT','IREN','ALAB','MU'], maxTickers:999, upgradeMessage:'Pro supports unlimited tickers already — this cap should never be hit.'});
-initTickerCache({API_URL:API_URL, authH:authH, addSecret:addSecret});
-setRenderScope(CARD_CAP);
-onRenderWatchlist(renderCompactList);
-
+initWatchlist({ defaultTickers: ["SMMT", "VCYT", "TWST", "IMVT", "IREN", "ALAB", "MU"], maxTickers: 999, upgradeMessage: "Pro supports unlimited tickers already \u2014 this cap should never be hit." });
+initTickerCache({ API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
+initRolodex({
+  scroller: document.getElementById("scroller"),
+  gateCard: document.getElementById("gateCard"),
+  gateFullOverlay: document.getElementById("gateFullOverlay"),
+  gateSpacer: document.getElementById("gateSpacer"),
+  gateMarquee,
+  roloIndex,
+  roloStage,
+  roloHint: document.getElementById("roloHint")
+}, {
+  getWatchlist: cardWindow,
+  onActivate: (sym) => {
+    const state = tickerState.get(sym);
+    if (state && !state.result && !state.analyzing) analyzeOne(sym);
+  },
+  onDeleteConfirmed: deleteActiveTicker
+});
 checkAuth();
-
-window.fetchMarket = fetchMarket;
-window.analyzeAll = analyzeAll;
-window.analyzeTicker = analyzeTicker;
-window.resetCard = resetCard;
-window.toggleGates = toggleGates;
-window.toggleAnalyst = toggleAnalyst;
-window.toggleGlossary = toggleGlossary;
-window.filterGlossary = filterGlossary;
+document.getElementById("analyzeAllBtn").addEventListener("click", analyzeAll);
+document.getElementById("importBtn").addEventListener("click", addTickers);
+document.getElementById("exportCsvBtn").addEventListener("click", () => exportWatchlistCSV(document.getElementById("exportCsvBtn")));
+document.getElementById("clearTrackBtn").addEventListener("click", () => {
+  clearLog();
+  refreshTrackRecordCard();
+});
+document.getElementById("compact-sort-btn").addEventListener("click", toggleCompactSort);
+document.getElementById("proxy-sort-level").addEventListener("click", () => setProxySort("level"));
+document.getElementById("proxy-sort-coherence").addEventListener("click", () => setProxySort("coherence"));
+document.getElementById("proxy-refresh-btn").addEventListener("click", (e) => {
+  e.stopPropagation();
+  refreshProxyExplorer();
+});
+document.getElementById("heatmap-refresh-btn").addEventListener("click", (e) => {
+  e.stopPropagation();
+  refreshHeatMap();
+});
 window.authLogout = authLogout;
 window.toggleProfileMenu = toggleProfileMenu;
-window.toggleProxyExplorer = toggleProxyExplorer;
-window.openProxyExplorer = openProxyExplorer;
-window.refreshProxyExplorer = refreshProxyExplorer;
-window.logResultUI = logResultUI;
-window.toggleHeatMap = toggleHeatMap;
-window.refreshHeatMap = refreshHeatMap;
-window.exportWatchlistCSV = exportWatchlistCSV;
-window.promoteToCard = promoteToCard;
-window.setProxySort = setProxySort;
-window.toggleCompactSort = toggleCompactSort;
-// track-record.js sets window.clearLog itself on import — override here so
-// clearing the log also refreshes Pro's gate-attribution breakdown, which
-// the shared module has no knowledge of.
-window.clearLog = function(){clearLog();renderGateAttribution();renderTickerAccuracy();};
+export {
+  authLogout,
+  exportWatchlistCSV,
+  logResultUI,
+  refreshHeatMap,
+  refreshProxyExplorer,
+  renderHeatMap,
+  renderProxyExplorer,
+  setProxySort,
+  toggleCompactSort,
+  toggleProfileMenu
+};

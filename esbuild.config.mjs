@@ -83,6 +83,7 @@ const entryPoints = [
   // genuinely differs.
   { in: 'starter/app.ts', out: 'starter/app' },
   { in: 'app.ts', out: 'app' },
+  { in: 'pro/app.ts', out: 'pro/app' },
 ];
 
 for (const entry of entryPoints) {
