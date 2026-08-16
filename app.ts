@@ -243,64 +243,6 @@ document.querySelectorAll('.card[data-card] > .card-head').forEach(wireAccordion
 const roloStage = document.getElementById('roloStage') as HTMLElement;
 const roloIndex = document.getElementById('roloIndex') as HTMLElement;
 
-// ── Header: hides on scroll down, reveals on scroll up (Aug 16, 2026,
-// direct request: "give more screen real estate" on scroll down). Pure
-// transform on the header itself (see index.html's own .app-header
-// comment for why -- this codebase's own Aug 13, 2026 lesson on fragile
-// scroll-linked layout changes). #scroller's own padding-top -- real
-// measured height, never a guessed pixel value -- moves in lockstep with
-// the header's shown/hidden state so hiding it actually reclaims the
-// space (content genuinely shifts up to fill it, transitioned together)
-// rather than just visually covering up a permanently-reserved gap.
-// Toggled only on a discrete threshold crossing, not continuously
-// tracking scroll position frame-by-frame -- the same shape as
-// #gateSpacer's own already-established collapse-on-dock pattern
-// (CLAUDE.md: "a normal, one-time reflow on a discrete state change, not
-// the fragile sticky-element-changes-shape-mid-gesture pattern").
-// scrollTop itself is never written here, so this can't fight or reset
-// the user's own in-progress scroll the way that Aug 13 lesson's fragile
-// attempts did.
-const appHeader = document.getElementById('appHeader') as HTMLElement;
-const scrollerEl = document.getElementById('scroller') as HTMLElement;
-// instant=true skips #scroller's own padding-top transition (a
-// synchronous style write + forced reflow, same trick as
-// shared/rolodex.ts's own gateSpacer fix) -- used only from
-// beforeScrollToCard() below, where the padding MUST already be at its
-// final value before scrollIntoView() measures anything, not still
-// mid-transition. The header's own transform keeps its normal eased
-// slide regardless (that's a purely visual, non-layout-affecting
-// animation, so it can't race the scroll target the way padding can).
-function setHeaderHidden(hidden: boolean, instant?: boolean): void {
-  if (appHeader.classList.contains('header-hidden') === hidden && !instant) return;
-  appHeader.classList.toggle('header-hidden', hidden);
-  const target = (hidden ? 0 : appHeader.getBoundingClientRect().height) + 'px';
-  if (instant) {
-    const prevTransition = scrollerEl.style.transition;
-    scrollerEl.style.transition = 'none';
-    scrollerEl.style.paddingTop = target;
-    void scrollerEl.offsetHeight;
-    scrollerEl.style.transition = prevTransition;
-  } else {
-    scrollerEl.style.paddingTop = target;
-  }
-}
-function sizeHeaderSpacer(): void {
-  if (!appHeader.classList.contains('header-hidden')) {
-    scrollerEl.style.paddingTop = appHeader.getBoundingClientRect().height + 'px';
-  }
-}
-var headerLastScrollY = 0;
-function wireHeaderScroll(): void {
-  scrollerEl.addEventListener('scroll', () => {
-    const y = scrollerEl.scrollTop;
-    const delta = y - headerLastScrollY;
-    if (y < 10) setHeaderHidden(false);
-    else if (delta > 4) setHeaderHidden(true);
-    else if (delta < -4) setHeaderHidden(false);
-    headerLastScrollY = y;
-  }, { passive: true });
-}
-
 interface TickerState { td: TickerData | null; result: AnalyzeResponse | null; analyzing: boolean; error: string | null; }
 const tickerState = new Map<string, TickerState>();
 
@@ -779,9 +721,6 @@ function initApp(): void {
   setInterval(function () { fetchMarket(); }, 4 * 60 * 1000);
   enforceMarketState();
   setInterval(enforceMarketState, 60 * 1000);
-  sizeHeaderSpacer();
-  wireHeaderScroll();
-  window.addEventListener('resize', sizeHeaderSpacer);
 }
 
 async function boot(): Promise<void> {
@@ -806,7 +745,6 @@ async function boot(): Promise<void> {
       if (state && !state.result && !state.analyzing) analyzeOne(sym);
     },
     onDeleteConfirmed: deleteActiveTicker,
-    beforeScrollToCard: () => setHeaderHidden(true, true),
   });
 
   // Signed-in-but-free is the lapsed-subscriber case (or a free signup

@@ -4353,7 +4353,60 @@ it done" applies here too, and this sandbox can't do that). Spot-check
 the header hide/show and the swipe gesture together on a real phone
 after deploy.
 
-## Verifying changes before you claim done
+## Frontend: Free's scroll-hide header reverted — direct feedback, same day (Aug 16, 2026)
+
+The scroll-hide header shipped just above got real-device feedback
+within the same day: **"remove the header hiding. that broke too much
+and I don't like it."** Reverted in full, not patched — this section
+exists so the attempt and the reason it went back out aren't silently
+lost, the same way this file keeps every other tried-and-reverted
+approach (see the Aug 13, 2026 collapsing-card saga for the pattern).
+
+**What came out, cleanly, leaving zero trace in the shipped bundle:**
+- `index.html`: the `.app-header` wrapper (`position:fixed`, the
+  `header-hidden`/`translateY(-100%)` transform, its own `prefers-
+  reduced-motion` guard) and `.app-scroll`'s `padding-top` transition —
+  both removed. `.safe-top`/`.app-topbar` are direct `.app-shell`
+  children again (`position:static`, unwrapped from `#appHeader`),
+  exactly the pre-Aug-16 DOM shape.
+- `app.ts`: `appHeader`, `scrollerEl`, `setHeaderHidden()`,
+  `sizeHeaderSpacer()`, `wireHeaderScroll()`, and their call sites in
+  `initApp()` — all removed.
+- `shared/rolodex.ts`: the `beforeScrollToCard` hook on
+  `RolodexCallbacks` (added specifically to let Free's header settle
+  itself before `scrollToActiveCard()`'s scroll-target math) — removed
+  as dead API surface now that nothing calls it. `scrollToActiveCard()`
+  itself is back to exactly its pre-Aug-16 form; Starter, which never
+  used the hook, is unaffected either way.
+- `?v=52→53` on `index.html`'s `<script src="./app.js">` — `app.ts`'s
+  content changed again, so per this file's own cache-busting rule this
+  needed bumping regardless of the change being a removal, not an
+  addition.
+
+**Verified the revert is actually clean, not just "looks reverted":**
+confirmed `document.getElementById('appHeader')` is `null` and
+`.app-topbar`'s computed `position` is `static` again; confirmed the
+header's `getBoundingClientRect()` is byte-identical before and after a
+full incremental scroll (proving it neither hides nor shifts at all
+anymore); grepped the compiled `app.js`/`starter/app.js` for
+`appHeader`/`header-hidden`/`beforeScrollToCard` — zero matches in
+either. Re-ran Free's full existing regression suite (anonymous and
+signed-in-but-free, including swipe-to-delete and the comeback splash),
+the "Starter?" upsell-pill check, the credits/sign-in chip vertical-
+stack check, and Starter's full existing regression suite — all pass,
+zero new errors, confirming this round's other same-day fixes (the
+missed cache-bust, the upsell pill, the header chip stacking) are all
+still intact and untouched by this revert.
+
+**If a scroll-hide header is ever revisited:** the Aug 13, 2026
+collapsing-card lesson's core finding (transform/opacity-only, never a
+reactive layout-affecting property mid-gesture) held up fine on this
+attempt too — what broke wasn't that principle, it was the *interaction*
+between two independently-reasonable-looking pieces (the header's own
+hide/show and `scrollToActiveCard()`'s pre-existing scroll-margin math)
+each assuming the other didn't exist. That's the standing risk with any
+future "add fixed chrome above `#scroller`" change on this page, not
+something specific to a header. No plan to revisit this on its own.
 
 There's no test suite. What's actually been useful:
 - `node --input-type=module --check < path/to/file.js` — syntax only, catches
