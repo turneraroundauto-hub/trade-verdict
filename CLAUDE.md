@@ -2534,7 +2534,7 @@ that's a separate, deliberate cleanup decision, not implied by this one.
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
-| Starter | `starter/index.html` + `starter/app.js` | Rebuilt onto the Rolodex UI Aug 16, 2026 (see "Frontend: Rolodex UI shipped to Starter" below) — sticky-docking Gate, marquee ticker-pill strip, single-active-card stage with tap-pill-then-swipe-to-delete, real auth/credits/Settings/Session-Context-highlighting/server-sync unchanged. First real (non-preview) tier on the Rolodex UI; Free/Pro/Shark still on their prior designs. |
+| Starter | `starter/index.html` + `starter/app.js` | Rebuilt onto the Rolodex UI Aug 16, 2026 (see "Frontend: Rolodex UI shipped to Starter" below) — sticky-docking Gate, marquee ticker-pill strip, single-active-card stage with tap-pill-then-swipe-to-delete, real auth/credits/Settings/Session-Context-highlighting/server-sync unchanged. First real (non-preview) tier on the Rolodex UI; Free/Pro/Shark still on their prior designs. **`starter/app.js` is now a bundled build artifact, not hand-written** (Phase 3 kickoff, same day) — the real source is `starter/app.ts`, compiled via `node esbuild.config.mjs`; edit the `.ts`, never the `.js` directly. Its Rolodex-mechanics half now lives in `shared/rolodex.ts`, shared and ready for Free/Pro's own future Rolodex builds to import rather than re-copy. |
 | Pro | `pro/index.html` + `pro/app.js` | Rebuilt Aug 2, 2026 (trade-verdict PRs #23, #24, #26, #27, #28 + `Tra` PR #5) — on shared modules, plus Pro-exclusive Analyst View, Proxy Resolution Explorer + live coherence strip, Sector Heat Map, a CSV export (Ticker/List/Price/IV/Change%, real IV via Alpaca options snapshots), trigger/ticker track-record breakdowns, server-synced track record (Aug 4, 2026, see Frontend architecture above — Pro only), and a card/watchlist split: only the first 15 tickers (in list order) render as full analysis cards, the rest render as compact price/%chg/news rows with no ANALYZE button and no credit cost — `analyzeAll()` scopes to the 15-card window only (max 5 credits). **Confirmed working live by Mr. T**, including the IV export. Its two Shark upsell teases (Proxy Explorer, Heat Map) link to `shark/coming-soon.html` (see Shark row), not straight to Stripe checkout. Proxy Resolution Explorer and Heat Map both still iterate the full watchlist, not the 15-card window — see the Alpaca section's "known follow-ups" above. |
 | Shark | `shark/index.html` (no separate `app.js` — still monolithic) | **NOT rebuilt — deliberately deferred as of Aug 2, 2026, not a backlog gap.** Mr. T wants Shark's eventual rebuild to lean on more Alpaca-driven visuals, likely after upgrading to Alpaca's "Plus" data plan first. Don't pick this up proactively without checking that's still the plan — it still carries the same reorder/log-button bugs Pro had before its rebuild (shared original template) whenever it does happen. A separate, standalone `shark/coming-soon.html` splash (added Aug 2, 2026, licensed mascot art at `shared/assets/shark-mascot.png`) exists alongside it — email waitlist writes directly to Supabase's `shark_waitlist` table (anon insert-only via RLS) from the browser, no backend involvement. |
 
@@ -3909,6 +3909,127 @@ To confirm live: watch for a HIGH-confidence card on a clean forceDown
 hard) — something that was structurally impossible before this change —
 and watch whether LOW confidence actually stays rare in practice, per the
 "this is the tier we're trying to avoid" framing above.
+
+## Frontend: Rolodex mechanics extracted to shared/rolodex.ts; Phase 3 (bundler) kicked off on Starter (Aug 16, 2026)
+
+Direct instruction, following a requested audit of the Rolodex build
+before extending it to Free/Pro: the audit's top structural finding was
+that the Rolodex UI mechanics (Gate dock/spacer/marquee, ticker-pill
+marquee, stacked-card positioning, swipe-to-delete) lived entirely inside
+`starter/app.js` — a second and third tier copy-pasting that code would
+mean every hard-won fix from this file's own Rolodex saga (dock-
+threshold math, marquee wrap-boundary arithmetic, the self-healing
+pause) needing independent rediscovery in Free and Pro's own copies.
+Recommended extracting a shared module before duplicating, and doing it
+alongside Phase 3 (the bundler) rather than deferring Phase 3 again,
+since a new shared module consumed by multiple tiers is exactly the case
+that makes the `?v=N` cache-busting convention actually painful (this
+file's own Starter-build history shows several PRs needing 3-4 files'
+versions bumped by hand for one shared-module change).
+
+**Scope boundary for the extraction, deliberate:** `shared/rolodex.ts`
+owns HOW the UI moves (dock/undock, marquee stepping, stacked-card
+positioning, the swipe gesture) — never WHAT it shows. Card content
+(`roloCardHTML`, gate rendering, ticker links), `GATE_FIELDS`, and all
+business logic (`analyzeOne`, the real `/analyze` call) stay tier-owned,
+since those genuinely differ per tier (Pro's card/list-window split and
+exclusive features, Free's teased Sector Pulse). Forcing those into the
+shared module before a second real consumer (Free) proves out what's
+actually shared would be premature abstraction in the other direction —
+matching this file's own repeated lesson about not guessing at
+abstractions ahead of a second real use case.
+
+**Phase 3, scoped as "convert the one file this extraction actually
+needs," not a full-site migration.** `starter/app.js` converted to
+`starter/app.ts` (Starter is now the second tier-level `app.js` on real
+TypeScript, after the shared/*.ts modules) and is now the bundle's real
+source; the committed `starter/app.js` is `esbuild`'s emitted output,
+same "compile, commit both, GitHub Pages keeps serving from branch, zero
+deploy-config change" posture as every Phase 2 conversion — `npm run
+build:bundle` (or `node esbuild.config.mjs`) after touching
+`starter/app.ts` or anything it imports, then commit the result and bump
+`starter/index.html`'s own `<script>` tag. `package.json` is now a real,
+committed file (`typescript` + `esbuild` devDependencies) — the
+`tsconfig.json` comment claiming otherwise was updated to match.
+
+**Two distinct duplicate-module bugs found and fixed while proving this
+out — both real, both would have shipped broken if the build had "looked
+done" after the first one:**
+1. **Query-string identity.** esbuild's module cache is keyed by the
+   exact specifier string, so `'./watchlist.js?v=32'` (used inside
+   `shared/watchlist-sync.ts`, necessary there since it's also loaded
+   raw by unbundled tiers) and `'../shared/watchlist'` (a clean import
+   written fresh in `starter/app.ts`) resolve to the same file but don't
+   deduplicate into the same module instance — confirmed first via a
+   synthetic two-importer repro before touching the real build, then
+   found for real in the bundle output as a renamed `watchlist2` binding
+   with its own independent array.
+2. **`.ts`-vs-compiled-`.js` identity, a second and different collision
+   the first fix's query-stripping alone didn't catch.** Every Phase 2
+   file has BOTH its `.ts` source and its `tsc`-emitted `.js` sibling
+   committed side by side (the `.js` is the real deploy artifact for
+   unbundled tiers). An extensionless specifier resolves to the `.ts`
+   source; an explicit `.js`-suffixed specifier (even with its `?v=N`
+   query already stripped) resolves to the literal, separately-compiled
+   `.js` file — a genuinely different physical file, with its own
+   independent top-level state. This one was the more dangerous of the
+   two precisely because it looked fixed: after the query-string fix
+   alone, `watchlist` had exactly one instance visible in a quick grep,
+   but `setWatchlist()`'s own writes were landing on a *second*,
+   differently-resolved copy (`shared/watchlist.js`, not `.ts`) that
+   nothing else in the bundle read from — the real, server-synced
+   watchlist silently never appeared on screen, while the page otherwise
+   looked completely normal (no console error, no exception, just a
+   ticker count that stayed on Starter's 7-ticker localStorage default
+   forever). Caught only by adding a real console.log inside
+   `renderRolodexFromWatchlist()` and tracing the actual call stack and
+   timing, not by reading the code — the bundle output's own chunk
+   headers (`// shared/watchlist.ts` at one line, `// shared/watchlist.js`
+   at another) were the tell once looked for directly.
+
+**Fix: `esbuild.config.mjs`'s `normalizeSharedImports` plugin**, an
+`onResolve` hook matching any `.js`(`?v=N`)? specifier, that checks
+whether a `.ts` sibling exists on disk and redirects to it when one does
+(falling back to the plain, query-stripped `.js` path otherwise) —
+rather than hand-matching every entry point's own import specifiers to
+whatever version number and extension a shared file's internal imports
+happen to carry right now, which is exactly the fragile manual
+bookkeeping Phase 3 exists to eliminate. Verified by checking the
+bundle's own chunk-header comments after the fix: every `shared/*`
+module now appears exactly once, always as its `.ts` source.
+
+**A real, incidental cleanup caught along the way:** an earlier debugging
+command (`tsc ... --noEmit false` run against `starter/app.ts` mid-
+investigation) accidentally emitted a stray, untracked `shared/rolodex.js`
+— `rolodex.ts` is bundler-only (nothing loads it as a raw browser
+module, so it has no `?v=N` consumer and was never added to
+`tsconfig.build.json`'s emit scope) — deleted before committing; flagged
+here since an untracked stray `.js` sibling next to a `.ts` file would
+have silently reintroduced exactly the collision class this same pass
+just fixed, the moment anything referenced it by a `.js`-suffixed path.
+
+**Verified end-to-end, not just that the build produced output:** the
+full existing Starter regression suite (headless Chromium against
+realistic mocked backend responses) re-run against the bundled output —
+auth bypass, real watchlist pull from a mocked `/watchlist` (the exact
+path the duplicate-module bug broke), Gate dock/undock via real
+incremental scroll, pill-tap auto-analyze with the real `/analyze` body
+shape, ticker hyperlinks (Gate grid/marquee + card + proxy), CSV export,
+confidence-driven "LOOK FOR" dot, Settings modal, Session Context
+highlighting, Import cap, swipe-to-delete, Glossary search, scroll-to-
+card on pill tap — all pass identically to the pre-bundle build, plus
+the fixed-height overflow checks. `tsc -p tsconfig.json` shows the same
+known `?v=N`-import-resolution baseline as before, zero new errors.
+`node --check` on the emitted `starter/app.js`.
+
+**Explicitly not done in this pass:** Free/Pro's own bundled entry
+points (this was scoped to "convert what the extraction needs," not a
+full-site Phase 3 migration — each tier adds its own `esbuild.config.mjs`
+entry when its own Rolodex work actually starts); stripping `?v=N` from
+the shared `.ts` files' own internal imports (still needed for Free/Pro's
+current unbundled consumption — only the *bundler's resolution*, not the
+source files themselves, was changed); minification/source maps (no
+build-artifact story exists yet for this repo, deliberately deferred).
 
 ## Verifying changes before you claim done
 

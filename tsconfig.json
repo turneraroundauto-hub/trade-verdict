@@ -1,9 +1,10 @@
 {
   // Phase 0 of the TypeScript adoption plan — see CLAUDE.md, "Engineering:
   // TypeScript adoption path" (Aug 14, 2026). JSDoc + checkJs only: no
-  // .ts files, no build step, ever. Run with `tsc --noEmit` (or `npx tsc`,
-  // TypeScript is not a committed devDependency here — no package.json
-  // exists in this repo yet).
+  // .ts files, no build step, ever. Run with `npx tsc --noEmit` (or
+  // `npm run typecheck`) — TypeScript became a real committed
+  // devDependency (package.json) as of Phase 3 (Aug 16, 2026), see that
+  // section below and esbuild.config.mjs.
   //
   // Scope is deliberately narrow — shared/*.js + gates-extended.js — same
   // scope the investigation behind this plan actually tested against, kept
