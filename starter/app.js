@@ -45,18 +45,6 @@ function isMarketClosed(){
 function sigColor(s){return{GREEN:'var(--green)',RED:'var(--red)',YELLOW:'var(--amber)','N/A':'var(--ink-dim)'}[s]||'var(--ink-dim)'}
 function dirClass(d){return d==='green'?'up':d==='red'?'down':d==='flat'?'flat':'neutral'}
 
-function startClock(){
-  function tick(){
-    var now=new Date(),tz=new Date(now.toLocaleString('en-US',{timeZone:getTzIana()}));
-    var h=tz.getHours(),m=tz.getMinutes(),s=tz.getSeconds();
-    var p=function(n){return String(n).padStart(2,'0')};
-    var h12=h%12||12,ampm=h<12?'AM':'PM';
-    var cl=document.getElementById('live-clock');
-    if(cl)cl.textContent=h12+':'+p(m)+':'+p(s)+' '+ampm+' '+getTzPref();
-  }
-  tick();setInterval(tick,1000);
-}
-
 // ── SUPABASE AUTH ─────────────────────────────────────────────────
 var sbSession=null;
 function getStoredSession(){try{return JSON.parse(localStorage.getItem('tv_session')||'null');}catch(e){return null;}}
@@ -156,11 +144,11 @@ function renderGate(){
 }
 
 function renderMarketTs(){
-  var noteEl=document.getElementById('gateNote');
-  if(!market||!market.timestamp||!noteEl)return;
+  var tsEl=document.getElementById('marketTs');
+  if(!tsEl)return;
+  if(!market||!market.timestamp){ tsEl.textContent=''; return; }
   var t=new Date(market.timestamp).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:getTzIana()});
-  var ts=(market.cached?'⚡ Cached':'🔴 Live')+' · Updated '+t+' '+getTzPref();
-  noteEl.title=ts;
+  tsEl.textContent=(market.cached?'⚡ Cached':'🔴 Live')+' · Updated '+t+' '+getTzPref();
 }
 
 const gateMarquee = document.getElementById('gateMarquee');
@@ -864,7 +852,6 @@ document.getElementById('glossary-search').addEventListener('input', (e)=> filte
 function initApp(){
   cleanLS();
   document.getElementById('ticker-count').textContent='CRF · '+watchlist.length+' TICKERS';
-  startClock();
   wireContextHighlight();
   onPrefsChange(function(){ refreshRoloCards(); renderMarketTs(); });
   fetchMarket();
