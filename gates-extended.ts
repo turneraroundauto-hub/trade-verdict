@@ -11,11 +11,13 @@
  *
  * Phase 2 of the TypeScript adoption plan (CLAUDE.md) — required via plain
  * CommonJS `require("./gates-extended")` in server.js, not ES-module-loaded
- * by a browser, so this file has zero `import`/`export` runtime statements
- * (only type-only `import type`, fully erased at compile time) and its
- * `module.exports = {...}` at the bottom is untouched, plain JS, same as
- * every prior version of this file. Compiled via tsconfig.build.json, same
- * as every other Phase 2 conversion — tsc emits gates-extended.js in place.
+ * by a browser, so this file has ZERO `import`/`export` statements of any
+ * kind, including type-only ones (see the comment below `module.exports`'
+ * declaration for why — a real import here, even type-only, breaks
+ * `require()` at runtime) and its `module.exports = {...}` at the bottom
+ * is untouched, plain JS, same as every prior version of this file.
+ * Compiled via tsconfig.build.json, same as every other Phase 2
+ * conversion — tsc emits gates-extended.js in place.
  */
 
 // No @types/node in this repo (no package.json, no npm dependency
