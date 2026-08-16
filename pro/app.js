@@ -3,7 +3,7 @@ import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, 
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache.js?v=3';
 import { renderTrackRecord, logResult, getAccuracyLog, clearLog, onLogSave } from '../shared/track-record.js?v=17';
 import { initTrackRecordSync, pullTrackRecordFromServer, schedulePushTrackRecord } from '../shared/track-record-sync.js?v=14';
-import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=23';
+import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=24';
 import { tickerHref, newsHref, getTzPref, getTzIana, onPrefsChange, refreshTickerLinks } from '../shared/prefs.js?v=11';
 import '../shared/settings-modal.js?v=14';
 import { highlightContextMatches } from '../shared/context-highlight.js?v=1';

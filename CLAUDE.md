@@ -3074,12 +3074,49 @@ file imports it, so no further hop needed there) → each tier's own
 bumped too (`index.html` 46→47, `starter/index.html`/`pro/index.html`
 47→48). `preview/rolodex/` and `shark/index.html` confirmed untouched.
 
-**Next in Phase 2, not done in this pass:** `shared/watchlist-sync.js`
-(3 importers, depends on the already-converted `watchlist.js`),
-`shared/context-highlight.js`/`shared/settings-modal.js` (2 each),
-`shared/track-record-sync.js` (1) — then both repos' `gates-extended.js`
-last (largest, highest-stakes file, best converted once the pattern is
-well-proven on smaller modules first).
+### `shared/watchlist-sync.js` converted to `.ts` (Aug 16, 2026)
+
+Sixth Phase 2 conversion, next by fan-out (3 importers), depends on the
+already-converted `watchlist.js` so it slotted in cleanly. New
+`WatchlistSyncConfig` interface (`API_URL`/`authH`/`addSecret`) for
+`initWatchlistSync()`'s config param — the same shape `ticker-cache.ts`'s
+`TickerCacheConfig` already established, kept as its own separate
+interface rather than shared, since the two configs happen to be
+structurally identical today but aren't guaranteed to stay that way (no
+reason to couple two independent modules' public APIs to save one type
+declaration).
+
+**Verified via real behavioral comparison across all four code paths**,
+not just a happy-path check — a Node harness ran the pre- and
+post-conversion module side by side against a fake `fetch`, confirming
+byte-identical results for: (1) a normal successful pull, (2) the
+empty-GET-response seed-push fallback (confirms the exact POST body,
+`seed:true`), (3) the retry-with-backoff loop on network failure
+(confirms 3 attempts and the ~1500ms+ delay before the 3rd succeeds,
+matching `PULL_RETRY_DELAYS_MS`), and (4) `schedulePushWatchlist()`'s
+debounce (two calls → one POST). Then re-confirmed the two paths that
+actually matter most in production through real headless Chromium
+against the real Pro-tier app: a mocked `GET /watchlist` returning
+`NVDA`/`AMD` correctly hydrates the rendered watchlist on login (the
+actual `pullWatchlistFromServer()` call site, not a synthetic one), and
+adding a ticker correctly fires a debounced `POST /watchlist` with the
+right body (`{"tickers":["AAPL","NVDA","AMD"],"seed":false}`) — zero
+page errors throughout.
+
+**Cache-busting cascade:** `watchlist-sync.js` `?v=23→24` in its 3
+importers (`app.js`, `starter/app.js`, `pro/app.js` — no other
+`shared/` file imports it) → each tier's own `app.js` content changed,
+each tier's `<script src="./app.js?v=N">` bumped too (`index.html`
+47→48, `starter/index.html`/`pro/index.html` 48→49). `preview/rolodex/`
+and `shark/index.html` confirmed untouched. `git diff --stat` against
+every previously-converted file's compiled output was empty both before
+and after emit.
+
+**Next in Phase 2, not done in this pass:** `shared/context-highlight.js`/
+`shared/settings-modal.js` (2 importers each), `shared/track-record-sync.js`
+(1) — then both repos' `gates-extended.js` last (largest, highest-stakes
+file, best converted once the pattern is well-proven on smaller modules
+first).
 
 ## Verifying changes before you claim done
 
