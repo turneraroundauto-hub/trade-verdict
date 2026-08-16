@@ -2535,7 +2535,7 @@ that's a separate, deliberate cleanup decision, not implied by this one.
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt onto the Rolodex UI Aug 16, 2026 (see "Frontend: Rolodex UI shipped to Free" below) — second real (non-preview) tier on the Rolodex UI, after Starter. **`app.js` is now a bundled build artifact, not hand-written** — the real source is `app.ts` (repo root), compiled via `node esbuild.config.mjs`; edit the `.ts`, never the `.js` directly. Consumes `shared/rolodex.ts` for Gate dock/marquee/stacked-card/swipe mechanics, same as Starter. Its top-level "redirect a paid session elsewhere" check still halts the rest of module init (`redirectingToPaidTier` flag, unchanged from before this rebuild) — see the testing note below for why that mattered. |
 | Starter | `starter/index.html` + `starter/app.js` | Rebuilt onto the Rolodex UI Aug 16, 2026 (see "Frontend: Rolodex UI shipped to Starter" below) — sticky-docking Gate, marquee ticker-pill strip, single-active-card stage with tap-pill-then-swipe-to-delete, real auth/credits/Settings/Session-Context-highlighting/server-sync unchanged. First real (non-preview) tier on the Rolodex UI; Pro/Shark still on their prior designs. **`starter/app.js` is now a bundled build artifact, not hand-written** (Phase 3 kickoff, same day) — the real source is `starter/app.ts`, compiled via `node esbuild.config.mjs`; edit the `.ts`, never the `.js` directly. Its Rolodex-mechanics half now lives in `shared/rolodex.ts`, shared with (and now also consumed by) Free's own Rolodex build rather than re-copied. |
-| Pro | `pro/index.html` + `pro/app.js` | Rebuilt Aug 2, 2026 (trade-verdict PRs #23, #24, #26, #27, #28 + `Tra` PR #5) — on shared modules, plus Pro-exclusive Analyst View, Proxy Resolution Explorer + live coherence strip, Sector Heat Map, a CSV export (Ticker/List/Price/IV/Change%, real IV via Alpaca options snapshots), trigger/ticker track-record breakdowns, server-synced track record (Aug 4, 2026, see Frontend architecture above — Pro only), and a card/watchlist split: only the first 15 tickers (in list order) render as full analysis cards, the rest render as compact price/%chg/news rows with no ANALYZE button and no credit cost — `analyzeAll()` scopes to the 15-card window only (max 5 credits). **Confirmed working live by Mr. T**, including the IV export. Its two Shark upsell teases (Proxy Explorer, Heat Map) link to `shark/coming-soon.html` (see Shark row), not straight to Stripe checkout. Proxy Resolution Explorer and Heat Map both still iterate the full watchlist, not the 15-card window — see the Alpaca section's "known follow-ups" above. |
+| Pro | `pro/index.html` + `pro/app.js` | Rebuilt onto the Rolodex UI Aug 16, 2026 (see "Frontend: Rolodex UI shipped to Pro" below) — third real (non-preview) tier on the Rolodex UI, after Starter and Free. **`pro/app.js` is now a bundled build artifact, not hand-written** — the real source is `pro/app.ts`, compiled via `node esbuild.config.mjs`; edit the `.ts`, never the `.js` directly. Consumes `shared/rolodex.ts` for Gate dock/marquee/stacked-card/swipe mechanics, same as Starter/Free. Keeps its pre-Rolodex Pro-exclusive features — Analyst View (per-card expandable subsection), Proxy Resolution Explorer + live coherence strip, Sector Heat Map, real (not teaser) server-synced Track Record with trigger/ticker accuracy breakdowns, CSV export — all ported forward, not dropped; see that section for exactly what changed shape (card/watchlist split → pill-strip cap + overflow accordion) vs. what ported unchanged. |
 | Shark | `shark/index.html` (no separate `app.js` — still monolithic) | **NOT rebuilt — deliberately deferred as of Aug 2, 2026, not a backlog gap.** Mr. T wants Shark's eventual rebuild to lean on more Alpaca-driven visuals, likely after upgrading to Alpaca's "Plus" data plan first. Don't pick this up proactively without checking that's still the plan — it still carries the same reorder/log-button bugs Pro had before its rebuild (shared original template) whenever it does happen. A separate, standalone `shark/coming-soon.html` splash (added Aug 2, 2026, licensed mascot art at `shared/assets/shark-mascot.png`) exists alongside it — email waitlist writes directly to Supabase's `shark_waitlist` table (anon insert-only via RLS) from the browser, no backend involvement. |
 
 Tier config (ticker cap, cache TTL, credits, tracker, `alpaca`, `iv`) is
@@ -4398,6 +4398,128 @@ credentials, no way to actually receive a confirmation email from here).
 To confirm: sign up with a real test email once `Tra`'s deploy picks up
 PR #39, click the confirmation link, and check it lands on
 `https://tradetribunal.app/` instead of the old dead URL.
+## Frontend: Rolodex UI shipped to Pro — third real tier, Phase 3 bundler entry (Aug 16, 2026)
+
+Direct instruction: "finish out phase 3 and continue phase to finish out the app update." Third real
+(non-preview) tier on the Rolodex UI, after Starter and Free — and per the plan already laid out in
+"Frontend: Rolodex mechanics extracted to shared/rolodex.ts" above, Pro's build needed its own design
+pass first (its card/watchlist split and four Pro-exclusive features don't map onto the Rolodex UI as
+directly as Starter/Free's did). Shark stayed untouched — still the deliberately-deferred rebuild
+pending the Alpaca "Plus" data-plan decision, not picked up.
+
+**The one genuinely blocking structural question, scoped via `AskUserQuestion` before writing any
+code:** how should Pro's existing 15-card-window / unlimited-watchlist split (and its role as a
+credit-cost guardrail on `analyzeAll()`, capped at CARD_CAP/3 = 5 credits) map onto the Rolodex's
+single-active-card model? **Answer, verbatim: "the pills are capped at 15. the watchlist stays as
+built in pro. it can be in a drop down like everything else."** Confirmed and implemented exactly as
+answered: `cardWindow()` (`watchlist.slice(0, CARD_CAP)`) is the pill strip's only source array —
+`rolodex.initRolodex()`'s `getWatchlist` callback is wired to `cardWindow`, not the raw `watchlist` —
+while the underlying `watchlist` array itself stays exactly as unlimited as it already was
+(`maxTickers: 999`, unchanged). Everything beyond the top 15 renders in a new "Watchlist" accordion
+utility card (`data-card="watchlist"`), the same tap-to-expand pattern already established for Sector
+Pulse/Session Context/Import — "like everything else," per the literal answer.
+
+**Approach: same "invert the build direction" pattern as Starter/Free, not a preview extension.**
+Started from Pro's real, working `pro/app.js`/`pro/index.html` (real auth/credits/`/analyze`, real
+server-synced watchlist AND track record — Pro is the only tier with the latter — Settings modal,
+Session Context highlighting) and ported the Rolodex's sticky-docking Gate, marquee pill strip, and
+single-active-card stage mechanics in via `shared/rolodex.ts`, exactly as Starter/Free's own sections
+above describe. `pro/app.ts` was authored as real TypeScript from day one (matching Free's precedent,
+not Starter's convert-after-the-fact one) — `npx tsc --noEmit` against it (Pro isn't in `tsconfig.json`'s
+narrow Phase 0 scope, so checked directly with the same compiler flags) came back with only the same 7
+known `?v=N`-import-resolution baseline errors shared modules already carry — zero errors from
+`pro/app.ts` itself.
+
+**Every Pro-exclusive feature ported forward, not dropped — reshaped only where the CARD_CAP decision
+above required it:**
+- **Analyst View** — unchanged in substance (trigger classification via `classifyTrigger()`,
+  corroboration tally, resolved proxy tier/risk flags), now a per-card expandable subsection
+  (`data-toggle-analyst`/`data-analyst-body`, wired via `wireCardButtons()` rather than the old
+  `window.toggleAnalyst` inline `onclick`) instead of a fixed list-row subsection — calls
+  `rolodex.syncRoloStageHeight()` on toggle since expanding it changes the active card's real height,
+  same discipline as every other dynamic-height change on this page.
+- **Real Track Record** (not a teaser — Pro has no upgrade gate on this) — its own accordion utility
+  card (`data-card="track"`), `refreshTrackRecordCard()` (new, consolidates `renderTrackRecord()` +
+  `renderGateAttribution()` + `renderTickerAccuracy()`) called once unconditionally at `initApp()` so
+  the card's content is already correct by the time a user taps it open — unlike Watchlist/Proxy/Heat
+  Map, Track Record needed no lazy-load-on-expand wiring. Real ✓ RIGHT/✗ WRONG/SKIP log buttons
+  (`logSectionHTML`/`logResultUI`) replace Starter/Free's "UPGRADE to log results" teaser link.
+- **Proxy Resolution Explorer** and **Sector Heat Map** — both became accordion utility cards
+  (`data-card="proxy"`/`"heatmap"`), lazy-rendered on first expand via `wireAccordionHead()`'s
+  `kind==='proxy'`/`'heatmap'` branches (mirroring `'watchlist'`'s same lazy-load shape). Both
+  correctly cover the **full** watchlist (all 18 in testing, not just the 15-card window) via a
+  priority-first pattern — `cardWindow()` resolves first, `overflowTickers()` streams in after —
+  reusing the exact priority-first/generation-counter shape this file's Aug 5, 2026 "watchlist
+  load-time fixes" entry already established for these same two panels. Both now `await
+  pillHydrationDone` (a new per-render promise, replacing the old shared-module `cardsReady()` gate)
+  before firing their own fetches, so they don't compete with the top-15 pills' own hydration burst.
+- **Watchlist overflow accordion** (`data-card="watchlist"`, replacing the old always-visible compact
+  list) — tickers beyond CARD_CAP, ported near-verbatim from the old `renderCompactList`/pointer-gesture
+  code: price/%chg/news, swipe-to-delete, sort toggle, a "+" promote-to-card button
+  (`promoteToCard()`, splices the ticker into index `CARD_CAP-1` via `setWatchlist()` — whatever was
+  already there shifts down to become the new top overflow row).
+- **CSV export** — same `Ticker,List,Price,IV,Change%` shape (`List` = `CARD` if index < CARD_CAP else
+  `WATCHLIST`) as before, moved into the profile-menu dropdown (`#exportCsvBtn`), matching where
+  Starter's own CSV export already lives, replacing the old in-Import-tile button.
+
+**`#comeback-screen` dropped, same call as Starter's, confirmed the same way.** Grepped the OLD
+`pro/app.js` before assuming: `showScreen()`'s allowed-list included `'comeback-screen'`, but no call
+site anywhere in the file ever actually invoked `showScreen('comeback-screen')` — same dead-code
+pattern Starter's own build already found and documented. Dropped in favor of the same
+`handleNoCredits()` inline-error path Starter/Free use, not re-verified with the user since the
+evidence (a grep, not a guess) already matched an established precedent in this file.
+
+**A real, pre-existing CSS gap found and fixed, not inherited silently.** `shared/track-record.ts`'s
+STREAK/TOP TICKERS row has always referenced `var(--fs-sm)` inline — a leftover from the old
+pre-Rolodex Pro/Starter CSS (`--fs-sm:11px`). Starter's own Rolodex `:root` never defined it, but
+Starter never surfaced the gap because `TIER.tracker:false` means it never calls
+`renderTrackRecord()`. Pro's real Track Record does call it, so the gap would have rendered that one
+row at the browser's inherited font size instead of 11px. Fixed by adding `--fs-sm: 11px;` to
+`pro/index.html`'s `:root` as a legacy alias, same pattern already used there for
+`--card`/`--white`/`--dim`.
+
+**Phase 3 (bundler): third entry point, zero plugin changes needed.** `esbuild.config.mjs`'s
+`entryPoints` array gained `{ in: 'pro/app.ts', out: 'pro/app' }` — the `normalizeSharedImports` plugin
+built during Starter's Phase 3 kickoff (redirects `.js`(`?v=N`)? shared-module specifiers onto their
+`.ts` siblings, preventing the two duplicate-module bug classes documented there) needed no changes to
+handle a third entry point. Confirmed via the same chunk-header grep used for Starter/Free's own
+duplicate-module checks: `pro/app.js` bundles exactly 10 shared modules, every one as its `.ts` source,
+zero duplicates. `starter/app.js`/`app.js` (Free) were unaffected by the new entry — re-confirmed via
+`git status` showing only the files this pass actually touched.
+
+**Verified via real headless Chromium against a realistic mocked backend** (an 18-ticker watchlist —
+15 inside the card window, 3 overflowing — to actually exercise the CARD_CAP split, not just assert it
+in isolation): ticker-count reflects the full 18-ticker watchlist while card-count correctly reads
+`15/15`; the pill strip contains zero overflow tickers; pill-tap auto-analyze and the confidence-driven
+"LOOK FOR" dot work; Analyst View expands with real trigger/corroboration/proxy-tier content; real log
+buttons record a result and both accuracy breakdowns populate immediately; the Watchlist accordion
+shows exactly the 3 overflow tickers sorted by % change, and promoting one moves it into the pill strip;
+Proxy Resolution Explorer and Heat Map both cover all 18 tickers (not just 15); Gate dock/undock via
+real incremental scroll; Settings modal opens; CSV export downloads a real file with the correct
+`List` column and all 18 rows; Session Context highlighting produces real marks; **Analyze All fires
+exactly 15 `/analyze` calls, never 18** — confirming the 5-credit-max guardrail survived the rebuild
+unchanged; the real `/analyze` request body carries all 8 relay fields; Gate ticker links resolve
+correctly including the `BTC-USD` override; Glossary search filters; swipe-to-delete removes the
+correct ticker end-to-end. Re-ran Starter's and Free's full existing regression suites afterward since
+this pass touches `esbuild.config.mjs` (shared by all three bundled entry points) — both pass
+unchanged, zero new errors. **A real bug caught and fixed in the test script itself, not the app**,
+worth noting since it cost real debugging time before being ruled out: the CSV-export step's own click
+sequence assumed the profile menu started closed going into that step, but `settings-modal.ts`'s panel
+calls `event.stopPropagation()` on its own clicks (to stop backdrop-click side effects) — which also
+means closing Settings never reaches the profile-menu's outside-click-closes listener, so the menu was
+still open from the earlier Settings step. The test's own next click on `#profile-btn` was therefore
+closing the menu, not opening it. Not a Pro-specific bug — the same `settings-modal.ts` behavior
+applies identically to Starter, whose own test script happens to click something outside the menu
+between those two steps and never hit it. Fixed in the test by explicitly closing the menu first.
+
+**Not verified:** a real end-to-end round trip against live credentials (`tra-zacg.onrender.com` is
+unreachable from this sandbox, same standing limitation as every other backend-dependent feature in
+this file) — spot-check a real sign-in, a real `/analyze` call, and the real server-synced Track Record
+pull/push after deploy.
+
+**Phase 3 status after this pass:** Starter, Free, and Pro all have their own bundled `app.ts` entry
+point. Shark remains the only tier not on this pattern — still deliberately deferred, per Tier status
+above.
 
 ## Terminology rule
 
