@@ -1,0 +1,314 @@
+// Display-only user preferences — timezone shown on timestamps, and which
+// external site ticker symbols link out to. Plain localStorage, no server
+// sync: unlike watchlist/track-record these aren't account data, just how
+// the current browser renders things, so there's nothing to reconcile
+// across devices.
+
+interface TimezoneInfo {
+  label: string;
+  iana: string;
+}
+
+export const TIMEZONES: Record<string, TimezoneInfo> = {
+  ET: { label: 'ET (Eastern)', iana: 'America/New_York' },
+  CT: { label: 'CT (Central)', iana: 'America/Chicago' },
+  MT: { label: 'MT (Mountain)', iana: 'America/Denver' },
+  PT: { label: 'PT (Pacific)', iana: 'America/Los_Angeles' },
+};
+
+interface LinkSite {
+  label: string;
+  href: (t: string) => string;
+  newsHref?: (t: string) => string;
+}
+
+// href() takes the symbol as it appears in the watchlist/UI (e.g. 'AAPL',
+// or 'BTC-USD' for the header's crypto tile) and returns the outbound link
+// for that site. Google Finance's direct quote pages require an exchange
+// suffix (AAPL:NASDAQ) that this app has no reliable way to know per-symbol.
+// A prior version of this routed the bare ticker through Google Finance's
+// own beta search (google.com/finance/beta/?q={TICKER}) to land inside
+// Google Finance itself instead of a plain web search — confirmed live
+// (Aug 10, 2026) to misresolve ambiguous tickers to the wrong country's
+// listing (ARCC → Egypt's EGX-listed Arabian Cement instead of NASDAQ's
+// Ares Capital), since the bare symbol carries no market context. Reverted
+// to a plain google.com web search with " stock" appended — the same
+// approach used before that change, with no such failures reported.
+//
+// newsHref() is optional, used only for the news-headline link (see
+// newsHref() below) — sites with a dedicated per-ticker news page (Yahoo,
+// TradingView, StockTwits' /symbol/X/news) or a real news search (Google,
+// via news.google.com rather than a plain web search) get one; Robinhood
+// has no public news route, so it falls back to href().
+//
+// robinhood.com/stocks/X is a real, public page (no login needed to view
+// it) that also happens to register as a universal link — tapping it on
+// a phone with the Robinhood app installed opens the app directly,
+// browser otherwise. That's standard iOS/Android behavior tied to the
+// domain, not anything this app has to implement.
+export const LINK_SITES: Record<string, LinkSite> = {
+  yahoo: {
+    label: 'Yahoo Finance',
+    href: function(t){ return 'https://finance.yahoo.com/quote/' + encodeURIComponent(t); },
+    newsHref: function(t){ return 'https://finance.yahoo.com/quote/' + encodeURIComponent(t) + '/news/'; },
+  },
+  tradingview: {
+    label: 'TradingView',
+    // Bare /symbols/{TICKER}/ has the identical exchange-ambiguity problem
+    // as Google Finance's direct quote page (see the comment above) — this
+    // app has no per-symbol exchange data (checked: nowhere in the frontend
+    // or the mirrored server.js), and TradingView's own bare-symbol
+    // resolution isn't reliably US-biased: confirmed live (Aug 10, 2026)
+    // that a real user's ARCC link landed on Egypt's EGX-listed Arabian
+    // Cement instead of NASDAQ's Ares Capital. Routes through a plain web
+    // search instead (same proven-safe pattern as Yahoo/Google's own
+    // fallback), biased toward tradingview.com with a keyword rather than
+    // the `site:` operator — this app already found `site:` search results
+    // unreliable (Google shows an interstitial banner instead of direct
+    // results, hit earlier this session while building the news-link
+    // feature). UNVERIFIED LIVE: this sandbox blocks tradingview.com and
+    // google.com egress alike, so the actual search-result ranking for a
+    // given ticker couldn't be confirmed — spot-check after deploy.
+    href: function(t){ return 'https://www.google.com/search?q=' + encodeURIComponent(t.replace('-USD',' USD') + ' stock tradingview'); },
+    newsHref: function(t){ return 'https://news.google.com/search?q=' + encodeURIComponent(t.replace('-USD',' USD') + ' stock tradingview'); },
+  },
+  stocktwits: {
+    label: 'StockTwits',
+    href: function(t){ return 'https://stocktwits.com/symbol/' + encodeURIComponent(t.replace('-USD','.X')); },
+    newsHref: function(t){ return 'https://stocktwits.com/symbol/' + encodeURIComponent(t.replace('-USD','.X')) + '/news'; },
+  },
+  google: {
+    label: 'Google Finance',
+    href: function(t){ return 'https://www.google.com/search?q=' + encodeURIComponent(t.replace('-USD',' USD') + ' stock'); },
+    newsHref: function(t){ return 'https://news.google.com/search?q=' + encodeURIComponent(t.replace('-USD',' USD') + ' stock'); },
+  },
+  robinhood: {
+    label: 'Robinhood',
+    href: function(t){ return 'https://robinhood.com/stocks/' + encodeURIComponent(t.replace('-USD','')); },
+  },
+  custom: {
+    label: 'Custom link…',
+    href: function(t){ return customMarketTemplateHref(t); },
+    newsHref: function(t){ return customNewsTemplateHref(t); },
+  },
+};
+
+// Two independent templates: a ticker/quote-page one (used for tickerHref,
+// i.e. every plain symbol link) and a news one (used for newsHref, i.e.
+// headline links) — a favorite market-data site and a favorite news site
+// are frequently not the same site. CUSTOM_TEMPLATE_KEY is the original,
+// single template from before this split; kept as the NEWS template
+// specifically (not renamed/migrated) so an existing saved value keeps
+// working exactly as before for existing users, with the market-data
+// template simply starting unset (falls back to Yahoo's quote page,
+// same as it always did) until a user fills in the new field.
+const CUSTOM_TEMPLATE_KEY = 'tv_link_custom_template';
+const CUSTOM_MARKET_TEMPLATE_KEY = 'tv_link_custom_market_template';
+
+// Only http(s) with a ticker placeholder is accepted — this is user-typed
+// text rendered straight into an href, so a stray javascript: paste can't
+// turn into a self-XSS, and a template with nowhere to put the ticker
+// would just link every symbol to the same dead page.
+export function isValidCustomTemplate(template: string): boolean {
+  var t = (template || '').trim();
+  if(!/^https?:\/\//i.test(t)) return false;
+  if(!/\{ticker\}/i.test(t)) return false;
+  return true;
+}
+
+// Turns a real example (a ticker + the URL you land on viewing that one
+// stock) into a template automatically, so a user never has to know
+// {TICKER} syntax exists. Finds the ticker as a whole token (not a
+// substring of something else — matters for short tickers like "GE")
+// and swaps it for {TICKER} or {ticker} matching whichever case it
+// actually appeared in, since sites are inconsistent (Yahoo: AAPL,
+// Webull: aapl). Every occurrence is swapped, not just the first, in
+// case a site repeats the ticker in the URL. Returns null if the ticker
+// isn't found anywhere in the URL, so the caller can show a clear error
+// instead of silently saving a template with nowhere to substitute.
+export function buildTemplateFromExample(exampleUrl: string, exampleTicker: string): string | null {
+  var url = (exampleUrl || '').trim();
+  var ticker = (exampleTicker || '').trim();
+  if(!ticker || !/^https?:\/\//i.test(url)) return null;
+  var escaped = ticker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  var re = new RegExp('(^|[^A-Za-z0-9])(' + escaped + ')(?=[^A-Za-z0-9]|$)', 'gi');
+  var found = false;
+  var result = url.replace(re, function(_match, boundary, matched){
+    found = true;
+    var placeholder = matched === matched.toUpperCase() ? '{TICKER}' : '{ticker}';
+    return boundary + placeholder;
+  });
+  return found ? result : null;
+}
+
+// Words that show up in stock-site URLs but are never themselves the
+// ticker — path segments like "quote"/"stocks"/"symbol" and exchange
+// names, which would otherwise pass the plain shape check below (short,
+// letters-only) and get picked as a false-positive ticker.
+const URL_NON_TICKER_WORDS = new Set(['quote','quotes','stock','stocks','symbol','symbols','news','chart','charts','charting',
+  'market','markets','markt','investing','finance','financials','company','overview','summary','profile','research',
+  'www','com','us','en','html','htm','index',
+  'nasdaq','nyse','amex','otc','otcmkts','arca','bats','cboe']);
+
+function looksLikeTicker(s: string): boolean {
+  return /^[A-Za-z]{1,5}(\.[A-Za-z]{1,2})?$/.test(s);
+}
+
+// Guesses the ticker straight out of a real example URL, so the user
+// only has to paste one thing. Scans path segments from the end first
+// (site URLs almost always put the ticker last: /quote/AAPL,
+// /stocks/AAPL, /symbols/AAPL/news/), falling back to splitting on
+// hyphens for patterns like Webull's /quote/nasdaq-aapl, then to a
+// handful of common query-string params (?symbol=NASDAQ:AAPL and
+// similar) for chart-style URLs. Returns null, not a bad guess, when
+// nothing plausible turns up — the caller falls back to asking the user
+// to type the ticker rather than silently building a broken template.
+export function detectTickerInUrl(rawUrl: string): string | null {
+  var url: URL;
+  try { url = new URL((rawUrl || '').trim()); } catch(e){ return null; }
+  var segments = url.pathname.split('/').filter(Boolean);
+  for (var i = segments.length - 1; i >= 0; i--) {
+    var seg: string;
+    try { seg = decodeURIComponent(segments[i]); } catch(e){ seg = segments[i]; }
+    if (looksLikeTicker(seg) && !URL_NON_TICKER_WORDS.has(seg.toLowerCase())) return seg;
+    if (seg.indexOf('-') !== -1) {
+      var parts = seg.split('-');
+      for (var j = parts.length - 1; j >= 0; j--) {
+        if (looksLikeTicker(parts[j]) && !URL_NON_TICKER_WORDS.has(parts[j].toLowerCase())) return parts[j];
+      }
+    }
+  }
+  var queryKeys = ['symbol', 'ticker', 'q', 's'];
+  for (var k = 0; k < queryKeys.length; k++) {
+    var v = url.searchParams.get(queryKeys[k]);
+    if (!v) continue;
+    var last = v.indexOf(':') !== -1 ? v.split(':').pop()! : v;
+    if (looksLikeTicker(last)) return last;
+  }
+  return null;
+}
+
+// NEWS template — see the comment above CUSTOM_TEMPLATE_KEY.
+export function getCustomTemplate(): string {
+  return localStorage.getItem(CUSTOM_TEMPLATE_KEY) || '';
+}
+
+export function setCustomTemplate(template: string): boolean {
+  if(forced) return false;
+  var t = (template || '').trim();
+  if(!isValidCustomTemplate(t)) return false;
+  localStorage.setItem(CUSTOM_TEMPLATE_KEY, t);
+  listeners.forEach(function(cb){cb();});
+  return true;
+}
+
+// MARKET DATA (ticker/quote) template.
+export function getCustomMarketTemplate(): string {
+  return localStorage.getItem(CUSTOM_MARKET_TEMPLATE_KEY) || '';
+}
+
+export function setCustomMarketTemplate(template: string): boolean {
+  if(forced) return false;
+  var t = (template || '').trim();
+  if(!isValidCustomTemplate(t)) return false;
+  localStorage.setItem(CUSTOM_MARKET_TEMPLATE_KEY, t);
+  listeners.forEach(function(cb){cb();});
+  return true;
+}
+
+function applyTemplate(template: string, t: string): string {
+  return template.replace(/\{TICKER\}/g, encodeURIComponent(t.toUpperCase()))
+                  .replace(/\{ticker\}/g, encodeURIComponent(t.toLowerCase()));
+}
+
+// Falls back to Yahoo's quote page (never a dead link) if no valid market
+// template is saved — same fail-safe posture as every other outbound link
+// in this app.
+function customMarketTemplateHref(t: string): string {
+  var template = getCustomMarketTemplate();
+  if(!isValidCustomTemplate(template)) return LINK_SITES.yahoo.href(t);
+  return applyTemplate(template, t);
+}
+
+// Falls back to Yahoo's news page if no valid news template is saved.
+function customNewsTemplateHref(t: string): string {
+  var template = getCustomTemplate();
+  if(!isValidCustomTemplate(template)) return LINK_SITES.yahoo.newsHref!(t);
+  return applyTemplate(template, t);
+}
+
+const TZ_KEY = 'tv_tz_pref';
+const LINK_KEY = 'tv_link_site_pref';
+const listeners: Array<() => void> = [];
+
+// Free has no Settings UI and always shows ET / Yahoo Finance — but
+// localStorage is shared across every tier on the same origin, so without
+// this a Free visitor who'd previously set MT/TradingView on Starter or
+// Pro (same browser, same domain) would silently inherit it on Free too.
+// Free's app.js calls this once at startup to pin both prefs to their
+// defaults regardless of what's in storage; Starter/Pro never call it.
+let forced = false;
+export function forceDefaults(): void { forced = true; }
+
+export function getTzPref(): string {
+  if(forced) return 'ET';
+  var v = localStorage.getItem(TZ_KEY);
+  return v && TIMEZONES[v] ? v : 'ET';
+}
+export function setTzPref(tz: string): void {
+  if(forced || !TIMEZONES[tz])return;
+  localStorage.setItem(TZ_KEY, tz);
+  listeners.forEach(function(cb){cb();});
+}
+export function getTzIana(): string { return TIMEZONES[getTzPref()].iana; }
+
+export function getLinkSitePref(): string {
+  if(forced) return 'yahoo';
+  var v = localStorage.getItem(LINK_KEY);
+  return v && LINK_SITES[v] ? v : 'yahoo';
+}
+export function setLinkSitePref(site: string): void {
+  if(forced || !LINK_SITES[site])return;
+  localStorage.setItem(LINK_KEY, site);
+  listeners.forEach(function(cb){cb();});
+}
+
+// Every ticker symbol displayed anywhere links out via this one function —
+// it's the single source of truth other modules used to each duplicate
+// their own copy of (shared/watchlist.js, shared/track-record.js,
+// pro/app.js all had byte-identical hardcoded-to-Yahoo versions).
+export function tickerHref(t: string): string {
+  return LINK_SITES[getLinkSitePref()].href(t);
+}
+
+// The news-headline link uses this instead of the specific article URL
+// Finnhub/Alpaca returned — it always goes to the user's preferred site's
+// coverage of that ticker (its dedicated news page where the site has
+// one), not an attempt to reconstruct the exact same story elsewhere.
+// Finnhub/Alpaca still drive the headline text/age/source shown on the
+// card itself; this only changes where tapping it goes. A user whose
+// preferred site happens to be the same outlet the headline came from
+// (e.g. a Seeking Alpha subscriber picking "Custom" -> seekingalpha.com)
+// gets exactly that article's site, which is the point.
+export function newsHref(t: string): string {
+  var site = LINK_SITES[getLinkSitePref()];
+  return (site.newsHref || site.href)(t);
+}
+
+// Fires after either preference changes. Callers re-render whatever they
+// own (watchlist cards, track record, the market timestamp, the clock)
+// rather than this module trying to know about every consumer.
+export function onPrefsChange(cb: () => void): void { listeners.push(cb); }
+
+// Rewrites every already-rendered ticker-symbol anchor that carries a
+// data-ticker attribute — used for the header's static SPY/QQQ/BTC/etc.
+// sector-cell links, which are plain HTML (not re-rendered by any JS on a
+// pref change the way watchlist cards and the track record log are).
+// The literal Yahoo Finance href baked into that HTML stays as a working
+// fallback if this never runs (e.g. a caching bug), same fail-safe posture
+// as the rest of this app's third-party integrations.
+export function refreshTickerLinks(root?: ParentNode | null): void {
+  (root || document).querySelectorAll('a[data-ticker]').forEach(function(a){
+    (a as HTMLAnchorElement).href = tickerHref((a as HTMLElement).dataset.ticker!);
+  });
+}
