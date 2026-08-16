@@ -2414,811 +2414,122 @@ dock regression suite — all pass.
 
 `preview/rolodex/app.js` bumped to `?v=10` per the cache-busting rule.
 
-## Frontend: Rolodex preview — pixel-precise marquee wrap, no more jump at the loop point (Aug 15, 2026, `?v=11`)
-
-Direct report: "the ticker pills back-step jumps like 5 pxls at the end
-of the loop." Two real, stacked sub-pixel precision bugs, confirmed by
-direct measurement before touching any code — not guessed at.
-
-**Bug 1 — `scrollLeft` writes get silently rounded to whole pixels.**
-Confirmed live: writing `10.7` reads back as `11`, writing `10.3` reads
-back as `10`. `stepRoloMarquee()` was accumulating by reading
-`roloIndex.scrollLeft` back each frame and adding `0.5` to it — since
-every read is already rounded, that rounding compounds every single
-frame, so by the time the wrap check fired the position had drifted a
-few px from its true value.
-
-**Bug 2 — `oneSetW` was measured with integer-rounded properties.**
-`offsetLeft`/`offsetWidth` round to the nearest integer per spec;
-`getBoundingClientRect()` doesn't. Measured directly: a divider's
-`offsetLeft + offsetWidth` gave `242`, but its real edge via
-`getBoundingClientRect()` was `242.42` — a small, constant mismatch
-between where the code wrapped and where the content actually repeats,
-compounding with Bug 1's drift instead of correcting it.
-
-**Fix.** `sizeRoloMarquee()` now measures `oneSetW` off
-`getBoundingClientRect()` instead of `offsetLeft`/`offsetWidth`. The
-step loop now tracks its own logical position (`roloMarqueePos`, a plain
-float) independent of `scrollLeft`'s rounding, only writing to the real
-`scrollLeft` at the end of each frame — this bounds the rounding error
-to at most one frame's write instead of letting it compound over
-however many frames occur between wraps.
-
-**Two follow-on correctness details, both needed for the fix to be safe
-rather than just quieter:**
-- `roloMarqueePos` resyncs from the real `scrollLeft` when the marquee
-  resumes from a pause — otherwise a manual drag during the pause
-  window would get silently discarded, resuming from the marquee's own
-  stale pre-pause position instead of wherever the user actually left
-  it.
-- `roloMarqueePos` resets to `0` in lockstep with `renderRolodexFromWatchlist()`'s
-  `roloIndex.innerHTML = ''` (which itself resets the real `scrollLeft`
-  to `0`) — without this, importing a new ticker would leave the tracker
-  holding a stale, large value that the very next frame would snap
-  `scrollLeft` to, a much bigger and more visible jump than the one
-  being fixed.
-
-**Verified:** sampled `scrollLeft` at a fine grain across several full
-loop cycles and confirmed the wrap lands exactly at `0` (not a residual
-few-px offset) with a consistent 0-1px-per-frame step cadence on both
-sides of the transition, no anomalous jump; confirmed a manual drag
-during a pause is correctly picked up on resume (not discarded);
-confirmed a real watchlist rebuild (importing a ticker on an
-under-the-cap list) resets `scrollLeft` to ~0 rather than jumping;
-full pill-tap/auto-analyze/accordion/glossary-search/dock regression
-suite re-run, all pass.
-
-`preview/rolodex/app.js` bumped to `?v=11` per the cache-busting rule.
-
-## Frontend: Rolodex preview — full scroll-animation sweep, Gate's own index marquee had the identical bug (Aug 15, 2026, `?v=12`)
-
-Direct follow-up: "it's still back stepping at the end of the list...
-rerun a full sweep of the code for scrolling bugs. make ever[y] scrolling
-motion smooth." Grepped the whole file for `scrollLeft`/`scrollTop`/
-`requestAnimationFrame` rather than re-guessing at the pill strip again.
-
-**Found a second, independent instance of the exact same bug class the
-`?v=11` fix addressed: the docked Gate's own SPY/QQQ/BTC/etc. index
-marquee (`stepGateMarquee`/`buildGateMarquee`), never touched by that
-pass.** Same two problems: `stepGateMarquee` accumulated by reading
-`gateMarquee.scrollLeft` back each frame (subject to the same
-whole-pixel rounding confirmed for the pill strip), and
-`gateMarqueeOneSetW` was measured as `gateMarquee.scrollWidth / 2` —
-`scrollWidth` rounds to the nearest integer per spec, so even though
-the gate marquee's two passes are truly identical (no divider breaking
-the symmetry, unlike the pill strip), halving an already-rounded number
-can still land up to ~0.5px off the real repeat boundary. Once the
-Gate's own dock-timing fix (`?v=7`, earlier this file) made this
-marquee visible almost immediately on any scroll, its jump became at
-least as noticeable as the pill strip's.
-
-**Fixed identically:** `sizeGateMarquee()` (renamed from an inline
-`requestAnimationFrame` callback) measures the real boundary — the last
-`.gm-item` of the first pass — via `getBoundingClientRect()` instead of
-`scrollWidth/2`. `stepGateMarquee()` now tracks `gateMarqueePos`, a
-plain float independent of `scrollLeft`'s rounding, same as the pill
-strip's `roloMarqueePos`. `gateMarqueePos` resets to `0` in
-`buildGateMarquee()` alongside the real `scrollLeft` reset, for the same
-reason `roloMarqueePos` needed the same reset in `renderRolodexFromWatchlist()`.
-
-**Confirmed the rest of the file has no other instance of this pattern.**
-Grepped for every `requestAnimationFrame` call: only two are continuous
-per-frame animation loops (`stepRoloMarquee`, `stepGateMarquee`, both now
-fixed) — everything else is a one-shot measurement/sizing call after a
-render, not a repeated scrollLeft-accumulation loop, so not subject to
-this bug class at all. Every other "scrolling motion" in the page (the
-main page scroll, the Gate-collapse spacer pull, the Rolodex card-stack
-transitions, the Glossary accordion) is either native browser scrolling
-or a CSS `transition` on `transform`/`opacity`/`height` — none of those
-read back a rounded DOM property into a frame-by-frame accumulator, so
-none of them share this failure mode.
-
-**Verified with a much longer, denser sampling pass than `?v=11` used,
-specifically to catch a residual bug the shorter test might have missed
-given the live report that the shorter fix "still" wasn't enough:**
-sampled the pill strip at 10ms resolution for 9 real seconds (900
-samples, several full loops) — exactly one wrap, landing at `0`, max
-single-frame step 1px, no anomaly. The Gate's own marquee has a much
-longer ~32s cycle (773px at 0.4px/frame) — waited through most of one
-real cycle, then sampled densely through the expected wrap window and
-confirmed the same clean `766 → 0` transition. Full pill-tap/
-auto-analyze/accordion/glossary-search/dock regression suite re-run
-against both fixes together, all pass.
-
-`preview/rolodex/app.js` bumped to `?v=12` per the cache-busting rule.
-
-## Frontend: Rolodex preview — the real jump was content reflow, not marquee math (Aug 15, 2026, `?v=13`)
-
-Direct follow-up, same day, live screenshot at the divider transition:
-"it is still jumping at this point." The `?v=12` sweep had verified the
-marquee's own wrap math was pixel-clean on both strips — correctly, that
-part held up — but the actual jump the user kept seeing had a completely
-different, third cause neither `?v=11` nor `?v=12` had looked at.
-
-**Root cause: `scrollLeft` sampling is blind to content reflow.** A
-pill's price starts as a `"—"` placeholder and swaps to a real
-`"$969.33"` once `fetchTickerData()` resolves — a real, often much wider
-piece of text (confirmed: 44px → 82px for one chip). The marquee runs
-from page load, independent of when that data actually arrives. If the
-swap happens for a chip sitting upstream of whatever's currently visible
-while the marquee is already scrolling, the reflow shifts every sibling
-after it — so the exact same `scrollLeft` number suddenly shows
-different content. Sampling `scrollLeft` itself (everything this file's
-`?v=11`/`?v=12` verification relied on) is completely blind to this,
-since the number never actually "jumps" — only what it's pointing at
-does. Caught by switching the measurement to the divider's own real
-`getBoundingClientRect()` position instead: a 76px visual jump with
-`scrollLeft` moving by all of 1.
-
-**Fix: hold the marquee still until there's nothing left to reflow.**
-`roloMarqueeDataReady` gates `stepRoloMarquee()` (in addition to the
-existing pause check) and only flips true once every ticker's real data
-has loaded and one final `sizeRoloMarquee()` has measured the settled
-layout — reset to `false` in lockstep with the same
-`renderRolodexFromWatchlist()` rebuild that already resets
-`roloMarqueePos`. Simpler than trying to compensate `scrollLeft` for
-every possible mid-scroll reflow after the fact; this repo's own
-`fetchTickerData()` only changes a chip's rendered width during this one
-initial-load window (memoized afterward, and the other two `renderPill()`
-call sites — `resetTicker()`, `analyzeOne()` — both reuse already-loaded
-`state.td`, so neither introduces a new width change), so removing that
-window's overlap with active scrolling removes the entire failure mode.
-
-**Verified two ways, since the earlier `scrollLeft`-only method was
-exactly what missed this the first two times:** (1) confirmed
-`scrollLeft` stays flat at `0` for the full ~2.25s a mocked 3s-delayed
-`/ticker/:symbol` response takes to resolve — the marquee genuinely
-doesn't move at all during the window where reflow could happen; (2)
-tracked the divider's actual on-screen position (not `scrollLeft`)
-through and past that data-settle point — confirmed the pre-fix 76px
-jump is gone, with the max single-sample delta anywhere in the
-post-settle active-scrolling phase down to 1px, matching the clean
-motion `?v=12` already established for the wrap point itself. Confirmed
-the marquee does start moving once data settles (not stuck paused
-forever) and that it still moves promptly under a normal, fast (not
-artificially delayed) response. Full pill-tap/auto-analyze/accordion/
-glossary-search/dock regression suite re-run, all pass.
-
-`preview/rolodex/app.js` bumped to `?v=13` per the cache-busting rule.
-
-## Frontend: Rolodex preview — reserve pill price width at the source, add a live diagnostic overlay (Aug 15, 2026, `?v=14`)
-
-Direct follow-up, same day: "it is still happening. do research into
-this issue and run tests for options that I can review." Given three
-straight rounds of "still broken" despite each fix verifying clean in
-isolation, this pass was a genuine investigation before touching code
-again, not another guess.
-
-**Ruled out first, with evidence:** the deployed `main` source was
-pulled straight from GitHub and byte-matched the intended `?v=13` fix
-— no drift. The `?v=13` "hold until data loads" gate itself re-tested
-clean under an artificially-delayed backend response. `resetTicker()`
-and `analyzeOne()`, the other two `renderPill()` call sites, both only
-re-render already-loaded `state.td` and can't introduce a new width
-change. `fetchTickerData()` (`shared/ticker-cache.js`) never throws —
-it catches everything and resolves to `null` — so the gate's
-`Promise.all` can't get stuck on a rejection either.
-
-**The actual gap: `?v=13` only closed the reflow window during the
-*initial* page load.** That was real and worth fixing, but incomplete
-— it's a timing fix around *when* the reflow happens, not a fix for
-the reflow itself. Tested a structural alternative instead: reserving
-the price text's display width up front (`min-width:7ch` on
-`.rc-price`, plus `text-align:right`), so the `"—"` placeholder and a
-real `"$969.33"` render at the *same* width — no size change, nothing
-to jump, regardless of when or why data lands. Verified directly: MU/
-IREN/ALAB's real prices now render with a width delta of ~0.02px
-(pure rounding noise) against their placeholder — down from a 38px
-real difference before. The one known gap: a 4-digit price (over
-$999.99) still doesn't fit `7ch` and would cause a smaller residual
-shift — the `?v=13` timing-gate stays in place specifically for that
-edge case, as a second layer.
-
-**Also shipped, at the user's explicit request for a review option:**
-a small, always-on diagnostic overlay (`#marqueeDiag`, bottom-left,
-read-only, `pointer-events:none`) that piggybacks on both marquees'
-existing per-frame step functions to track their reference elements'
-*real* on-screen position — not `scrollLeft`, which is exactly what
-missed this bug for two straight rounds. Correctly distinguishes a
-normal wrap (the reference element legitimately jumps by ~`oneSetW`
-the instant `scrollLeft` resets) from genuinely unexplained motion, by
-passing the expected wrap delta into the comparison rather than
-flagging every large delta. Logs to both the on-page overlay (visible
-in a screenshot without needing devtools) and `console.warn` with a
-timestamp, the raw delta, and the unexplained portion. Marked clearly
-in both files as temporary and safe to remove once the jump is
-confirmed resolved for good.
-
-**Verified the diagnostic tool itself, not just the width fix:** ran 8
-real seconds of normal operation (several genuine wraps) with zero
-false-positive log entries; then deliberately forced an unexplained
-40px shift via direct DOM manipulation and confirmed it was correctly
-caught and logged (`"moved 39.0px, 39.0px unexplained"`) within one
-frame. Re-confirmed the width fix eliminates the original repro
-(delayed real ticker response) end to end. Full pill-tap/auto-analyze/
-accordion/glossary-search/dock regression suite re-run, all pass.
-
-`preview/rolodex/app.js` bumped to `?v=14` per the cache-busting rule.
-
-## Frontend: Rolodex preview — jump still unreproduced, diagnostic broadened to the Layout Instability API (Aug 16, 2026, `?v=15`)
-
-Direct follow-up, reported live: the `?v=14` overlay caught nothing —
-"no detection on refresh" — even though the jump itself was still
-happening. That's real, useful evidence, not just another "still
-broken": it means the jump isn't going through either marquee's own
-`scrollLeft` write at all, so the `?v=14` diagnostic (which only ever
-tracked the two marquees' reference elements' horizontal position) was
-structurally incapable of seeing it, regardless of cause. Re-guessing at
-marquee math a fourth time risked missing it the same way a third time.
-
-**Switched the diagnostic to the browser's own Layout Instability API**
-(`PerformanceObserver({type:'layout-shift'})`) instead of another
-hand-rolled, hypothesis-specific check. This is the web platform's
-purpose-built tool for exactly this class of bug: it reports every
-visible layout shift on the page, on any element, on any axis, regardless
-of cause — not limited to any one theory about where the jump comes from
-— and names the actual DOM node(s) involved (`entry.sources[].node`) plus
-each one's real before/after rect. `buffered:true` replays shifts that
-happened before the observer attaches, which is the specific fix for "on
-refresh" — a load-time shift the page's own script would otherwise have
-missed by starting to watch too late. The old marquee-specific check
-(`marqueeDiagCheck`) was kept alongside it, not replaced — both now feed
-one shared event log/overlay so nothing gets silently overwritten.
-
-**Verified the new mechanism actually works, via real Playwright testing,
-before shipping it — not just that it compiles:** confirmed a
-PerformanceObserver registers without throwing; confirmed a synthetic
-forced layout change (a test element grown 2px→120px with no transition)
-is correctly caught, correctly names every real sibling element that
-shifted as a result (`#card-pulse`, `#card-context`, `#card-io`,
-`.list-head`, `.rolo-wrap`), and correctly reports the real 118px `Δy`;
-confirmed normal page operation (idle load, a pill tap triggering
-auto-analyze) produces a stream of real, legitimate small shifts as
-`.rolo-stage`'s own already-CSS-transitioned (`height:.28s ease`) content
-grows smoothly — i.e., the tool is picking up genuine per-spec CLS
-entries, not staying silent. **This also surfaced a real, previously
-unknown gap in the `?v=14` overlay's own CSS: `pointer-events:none` meant
-its `overflow-y:auto` scroll region could never actually be scrolled by
-touch** — harmless at 6-8 entries but would have silently hidden most of
-a longer history. Fixed (`pointer-events:auto` plus `touch-action:pan-y`)
-in the same pass, caught by testing the overlay itself, not assumed.
-
-**A real design tension found while shipping this, addressed by flagging
-rather than filtering.** Normal, already-smooth CSS transitions (`.rolo-
-stage`'s height, the Gate spacer's pull) legitimately generate a RUN of
-several small layout-shift entries per transition — one per animation
-frame — which is correct per the CLS spec but isn't what a person watching
-smooth motion would call a "jump." Rather than filter those out (risking
-silently discarding the actual bug a second time, the same mistake the
-`?v=14` narrower diagnostic already made once), every entry is still kept
-(cap raised 8→20, panel now genuinely scrollable per the fix above) and
-entries whose single-frame delta exceeds 30px (`DIAG_NOTABLE_PX`, well
-above what the ~13-25px/frame smooth-transition baseline measured in
-testing) render in bold red instead of amber, so a real outlier is easy
-to spot by eye without anything being thrown away.
-
-**Still not reproduced from this sandbox** — same standing limitation as
-the rest of this file's unverified-against-live-conditions entries. This
-round shipped strictly better forensic tooling, not a guessed fix, since
-nothing in this pass's own testing turned up a reproducible discontinuity
-distinct from already-fixed, already-smooth behavior. Next occurrence:
-check the overlay (now scrollable, now watching every element/axis, not
-just the two marquees) at or shortly after the moment of the jump — a
-red-highlighted entry naming the actual element and its real pixel delta
-is the concrete lead this file has been missing through every prior round
-of this bug.
-
-`preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
-`?v=15` per the cache-busting rule.
-
-## Frontend: Rolodex preview — jump confirmed via real video, root cause still open (Aug 16, 2026, `?v=16`)
-
-Reported live that the `?v=15` overlay still showed "nothing detected"
-while the jump kept happening. Rather than guess a fifth time, asked for
-and got a real screen recording (91fps slow-motion capture, 4.68s,
-`Record_20260815145530...mp4`) and analyzed it directly frame-by-frame —
-the first time this investigation has had ground-truth video evidence
-instead of live reports + sandbox reasoning.
-
-**Analysis method, worth keeping for any future case like this.**
-Extracted every frame (`ffmpeg -vsync 0`, critical — without it, `ffmpeg`
-defaulted to the container's 90kHz timebase and tried to emit ~100k
-duplicate-padded frames instead of the real ~427). First pass used
-JPEG-compressed, downscaled (480px) frames and found an apparent ~27px
-jump — but a full-resolution, **lossless PNG** re-check of the same frame
-pair showed only ~1px difference, revealing the first measurement was a
-compression/downscaling artifact, not a real page event. Redid the
-entire analysis losslessly at full resolution (crop just the pill-row
-band per frame to keep it fast) before trusting any number again.
-
-**The confirmed finding.** At full resolution, cross-correlating every
-consecutive frame pair for the pill row band found exactly ONE anomaly
-in all 426 transitions: frame 238→239, a clean **-26px** shift (residual
-0.027 — a near-perfect alignment at that shift, i.e. a real, precise
-displacement, not noise), against an otherwise rock-steady +1/+2px-per-
-frame baseline confirmed both immediately before and after (and at an
-independent checkpoint ~3s later) and confirmed visually (`anomaly_
-before.png`/`anomaly_after.png` in that session's scratchpad). The
-strip snapped backward ~26px for exactly one frame (~11ms, confirmed via
-`ffmpeg -vf showinfo`'s pts_time — no dropped/irregular frame timing
-around it, ruling out the recording itself skipping a frame), then the
-very next frame resumed the normal forward cadence with zero lasting
-drift. **This happened with zero interaction** — no touch visible, page
-untouched, ~2.6s after load.
-
-**Why neither existing diagnostic saw it.** The shape (self-corrects in
-exactly one frame) is consistent with something OTHER than
-`stepRoloMarquee`'s own write briefly setting `#roloIndex.scrollLeft` to
-a different value, which `stepRoloMarquee`'s very next call then
-silently overwrites back to the correct `roloMarqueePos`-derived value
-before `marqueeDiagCheck` -- which reads synchronously right after
-`stepRoloMarquee`'s OWN write, in the same call -- ever gets a chance to
-see the interfering value. The Layout Instability API doesn't apply
-either: `scrollLeft` changes are explicitly excluded from the CLS spec
-(scrolling isn't a "layout shift"), so it was never going to catch this
-regardless of timing.
-
-**Fix: a ground-truth `scroll` event listener** (`watchRoloScrollGroundTruth`)
-on `#roloIndex`. The native `scroll` event fires for ANY `scrollLeft`
-mutation regardless of source or timing -- the one mechanism that can't
-share either diagnostic's blind spot. Compares the real observed
-`scrollLeft` against what `roloMarqueePos` (our own intended value) says
-it should be; only logs on a real mismatch (a matching event fires on
-every one of our own routine per-frame writes too, so logging those
-would be pure noise).
-
-**Verified the new mechanism catches exactly this shape of bug**, not
-just that it registers: simulated the video's own finding directly
-(`el.scrollLeft = el.scrollLeft - 26` on a running marquee) and confirmed
-it's caught and logged with the precise delta. Confirmed zero false
-positives across 7s of pure idle operation.
-
-**A real, understood, separate bug found and fixed along the way while
-building the realistic test for the above** (not a guess -- reproduced,
-root-caused, and fix confirmed via a native `element.click()`, since
-Playwright's `locator.click()` has its own auto-scroll-before-interacting
-behavior that turned out to produce a misleading false positive during
-testing -- caught and ruled out before shipping anything based on it).
-Tapping a chip focuses that `<button>`, and if the browser's default
-"scroll the newly-focused element into view" ever fires for it, that
-would yank `#roloIndex.scrollLeft` to wherever the chip sits, fully
-independent of `roloMarqueePos` -- and since a tap also pauses the
-marquee for 2s, nothing would correct it back until the resume timer
-fires. Fixed with `chip.addEventListener('pointerdown', e =>
-e.preventDefault())`, the standard technique for "don't let this
-button's tap move focus" -- doesn't affect keyboard/Tab navigation,
-which still focuses and scrolls normally as accessibility requires, and
-doesn't affect the click/`goRolo()` firing normally either.
-
-**Root cause of the video's own -26px anomaly is still open.** The new
-diagnostic is built specifically to catch it with hard data on the next
-real occurrence (source, exact delta, whether `roloMarqueePaused`/
-`roloMarqueeDataReady` were true at the moment) rather than adding a
-sixth guessed fix. Leading candidates, unconfirmed: a browser-native
-scroll-anchoring adjustment, or some other native compensation
-mechanism entirely outside this page's own JS -- deliberately not
-guessed at further without evidence, per this investigation's own
-repeated lesson about shipping fixes ahead of a confirmed cause.
-
-`preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
-`?v=16` per the cache-busting rule.
-
-## Frontend: Rolodex preview — diagnostic was catching itself (Aug 16, 2026, `?v=17`)
-
-Direct follow-up, same day: the `?v=16` scroll ground-truth watcher
-caught nothing on the next live occurrence, and the overlay filled up
-with a confusing cluster instead — repeated `#marqueeDiag Δy±132.0,
-input=true` entries. Root cause: `#marqueeDiag` is `position:fixed`, and
-mobile browsers shift fixed-position elements as their OWN address-bar
-chrome hides/shows during a scroll gesture (`input=true` matches --
-these landed within 500ms of the user's own scroll touch). The Layout
-Instability observer was watching the entire page, including its own
-diagnostic overlay, and dutifully reported the overlay's own
-address-bar-driven repositioning as if it were an app bug. Pure
-self-noise, not signal -- and it was actively unhelpful, crowding out
-whatever real entries might have been there.
-
-**Fix:** filter `entry.sources` to drop any source node that IS
-`#marqueeDiag` itself before rendering/logging, and skip the entry
-entirely if nothing real is left once that's removed. Verified two ways:
-(1) directly mutated `#marqueeDiag`'s own height/padding (reproducing
-the same class of self-shift) and confirmed zero `#marqueeDiag`-sourced
-lines reach the rendered overlay; (2) re-confirmed a real, unrelated
-forced shift elsewhere on the page is still caught and correctly
-attributed (`#card-pulse` etc. still show up) -- the filter only removes
-the overlay's own self-reports, nothing else.
-
-**Still no confirmed root cause for the actual jump.** Both live
-attempts to catch it via the in-page overlay (the `?v=15` Layout
-Instability pass and the `?v=16` scroll ground-truth watcher) have come
-back empty or noisy on real occurrences, in contrast to the one clean,
-conclusive result this investigation has actually gotten: the Aug 15
-screen recording, analyzed frame-by-frame in the sandbox. That method
-found a real, precise, reproducible anomaly (-26px, one frame,
-self-correcting) that the live-overlay approach has not managed to
-reproduce evidence for since. If this recurs, another slow-motion screen
-recording — not another live-overlay screenshot — is the more reliable
-next diagnostic step; the overlay stays in place as a secondary check
-now that its self-noise is fixed, but it's proven less trustworthy than
-direct video analysis so far.
-
-`preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
-`?v=17` per the cache-busting rule.
-
-## Frontend: Rolodex preview — second video, corrected finding, overlay retention bug fixed (Aug 16, 2026, `?v=18`)
-
-A second real screen recording (91fps, 4.56s, same method as the Aug 15
-one) came back with an almost identical result: a clean, precise,
-low-residual **-26px single-frame shift** at ~2.2s after load, against
-the same rock-steady baseline motion. Same magnitude, same early timing,
-independently reproduced — this is a real, deterministic bug, not device
-jank.
-
-**A correction to the earlier writeup, found while re-checking the first
-video against this one.** The Aug 15 entry describes the jump as
-"self-correcting on the very next frame." That was wrong -- it only
-checked that the marquee's per-frame *rate* resumed normally afterward,
-not whether the *absolute position* recovered. Re-analyzed both videos by
-comparing many frames after the event against a reference frame from well
-before it: the deviation locks in at -26 to -28px and **stays there
-permanently** (checked out to 50-80 frames / ~0.6-0.9s past the event in
-both videos, no recovery). It's a one-time, permanent reflow, not a
-transient glitch that corrects itself.
-
-**The wrap-distance theory (leading candidate as of the last entry) is
-ruled out by the numbers.** `roloMarqueeOneSetW` for this 3-ticker Free
-page measures ~356px; at the marquee's own speed, reaching that distance
-takes 6-12 seconds depending on device refresh rate. Both anomalies
-happen at ~2.2-2.6s -- 3-5x too early to be the marquee's first wrap.
-Checked this before shipping anything based on the wrap theory, per this
-investigation's own repeated lesson about not shipping a fix ahead of
-confirmed arithmetic.
-
-**Real root cause of why niether diagnostic screenshot showed anything,
-found and fixed.** `marqueeDiagCheck`'s own logic (comparing the
-divider's real position each frame against a 3px threshold) SHOULD
-already catch a bare, non-wrap 26px jump like this -- there was no
-structural reason for it to miss it. The actual problem: the overlay's
-single shared 20-entry cap. Routine, expected layout-shift noise
-(`.content` settling, plus the `#marqueeDiag`-self-shift noise fixed
-`?v=17`) accumulates continuously during normal use and was evicting the
-one rare, real, notable entry long before the entry ever got
-screenshotted -- both live screenshots were taken minutes into a session,
-plenty of time for 20 routine entries to cycle through and push the real
-one out. **Fix:** split the overlay into two independent lists -- rare
-`notable` events (marqueeDiagLog, scroll-ground-truth mismatches) now
-get their own 40-slot cap effectively never evicted by routine noise,
-while high-frequency routine layout-shift entries keep a small 10-slot
-cap. Verified directly: simulated the exact video finding, then flooded
-the overlay with 30 subsequent routine shift events, and confirmed the
-notable entry was still present and visible afterward.
-
-**Status: still no confirmed root-cause mechanism**, but the search
-space is now much narrower (not wrap-related, permanent not transient,
-deterministic magnitude across two independent recordings) and the
-overlay retention bug that likely explains every "diagnostic caught
-nothing" report so far is fixed. Next real occurrence: check the
-overlay -- a `marqueeDiagCheck`-sourced "ROLO moved ...px unexplained"
-entry should now actually survive to be seen, which would confirm
-whether this specific mechanism is (or isn't) what's firing.
-
-`preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
-`?v=18` per the cache-busting rule.
-
-## Frontend: Rolodex preview — third video, marquee-loop heartbeat + self-healing (Aug 16, 2026, `?v=19`)
-
-A third real screen recording (91fps, 2.39s) was analyzed the same
-way: full-resolution lossless frame-by-frame cross-correlation. Same
-result again -- a clean, precise **-26px single-frame shift**, this
-time at frame 13→14 (~0.14s into this particular clip; this recording
-plausibly started well after the marquee had already been running for a
-while, so this timing isn't directly comparable to the ~2.2s figure from
-the first two videos, but the magnitude is the same to the pixel).
-
-**The overlay showed literally zero new entries for the entire clip**,
-before and after the jump, despite the `?v=18` retention fix
-specifically targeting this. That fix addressed EVICTION, but this is
-evidence of a DETECTION gap, not a retention one -- nothing was ever
-logged in the first place, notable or otherwise, so there was nothing to
-evict. `marqueeDiagCheck`'s own logic (a plain 3px threshold compare,
-called unconditionally every tick) has no structural reason to miss a
-~26 real-device-px (~7 CSS px) shift -- unless the function it lives
-inside, `stepRoloMarquee`, silently stopped running at some point before
-the jump. An uncaught exception anywhere in that function would do
-exactly that (stop calling `requestAnimationFrame` again, with nothing
-visible on a real phone to say so) -- and the marquee's continuing
-smooth visual motion doesn't rule this out, since `#roloIndex` has
-`-webkit-overflow-scrolling:touch` + `touch-action:pan-x`, so native
-momentum/scroll-anchoring could plausibly keep things moving even if
-this specific JS loop had already died.
-
-**Fix: a live heartbeat plus a self-healing loop.** `#diagHeartbeat` (a
-small always-visible line, separate from the scrollable event log so it
-never gets overwritten by a re-render) shows a live "loop alive:
-HH:MM:SS.mmm (tick N)" reading, updated every 15 ticks from inside
-`stepRoloMarquee` itself -- directly provable on the next
-screenshot/video whether this function is genuinely still executing at
-the moment of a jump, removing the need to infer it indirectly.
-`stepRoloMarquee`'s body is now wrapped in `try/finally`:
-`requestAnimationFrame(stepRoloMarquee)` is guaranteed to fire again
-regardless of what happens inside, and any exception gets caught,
-logged as a notable `ROLO-LOOP-ERROR` diag event (so it's visible
-instead of silent), and the loop keeps running afterward rather than
-dying permanently.
-
-**Verified via injected fault, not just that it compiles.** Directly
-overrode `#roloIndex`'s `scrollLeft` setter to throw once (simulating an
-unexpected real-device failure inside the exact line that would trigger
-one) and confirmed: the error is caught and logged (`ROLO-LOOP-ERROR`,
-correctly flagged notable/red); the heartbeat keeps advancing
-uninterrupted through and after the injected failure; the loop provably
-never stops. Also confirmed the heartbeat advances normally under
-ordinary operation with zero errors.
-
-**Status: still no confirmed root-cause mechanism for the jump itself**,
-but this closes the one remaining structural gap in the diagnostic
-tooling -- if the loop really is dying on a real device, the next
-video/screenshot's heartbeat will show a stale timestamp frozen before
-the jump, which would finally explain why nothing has been caught
-despite three independent, precisely-matching occurrences. If the
-heartbeat is instead still ticking normally right through the next
-occurrence, that rules this theory out too and narrows things further.
-
-`preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
-`?v=19` per the cache-busting rule.
-
-## Frontend: Rolodex preview — fourth video rules out dead loop, scrollWidth diagnostic added (Aug 16, 2026, `?v=20`)
-
-A fourth real screen recording (91fps, 6.32s) reproduced the same
-anomaly a fourth independent time -- **-27px**, same precise magnitude
-as the prior three (-26, -26, -28, -27), same single-frame signature,
-confirmed via the same full-resolution lossless frame-by-frame method.
-
-**Direct, in-frame proof the loop was alive.** This video happened to
-have the `?v=19` heartbeat already visible on screen. Read it at the
-exact video frame the jump occurs (tick 4905) and again ~25 frames later
-(tick 4935) -- the heartbeat had genuinely advanced right through the
-moment of the jump. This is the first hard, direct evidence (not
-inference) that `stepRoloMarquee`'s loop was NOT dead at the moment of a
-real occurrence, ruling out the `?v=19` theory for good.
-
-**Three concrete hypotheses were checked against the actual code
-directly, not assumed either way, per a live suggestion:**
-- *Missing clones causing an empty gap before snapping back* -- doesn't
-  apply; the strip already renders multiple full duplicate passes (see
-  the marquee-wrap work earlier in this file), confirmed still true by
-  reading `appendChipPass()`/the guard loop in
-  `renderRolodexFromWatchlist()`.
-- *Wrap math using `offsetWidth`/`clientWidth` instead of `scrollWidth`,
-  introducing rounding error* -- already ruled out by the `?v=11` fix,
-  which specifically moved `sizeRoloMarquee()` to sub-pixel
-  `getBoundingClientRect()` for exactly this reason. Re-confirmed by
-  reading the current code -- still true.
-- *A CSS `transition` (or `scroll-behavior:smooth`) on the scroll
-  container animating the "snap back" instead of resetting instantly* --
-  checked directly: `.rolo-index`/`#roloIndex` has no `transition`
-  property of any kind, and `scroll-behavior:smooth` doesn't appear
-  anywhere in this file. Doesn't apply here (this is a real, common cause
-  of marquee "sliding backward" bugs in general, just not present in this
-  specific implementation).
-
-**So if the loop is alive and none of those three apply, why does
-`marqueeDiagCheck` still miss it every time?** Re-examined its actual
-tracking scope, and found a real, previously-unnoticed gap:
-`marqueeDiagCheck` only ever watches ONE reference element --
-`roloCountDivider`, specifically the FIRST duplicate pass's divider.
-`renderPill(sym)` updates every duplicate instance of a symbol's chip
-independently (`document.querySelectorAll('.rolo-chip[data-sym="..."]')`,
-not one shared/templated node) -- if a chip's rendered width changes in
-a LATER pass, only content sharing that pass (and everything after it)
-shifts; content before it, including the FIRST pass's divider being
-tracked, wouldn't move at all, or would move by a different amount
-depending on where in the DOM order the affected pass sits. A single
-fixed tracking point can miss a real, visible shift purely because of
-where it happens to sit relative to whatever actually changed.
-
-**Fix: track `#roloIndex.scrollWidth` itself, not just one element's
-position.** `checkRoloScrollWidth()` runs every tick alongside the
-existing check, comparing the strip's total content width frame to
-frame -- immune to the tracking-gap above, since a real per-chip width
-change shows up in the TOTAL regardless of which specific DOM node
-caused it or where it sits. Reset alongside `roloMarqueePos`/
-`roloMarqueeDataReady` in `renderRolodexFromWatchlist()` so a real,
-legitimate watchlist rebuild doesn't false-positive against its own
-large, expected content-width change.
-
-**Verified concretely, not just that it compiles:** confirmed zero false
-positives during ordinary idle operation; directly mutated ONE chip in a
-LATER duplicate pass only (not the first, matching the exact gap this
-fix targets) and confirmed it's caught and logged, where the prior
-divider-only check would have missed it; confirmed a real watchlist
-rebuild via the actual Import UI does not false-positive despite its own
-genuine, large scrollWidth change.
-
-**Status: still no confirmed root-cause mechanism**, but the dead-loop
-theory is now conclusively ruled out (not just untested), three
-plausible general causes have been checked against the actual code and
-ruled out specifically for this implementation, and the diagnostic now
-covers a real tracking gap the last three rounds couldn't see past. Next
-real occurrence: check for a `SCROLLWIDTH changed` entry -- if content
-width genuinely is changing somewhere in the strip, this will name the
-exact before/after numbers even if `marqueeDiagCheck`'s own single
-tracked point stays silent.
-
-`preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
-`?v=20` per the cache-busting rule.
-
-## Frontend: Rolodex preview — fifth video, found the real reason nothing was ever visible (Aug 16, 2026, `?v=21`)
-
-A fifth real screen recording reproduced the same jump a fifth
-independent time -- **-26px**, same signature (frame 142→143, ~1.56s in,
-residual 0.08, confirmed via a proper 2D search this time, not just
-horizontal-only, to rule out a vertical-misalignment measurement
-artifact -- the best alignment was still purely horizontal, dx=-26,
-dy=0). The `?v=19` heartbeat was visible throughout this clip too and
-advanced normally (tick 2715 -> 2850 -> 3105) right through the jump,
-reconfirming the loop was alive. The overlay's content stayed completely
-unchanged for the ENTIRE clip -- `?v=20`'s `checkRoloScrollWidth()`
-caught nothing either, ruling that leading hypothesis out too.
-
-**With loop-liveness, scrollLeft, scrollWidth, and general layout-shift
-coverage all in place and all coming back empty five times in a row,
-the diagnostic tooling itself became the thing to re-audit** -- and
-found a real, confirmed bug in it, not the app. Reproduced directly:
-`renderDiagOverlay()` reassigns `#marqueeDiag`'s `innerHTML` on every
-new event, but reassigning `innerHTML` does NOT reset `scrollTop`. The
-panel is deliberately touch-scrollable (`?v=15`) so a real touch on it
--- entirely plausible over a multi-minute session, especially once
-enough content has accumulated to actually scroll -- leaves it scrolled
-away from the top. A brand new event still renders into the DOM
-correctly, but sits scrolled OUT OF the panel's own visible viewport,
-invisible on screen even though it's genuinely there.
-
-**Confirmed via direct reproduction, not inferred:** padded the panel
-with realistic multi-minute-session-scale content, scrolled it partway
-down (matching a real touch), fired a real notable event, and measured
-via `getBoundingClientRect()` that the new entry's rect sat entirely
-above the panel's own visible rect (`entryBottom: 702.5` vs
-`panelTop: 688`) -- present in the DOM, provably invisible on screen.
-This is a real, plausible explanation for every single "the overlay
-caught nothing" report across all five rounds of this investigation --
-the events may well have been firing correctly the entire time.
-
-**Fix:** `renderDiagOverlay()` now force-sets `scrollTop = 0` after every
-render. The panel's whole purpose is surfacing the latest event, so
-snapping back to the top on every update is the correct behavior, not
-just a bug patch. Re-ran the exact same reproduction after the fix and
-confirmed the new entry now measures as visible within the panel's rect.
-Full pill-tap/auto-analyze/accordion/dock regression suite re-run, zero
-errors.
-
-**This is the first fix in this investigation targeted at the
-diagnostic's own visibility rather than at what it's supposed to be
-watching** -- if the marquee-side checks really have been firing this
-whole time, the next occurrence should finally show something.
-
-`preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
-`?v=21` per the cache-busting rule.
-
-## Frontend: Rolodex preview — sixth video, diagnostic pipeline confirmed healthy, integer-scrollLeft mitigation (Aug 16, 2026, `?v=22`)
-
-A sixth real screen recording reproduced the same jump a sixth
-independent time -- **-27px**, re-verified with the same proper 2D
-alignment search (still purely horizontal, dy=0).
-
-**The decisive new data point this round: the overlay was checked at
-the start, middle, and end of the entire 7-second clip, not just around
-the jump.** Byte-identical the whole way through -- despite the
-heartbeat climbing steadily throughout (tick 3930 -> 4275 -> 4575,
-proving the loop never stopped) and despite the real jump happening
-partway through. This rules out a broken render/update pipeline as the
-explanation for "nothing visible" (a genuinely broken pipeline would
-still be a possible read of the last five rounds) -- the diagnostic
-machinery is demonstrably healthy and simply has nothing new to report,
-which is consistent with a page that fully settled long before this
-clip started (this clip is a later slice of a longer session, not a
-fresh load) and with `scrollLeft`/`scrollWidth`/layout-shift genuinely
-never firing for this specific event, not with any of them being
-silently swallowed.
-
-**Six occurrences. Every JS/DOM-level mechanism this investigation has
-built -- native scroll events, total content width, the browser's own
-Layout Instability API, a single-element position check, a heartbeat
-proving the loop's own liveness -- has come back empty, every time,
-now cross-checked against a diagnostic pipeline independently confirmed
-to be working correctly.** The one remaining possibility that's
-structurally unfalsifiable from page-level JavaScript: this is
-happening at the paint/compositor layer, not the layout layer
-`getBoundingClientRect()` and the Layout Instability API can see.
-JavaScript only ever has visibility into the LAYOUT model (computed
-geometry); it has no way to observe what actually gets handed to the
-GPU/compositor for painting, or how that gets rounded to real device
-pixels.
-
-**A plausible, low-risk, reversible mitigation, explicitly not claimed
-as a confirmed fix given there's no confirmed root cause to fix:**
-`roloMarqueePos` is a plain float, incremented by `0.5` every tick, and
-was being written to `scrollLeft` unrounded every frame. Reading
-`scrollLeft` back always reports a rounded integer (confirmed earlier
-this investigation), but that doesn't guarantee what gets applied
-internally for compositing is equally unambiguous -- a continuous
-stream of fractional writes is exactly the kind of thing that could
-stress sub-pixel-to-device-pixel rounding at paint time in a way this
-page's own JS has zero visibility into either direction. `stepRoloMarquee`
-now writes `Math.round(roloMarqueePos)` explicitly every frame, removing
-that ambiguity outright regardless of whether it's actually the cause.
-The internal `roloMarqueePos` accumulator itself stays full-precision
-(only the final write rounds), so the wrap-math precision from the
-`?v=11` fix is untouched.
-
-**Verified the mitigation doesn't regress anything:** sampled
-`scrollLeft` over 60 real frames and confirmed it's always a whole
-integer now, still smoothly and correctly incrementing at the intended
-average rate (alternating +0/+1 per frame, which is the correct rounded
-behavior for a true 0.5px/frame rate) -- not jittery, not back-stepping.
-
-**Status: still no confirmed root cause.** This is a defensible,
-reversible attempt given diagnosis has hit a real, thoroughly-explored
-wall -- not another round of the same escalation. If it doesn't help,
-the honest next step is acknowledging this may be a real but
-paint-layer phenomenon specific to this device/browser combination that
-page-level JavaScript cannot observe or fix from here.
-
-`preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
-`?v=22` per the cache-busting rule.
-
-## Frontend: Rolodex preview — real wrap-boundary bug found via external code review, fixed (Aug 16, 2026, `?v=23`)
-
-Mr. T reviewed `app.js` directly (not another live report) and identified
-a real, distinct bug in both marquees' wrap-boundary math: `sizeGateMarquee()`/
-`sizeRoloMarquee()`'s "boundary element's right edge minus the
-container's own left edge, plus scrollLeft" formula silently assumed the
-container's left edge sat exactly one period before the boundary --
-true only if the container has no padding and the boundary's own
-trailing flex `gap` happens to net out to zero against it. Neither held:
-`.gate-marquee` has `gap:16px` and no padding; `#roloIndex` has
-`padding-left:14px` and `gap:6px`.
-
-**Verified independently before touching anything, not taken on faith:**
-measured the CURRENT code's computed `oneSetW` against the TRUE period
-(distance between pass 1's first item and pass 2's first item, the same
-elements, same instant) on the real rendered page. Gate: computed
-500.20px vs a true 516.20px -- a constant **-16px**, matching `gap - 0
-padding` exactly. Rolo: computed 356.19px vs a true 348.19px -- a
-constant **+8px**, matching `padding(14) - gap(6)` exactly. Both errors
-reproduce every single wrap cycle (not once, unlike the ~26-28px jump
-this file has spent the last several entries chasing elsewhere) --
-genuinely a different bug, found by a different method (direct code
-review vs. real-device video), not the same one restated.
-
-**Fix:** both functions now measure the distance between pass 1's first
-item and pass 2's first item directly (`getBoundingClientRect().left`
-on each), instead of reasoning about the container's own edge, padding,
-and gaps individually. Both measurements are read at the same instant
-with the same `scrollLeft` applied, so the scroll offset cancels out of
-the difference automatically -- no `+ scrollLeft` term needed either,
-simplifying the formula while also fixing it. `sizeRoloMarquee()` needed
-`itemsPerPass` (`watchlist.length + 1`, matching `appendChipPass()`'s
-own chips-then-divider construction) to locate pass 2's first child;
-`sizeGateMarquee()` already had `items.length / 2` available for the
-same purpose.
-
-**Verified the fix eliminates both errors exactly, not just
-approximately:** re-measured both marquees' fixed formula against the
-same true-period calculation -- gate and rolo both now match to
-`<0.01px` (floating-point-exact, not "close enough"). Full pill-tap/
-auto-analyze/accordion/dock regression suite re-run, plus explicit
-`scrollLeft` sampling over 40 frames for both marquees confirming
-smooth, non-jumpy motion -- zero errors.
-
-**This is a real, confirmed, independently-verified fix for a genuine
-bug** -- distinct from (and does not resolve) the still-unexplained
-one-time ~26-28px jump documented in the entries above, which happens
-too early in a page's life to be a wrap event at all. Both bugs were
-real; fixing one doesn't retroactively explain the other.
-
-`preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
-`?v=23` per the cache-busting rule.
+## Frontend: Rolodex preview — ticker pill marquee jump, full saga and resolution (Aug 15-16, 2026, `?v=11` → `?v=23`)
+
+Consolidated from what was originally ~20 separate dated entries
+(`?v=11` through `?v=23`) tracking a single live-reported bug: the
+Rolodex preview's auto-scrolling ticker pill strip (and, it turned out,
+the docked Gate's own index marquee) visibly "jumped" or "snapped"
+during normal operation. Kept as one entry now that the real root cause
+is found, fixed, and **confirmed resolved live by Mr. T** — the
+blow-by-blow diagnostic history is no longer useful day-to-day and was
+making this file unwieldy; the reasoning trail below is the condensed
+version.
+
+**Real, confirmed sub-bugs found and fixed along the way (all still in
+effect, all genuine improvements regardless of the final root cause):**
+- Sub-pixel wrap-boundary measurement (`?v=11`/`?v=12`) — replaced
+  `offsetLeft`/`offsetWidth`/`scrollWidth/2` (which round to the nearest
+  integer per spec) with `getBoundingClientRect()`-based measurement, for
+  both the pill strip and the Gate's own index marquee.
+- Content-reflow timing (`?v=13`/`?v=14`) — held the marquee paused until
+  a render pass's real ticker data has actually loaded (`roloMarqueeDataReady`),
+  and reserved price-text width up front (`min-width:7ch` on `.rc-price`)
+  so a placeholder-to-real-data swap can't reflow content out from under
+  an already-scrolling strip.
+- Marquee pause/resume reliability (`?v=7`) — made the 2s tap-pause
+  self-scheduling instead of relying solely on `pointerup`/`pointercancel`,
+  which don't reliably fire on a real device.
+- Native focus-scroll suppression — `pointerdown` → `preventDefault()` on
+  each chip so tapping one can't let the browser's own "scroll focused
+  element into view" yank the strip's position independent of the
+  marquee's own state.
+
+**The much longer chase: an elusive, seemingly one-time ~26-28px jump,
+never conclusively explained by any live diagnostic.** Starting `?v=15`,
+built an escalating series of real-device diagnostics after repeated
+live reports of "still jumping" that none of the above fixes resolved:
+a Layout Instability API observer (`?v=15`, then fixed to stop catching
+its own address-bar-driven repositioning, `?v=17`), a native `scroll`-event
+ground-truth watcher (`?v=16`), a live loop-heartbeat plus self-healing
+`try/finally` wrapper to rule out the marquee's `requestAnimationFrame`
+loop silently dying (`?v=19`), a `scrollWidth`-based check to catch a
+width change anywhere in the strip regardless of which specific DOM node
+caused it (`?v=20`), a fix for the diagnostic overlay's own `scrollTop`
+not resetting on new entries — a real, separately-confirmed bug that
+could have hidden any of the above (`?v=21`), and an integer-rounding
+mitigation for the marquee's `scrollLeft` writes (`?v=22`). Six separate
+real screen recordings (91fps slow-motion, analyzed frame-by-frame via
+`ffmpeg` + lossless PNG cross-correlation) all showed the same precise
+~26-28px anomaly, but **every one of these live diagnostics came back
+empty every single time** — including once independently confirming the
+diagnostic pipeline itself was demonstrably healthy and simply had
+nothing to report. This pattern (real, reproducible, precisely
+consistent magnitude; totally invisible to scrollLeft/scrollWidth/layout-shift
+instrumentation) was reasoned about at length as possibly being a
+paint/compositor-layer phenomenon outside what page-level JavaScript can
+observe at all — a reasonable dead end at the time, given what live
+diagnostics alone had turned up.
+
+**Root cause, found by direct code review instead of another live
+diagnostic round.** Mr. T reviewed `app.js` directly and identified a
+real, precise bug in `sizeGateMarquee()`/`sizeRoloMarquee()`'s
+wrap-boundary math that none of the runtime diagnostics above were
+built to catch: `boundary.right − container.left + scrollLeft` silently
+assumes the container's own left edge sits exactly one repeat-period
+before the measured boundary — true only with zero container padding and
+a trailing flex `gap` that happens to net to zero against it. Neither
+held: `.gate-marquee` has `gap:16px` and no padding; `#roloIndex` has
+`padding-left:14px` and `gap:6px`. Verified directly against the real
+rendered page before changing anything: the old formula computed
+500.20px for the Gate against a true repeat-period of 516.20px (a
+constant **-16px**, matching the gap exactly) and 356.19px for the pill
+strip against a true 348.19px (a constant **+8px**, matching
+`padding(14) − gap(6)` exactly) — not noise, not intermittent, a fixed
+arithmetic error every time.
+
+**Fix (`?v=23`):** both functions now measure the distance between pass
+1's first item and pass 2's first item directly
+(`items[0].getBoundingClientRect().left` vs.
+`items[itemsPerPass].getBoundingClientRect().left`), rather than
+reasoning about the container's edge, its padding, and the flex gap
+individually. Both reads happen at the same instant with the same
+`scrollLeft` applied to both, so the scroll offset cancels out of the
+difference automatically — no `+ scrollLeft` term needed either,
+simplifying the formula while fixing it. Re-verified the fix eliminates
+both errors to `<0.01px` (floating-point-exact) against the same
+true-period measurement, then the full pill-tap/auto-analyze/accordion/dock
+regression suite, then a live device test — **confirmed fixed by Mr. T.**
+
+**Lesson worth keeping, independent of this specific bug:** six rounds
+of live, real-device diagnostic tooling — genuinely rigorous, individually
+well-reasoned, each one verified before shipping — never surfaced this,
+because none of them were built to check wrap-boundary *arithmetic*
+correctness; they were all built to catch *unexpected* runtime state
+changes (scrollLeft mismatches, width changes, dead loops). A
+systematic, deterministic math error that fires the same way every
+single time doesn't look anomalous to instrumentation designed to catch
+anomalies — it just looks like "how this always behaves." Direct code
+review, or a from-scratch derivation of what the correct value *should*
+be and comparing it to what the code actually computes, found in one
+pass what six rounds of runtime diagnostics across real device video
+could not. Neither approach is strictly superior — the diagnostics did
+conclusively rule out several other real hypotheses (dead loop, single-
+element tracking gaps, overlay visibility) that needed ruling out either
+way — but this is a concrete case where stepping back to re-derive the
+expected math from first principles was the more direct path to the
+actual bug.
+
+The diagnostic tooling built during the chase (`#marqueeDiag` overlay,
+`#diagHeartbeat`, the Layout Instability observer, the scroll
+ground-truth watcher, `checkRoloScrollWidth()`) is still in
+`preview/rolodex/app.js`/`index.html` as of this writing — harmless and
+still genuinely useful if any *new* marquee-adjacent issue shows up, not
+removed as part of this consolidation. A future pass could reasonably
+strip it out now that the bug it was built to chase is resolved, but
+that's a separate, deliberate cleanup decision, not implied by this one.
+
+`preview/rolodex/app.js` and `preview/rolodex/index.html` are at `?v=23`.
 
 | Tier | Files | Status |
 |---|---|---|
