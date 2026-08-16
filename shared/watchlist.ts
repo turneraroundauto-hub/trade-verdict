@@ -210,7 +210,14 @@ function hideUndoToast(): void {
 }
 
 export function renderWatchlist(): void {
-  var wl = document.getElementById('watchlist') as HTMLElement;
+  // A tier with no #watchlist list element at all (e.g. a Rolodex-style
+  // single-active-card UI, which does its own separate rendering off the
+  // same watchlist array) still needs addTickers()/removeTicker()/
+  // setWatchlist() to work for their persistence/validation/sync-push
+  // side effects — this used to throw on the unguarded innerHTML write
+  // below the moment such a tier called any of them.
+  var wl = document.getElementById('watchlist') as HTMLElement | null;
+  if (!wl) return;
   var list = renderScope != null ? watchlist.slice(0, renderScope) : watchlist;
   wl.innerHTML = list.map(function (ticker) {
     return '<div class="card-wrap" data-ticker="' + ticker + '">'

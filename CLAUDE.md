@@ -2534,7 +2534,7 @@ that's a separate, deliberate cleanup decision, not implied by this one.
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
-| Starter | `starter/index.html` + `starter/app.js` | Rebuilt, on shared modules, current |
+| Starter | `starter/index.html` + `starter/app.js` | Rebuilt onto the Rolodex UI Aug 16, 2026 (see "Frontend: Rolodex UI shipped to Starter" below) — sticky-docking Gate, marquee ticker-pill strip, single-active-card stage with tap-pill-then-swipe-to-delete, real auth/credits/Settings/Session-Context-highlighting/server-sync unchanged. First real (non-preview) tier on the Rolodex UI; Free/Pro/Shark still on their prior designs. |
 | Pro | `pro/index.html` + `pro/app.js` | Rebuilt Aug 2, 2026 (trade-verdict PRs #23, #24, #26, #27, #28 + `Tra` PR #5) — on shared modules, plus Pro-exclusive Analyst View, Proxy Resolution Explorer + live coherence strip, Sector Heat Map, a CSV export (Ticker/List/Price/IV/Change%, real IV via Alpaca options snapshots), trigger/ticker track-record breakdowns, server-synced track record (Aug 4, 2026, see Frontend architecture above — Pro only), and a card/watchlist split: only the first 15 tickers (in list order) render as full analysis cards, the rest render as compact price/%chg/news rows with no ANALYZE button and no credit cost — `analyzeAll()` scopes to the 15-card window only (max 5 credits). **Confirmed working live by Mr. T**, including the IV export. Its two Shark upsell teases (Proxy Explorer, Heat Map) link to `shark/coming-soon.html` (see Shark row), not straight to Stripe checkout. Proxy Resolution Explorer and Heat Map both still iterate the full watchlist, not the 15-card window — see the Alpaca section's "known follow-ups" above. |
 | Shark | `shark/index.html` (no separate `app.js` — still monolithic) | **NOT rebuilt — deliberately deferred as of Aug 2, 2026, not a backlog gap.** Mr. T wants Shark's eventual rebuild to lean on more Alpaca-driven visuals, likely after upgrading to Alpaca's "Plus" data plan first. Don't pick this up proactively without checking that's still the plan — it still carries the same reorder/log-button bugs Pro had before its rebuild (shared original template) whenever it does happen. A separate, standalone `shark/coming-soon.html` splash (added Aug 2, 2026, licensed mascot art at `shared/assets/shark-mascot.png`) exists alongside it — email waitlist writes directly to Supabase's `shark_waitlist` table (anon insert-only via RLS) from the browser, no backend involvement. |
 
@@ -3311,6 +3311,174 @@ exact bug class on save.
 mirrored there (same non-behavioral, transpile-only conversion — no
 `Tra` PR needed on the actual deployed logic side, since nothing about
 runtime behavior changes), Phase 2 is fully complete in both repos.
+
+## Frontend: Rolodex UI shipped to Starter — the first real (non-preview) tier (Aug 16, 2026)
+
+Direct instruction: "I'm ready to move forward with roladex UI change in
+Starter tier first. make sure to update the version number note at the
+bottom. also add Alpaca to the list of sources." This is the first time
+the Rolodex UI (prototyped and iterated at `preview/rolodex/`, Aug
+13-16, all entries above) lands on a real, live, paying tier — not
+another preview iteration. Two decisions confirmed via `AskUserQuestion`
+before writing code:
+
+1. **Ticker removal UX** ("click pill to allow card to swipe to
+   delete"): tap a pill to make it the active card (existing
+   `goRolo()`), then that active card itself becomes swipeable-to-delete
+   — new gesture code (`onRoloPointerDown`/`Move`/`Up`,
+   `finishRoloSwipe`), since the Rolodex's single-active-card stage has
+   no per-row list for `shared/watchlist.ts`'s existing list-swipe
+   gestures to bind to. Same visual/threshold pattern as production's
+   real card-list swipe (spring-back under threshold, slide-out +
+   fade over it), calling the real `removeTicker(ticker)` from
+   `shared/watchlist.ts`'s state exports on a successful swipe — so
+   persistence, the real undo toast, and the sync push are all the
+   exact same code path the old card-list swipe already used, just
+   re-bound to one card instead of a list.
+2. **Deploy target** ("Build directly into the live tier"): explicitly
+   rejected staging at `/preview/` first — this is live for real paying
+   Starter users the instant it merges, no staging step, unlike every
+   `/preview/rolodex/` iteration above.
+
+**Approach: invert the build direction, don't extend the preview.** The
+Rolodex preview is deliberately Free-tier-scoped and isolated from real
+auth/credits/Settings/Session-Context-highlighting/server-sync (see its
+own section above) — bolting those onto it would mean re-deriving
+already-correct, already-live logic. Instead, `starter/app.js`/
+`starter/index.html` (the real, working Starter tier) were rewritten
+from their existing base, porting the Rolodex's sticky-docking Gate,
+marquee pill strip, and single-active-card stage mechanics **in**, while
+keeping every real piece — `TIER` config, `checkAuth()`/
+`checkTierAccess()`, the real credit-consuming `/analyze` call and its
+402/`NO_CREDITS` handling, `shared/prefs.js`/`shared/settings-modal.js`,
+`shared/context-highlight.js`, `shared/watchlist-sync.js` — byte-
+equivalent to what was already live. `shared/watchlist.js`'s **state**
+exports (`watchlist`, `initWatchlist`, `addTickers`, `removeTicker`,
+`onWatchlistSave`) are reused for validation/dedup/cap/persistence; its
+DOM-coupled **rendering** (`renderWatchlist()`'s `.card-wrap` list) is
+not — the Rolodex renders its own card/pill DOM entirely.
+
+**A real latent bug fixed proactively before it could fire.**
+`shared/watchlist.ts`'s `renderWatchlist()` unconditionally wrote into
+`#watchlist` — every tier before this had that element; Starter's new
+Rolodex-based DOM doesn't. Calling `addTickers()`/`removeTicker()`/
+`setWatchlist()` (all of which call `renderWatchlist()` internally)
+would have thrown `TypeError: Cannot set properties of null` the first
+time a user typed a ticker into Import. Fixed with a one-line null guard
+(`if (!wl) return;`) before any of the new code exercised that path —
+harmless for every other tier, which still has `#watchlist` and is
+unaffected.
+
+**Two real regressions caught by a DOM-ID/window-export cross-check
+before shipping, not by a live report — worth being explicit about,
+since neither would have thrown an error, just silently not worked:**
+1. **`#live-clock` was dropped entirely.** The new header design (ported
+   from the Rolodex preview, which has no clock feature at all — it
+   hardcodes Yahoo and never imports `prefs.js`) had nowhere for it to
+   live, but `app.js` still called `startClock()`, which updates
+   `#live-clock` behind a null-guard (`if(cl)cl.textContent=...`) — so
+   it would have compiled, run, and thrown nothing, just silently never
+   shown a clock. This is a real, already-shipped Aug 9, 2026 feature
+   (timezone-aware, always-labeled live clock), not something this pass
+   was asked to remove. Fixed by adding `<span id="live-clock">` into
+   the header's `.brand-meta` row, next to the tier chip — that row
+   already `flex-wrap`s, so it absorbs the extra element without
+   reopening the Aug 14 header-overflow bug documented above.
+2. **Sector Pulse (`#pulse-text`) was never populated.** The original
+   `fetchMarket()` read `data.pulse` off the same `/market` response
+   used for the Gate and rendered it into `#pulse-text`; the rewritten
+   `fetchMarket()` only handled the Gate half. Starter has real,
+   un-gated Sector Pulse (`TIER.pulse:true`) — this would have silently
+   left the card showing "Generating market pulse..." forever. Fixed by
+   adding a `renderPulse()` call (mirroring the original's `data.pulse`/
+   loading/`Unavailable` branches) into `fetchMarket()`'s success and
+   catch paths.
+
+Caught both by grep-cross-checking every `getElementById('x')` in the
+new `app.js` against every `id="x"` in the new `index.html` (and every
+inline `onclick="fn(...)"` against a matching `window.fn =`) before any
+browser testing — the same technique this file's own "Verifying changes"
+section below already recommends, run here as a first pass specifically
+*because* a full rewrite (as opposed to an incremental edit) has no diff
+to eyeball for an accidentally-dropped element.
+
+**Cache-busting cascade, one layer deeper than usual.** The
+`renderWatchlist()` fix changed `shared/watchlist.js`'s compiled output
+for *every* importer, not just Starter's new one — so per this file's
+own standing rule, all of them needed their `?v=` bumped, not only the
+file actually being worked on: `shared/watchlist.ts`'s fix recompiled to
+`watchlist.js?v=31→32`; bumped in `shared/watchlist-sync.ts`'s own
+internal import (`?v=32`, both the `.ts` source and its compiled
+`.js` — per the `.ts`-source-must-carry-the-bump-too lesson from the
+`track-record.ts` conversion above) and in every direct importer
+(`starter/app.js` new at `?v=32` from the start, `app.js`/`pro/app.js`
+bumped `?v=31→32`); `watchlist-sync.js`'s own content changed as a
+result, `?v=25→26` in `app.js`/`pro/app.js` (Starter's new file already
+written at `?v=26`); finally each tier's own `<script src="./app.js?v=N">`
+bumped since its content changed (`index.html` 49→50, `pro/index.html`
+52→53). `starter/index.html`'s own script tag is new at `?v=52` (a
+straight continuation of the pre-rewrite file's last live value, `?v=51`
+— chosen over restarting at `?v=1` specifically so the URL's version
+history stays continuous with what real browsers may already have
+cached, even though a brand-new query string would technically have
+been just as safe). `preview/rolodex/` and `shark/index.html` confirmed
+untouched — neither imports `shared/watchlist.js`/`watchlist-sync.js`.
+
+**Verified: syntax + types + a real headless-Chromium pass exercising
+every real code path, not just that pages load.** `node --check` on
+every touched/rewritten JS file; `tsc -p tsconfig.json` shows the same
+~7 known `?v=N`-import-resolution errors as before (zero new ones).
+Then a full Playwright pass against realistic mocked `/market`/
+`/ticker/:symbol`/`/analyze`/`/watchlist`/`/status`/`/auth/me` responses
+(shapes read directly from `server.js`'s actual response-building code,
+not simplified — the exact mistake this file's own testing notes flag
+as a documented prior error) with a primed fake `tv_session` (tier
+`starter`), at a pinned market-open clock time via Playwright's clock
+API: confirmed the auth screen is bypassed and the real watchlist loads
+from the mocked sync pull; confirmed the Gate renders GREEN with a real
+note and docks/undocks correctly across a real incremental scroll (not
+a single jump); confirmed `#live-clock` and `#pulse-text` both render
+real content (the two regressions above, re-verified fixed); confirmed
+tapping a pill switches the active card and auto-analyzes it through the
+real `/analyze` POST, whose body carries all eight extra fields
+(`gate1Data`/`preGateData`/`weeklyCarryoverData`/`regimeData`/
+`proxyRule`/`openingBarData`/`metricsData`/`newsData`) alongside
+`ticker`/`sectorContext`/`marketContext`; confirmed a Gate-5-forceDown
+DOWN result renders its `LOOK FOR:` Pre-Gate strip and the full 6-row
+gate list uncut (not the old preview's "only 3 gates" clipping bug —
+this build never had the fixed-height `.rolo-stage` that caused it);
+confirmed the Settings modal opens, the timezone select is present and
+switchable, and it closes via its real `#settings-close-btn`; confirmed
+typing real Session Context text produces real `<mark class="ctx-match">`
+highlights via the debounced `wireContextHighlight()` → `refreshRoloCards()`
+path; confirmed Import respects the real 7-ticker Starter cap (adding an
+8th ticker to an already-full watchlist silently no-ops behind the
+native `alert()`, exactly as `shared/watchlist.ts`'s `addTickers()`
+already behaves everywhere else) and successfully adds a ticker when
+under cap; confirmed the new swipe-to-delete gesture removes the active
+ticker end-to-end (pill and card both gone afterward) via the real
+`removeTicker()`; confirmed Glossary search filters correctly. Zero real
+console/page errors — the only network failure observed was
+`fonts.googleapis.com` (pre-existing in both the old and new
+`index.html`, and consistent with this file's own documented sandbox
+network restrictions elsewhere — not a regression from this change).
+
+**Not verified:** a real end-to-end round trip against live credentials
+(`tra-zacg.onrender.com` is unreachable from this sandbox, same standing
+limitation as every other backend-dependent feature in this file) — spot-
+check a real sign-in and a real `/analyze` call after deploy. The
+`.rolo-swipe-bg`'s `z-index:9` sits below the active card's inline
+`z-index:10` but at the same level as the immediately-adjacent inactive
+cards (`z-index:9` for `abs===1`) — resolved correctly by DOM order in
+testing (the bg is always the stage's first child) but worth a visual
+spot-check on a real device if the stack ordering ever changes.
+
+**Explicitly not done in this pass:** Pro's or Free's own Rolodex
+rebuild — this PR is Starter only, per the user's own framing ("Starter
+tier first"). Shark is untouched (still deliberately deferred, per
+Tier status above). `preview/rolodex/` itself is untouched — it remains
+the Free-tier, mocked-`/analyze`, isolated-from-`shared/` staging ground
+it always was, not superseded by this real build.
 
 ## Verifying changes before you claim done
 

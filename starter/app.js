@@ -1,14 +1,20 @@
+// Starter tier, rebuilt onto the Rolodex UI (Aug 16, 2026) -- the sticky-
+// docking Gate card, ticker pill strip with marquee, and single-active-
+// card stage from preview/rolodex/, wired to Starter's real, already-
+// correct backend integration: real auth/tier gating, real credit-
+// consuming /analyze, real Settings/prefs, real Session Context
+// highlighting, real server-synced watchlist. Nothing about the real
+// data/auth/credit pipeline changed in this rebuild -- only the
+// watchlist's visual representation did.
 import { initTickerCache, fetchTickerData } from '../shared/ticker-cache.js?v=5';
-import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, onWatchlistSave, refreshNewsHighlights } from '../shared/watchlist.js?v=31';
+import { initWatchlist, watchlist, addTickers, removeTicker, onWatchlistSave } from '../shared/watchlist.js?v=32';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache.js?v=3';
-import { renderTrackRecord } from '../shared/track-record.js?v=17';
-import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=25';
-import { getTzPref, getTzIana, onPrefsChange, refreshTickerLinks } from '../shared/prefs.js?v=11';
+import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=26';
+import { getTzPref, getTzIana, onPrefsChange, tickerHref, newsHref } from '../shared/prefs.js?v=11';
+import { highlightContextMatches } from '../shared/context-highlight.js?v=2';
 import '../shared/settings-modal.js?v=15';
 
 const API_URL='https://tra-zacg.onrender.com';
-const SUPABASE_URL='https://oinomcikdyisrbfeeirp.supabase.co';
-const SUPABASE_ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9pbm9tY2lrZHlpc3JiZmVlaXJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ2NzM3NzgsImV4cCI6MjEwMDI0OTc3OH0.PiMDYsSZjNd4Iw-0wbQH4niDvUmW8ymycmiyb5Raf1w';
 
 const TIER = {
   name:         'Starter',
@@ -24,7 +30,6 @@ const TIER = {
   creditsLink:  'https://buy.stripe.com/3cI3cwacxarJ8txb3z3VC00',
   badgeColor:   '#40c4ff',
 };
-const APP_SECRET='tvStarter2026!';
 
 let market=null;
 
@@ -37,8 +42,8 @@ function isMarketClosed(){
   return mins<570||mins>=960;
 }
 
-function sigColor(s){return{GREEN:'var(--green)',RED:'var(--red)',YELLOW:'var(--amber)','N/A':'var(--dim)'}[s]||'var(--dim)'}
-function dirColor(d){return{green:'var(--green)',red:'var(--red)',flat:'var(--amber)'}[d]||'var(--white)'}
+function sigColor(s){return{GREEN:'var(--green)',RED:'var(--red)',YELLOW:'var(--amber)','N/A':'var(--ink-dim)'}[s]||'var(--ink-dim)'}
+function dirClass(d){return d==='green'?'up':d==='red'?'down':d==='flat'?'flat':'neutral'}
 
 function startClock(){
   function tick(){
@@ -52,57 +57,602 @@ function startClock(){
   tick();setInterval(tick,1000);
 }
 
-function renderMarketTs(){
-  if(!market||!market.timestamp)return;
-  var t=new Date(market.timestamp).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:getTzIana()});
-  document.getElementById('ts').textContent=(market.cached?'⚡ Cached':'🔴 Live')+' · Updated '+t+' '+getTzPref();
-}
+// ── SUPABASE AUTH ─────────────────────────────────────────────────
+var sbSession=null;
+function getStoredSession(){try{return JSON.parse(localStorage.getItem('tv_session')||'null');}catch(e){return null;}}
+function storeSession(s){if(s)localStorage.setItem('tv_session',JSON.stringify(s));else localStorage.removeItem('tv_session');}
+function isSessionValid(s){if(!s||!s.token)return false;if(s.expiresAt&&Date.now()/1000>s.expiresAt-60)return false;return true;}
+function authH(){return {'Content-Type':'application/json'};}
+function addSecret(url){if(sbSession&&sbSession.token){var sep=url.includes('?')?'&':'?';return url+sep+'supabase_token='+encodeURIComponent(sbSession.token);}return url;}
+function showScreen(id){['auth-screen','app-root'].forEach(function(s){var el=document.getElementById(s);if(el)el.style.display=s===id?(s==='app-root'?'block':'flex'):'none';});}
+export function authLogout(){storeSession(null);sbSession=null;showScreen('auth-screen');}
 
-async function fetchMarket(force){
-  force=force||false;
-  document.getElementById('gate-label').textContent='LOADING...';
-  document.getElementById('gate-label').style.color='var(--dim)';
-  document.getElementById('pulse-text').className='pulse-loading';
-  document.getElementById('pulse-text').textContent='Generating market pulse...';
-  try{
-    var url=force?addSecret(API_URL+'/market?force=true'):addSecret(API_URL+'/market');
-    var res=await fetch(url,{headers:authH()});
-    var data=await res.json();
-    market=data;
-    var fields=[['spy','spy-val'],['qqq','qqq-val'],['btc','btc-val'],['soxx','soxx-val'],['xbi','xbi-val'],['iwm','iwm-val'],['gld','gld-val'],['uso','uso-val'],['tsm','tsm-val'],['msft','msft-val']];
-    fields.forEach(function(f){
-      var el=document.getElementById(f[1]);if(!el)return;
-      var d=data[f[0]];
-      if(!d||d.change==='?'){el.textContent='?';el.style.color='var(--dim)'}
-      else{el.textContent=d.change;el.style.color=dirColor(d.direction)}
-    });
-    var gc=sigColor(data.gateStatus||'GREEN');
-    document.getElementById('gate-dot').style.background=gc;
-    var gl=document.getElementById('gate-label');
-    gl.style.color=gc;gl.textContent=(data.gateStatus||'GREEN')+' GATE';
-    document.getElementById('gate-note').textContent=data.gateNote||'';
-    var btcEl=document.getElementById('btc-signal');
-    if(data.btcSignal&&data.btcSignal!=='neutral'){
-      btcEl.style.display='block';
-      btcEl.textContent='BTC SIGNAL: '+data.btcSignal.toUpperCase();
-      btcEl.style.color=data.btcSignal==='full conviction'?'var(--green)':data.btcSignal==='risk-off'?'var(--red)':'var(--amber)';
-    }else btcEl.style.display='none';
-    var tsmEl=document.getElementById('tsm-warning');
-    if(data.tsmWarning){tsmEl.style.display='block';tsmEl.textContent=data.tsmWarning}else tsmEl.style.display='none';
-    renderMarketTs();
-    var pulseEl=document.getElementById('pulse-text');
-    if(data.pulse){pulseEl.className='pulse-text';pulseEl.textContent=data.pulse}
-    else{pulseEl.className='pulse-loading';pulseEl.textContent='Generating pulse...'}
-  }catch(e){
-    document.getElementById('gate-label').textContent='DATA ERROR';
-    document.getElementById('gate-label').style.color='var(--red)';
-    document.getElementById('gate-note').textContent='Tap \u21ba REFRESH to retry';
-    document.getElementById('pulse-text').textContent='Unavailable';
+// ── PROFILE MENU ──────────────────────────────────────────────────
+export function toggleProfileMenu(e){
+  if(e)e.stopPropagation();
+  var m=document.getElementById('profile-menu');if(!m)return;
+  m.classList.toggle('open');
+}
+document.addEventListener('click',function(e){
+  var m=document.getElementById('profile-menu');
+  if(!m||!m.classList.contains('open'))return;
+  if(!e.target.closest('.profile-wrap'))m.classList.remove('open');
+});
+export function promptLogResults(){
+  var m=document.getElementById('profile-menu');if(m)m.classList.remove('open');
+  if(confirm('Log Results tracks your win/loss outcomes over time — available on Pro.\n\nUpgrade now?')){
+    window.open(TIER.stripeLink,'_blank');
   }
 }
 
-export async function analyzeTicker(ticker){
-  var card=document.getElementById('card-'+ticker);if(!card)return;
+// ── CREDIT DISPLAY ────────────────────────────────────────────────
+async function fetchCreditStatus(){try{var res=await fetch(addSecret(API_URL+'/status'),{headers:authH()});var data=await res.json();var el=document.getElementById('credits-btn');if(el&&data.totalCredits!==undefined){el.textContent=(data.totalCredits>0?data.totalCredits:'+')+' CREDITS';}}catch(e){}}
+
+// ── AUTH FLOW ─────────────────────────────────────────────────────
+var authMode='login';
+function bindAuthEvents(){
+  var eyeBtn=document.getElementById('eye-btn');
+  var resetLink=document.getElementById('reset-link');
+  var authBtn=document.getElementById('auth-btn');
+  var authToggle=document.getElementById('auth-toggle');
+  var pwInput=document.getElementById('auth-password');
+  var emailInput=document.getElementById('auth-email');
+  if(eyeBtn)eyeBtn.addEventListener('click',function(){var inp=document.getElementById('auth-password');inp.type=inp.type==='password'?'text':'password';eyeBtn.innerHTML=inp.type==='password'?'&#128065;':'&#128584;';});
+  if(resetLink)resetLink.addEventListener('click',function(){var email=document.getElementById('auth-email').value.trim();var err=document.getElementById('auth-error');if(!email){err.style.color='var(--red)';err.textContent='Enter your email first';return;}err.style.color='var(--dim)';err.textContent='Sending reset link...';fetch(API_URL+'/auth/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})}).then(function(r){return r.json();}).then(function(){err.style.color='var(--green)';err.textContent='Reset link sent! Check your email.';}).catch(function(e){err.style.color='var(--red)';err.textContent=e.message;});});
+  if(authBtn)authBtn.addEventListener('click',function(){if(authMode==='login')handleLogin();else handleSignup();});
+  if(authToggle)authToggle.addEventListener('click',toggleAuthMode);
+  if(pwInput)pwInput.addEventListener('keydown',function(e){if(e.key==='Enter')authBtn&&authBtn.click();});
+  if(emailInput)emailInput.addEventListener('keydown',function(e){if(e.key==='Enter')pwInput&&pwInput.focus();});
+}
+function toggleAuthMode(mode){authMode=mode||(authMode==='login'?'signup':'login');var isL=authMode==='login';document.getElementById('auth-title').textContent=isL?'SIGN IN':'CREATE ACCOUNT';document.getElementById('auth-btn').textContent=isL?'SIGN IN':'CREATE ACCOUNT';document.getElementById('auth-toggle').textContent=isL?'New user? Create account':'Already have an account? Sign in';document.getElementById('auth-error').textContent='';document.getElementById('auth-error').style.color='var(--red)';var rl=document.getElementById('reset-link');if(rl)rl.style.display=isL?'inline':'none';}
+async function handleLogin(){var email=document.getElementById('auth-email').value.trim(),password=document.getElementById('auth-password').value,btn=document.getElementById('auth-btn'),err=document.getElementById('auth-error');err.textContent='';btn.disabled=true;btn.textContent='SIGNING IN...';try{var r=await fetch(API_URL+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});if(!r.ok){var e=await r.json();throw new Error(e.error||'Login failed');}var session=await r.json();storeSession(session);sbSession=session;btn.textContent='SIGN IN';btn.disabled=false;checkTierAccess(session);}catch(e){err.textContent=e.message;btn.textContent='SIGN IN';btn.disabled=false;}}
+async function handleSignup(){var email=document.getElementById('auth-email').value.trim(),password=document.getElementById('auth-password').value,btn=document.getElementById('auth-btn'),err=document.getElementById('auth-error');err.textContent='';err.style.color='var(--red)';if(!email||!password){err.textContent='Email and password required';return;}if(password.length<6){err.textContent='Password must be at least 6 characters';return;}btn.disabled=true;btn.textContent='CREATING...';try{var r=await fetch(API_URL+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});if(!r.ok){var e=await r.json();throw new Error(e.error||'Signup failed');}err.style.color='var(--green)';err.textContent='Account created! Check your email to confirm, then sign in.';btn.textContent='SIGN IN';btn.disabled=false;toggleAuthMode('login');}catch(e){err.textContent=e.message;btn.textContent='CREATE ACCOUNT';btn.disabled=false;}}
+
+// ── GATE 0 (market) — real fetch, Rolodex sticky-dock/marquee rendering ──
+const GATE_FIELDS = [
+  ['spy','SPY'], ['qqq','QQQ'], ['btc','BTC'], ['soxx','SOXX'], ['xbi','XBI'],
+  ['iwm','IWM'], ['gld','GLD'], ['uso','USO'], ['tsm','TSM'], ['msft','MSFT'],
+];
+
+async function fetchMarket(force){
+  try{
+    var url=force?addSecret(API_URL+'/market?force=true'):addSecret(API_URL+'/market');
+    var res=await fetch(url,{headers:authH()});
+    market=await res.json();
+  }catch(e){ market=null; }
+  renderGate();
+  renderPulse();
+  buildGateMarquee();
+  requestAnimationFrame(sizeGateSpacer);
+}
+
+function renderPulse(){
+  var pulseEl=document.getElementById('pulse-text');
+  if(!pulseEl)return;
+  if(market&&market.pulse){pulseEl.className='pulse-text';pulseEl.textContent=market.pulse;}
+  else if(market){pulseEl.className='pulse-loading';pulseEl.textContent='Generating pulse...';}
+  else{pulseEl.className='pulse-loading';pulseEl.textContent='Unavailable';}
+}
+
+function renderGate(){
+  const status = (market && market.gateStatus) || 'GREEN';
+  const color = sigColor(status);
+  document.getElementById('gateMiniDot').style.background = color;
+  document.getElementById('gateMiniLabel').textContent = status + ' GATE';
+  document.getElementById('gateMiniLabel').style.color = color;
+  document.getElementById('gateFullDot').style.background = color;
+  document.getElementById('gateFullLabel').textContent = status + ' Gate';
+  document.getElementById('gateFullLabel').style.color = color;
+  document.getElementById('gateNote').textContent = (market && market.gateNote) || (market ? '' : 'Tap to retry — data unavailable.');
+
+  const grid = document.getElementById('gateGrid');
+  grid.innerHTML = GATE_FIELDS.map(([key, label])=>{
+    const d = market && market[key];
+    const val = (!d || d.change === '?') ? '?' : d.change;
+    const cls = (!d || d.change === '?') ? 'neutral' : dirClass(d.direction);
+    return `<div class="gate-stat"><div class="k">${label}</div><div class="v ${cls}">${val}</div></div>`;
+  }).join('');
+  renderMarketTs();
+}
+
+function renderMarketTs(){
+  var noteEl=document.getElementById('gateNote');
+  if(!market||!market.timestamp||!noteEl)return;
+  var t=new Date(market.timestamp).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:getTzIana()});
+  var ts=(market.cached?'⚡ Cached':'🔴 Live')+' · Updated '+t+' '+getTzPref();
+  noteEl.title=ts;
+}
+
+const gateMarquee = document.getElementById('gateMarquee');
+let gateMarqueeOneSetW = 0;
+let gateMarqueePos = 0;
+function buildGateMarquee(){
+  const items = GATE_FIELDS.map(([key, label])=>{
+    const d = market && market[key];
+    const val = (!d || d.change === '?') ? '?' : d.change;
+    const cls = (!d || d.change === '?') ? 'neutral' : dirClass(d.direction);
+    return `<span class="gm-item"><span class="sym">${label}</span><span class="val ${cls}">${val}</span></span>`;
+  }).join('');
+  gateMarquee.innerHTML = items + items;
+  gateMarqueePos = 0;
+  requestAnimationFrame(sizeGateMarquee);
+}
+
+// Measures pass1's first item vs pass2's first item directly -- scrollLeft/
+// padding/gap all cancel out of the difference automatically.
+function sizeGateMarquee(){
+  const items = gateMarquee.querySelectorAll('.gm-item');
+  if(items.length < 2){ gateMarqueeOneSetW = gateMarquee.scrollWidth / 2; return; }
+  const firstPassStart = items[0].getBoundingClientRect().left;
+  const secondPassStart = items[items.length / 2].getBoundingClientRect().left;
+  gateMarqueeOneSetW = secondPassStart - firstPassStart;
+}
+window.addEventListener('resize', sizeGateMarquee);
+
+// ── Gate dock/scroll mechanics ────────────────────────────────────────
+const scroller = document.getElementById('scroller');
+const gateCard = document.getElementById('gateCard');
+const gateFullOverlay = document.getElementById('gateFullOverlay');
+const gateSpacer = document.getElementById('gateSpacer');
+const GATE_DOCKED_H = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--gate-docked-h')) || 44;
+let spacerHeight = 0;
+
+function sizeGateSpacer(){
+  spacerHeight = currentGateFullHeight();
+  gateSpacer.style.height = (gateCard.classList.contains('docked') ? 0 : spacerHeight) + 'px';
+  updateGateDockState();
+}
+window.addEventListener('resize', sizeGateSpacer);
+
+function currentGateFullHeight(){
+  return Math.max(0, gateFullOverlay.getBoundingClientRect().height - GATE_DOCKED_H);
+}
+
+// Dock threshold is a fixed constant (.content's own top padding) derived
+// algebraically from gateSpacer always being sized to exactly
+// (overlayHeight - GATE_DOCKED_H) -- see preview/rolodex/app.js for the
+// full derivation. Not re-measured live, which is what makes undock work
+// correctly once gateSpacer starts collapsing to 0 on dock.
+const dockThreshold = parseFloat(getComputedStyle(document.querySelector('.content')).paddingTop) || 0;
+
+let gateDockedLast = false;
+function updateGateDockState(){
+  const docked = scroller.scrollTop >= dockThreshold;
+  gateCard.classList.toggle('docked', docked);
+  gateCard.setAttribute('aria-expanded', String(!docked));
+  if(docked !== gateDockedLast){
+    gateSpacer.style.height = (docked ? 0 : spacerHeight) + 'px';
+    gateDockedLast = docked;
+  }
+}
+
+let gateTicking = false;
+scroller.addEventListener('scroll', ()=>{
+  if(gateTicking) return;
+  gateTicking = true;
+  requestAnimationFrame(()=>{
+    updateGateDockState();
+    gateTicking = false;
+  });
+}, { passive:true });
+
+function jumpToTop(){ scroller.scrollTo({ top:0, behavior:'smooth' }); }
+gateCard.addEventListener('click', ()=>{ if(gateCard.classList.contains('docked')) jumpToTop(); });
+gateCard.addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); if(gateCard.classList.contains('docked')) jumpToTop(); }
+});
+
+const GATE_MARQUEE_SPEED = 0.4;
+function stepGateMarquee(){
+  if(gateCard.classList.contains('docked') && gateMarqueeOneSetW > 0){
+    gateMarqueePos += GATE_MARQUEE_SPEED;
+    if(gateMarqueePos >= gateMarqueeOneSetW){ gateMarqueePos -= gateMarqueeOneSetW; }
+    gateMarquee.scrollLeft = Math.round(gateMarqueePos);
+  }
+  requestAnimationFrame(stepGateMarquee);
+}
+requestAnimationFrame(stepGateMarquee);
+
+// ── Utility card accordion (Pulse/Context/Import) ─────────────────────
+function wireAccordionHead(head){
+  function toggle(){
+    const card = head.closest('.card');
+    const wasExpanded = card.classList.contains('expanded');
+    card.classList.toggle('expanded', !wasExpanded);
+    head.setAttribute('aria-expanded', String(!wasExpanded));
+  }
+  head.addEventListener('click', toggle);
+  head.addEventListener('keydown', (e)=>{ if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); toggle(); } });
+}
+document.querySelectorAll('.card[data-card] > .card-head').forEach(wireAccordionHead);
+
+// ── Rolodex: real ticker data, real /analyze ─────────────────────────
+const roloStage = document.getElementById('roloStage');
+const roloIndex = document.getElementById('roloIndex');
+let roloCurrent = 0;
+/** ticker -> { td, result, analyzing, error } */
+const tickerState = new Map();
+
+const TYPE_COLOR = { CANARY:'var(--amber)', SENTIMENT:'var(--blue)', FLOW:'var(--green)' };
+const SIZING_LABEL = { FULL:'Full', HALF:'Half', QUARTER:'¼ size' };
+const SIZING_COLOR = { FULL:'var(--green)', HALF:'var(--amber)', QUARTER:'var(--amber)' };
+
+function badgesHTML(result){
+  if(!result) return '';
+  let html = '';
+  if(result.type){
+    const c = TYPE_COLOR[result.type] || 'var(--ink-dim)';
+    html += `<span class="badge" style="color:${c};border-color:${c}55;background:${c}11">${result.type}</span>`;
+  }
+  if(result.sizing){
+    if(result.sizing !== 'NONE'){
+      const label = SIZING_LABEL[result.sizing] || result.sizing;
+      const c = SIZING_COLOR[result.sizing] || 'var(--ink-dim)';
+      html += `<span class="badge" style="color:${c};border-color:${c}55;background:${c}11">${label}</span>`;
+    } else {
+      html += '<span class="badge" style="color:var(--blue);border-color:rgba(74,168,255,.4);background:rgba(74,168,255,.08)">Defined risk</span>';
+    }
+  }
+  return html ? `<div class="card-badges">${html}</div>` : '';
+}
+
+function pregateStripHTML(result){
+  if(!result || !result.gates) return '';
+  const waitText = (result.wait_for && result.wait_for !== 'null') ? result.wait_for : '';
+  if(!waitText) return '';
+  const g5 = result.gates.g5_korea || {};
+  return `<div class="pregate-strip"><div class="pregate-dot" style="background:${sigColor(g5.status)}"></div>`
+    + `<div class="pregate-note"><span class="wait-lbl">LOOK FOR: </span>${waitText}</div>`
+    + '</div>';
+}
+
+function logSectionHTML(){
+  return '<div class="log-row"><span class="log-prompt">TRACK RECORD</span><a class="log-upgrade-btn" href="https://buy.stripe.com/6oU4gA98t57p4dh2x33VC02" target="_blank">UPGRADE → Pro to log results</a></div>';
+}
+
+function gateListHTML(result){
+  if(!result || !result.gates){
+    return '<div class="gate-list"><div class="gate-clear"><span class="gate-dot" style="background:var(--ink-faint)"></span><span>Tap ANALYZE to run the gates</span></div></div>';
+  }
+  const g = result.gates;
+  const rows = [
+    ['PRE-GATE', g.pre_gate], ['G1  14D', g.g1_prewindow], ['G2  CATALYST', g.g2_catalyst],
+    ['G3  OPEN BAR', g.g3_openbar], ['G4  PHASE', g.g4_phase], ['G5  PROXY', g.g5_korea],
+  ].map(([label, gate])=>{
+    gate = gate || {};
+    if(gate === g.pre_gate && gate.status === 'GREEN'){
+      return '<div class="gate-clear"><span class="gate-dot" style="background:var(--green)"></span><span>PRE-GATE clear</span></div>';
+    }
+    return `<div class="gate-row"><span class="gate-dot" style="background:${sigColor(gate.status)}"></span>`
+      + `<div><span class="gl">${label}</span><span class="gs" style="color:${sigColor(gate.status)}">${gate.status||''}</span>`
+      + (gate.note ? `<div class="gn">${gate.note}</div>` : '') + '</div></div>';
+  }).join('');
+  const confColor = result.confidence === 'HIGH' ? 'var(--green)' : result.confidence === 'MEDIUM' ? 'var(--amber)' : 'var(--red)';
+  const conf = `<div class="conf-row"><span class="conf-lbl">CONFIDENCE</span><span class="conf-val" style="color:${confColor}">${result.confidence||''}</span></div>`;
+  return '<div class="gate-list">' + rows + logSectionHTML() + conf + '</div>';
+}
+
+function verdictAreaHTML(sym, result){
+  const closed = isMarketClosed();
+  const v = (result.verdict || 'FLAT').toUpperCase();
+  if(closed){
+    return `<div class="verdict-container" data-reset="${sym}"><span class="verdict-hold">HOLD</span><span class="verdict-lbl-hold">MKT CLOSED</span></div>`;
+  }
+  if(v === 'UP') return `<div class="verdict-container" data-reset="${sym}"><span class="verdict-up">👍</span><span class="verdict-lbl-up">UP</span></div>`;
+  if(v === 'DOWN') return `<div class="verdict-container" data-reset="${sym}"><span class="verdict-down">👎</span><span class="verdict-lbl-down">DOWN</span></div>`;
+  return `<div class="verdict-container" data-reset="${sym}"><span class="verdict-hold">HOLD</span><span class="verdict-lbl-hold">WAIT &amp; WATCH</span></div>`;
+}
+
+function priceDirClass(td){
+  const pct = td && td.metrics && typeof td.metrics.pct === 'number' ? td.metrics.pct : 0;
+  return pct > 0.05 ? 'up' : pct < -0.05 ? 'down' : 'flat';
+}
+
+function roloCardHTML(sym, state){
+  const td = state.td;
+  const price = td && td.metrics && td.metrics.price != null ? '$' + td.metrics.price.toFixed(2) : '—';
+  const news = td && td.news;
+  const rawHeadline = news ? news.headline : 'No news within the last business week';
+  const ctxEl = document.getElementById('context-input');
+  const headline = news ? highlightContextMatches(rawHeadline, ctxEl ? ctxEl.value : '') : rawHeadline;
+  const age = news ? news.ageLabel : '—';
+  const m = td && td.metrics;
+  const w52 = m && m.rangePosition != null ? m.rangePosition + '%' : '?';
+  const phase = m && m.phaseProxy ? m.phaseProxy.replace('PHASE_','') : '?';
+  const beta = m && m.beta ? m.beta.toFixed(1) : '?';
+  const proxyName = td && td.proxyRule && td.proxyRule.proxy ? td.proxyRule.proxy.name.split('(')[0].trim() : '?';
+  const analyzing = state.analyzing;
+  const result = state.result;
+  const dir = priceDirClass(td);
+  return `<div class="ticker-row">`
+    + `<div class="ticker-left"><span class="ticker-sym ${dir}"><a href="${tickerHref(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}">${price}</span></div>`
+    + '<div class="ticker-action">'
+    + (result ? verdictAreaHTML(sym, result)
+        : `<button class="btn btn-blue btn-compact" data-analyze="${sym}" ${analyzing?'disabled':''}>${analyzing?'RUNNING…':'ANALYZE'}</button>`)
+    + '</div>'
+    + `</div>`
+    + pregateStripHTML(result)
+    + `<div class="headline"><a href="${newsHref(sym)}" target="_blank">${headline}</a> <span class="age">${age}</span></div>`
+    + `<div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>β <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyName}</b></span></div>`
+    + badgesHTML(result)
+    + gateListHTML(result)
+    + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : '');
+}
+
+function renderRoloCard(sym){
+  const card = roloStage.querySelector(`.rolo-card[data-sym="${sym}"]`);
+  if(!card) return;
+  const state = tickerState.get(sym);
+  if(!state) return;
+  card.innerHTML = roloCardHTML(sym, state);
+  card.classList.remove('verdict-up','verdict-down');
+  const btn = card.querySelector('[data-analyze]');
+  if(btn) btn.addEventListener('click', ()=> analyzeOne(sym));
+  const resetEl = card.querySelector('[data-reset]');
+  if(resetEl) resetEl.addEventListener('click', ()=> resetTicker(sym));
+  if(state.result && !isMarketClosed()){
+    const v = (state.result.verdict||'').toUpperCase();
+    if(v === 'UP') card.classList.add('verdict-up');
+    else if(v === 'DOWN') card.classList.add('verdict-down');
+  }
+  syncRoloStageHeight();
+}
+
+function resetTicker(sym){
+  const state = tickerState.get(sym);
+  if(!state) return;
+  state.result = null; state.error = null;
+  renderRoloCard(sym);
+  renderPill(sym);
+}
+
+function renderPill(sym){
+  document.querySelectorAll(`.rolo-chip[data-sym="${sym}"]`).forEach((chip)=>{
+    const state = tickerState.get(sym);
+    const td = state && state.td;
+    const price = td && td.metrics && td.metrics.price != null ? '$' + td.metrics.price.toFixed(2) : '—';
+    const perf = 'perf-' + priceDirClass(td);
+    chip.className = 'rolo-chip ' + perf + (chip.dataset.idx === String(roloCurrent) ? ' active' : '');
+    chip.innerHTML = `<span class="rc-sym">${sym}</span><span class="rc-price">${price}</span>`;
+  });
+}
+
+function syncRoloStageHeight(){
+  const cards = Array.from(roloStage.querySelectorAll('.rolo-card'));
+  const activeCard = cards[roloCurrent];
+  if(!activeCard) return;
+  roloStage.style.height = activeCard.offsetHeight + 'px';
+}
+
+function positionRoloStack(){
+  const cards = Array.from(roloStage.querySelectorAll('.rolo-card'));
+  cards.forEach((card, i)=>{
+    const d = i - roloCurrent, abs = Math.abs(d);
+    card.style.pointerEvents = abs === 0 ? 'auto' : 'none';
+    if(abs === 0){
+      card.style.transform = 'translateY(0) scale(1)'; card.style.opacity = '1'; card.style.zIndex = '10'; card.style.filter = 'none';
+    } else if(abs <= 2){
+      card.style.transform = `translateY(${d < 0 ? -14*abs : 14*abs}px) scale(${1 - 0.05*abs})`;
+      card.style.opacity = String(0.55 - 0.2*(abs-1)); card.style.zIndex = String(10-abs); card.style.filter = 'brightness(.7)';
+    } else {
+      card.style.transform = `translateY(${d < 0 ? -60 : 60}px) scale(0.85)`; card.style.opacity = '0'; card.style.zIndex = '1';
+    }
+  });
+  const chips = Array.from(roloIndex.querySelectorAll('.rolo-chip'));
+  chips.forEach((chip)=> chip.classList.toggle('active', +chip.dataset.idx === roloCurrent));
+  document.getElementById('roloHint').textContent = cards.length ? (roloCurrent+1) + ' / ' + cards.length : '— / —';
+  syncRoloStageHeight();
+}
+
+function goRolo(i){
+  const count = roloStage.querySelectorAll('.rolo-card').length;
+  if(!count) return;
+  roloCurrent = Math.max(0, Math.min(count-1, i));
+  positionRoloStack();
+  const sym = watchlist[roloCurrent];
+  const state = sym && tickerState.get(sym);
+  if(state && !state.result && !state.analyzing) analyzeOne(sym);
+}
+
+// ── Swipe-to-delete on the active card (Aug 16, 2026 — "click pill to
+// allow card to swipe to delete"). Same visual/threshold pattern as
+// production's real card-list swipe (shared/watchlist.ts's gesture
+// handlers), re-bound to whichever single .rolo-card is currently active
+// instead of a list row, since the Rolodex stage has no per-row list to
+// attach the old gesture to. ───────────────────────────────────────────
+const ROLO_SWIPE_MOVE_THRESHOLD = 14;
+let roloSwipe = null;
+function roloDeleteThreshold(card){ return Math.min(120, card.getBoundingClientRect().width*0.35); }
+function ensureRoloSwipeBg(){
+  let bg = roloStage.querySelector('.rolo-swipe-bg');
+  if(!bg){
+    bg = document.createElement('div');
+    bg.className = 'rolo-swipe-bg';
+    bg.innerHTML = '<span class="swipe-icon">🗑</span><span class="swipe-label">DELETE</span>';
+    roloStage.insertBefore(bg, roloStage.firstChild);
+  }
+  return bg;
+}
+function onRoloPointerDown(e){
+  if(roloSwipe) return;
+  if(e.pointerType==='mouse'&&e.button!==0) return;
+  const card = e.target.closest('.rolo-card');
+  if(!card) return;
+  const cards = Array.from(roloStage.querySelectorAll('.rolo-card'));
+  if(cards.indexOf(card) !== roloCurrent) return;
+  roloSwipe = { pointerId:e.pointerId, card, startX:e.clientX, startY:e.clientY, mode:null, pendingDx:0 };
+}
+function onRoloPointerMove(e){
+  const g = roloSwipe; if(!g || e.pointerId!==g.pointerId) return;
+  const dx = e.clientX-g.startX, dy = e.clientY-g.startY;
+  if(g.mode===null){
+    if(Math.abs(dx)>ROLO_SWIPE_MOVE_THRESHOLD && Math.abs(dx)>Math.abs(dy)){
+      g.mode='swipe';
+      try{ g.card.setPointerCapture(e.pointerId); }catch(err){}
+      g.card.style.transition='none';
+    } else if(Math.abs(dy)>ROLO_SWIPE_MOVE_THRESHOLD){
+      endRoloSwipe();
+      return;
+    } else return;
+  }
+  if(g.mode==='swipe'){
+    e.preventDefault();
+    const clamped = Math.min(0, Math.max(dx, -g.card.getBoundingClientRect().width));
+    g.card.style.transform = 'translateY(0) scale(1) translateX(' + clamped + 'px)';
+    const bg = ensureRoloSwipeBg();
+    const progress = Math.min(Math.abs(clamped)/roloDeleteThreshold(g.card), 1);
+    bg.style.opacity = String(progress);
+    g.pendingDx = clamped;
+  }
+}
+function onRoloPointerUp(e){
+  const g = roloSwipe; if(!g || e.pointerId!==g.pointerId) return;
+  if(g.mode==='swipe') finishRoloSwipe(g);
+  endRoloSwipe();
+}
+function finishRoloSwipe(g){
+  const threshold = roloDeleteThreshold(g.card);
+  const bg = ensureRoloSwipeBg();
+  if(Math.abs(g.pendingDx) >= threshold){
+    const w = g.card.getBoundingClientRect().width;
+    g.card.style.transition = 'transform .18s ease-in, opacity .18s ease-in';
+    g.card.style.transform = 'translateX(-' + (w+40) + 'px)';
+    g.card.style.opacity = '0';
+    const sym = watchlist[roloCurrent];
+    setTimeout(()=>{ bg.style.opacity='0'; if(sym) deleteActiveTicker(sym); }, 180);
+  } else {
+    g.card.style.transition = 'transform .18s ease';
+    g.card.style.transform = 'translateY(0) scale(1)';
+    bg.style.opacity = '0';
+  }
+}
+function endRoloSwipe(){
+  const g = roloSwipe;
+  if(g){ try{ g.card.releasePointerCapture(g.pointerId); }catch(err){} }
+  roloSwipe = null;
+}
+roloStage.addEventListener('pointerdown', onRoloPointerDown);
+document.addEventListener('pointermove', onRoloPointerMove, {passive:false});
+document.addEventListener('pointerup', onRoloPointerUp);
+document.addEventListener('pointercancel', onRoloPointerUp);
+function deleteActiveTicker(sym){
+  tickerState.delete(sym);
+  removeTicker(sym); // shared/watchlist.js: persists, syncs, shows its own undo toast
+}
+
+// ── Watchlist auto-scroll pill marquee ────────────────────────────────
+let roloMarqueeOneSetW = 0;
+let roloCountDivider = null;
+function sizeRoloMarquee(){
+  const itemsPerPass = watchlist.length + 1;
+  if(roloCountDivider && roloIndex.children.length >= itemsPerPass * 2){
+    const firstPassStart = roloIndex.children[0].getBoundingClientRect().left;
+    const secondPassStart = roloIndex.children[itemsPerPass].getBoundingClientRect().left;
+    roloMarqueeOneSetW = secondPassStart - firstPassStart;
+  } else {
+    roloMarqueeOneSetW = roloIndex.scrollWidth / 2;
+  }
+}
+window.addEventListener('resize', sizeRoloMarquee);
+
+let roloMarqueePos = 0;
+let roloMarqueeDataReady = false;
+let roloMarqueePaused = false, roloMarqueeResumeTimer = null;
+function scheduleRoloMarqueeResume(){
+  clearTimeout(roloMarqueeResumeTimer);
+  roloMarqueeResumeTimer = setTimeout(()=>{
+    roloMarqueePos = roloIndex.scrollLeft;
+    roloMarqueePaused = false;
+  }, 2000);
+}
+function pauseRoloMarquee(){ roloMarqueePaused = true; scheduleRoloMarqueeResume(); }
+roloIndex.addEventListener('pointerdown', pauseRoloMarquee);
+roloIndex.addEventListener('pointerup', scheduleRoloMarqueeResume);
+roloIndex.addEventListener('pointercancel', scheduleRoloMarqueeResume);
+
+const ROLO_MARQUEE_SPEED = 0.5;
+function stepRoloMarquee(){
+  if(!roloMarqueePaused && roloMarqueeDataReady && roloMarqueeOneSetW > 0){
+    roloMarqueePos += ROLO_MARQUEE_SPEED;
+    if(roloMarqueePos >= roloMarqueeOneSetW){ roloMarqueePos -= roloMarqueeOneSetW; }
+    roloIndex.scrollLeft = Math.round(roloMarqueePos);
+  }
+  requestAnimationFrame(stepRoloMarquee);
+}
+requestAnimationFrame(stepRoloMarquee);
+
+// ── Build/rebuild the rolodex from the current (real, server-synced)
+// watchlist. Called on init and after every watchlist mutation via the
+// composed onWatchlistSave hook. ──────────────────────────────────────
+async function renderRolodexFromWatchlist(){
+  document.getElementById('ticker-count').textContent = 'CRF · ' + watchlist.length + ' TICKERS';
+  roloStage.innerHTML = '';
+  roloIndex.innerHTML = '';
+  roloMarqueePos = 0;
+  roloMarqueeDataReady = false;
+  watchlist.forEach((sym)=>{
+    if(!tickerState.has(sym)) tickerState.set(sym, { td:null, result:null, analyzing:false, error:null });
+    const card = document.createElement('div');
+    card.className = 'rolo-card'; card.dataset.sym = sym;
+    roloStage.appendChild(card);
+    renderRoloCard(sym);
+  });
+  function appendChipPass(){
+    watchlist.forEach((sym, i)=>{
+      const chip = document.createElement('button');
+      chip.className = 'rolo-chip'; chip.dataset.sym = sym; chip.dataset.idx = String(i);
+      chip.addEventListener('click', ()=> goRolo(i));
+      chip.addEventListener('pointerdown', (e)=> e.preventDefault());
+      roloIndex.appendChild(chip);
+      renderPill(sym);
+    });
+    const divider = document.createElement('span');
+    divider.className = 'rolo-divider';
+    divider.textContent = `— ${watchlist.length} —`;
+    roloIndex.appendChild(divider);
+    return divider;
+  }
+  roloCountDivider = appendChipPass();
+  const oneSetW = roloCountDivider.offsetLeft + roloCountDivider.offsetWidth;
+  for(let guard = 0; guard < 20 && (roloIndex.scrollWidth - roloIndex.clientWidth) < oneSetW; guard++){
+    appendChipPass();
+  }
+  roloCurrent = Math.min(roloCurrent, Math.max(0, watchlist.length-1));
+  positionRoloStack();
+  requestAnimationFrame(()=>{ sizeGateSpacer(); sizeRoloMarquee(); });
+
+  await Promise.all(watchlist.map(async (sym)=>{
+    const td = await fetchTickerData(sym);
+    const state = tickerState.get(sym);
+    if(state){ state.td = td; }
+    renderRoloCard(sym);
+    renderPill(sym);
+    requestAnimationFrame(sizeRoloMarquee);
+  }));
+  requestAnimationFrame(()=>{
+    sizeRoloMarquee();
+    roloMarqueeDataReady = true;
+  });
+}
+
+// Re-renders every currently-instantiated card's headline (Session
+// Context highlight changed) or link/price display (link-site pref
+// changed) from already-cached data -- no new network calls.
+function refreshRoloCards(){
+  watchlist.forEach((sym)=>{ if(tickerState.has(sym)) renderRoloCard(sym); });
+}
+
+// ── ANALYZE — real, credit-consuming /analyze call ────────────────────
+async function analyzeOne(sym){
+  const state = tickerState.get(sym);
+  if(!state || state.analyzing) return;
+  state.analyzing = true; state.error = null;
+  renderRoloCard(sym);
+
+  const td = state.td || await fetchTickerData(sym);
+  state.td = td;
+  if(td) renderRoloCard(sym);
+
   var ctx=document.getElementById('context-input').value;
   var sc={
     spy:market&&market.spy?market.spy.change:'?',
@@ -120,23 +670,11 @@ export async function analyzeTicker(ticker){
     gateNote:market?market.gateNote||'':'',
     btcSignal:market?market.btcSignal||'neutral':'neutral'
   };
-  card.querySelector('.card-action').innerHTML='<div style="display:flex;flex-direction:column;align-items:center;gap:2px"><div class="spinner"></div><span class="spinner-label">RUNNING</span></div>';
-  var reReset=card.querySelector('.reason-txt');reReset.textContent='';reReset.style.display='none';
-  card.classList.remove('up','down','flat','rim-green','rim-yellow','rim-red','loading');
-  card.querySelector('.ticker-name').classList.remove('up','down','flat');
-  var pe=card.querySelector('.ticker-price');if(pe)pe.classList.remove('up','down','flat');
-  card.querySelector('.card-badges').innerHTML='';
-  var gs=card.querySelector('.gate-section');gs.innerHTML='';gs.style.display='none';
-  var pgs=card.querySelector('.pregate-strip');if(pgs){pgs.innerHTML='';pgs.style.display='none';}
-  var ls=card.querySelector('.log-section');if(ls){ls.innerHTML='';ls.style.display='none';}
-  // Await ticker data FIRST so newsData, openingBar, proxyRule are available
-  var td=await fetchTickerData(ticker);
-  if(td)updateCardMeta(ticker,td);
 
   try{
     var res=await fetch(addSecret(API_URL+'/analyze'),{method:'POST',headers:authH(),
       body:JSON.stringify({
-        ticker:ticker,sectorContext:sc,marketContext:ctx,
+        ticker:sym,sectorContext:sc,marketContext:ctx,
         metricsData:td&&td.metrics?td.metrics:null,
         newsData:td&&td.news?td.news:null,
         openingBarData:td&&td.openingBar?td.openingBar:null,
@@ -149,175 +687,110 @@ export async function analyzeTicker(ticker){
     if(!res.ok){
       var errData=await res.json().catch(function(){return{}});
       if(res.status===402&&errData.code==='NO_CREDITS'){
-        handleNoCredits(card,ticker);fetchCreditStatus();return;
+        handleNoCredits(sym);fetchCreditStatus();
+        state.analyzing=false;renderRoloCard(sym);renderPill(sym);
+        return;
       }
       throw new Error(errData.error||'Server error '+res.status);
     }
-    var _r=await res.json();cacheVerdict(ticker,_r);renderCardResult(ticker,_r);fetchCreditStatus();
+    var _r=await res.json();
+    cacheVerdict(sym,_r);
+    state.result=_r;state.analyzing=false;
+    renderRoloCard(sym);renderPill(sym);
+    fetchCreditStatus();
   }catch(e){
-    card.querySelector('.card-action').innerHTML='<button class="retry-btn" onclick="analyzeTicker(\''+ticker+'\')">RETRY</button>';
-    var re=card.querySelector('.reason-txt');re.textContent=e.message;re.style.color='var(--red)';re.style.display='';
+    state.analyzing=false;state.error=e.message;
+    renderRoloCard(sym);renderPill(sym);
   }
 }
 
-export function analyzeAll(){watchlist.forEach(function(t){analyzeTicker(t)})}
+function analyzeAll(){ watchlist.forEach((sym)=> analyzeOne(sym)); }
+document.getElementById('analyzeAllBtn').addEventListener('click', analyzeAll);
+document.getElementById('importBtn').addEventListener('click', addTickers);
 
-function renderCardResult(ticker,data){
-  var card=document.getElementById('card-'+ticker);
-  if(!card)return;
+// ── NO CREDITS ────────────────────────────────────────────────────
+function handleNoCredits(sym){
+  const state = tickerState.get(sym);
+  const cached = getCachedVerdict(sym);
+  if(cached){
+    state.result = cached; state.error = null;
+    renderRoloCard(sym);
+    const card = roloStage.querySelector(`.rolo-card[data-sym="${sym}"]`);
+    if(card){
+      const n = document.createElement('div');
+      n.style.cssText = 'font-family:var(--mono);font-size:8px;color:var(--amber);text-align:center;margin-top:4px';
+      n.textContent = 'Cached — no credits remaining';
+      card.appendChild(n);
+    }
+    return;
+  }
+  state.error = 'No credits remaining — buy more or upgrade to Pro.';
+}
 
-  var v=data.verdict||'FLAT';
-  var isUp=v==='UP',isDown=v==='DOWN';
+// ── Session Context highlighting ───────────────────────────────────
+var ctxDebounce=null;
+function wireContextHighlight(){
+  var ctxInputEl=document.getElementById('context-input');
+  if(!ctxInputEl)return;
+  ctxInputEl.addEventListener('input',function(){
+    clearTimeout(ctxDebounce);
+    ctxDebounce=setTimeout(refreshRoloCards,250);
+  });
+}
 
-  // Color the card border and ticker name per direction
-  card.classList.remove('up','down','flat');
-  card.classList.add(isUp?'up':isDown?'down':'flat');
-  var nameEl=card.querySelector('.ticker-name');
-  nameEl.classList.remove('up','down','flat');
-  nameEl.classList.add(isUp?'up':isDown?'down':'flat');
-  var priceEl=card.querySelector('.ticker-price');
-  if(priceEl){priceEl.classList.remove('up','down','flat');priceEl.classList.add(isUp?'up':isDown?'down':'flat')}
-
-  var actionEl=card.querySelector('.card-action');
-
-  // IF market is closed THEN show HOLD, ELSE show the real verdict
+// ── Market-closed enforcement ──────────────────────────────────────
+function enforceMarketState(){
   if(isMarketClosed()){
-    var d=document.createElement('div');
-    d.className='verdict-container';
-    d.onclick=function(){resetCard(ticker)};
-    var s1=document.createElement('span');s1.className='verdict-hold';s1.textContent='HOLD';
-    var s2=document.createElement('span');s2.className='verdict-lbl-hold';s2.textContent='MKT CLOSED';
-    d.appendChild(s1);d.appendChild(s2);
-    actionEl.innerHTML='';actionEl.appendChild(d);
-  } else if(isUp){
-    actionEl.innerHTML='<div class="verdict-container" onclick="resetCard(\u0027'+ticker+'\u0027)"><span class="verdict-up">\ud83d\udc4d</span><span class="verdict-lbl-up">UP</span></div>';
-  } else if(isDown){
-    actionEl.innerHTML='<div class="verdict-container" onclick="resetCard(\u0027'+ticker+'\u0027)"><span class="verdict-down">\ud83d\udc4e</span><span class="verdict-lbl-down">DOWN</span></div>';
-  } else{
-    actionEl.innerHTML='<div class="verdict-container" onclick="resetCard(\u0027'+ticker+'\u0027)"><span class="verdict-hold">HOLD</span><span class="verdict-lbl-hold">WAIT &amp; WATCH</span></div>';
-  }
-
-  // Reason text is intentionally not shown here — it duplicates the
-  // Gate Breakdown dropdown. The element stays in the DOM (hidden) so the
-  // error path above can still surface fetch failures in the same spot.
-  var re=card.querySelector('.reason-txt');
-  re.textContent='';re.style.display='none';
-
-  // Badges
-  var badgesEl=card.querySelector('.card-badges');badgesEl.innerHTML='';
-  if(data.type){var tc={CANARY:'var(--amber)',SENTIMENT:'var(--blue)',FLOW:'var(--green)'}[data.type]||'var(--dim)';badgesEl.innerHTML+='<span class="badge" style="color:'+tc+';border-color:'+tc+'55;background:'+tc+'11">'+data.type+'</span>'}
-  if(data.sizing){
-    if(data.sizing!=='NONE'){var sl={FULL:'Full',HALF:'Half',QUARTER:'\u00bc size'}[data.sizing]||data.sizing;var sc2={FULL:'var(--green)',HALF:'var(--amber)',QUARTER:'var(--amber)'}[data.sizing]||'var(--dim)';badgesEl.innerHTML+='<span class="badge" style="color:'+sc2+';border-color:'+sc2+'55;background:'+sc2+'11">'+sl+'</span>'}
-    else{badgesEl.innerHTML+='<span class="badge" style="color:var(--blue);border-color:rgba(64,196,255,.4);background:rgba(64,196,255,.08)">Defined risk</span>'}
-  }
-
-  // Log buttons
-  var logEl=card.querySelector('.log-section');
-  if(logEl){
-    logEl.innerHTML='<div class="log-row"><span class="log-prompt">TRACK RECORD</span><a class="log-upgrade-btn" href="https://buy.stripe.com/6oU4gA98t57p4dh2x33VC02" target="_blank">UPGRADE \u2192 Pro to log results</a></div>';
-    logEl.style.display='block';
-  }
-
-  // Gate 5 (sector proxy) status dot, front-and-center on the card header.
-  // Text next to the dot is the WAIT FOR guidance (same language previously
-  // shown as its own boxed banner at the bottom of the dropdown) — Pre-Gate
-  // and Gate 5 both have their own rows in the Gate Breakdown dropdown below.
-  var pgEl=card.querySelector('.pregate-strip');
-  if(pgEl&&data.gates){
-    var g5=data.gates.g5_korea||{};
-    var waitText=(data.wait_for&&data.wait_for!=='null')?data.wait_for:'';
-    pgEl.innerHTML='<div class="pregate-dot" style="background:'+sigColor(g5.status)+'"></div>'+(waitText?'<div class="pregate-note"><span class="wait-lbl">WAIT FOR </span><span class="wait-txt">'+waitText+'</span></div>':'');
-    pgEl.style.display='flex';
-  }
-
-  // Gate breakdown
-  var gateEl=card.querySelector('.gate-section');
-  if(data.gates){
-    // Gate 1 dictates the tile rim color (independent of the overall verdict)
-    card.classList.remove('rim-green','rim-yellow','rim-red');
-    var g1s=data.gates.g1_prewindow&&data.gates.g1_prewindow.status;
-    if(g1s==='GREEN')card.classList.add('rim-green');
-    else if(g1s==='YELLOW')card.classList.add('rim-yellow');
-    else if(g1s==='RED')card.classList.add('rim-red');
-
-    var gates=[['PRE-GATE  THESIS',data.gates.pre_gate],['G1  PRE-WINDOW 14D',data.gates.g1_prewindow],['G2  CATALYST',data.gates.g2_catalyst],['G3  OPENING BAR',data.gates.g3_openbar],['G4  PHASE',data.gates.g4_phase],['G5  SECTOR PROXY',data.gates.g5_korea]];
-    var cc=data.confidence==='HIGH'?'var(--green)':data.confidence==='MEDIUM'?'var(--amber)':'var(--red)';
-    var gHtml='<button class="expand-btn" onclick="toggleGates(\u0027'+ticker+'\u0027)"><span>GATE BREAKDOWN</span><span id="arrow-'+ticker+'">\u25bc</span></button><div class="gate-list" id="gates-'+ticker+'" style="display:none">';
-    gates.forEach(function(g){
-      var lbl=g[0],gate=g[1]||{};
-      if(gate===data.gates.pre_gate&&gate.status==='GREEN'){
-        gHtml+='<div class="gate-row gate-row-compact"><div class="gate-dot-sm" style="background:'+sigColor(gate.status)+'"></div><span class="gate-lbl-compact">PRE-GATE clear</span></div>';
-        return;
-      }
-      gHtml+='<div class="gate-row"><div class="gate-dot-sm" style="background:'+sigColor(gate.status)+'"></div><div class="gate-content"><div class="gate-header"><span class="gate-lbl">'+lbl+'</span><span class="gate-stat" style="color:'+sigColor(gate.status)+'">'+(gate.status||'')+'</span></div>'+(gate.note?'<div class="gate-note-txt">'+gate.note+'</div>':'')+'</div></div>';
-    });
-    gHtml+='<div class="conf-row"><span class="conf-lbl">CONFIDENCE</span><span class="conf-val" style="color:'+cc+'">'+data.confidence+'</span></div></div>';
-    gateEl.innerHTML=gHtml;gateEl.style.display='block';
+    const sym = watchlist[roloCurrent];
+    if(sym && tickerState.has(sym)) renderRoloCard(sym);
   }
 }
 
-export function toggleGates(ticker){
-  var el=document.getElementById('gates-'+ticker),arrow=document.getElementById('arrow-'+ticker);
-  var open=el.style.display==='none';el.style.display=open?'block':'none';arrow.textContent=open?'\u25b2':'\u25bc';
-}
-
-export function resetCard(ticker){
-  var card=document.getElementById('card-'+ticker);if(!card)return;
-  card.classList.remove('up','down','flat','rim-green','rim-yellow','rim-red','loading');
-  card.querySelector('.ticker-name').classList.remove('up','down','flat');
-  var pe=card.querySelector('.ticker-price');if(pe)pe.classList.remove('up','down','flat');
-  card.querySelector('.card-action').innerHTML='<button class="analyze-btn" onclick="analyzeTicker(\''+ticker+'\')">ANALYZE</button>';
-  var reReset2=card.querySelector('.reason-txt');reReset2.textContent='';reReset2.style.display='none';
-  card.querySelector('.card-badges').innerHTML='';
-  var gs=card.querySelector('.gate-section');gs.innerHTML='';gs.style.display='none';
-  var pgs=card.querySelector('.pregate-strip');if(pgs){pgs.innerHTML='';pgs.style.display='none';}
-  var ls=card.querySelector('.log-section');if(ls){ls.innerHTML='';ls.style.display='none';}
-}
-
+// ── Glossary ────────────────────────────────────────────────────────
 var GLOSSARY=[
-  {cat:'CRF FRAMEWORK',term:'CRF (Catalyst Response Framework)',def:'A step-by-step checklist this app runs on a stock before giving you a verdict. If enough of the checklist looks good, that\u2019s a thumbs up; if enough looks bad, that\u2019s a thumbs down.',ex:'Think of it like a pre-flight checklist for a trade \u2014 pilots don\u2019t take off until enough boxes are checked.'},
-  {cat:'CRF FRAMEWORK',term:'Pre-Gate \u2014 Thesis Integrity',def:'A quick background check on the company itself, looking for red flags like financial trouble, before the app even looks at the stock\u2019s price. A serious red flag here can override everything else.',ex:'Like checking a used car\u2019s title for a salvage flag before you even look under the hood.'},
-  {cat:'CRF FRAMEWORK',term:'Gate 0 \u2014 Sector Gate',def:'Checks how the overall stock market is doing today. If the whole market is having a bad day, that drags down the outlook for pretty much everything.',ex:'A rising tide lifts all boats \u2014 a sinking one drags them down too.'},
-  {cat:'CRF FRAMEWORK',term:'Gate 1 \u2014 Bidirectional Trend Structure',def:'Looks at whether the stock has already made a big move recently, up or down. A stock that\u2019s already run up a lot is riskier to chase, and one that\u2019s fallen too far too fast is a red flag too.',ex:'Like being wary of a stock that already \u201cran\u201d \u2014 you don\u2019t want to be the last one to the party.'},
-  {cat:'CRF FRAMEWORK',term:'Gate 2 \u2014 Catalyst Congruence',def:'Checks whether recent news about the company actually supports the direction the app is leaning.',ex:'Makes sure the story and the numbers are telling the same story.'},
-  {cat:'CRF FRAMEWORK',term:'Gate 3 \u2014 Opening Bar',def:'Watches how the stock trades in the first few minutes after the market opens, since that early action often hints at where the rest of the day is headed.',ex:'Like judging a race by how strong the runners look at the starting gun.'},
-  {cat:'CRF FRAMEWORK',term:'Gate 4 \u2014 Phase Identification',def:'Figures out whether a stock\u2019s big move is just getting started, already well underway, or has gone so far it might be due for a pullback.',ex:'Early innings vs. late innings of the same game.'},
-  {cat:'CRF FRAMEWORK',term:'Gate 5 \u2014 Dynamic Sector Proxy',def:'Compares the stock to other companies or funds in the same industry, to see if it\u2019s moving with its peers or acting strangely on its own.',ex:'Checking if one kid in class is sick, or if the whole class has the flu.'},
+  {cat:'CRF FRAMEWORK',term:'CRF (Catalyst Response Framework)',def:'A step-by-step checklist this app runs on a stock before giving you a verdict. If enough of the checklist looks good, that’s a thumbs up; if enough looks bad, that’s a thumbs down.',ex:'Think of it like a pre-flight checklist for a trade — pilots don’t take off until enough boxes are checked.'},
+  {cat:'CRF FRAMEWORK',term:'Pre-Gate — Thesis Integrity',def:'A quick background check on the company itself, looking for red flags like financial trouble, before the app even looks at the stock’s price. A serious red flag here can override everything else.',ex:'Like checking a used car’s title for a salvage flag before you even look under the hood.'},
+  {cat:'CRF FRAMEWORK',term:'Gate 0 — Sector Gate',def:'Checks how the overall stock market is doing today. If the whole market is having a bad day, that drags down the outlook for pretty much everything.',ex:'A rising tide lifts all boats — a sinking one drags them down too.'},
+  {cat:'CRF FRAMEWORK',term:'Gate 1 — Bidirectional Trend Structure',def:'Looks at whether the stock has already made a big move recently, up or down. A stock that’s already run up a lot is riskier to chase, and one that’s fallen too far too fast is a red flag too.',ex:'Like being wary of a stock that already “ran” — you don’t want to be the last one to the party.'},
+  {cat:'CRF FRAMEWORK',term:'Gate 2 — Catalyst Congruence',def:'Checks whether recent news about the company actually supports the direction the app is leaning.',ex:'Makes sure the story and the numbers are telling the same story.'},
+  {cat:'CRF FRAMEWORK',term:'Gate 3 — Opening Bar',def:'Watches how the stock trades in the first few minutes after the market opens, since that early action often hints at where the rest of the day is headed.',ex:'Like judging a race by how strong the runners look at the starting gun.'},
+  {cat:'CRF FRAMEWORK',term:'Gate 4 — Phase Identification',def:'Figures out whether a stock’s big move is just getting started, already well underway, or has gone so far it might be due for a pullback.',ex:'Early innings vs. late innings of the same game.'},
+  {cat:'CRF FRAMEWORK',term:'Gate 5 — Dynamic Sector Proxy',def:'Compares the stock to other companies or funds in the same industry, to see if it’s moving with its peers or acting strangely on its own.',ex:'Checking if one kid in class is sick, or if the whole class has the flu.'},
   {cat:'TICKER CLASSIFICATIONS',term:'Canary',def:'European or institutional base that prices macro risk early. When canaries fall while sentiment names rise, reversal is coming.',ex:'ASML fell before MU/ALAB. Warned 10-21 days early.'},
   {cat:'TICKER CLASSIFICATIONS',term:'Sentiment',def:'Moves most directly with AI capex or sector confidence, ignoring macro until it breaks.',ex:'MU, NVDA, AMD. Ran +47% into Broadcom miss then crashed 12.8%.'},
   {cat:'TICKER CLASSIFICATIONS',term:'Flow',def:'Moves on mechanical buying events. Institutions distribute at the opening bar on positive catalyst days.',ex:'ALAB opened $315 on Computex day, flushed to $292 in 30 min on 1.1M shares.'},
   {cat:'TICKER CLASSIFICATIONS',term:'Phase 1 / 2 / 3',def:'Phase 1 = discovery, <30% of 52-week range, full size. Phase 2 = acceleration, 30-70%, half size. Phase 3 = priced for perfection, >70%, post-flush only.',ex:'ALAB at $88 = Phase 1. At $300 = Phase 2. At $450 = Phase 3 (sold off on blowout beat).'},
-  {cat:'OPTIONS \u2014 GREEKS',term:'Delta (\u0394)',def:'How much an option moves per $1 move in the stock. ATM options ~0.50. Also approximates probability of expiring in-the-money.',ex:'Delta 0.50 call gains $0.50 when stock rises $1.'},
-  {cat:'OPTIONS \u2014 GREEKS',term:'Gamma (\u0393)',def:'Rate of change of delta. High gamma = delta shifts rapidly. Options near expiry and ATM have highest gamma.',ex:'High-gamma option: $1 stock move shifts delta from 0.50 to 0.65.'},
-  {cat:'OPTIONS \u2014 GREEKS',term:'Theta (\u0398)',def:'Time decay per day. Sellers\u2019 friend, buyers\u2019 enemy. Accelerates in final 2 weeks before expiry.',ex:'$2.00 option with theta \u22120.05 loses $0.50 over 10 days even if stock flat.'},
-  {cat:'OPTIONS \u2014 GREEKS',term:'Vega (\u03bd)',def:'Sensitivity to implied volatility. Buying pre-earnings buys vega, but IV collapses after the event (IV crush).',ex:'Buy $3.00 pre-earnings, stock moves your way, IV drops 45pts \u2192 option now $1.80.'},
-  {cat:'OPTIONS \u2014 CONCEPTS',term:'Implied Volatility (IV)',def:'Market\u2019s expectation of future price movement, annualized. High IV = expensive options. Forward-looking, not historical.',ex:'ALAB IV ran 98-115% during parabolic phase. Selling premium more attractive than buying.'},
-  {cat:'OPTIONS \u2014 CONCEPTS',term:'IV Rank (IVR)',def:'Where current IV sits vs past 52 weeks as a percentile. IVR >80 = Phase 3 signal in CRF.',ex:'IVR 85 = IV higher than 85% of readings this year \u2192 Gate 4 RED lean.'},
-  {cat:'OPTIONS \u2014 CONCEPTS',term:'Put/Call Skew',def:'Difference between put IV and call IV at equal distance from current price. Positive skew = bearish institutional hedging.',ex:'CHAT showed consistent +4pt put skew \u2192 Gate 2 bearish lean.'},
-  {cat:'OPTIONS \u2014 CONCEPTS',term:'Expected Move',def:'Market-implied 1-sigma price range by expiration. Stock stays within this range ~68% of the time.',ex:'Stock $50, ATM IV 80%, 30 DTE \u2192 expected move \u00b1$12.30.'},
-  {cat:'OPTIONS \u2014 CONCEPTS',term:'IV Crush',def:'Sharp drop in IV immediately after a catalyst. Options lose value even on correct direction.',ex:'Buy put pre-earnings $3.00. Stock drops 5% but IV collapses 55pts \u2192 put now $1.80.'},
-  {cat:'OPTIONS \u2014 CONCEPTS',term:'Cash-Secured Put',def:'Selling a put while holding cash to buy shares at strike if assigned. Generates income on names you\u2019d want to own.',ex:'ARCC at $18.50 \u2192 sell $18 put for $0.48. Assigned = effective buy at $17.52.'},
-  {cat:'OPTIONS \u2014 CONCEPTS',term:'Gamma Exposure (GEX)',def:'Aggregate dollar impact of dealer hedging. Positive GEX = dealers dampen moves. Negative GEX = dealers amplify moves.',ex:'SPX negative GEX \u2192 Opening Drive gaps extend. Momentum more reliable.'},
-  {cat:'MARKET STRUCTURE',term:'Opening Drive',def:'First 90 minutes (9:30-11:00am ET). Highest volume, highest volatility. Most institutional orders execute here. This app is built for this window.',ex:'Stock gaps up 3% with 2\u00d7 average volume in bar 1 = Opening Drive setup.'},
-  {cat:'MARKET STRUCTURE',term:'Gap Up / Gap Down',def:'Stock opens significantly different from prior close. CRF entry: gap \u22652% from prior close, enter at ask +1%.',ex:'SMMT closed $45, opens $47.50 = +5.5% gap. Check all 5 gates.'},
-  {cat:'MARKET STRUCTURE',term:'Engulfing Candle',def:'Second candle\u2019s body completely contains the first. Bullish engulf = buyers overwhelmed sellers. Gate 3 uses this for Monday signals.',ex:'Monday bar 1 red at $40, bar 2 opens $38 closes $41 = bullish engulf \u2192 Gate 3 GREEN.'},
-  {cat:'MARKET STRUCTURE',term:'Circuit Breaker',def:'Automatic trading halt when market falls a specified percentage. US halts at \u22127%, \u221213%, \u221220%. KOSPI at \u22128%.',ex:'KOSPI circuit breaker June 8 2026 at \u22128.37% \u2192 Gate 5 RED for all AI/semi.'},
+  {cat:'OPTIONS — GREEKS',term:'Delta (Δ)',def:'How much an option moves per $1 move in the stock. ATM options ~0.50. Also approximates probability of expiring in-the-money.',ex:'Delta 0.50 call gains $0.50 when stock rises $1.'},
+  {cat:'OPTIONS — GREEKS',term:'Gamma (Γ)',def:'Rate of change of delta. High gamma = delta shifts rapidly. Options near expiry and ATM have highest gamma.',ex:'High-gamma option: $1 stock move shifts delta from 0.50 to 0.65.'},
+  {cat:'OPTIONS — GREEKS',term:'Theta (Θ)',def:'Time decay per day. Sellers’ friend, buyers’ enemy. Accelerates in final 2 weeks before expiry.',ex:'$2.00 option with theta −0.05 loses $0.50 over 10 days even if stock flat.'},
+  {cat:'OPTIONS — GREEKS',term:'Vega (ν)',def:'Sensitivity to implied volatility. Buying pre-earnings buys vega, but IV collapses after the event (IV crush).',ex:'Buy $3.00 pre-earnings, stock moves your way, IV drops 45pts → option now $1.80.'},
+  {cat:'OPTIONS — CONCEPTS',term:'Implied Volatility (IV)',def:'Market’s expectation of future price movement, annualized. High IV = expensive options. Forward-looking, not historical.',ex:'ALAB IV ran 98-115% during parabolic phase. Selling premium more attractive than buying.'},
+  {cat:'OPTIONS — CONCEPTS',term:'IV Rank (IVR)',def:'Where current IV sits vs past 52 weeks as a percentile. IVR >80 = Phase 3 signal in CRF.',ex:'IVR 85 = IV higher than 85% of readings this year → Gate 4 RED lean.'},
+  {cat:'OPTIONS — CONCEPTS',term:'Put/Call Skew',def:'Difference between put IV and call IV at equal distance from current price. Positive skew = bearish institutional hedging.',ex:'CHAT showed consistent +4pt put skew → Gate 2 bearish lean.'},
+  {cat:'OPTIONS — CONCEPTS',term:'Expected Move',def:'Market-implied 1-sigma price range by expiration. Stock stays within this range ~68% of the time.',ex:'Stock $50, ATM IV 80%, 30 DTE → expected move ±$12.30.'},
+  {cat:'OPTIONS — CONCEPTS',term:'IV Crush',def:'Sharp drop in IV immediately after a catalyst. Options lose value even on correct direction.',ex:'Buy put pre-earnings $3.00. Stock drops 5% but IV collapses 55pts → put now $1.80.'},
+  {cat:'OPTIONS — CONCEPTS',term:'Cash-Secured Put',def:'Selling a put while holding cash to buy shares at strike if assigned. Generates income on names you’d want to own.',ex:'ARCC at $18.50 → sell $18 put for $0.48. Assigned = effective buy at $17.52.'},
+  {cat:'OPTIONS — CONCEPTS',term:'Gamma Exposure (GEX)',def:'Aggregate dollar impact of dealer hedging. Positive GEX = dealers dampen moves. Negative GEX = dealers amplify moves.',ex:'SPX negative GEX → Opening Drive gaps extend. Momentum more reliable.'},
+  {cat:'MARKET STRUCTURE',term:'Opening Drive',def:'First 90 minutes (9:30-11:00am ET). Highest volume, highest volatility. Most institutional orders execute here. This app is built for this window.',ex:'Stock gaps up 3% with 2× average volume in bar 1 = Opening Drive setup.'},
+  {cat:'MARKET STRUCTURE',term:'Gap Up / Gap Down',def:'Stock opens significantly different from prior close. CRF entry: gap ≥2% from prior close, enter at ask +1%.',ex:'SMMT closed $45, opens $47.50 = +5.5% gap. Check all 5 gates.'},
+  {cat:'MARKET STRUCTURE',term:'Engulfing Candle',def:'Second candle’s body completely contains the first. Bullish engulf = buyers overwhelmed sellers. Gate 3 uses this for Monday signals.',ex:'Monday bar 1 red at $40, bar 2 opens $38 closes $41 = bullish engulf → Gate 3 GREEN.'},
+  {cat:'MARKET STRUCTURE',term:'Circuit Breaker',def:'Automatic trading halt when market falls a specified percentage. US halts at −7%, −13%, −20%. KOSPI at −8%.',ex:'KOSPI circuit breaker June 8 2026 at −8.37% → Gate 5 RED for all AI/semi.'},
   {cat:'MARKET STRUCTURE',term:'Short Squeeze',def:'Heavily shorted stock rises sharply, forcing shorts to buy to cover, pushing price higher. Brief but explosive.',ex:'IREN 18.7% short float, <2 days to cover. Any positive catalyst could trigger a squeeze.'},
-  {cat:'SECTOR TERMS',term:'KOSPI',def:'Korea Composite Stock Price Index. Leading indicator for US AI/semi names. US names lag KOSPI crashes by 1-3 sessions.',ex:'KOSPI \u22126% Tuesday \u2192 NVDA/MU/ALAB pressure Thursday-Friday.'},
-  {cat:'SECTOR TERMS',term:'TSM (Taiwan Semiconductor)',def:'World\u2019s largest contract chip manufacturer. Single best proxy for global semiconductor health. TSM drop >3% = Gate 5 RED for all AI/semi names.',ex:'TSM \u22124% \u2192 Taiwan semi stress \u2192 risk-off on AI/semi entries.'},
-  {cat:'SECTOR TERMS',term:'XBI / IBB',def:'Biotech ETFs. XBI equal-weighted (smaller companies more impact). XBI is Gate 5 proxy for biotech/medical names.',ex:'XBI \u22122% \u2192 biotech risk-off \u2192 Gate 5 YELLOW or RED for SMMT/VCYT/IMVT.'},
-  {cat:'SECTOR TERMS',term:'SOXX',def:'iShares Semiconductor ETF. Tracks 30 largest US-listed semiconductor companies. Best sector indicator for AI/chip trades.',ex:'SOXX \u22123% while SPY flat = semiconductor-specific stress.'},
-  {cat:'SECTOR TERMS',term:'HBM (High Bandwidth Memory)',def:'RAM designed for AI training. Only Micron, Samsung, SK Hynix make it. Core of MU\u2019s AI thesis.',ex:'Hyperscaler capex slowdown = HBM demand slowdown = MU pressure.'},
+  {cat:'SECTOR TERMS',term:'KOSPI',def:'Korea Composite Stock Price Index. Leading indicator for US AI/semi names. US names lag KOSPI crashes by 1-3 sessions.',ex:'KOSPI −6% Tuesday → NVDA/MU/ALAB pressure Thursday-Friday.'},
+  {cat:'SECTOR TERMS',term:'TSM (Taiwan Semiconductor)',def:'World’s largest contract chip manufacturer. Single best proxy for global semiconductor health. TSM drop >3% = Gate 5 RED for all AI/semi names.',ex:'TSM −4% → Taiwan semi stress → risk-off on AI/semi entries.'},
+  {cat:'SECTOR TERMS',term:'XBI / IBB',def:'Biotech ETFs. XBI equal-weighted (smaller companies more impact). XBI is Gate 5 proxy for biotech/medical names.',ex:'XBI −2% → biotech risk-off → Gate 5 YELLOW or RED for SMMT/VCYT/IMVT.'},
+  {cat:'SECTOR TERMS',term:'SOXX',def:'iShares Semiconductor ETF. Tracks 30 largest US-listed semiconductor companies. Best sector indicator for AI/chip trades.',ex:'SOXX −3% while SPY flat = semiconductor-specific stress.'},
+  {cat:'SECTOR TERMS',term:'HBM (High Bandwidth Memory)',def:'RAM designed for AI training. Only Micron, Samsung, SK Hynix make it. Core of MU’s AI thesis.',ex:'Hyperscaler capex slowdown = HBM demand slowdown = MU pressure.'},
   {cat:'SECTOR TERMS',term:'Neocloud',def:'Companies renting GPU compute to AI developers. Borrow billions to buy Nvidia GPUs, rent at premium.',ex:'IREN, CoreWeave. Revenue real; profitability theoretical for most.'},
   {cat:'SECTOR TERMS',term:'BDC (Business Development Company)',def:'Fund making loans to mid-sized businesses, required to distribute 90%+ of income as dividends.',ex:'ARCC is the largest publicly traded BDC. Income from loan interest, not appreciation.'},
   {cat:'TRADING TERMINOLOGY',term:'Long',def:'Buying and owning shares expecting price to rise.',ex:'Buy 100 SMMT at $45. Sell at $50. $500 profit.'},
-  {cat:'TRADING TERMINOLOGY',term:'Short / Short Selling',def:'Borrowing shares, selling immediately, buying back later. Profit if price falls. Loss if rises \u2014 theoretically unlimited.',ex:'Short 100 IREN at $40. Falls to $32 \u2192 $800 profit.'},
+  {cat:'TRADING TERMINOLOGY',term:'Short / Short Selling',def:'Borrowing shares, selling immediately, buying back later. Profit if price falls. Loss if rises — theoretically unlimited.',ex:'Short 100 IREN at $40. Falls to $32 → $800 profit.'},
   {cat:'TRADING TERMINOLOGY',term:'Defined Risk',def:'Position where max loss is fixed at entry. Buying options or spreads. Cannot lose more than premium paid.',ex:'Buy 1 put for $200. Stock rallies. Max loss = $200.'},
-  {cat:'TRADING TERMINOLOGY',term:'Stop Loss',def:'Pre-set price at which you automatically exit to limit losses. Set before entry. CRF: \u22123% for high-conviction names.',ex:'Enter SMMT at $45. Stop at $43.65 (\u22123%). Hit $43.65 \u2192 exit immediately.'},
-  {cat:'TRADING TERMINOLOGY',term:'Sector Rotation',def:'Money moving from one sector to another. Sector pulse blurb tracks this daily.',ex:'AI fears \u2192 money rotates from NVDA into GLD and USO.'},
+  {cat:'TRADING TERMINOLOGY',term:'Stop Loss',def:'Pre-set price at which you automatically exit to limit losses. Set before entry. CRF: −3% for high-conviction names.',ex:'Enter SMMT at $45. Stop at $43.65 (−3%). Hit $43.65 → exit immediately.'},
+  {cat:'TRADING TERMINOLOGY',term:'Sector Rotation',def:'Money moving from one sector to another. Sector pulse blurb tracks this daily.',ex:'AI fears → money rotates from NVDA into GLD and USO.'},
   {cat:'TRADING TERMINOLOGY',term:'Sell the News',def:'Stock falls after a positive catalyst because good news was already priced in. Phase 3 behavior.',ex:'ALAB beats Q1 by 12%. Stock drops 13% next day. Beat was priced in.'},
   {cat:'TRADING TERMINOLOGY',term:'14-Day Pre-Window',def:'14 trading days before a catalyst. Over +20% move in this window = Gate 1 RED (exhaustion).',ex:'MU ran +35% in 14 days before record earnings. Gate 1 RED. Sold off on the print.'},
-  {cat:'TRADING TERMINOLOGY',term:'Pyramiding',def:'Adding to a winning position in smaller increments as it moves in your favor.',ex:'100 shares at $45. Rises to $47 \u2192 add 50. Hits $49 \u2192 add 25.'},
+  {cat:'TRADING TERMINOLOGY',term:'Pyramiding',def:'Adding to a winning position in smaller increments as it moves in your favor.',ex:'100 shares at $45. Rises to $47 → add 50. Hits $49 → add 25.'},
   {cat:'TRADING TERMINOLOGY',term:'GTC (Good Till Cancelled)',def:'Order that stays active until manually cancelled. Use for stop losses on multi-day holds.',ex:'GTC stop at $43.65 on SMMT triggers automatically even if it gaps down overnight.'},
   {cat:'OPTIONS — GREEKS',term:'Rho (ρ)',def:'Sensitivity to a 1% change in interest rates. Smallest of the four Greeks for short-dated options — matters on LEAPS-length duration, negligible for the Opening Drive holds this app is built around.',ex:'A 6-month call with Rho 0.15 gains ~$0.15 per 1% rate hike — a rounding error next to a same-day 3% move driven by Delta/Gamma.'},
   {cat:'OPTIONS — CONCEPTS',term:'Call Option',def:'Right (not obligation) to buy 100 shares at the strike price before expiration. Buyers profit if the stock rises above strike + premium paid.',ex:'Buy 1 SMMT $50 call for $2.00. Stock closes $55 at expiry → intrinsic value $5.00, profit $3.00/share.'},
@@ -358,8 +831,7 @@ function buildGlossary(){
   });
   body.innerHTML=html;
 }
-
-export function toggleGlossary(){
+function toggleGlossary(){
   var panel=document.getElementById('glossary-panel');
   var arrow=document.getElementById('glossary-arrow');
   var header=document.getElementById('glossary-header');
@@ -368,8 +840,7 @@ export function toggleGlossary(){
   header.classList.toggle('open',open);
   if(open)buildGlossary();
 }
-
-export function filterGlossary(query){
+function filterGlossary(query){
   buildGlossary();
   var q=query.toLowerCase().trim();
   var terms=document.querySelectorAll('.glossary-term');
@@ -386,112 +857,33 @@ export function filterGlossary(query){
   var nr=document.getElementById('glossary-no-results');
   if(nr)nr.style.display=(!anyVisible&&q)?'block':'none';
 }
+document.getElementById('glossary-header').addEventListener('click', toggleGlossary);
+document.getElementById('glossary-search').addEventListener('input', (e)=> filterGlossary(e.target.value));
 
-function enforceMarketState(){
-  if(isMarketClosed()){
-    watchlist.forEach(function(t){
-      var card=document.getElementById('card-'+t);
-      if(!card)return;
-      var ae=card.querySelector('.card-action');
-      if(!ae)return;
-      if(ae.querySelector('.verdict-up')||ae.querySelector('.verdict-down')){
-        var d=document.createElement('div');
-        d.className='verdict-container';
-        d.onclick=function(){resetCard(t)};
-        var s1=document.createElement('span');s1.className='verdict-hold';s1.textContent='HOLD';
-        var s2=document.createElement('span');s2.className='verdict-lbl-hold';s2.textContent='MKT CLOSED';
-        d.appendChild(s1);d.appendChild(s2);
-        ae.innerHTML='';ae.appendChild(d);
-      }
-    });
+// ── init ────────────────────────────────────────────────────────────
+function initApp(){
+  cleanLS();
+  document.getElementById('ticker-count').textContent='CRF · '+watchlist.length+' TICKERS';
+  startClock();
+  wireContextHighlight();
+  onPrefsChange(function(){ refreshRoloCards(); renderMarketTs(); });
+  fetchMarket();
+  sizeGateSpacer();
+  renderRolodexFromWatchlist();
+  setTimeout(fetchCreditStatus,2000);
+  setInterval(function(){fetchMarket()},4*60*1000);
+  enforceMarketState();
+  setInterval(enforceMarketState,60*1000);
+  if(sbSession&&sbSession.email){
+    var pb=document.getElementById('profile-btn');if(pb)pb.textContent=sbSession.email.charAt(0).toUpperCase();
+    var pme=document.getElementById('profile-menu-email');if(pme)pme.textContent=sbSession.email;
   }
 }
 
-// NOTE: an earlier authH() declaration (x-app-secret header, using APP_SECRET)
-// was shadowed by this later one and never executed — dropped as dead code
-// during this split. APP_SECRET above is now unused; auth is via supabase_token.
-// ── SUPABASE AUTH ─────────────────────────────────────────────────
-var sbSession=null;
-function getStoredSession(){try{return JSON.parse(localStorage.getItem('tv_session')||'null');}catch(e){return null;}}
-function storeSession(s){if(s)localStorage.setItem('tv_session',JSON.stringify(s));else localStorage.removeItem('tv_session');}
-function isSessionValid(s){if(!s||!s.token)return false;if(s.expiresAt&&Date.now()/1000>s.expiresAt-60)return false;return true;}
-function authH(){return {'Content-Type':'application/json'};}
-function addSecret(url){if(sbSession&&sbSession.token){var sep=url.includes('?')?'&':'?';return url+sep+'supabase_token='+encodeURIComponent(sbSession.token);}return url;}
-function showScreen(id){['auth-screen','comeback-screen','app-root'].forEach(function(s){var el=document.getElementById(s);if(el)el.style.display=s===id?(s==='app-root'?'block':'flex'):'none';});}
-export function authLogout(){storeSession(null);sbSession=null;showScreen('auth-screen');}
-
-// ── PROFILE MENU ──────────────────────────────────────────────────
-export function toggleProfileMenu(e){
-  if(e)e.stopPropagation();
-  var m=document.getElementById('profile-menu');if(!m)return;
-  m.classList.toggle('open');
-}
-document.addEventListener('click',function(e){
-  var m=document.getElementById('profile-menu');
-  if(!m||!m.classList.contains('open'))return;
-  if(!e.target.closest('.profile-wrap'))m.classList.remove('open');
-});
-export function promptLogResults(){
-  var m=document.getElementById('profile-menu');if(m)m.classList.remove('open');
-  if(confirm('Log Results tracks your win/loss outcomes over time — available on Pro.\n\nUpgrade now?')){
-    window.open(TIER.stripeLink,'_blank');
-  }
-}
-
-// ── CREDIT DISPLAY ────────────────────────────────────────────────
-async function fetchCreditStatus(){try{var res=await fetch(addSecret(API_URL+'/status'),{headers:authH()});var data=await res.json();var el=document.getElementById('credits-btn');if(el&&data.totalCredits!==undefined){el.textContent=(data.totalCredits>0?data.totalCredits:'+')+' CREDITS';}}catch(e){}}
-
-// ── NO CREDITS ────────────────────────────────────────────────────
-function handleNoCredits(card,ticker){
-  
-  var cached=getCachedVerdict(ticker);
-  if(cached){renderCardResult(ticker,cached);var ae=card.querySelector('.card-action');if(ae){var n=document.createElement('div');n.style.cssText='font-family:monospace;font-size:8px;color:var(--amber);text-align:center;margin-top:4px';n.textContent='Cached \u2014 no credits remaining';ae.appendChild(n);}return;}
-  var ae=card.querySelector('.card-action');if(!ae)return;
-  ae.innerHTML='<div style="text-align:center;padding:4px"><div style="font-family:monospace;font-size:9px;color:var(--amber);margin-bottom:6px">No credits remaining</div><a href="https://buy.stripe.com/3cI3cwacxarJ8txb3z3VC00" target="_blank" style="font-family:monospace;font-size:9px;font-weight:700;color:var(--amber);background:rgba(255,171,0,.12);border:1px solid rgba(255,171,0,.4);border-radius:4px;padding:5px 10px;text-decoration:none">+ BUY CREDITS $0.99</a><br><a href="https://buy.stripe.com/6oU4gA98t57p4dh2x33VC02" target="_blank" style="font-family:monospace;font-size:9px;color:var(--dim);margin-top:4px;display:block">or upgrade to Pro</a></div>';
-}
-
-// ── COUNTDOWN TIMER ───────────────────────────────────────────────
-var comebackTimer=null;
-function startComebackTimer(){if(comebackTimer)clearInterval(comebackTimer);comebackTimer=setInterval(function(){var now=new Date(),midnight=new Date();midnight.setHours(24,0,0,0);var diff=midnight-now,h=Math.floor(diff/3600000),m=Math.floor((diff%3600000)/60000),s=Math.floor((diff%60000)/1000);var el=document.getElementById('comeback-timer');if(el)el.textContent=String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');},1000);}
-
-// ── AUTH FLOW ─────────────────────────────────────────────────────
-var authMode='login';
-function bindAuthEvents(){
-  var eyeBtn=document.getElementById('eye-btn');
-  var resetLink=document.getElementById('reset-link');
-  var authBtn=document.getElementById('auth-btn');
-  var authToggle=document.getElementById('auth-toggle');
-  var pwInput=document.getElementById('auth-password');
-  var emailInput=document.getElementById('auth-email');
-  if(eyeBtn)eyeBtn.addEventListener('click',function(){var inp=document.getElementById('auth-password');inp.type=inp.type==='password'?'text':'password';eyeBtn.innerHTML=inp.type==='password'?'&#128065;':'&#128584;';});
-  if(resetLink)resetLink.addEventListener('click',function(){var email=document.getElementById('auth-email').value.trim();var err=document.getElementById('auth-error');if(!email){err.style.color='var(--red)';err.textContent='Enter your email first';return;}err.style.color='var(--dim)';err.textContent='Sending reset link...';fetch(API_URL+'/auth/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})}).then(function(r){return r.json();}).then(function(){err.style.color='var(--green)';err.textContent='Reset link sent! Check your email.';}).catch(function(e){err.style.color='var(--red)';err.textContent=e.message;});});
-  if(authBtn)authBtn.addEventListener('click',function(){if(authMode==='login')handleLogin();else handleSignup();});
-  if(authToggle)authToggle.addEventListener('click',toggleAuthMode);
-  if(pwInput)pwInput.addEventListener('keydown',function(e){if(e.key==='Enter')authBtn&&authBtn.click();});
-  if(emailInput)emailInput.addEventListener('keydown',function(e){if(e.key==='Enter')pwInput&&pwInput.focus();});
-}
-function toggleAuthMode(mode){authMode=mode||(authMode==='login'?'signup':'login');var isL=authMode==='login';document.getElementById('auth-title').textContent=isL?'SIGN IN':'CREATE ACCOUNT';document.getElementById('auth-btn').textContent=isL?'SIGN IN':'CREATE ACCOUNT';document.getElementById('auth-toggle').textContent=isL?'New user? Create account':'Already have an account? Sign in';document.getElementById('auth-error').textContent='';document.getElementById('auth-error').style.color='var(--red)';var rl=document.getElementById('reset-link');if(rl)rl.style.display=isL?'inline':'none';}
-async function handleLogin(){var email=document.getElementById('auth-email').value.trim(),password=document.getElementById('auth-password').value,btn=document.getElementById('auth-btn'),err=document.getElementById('auth-error');err.textContent='';btn.disabled=true;btn.textContent='SIGNING IN...';try{var r=await fetch(API_URL+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});if(!r.ok){var e=await r.json();throw new Error(e.error||'Login failed');}var session=await r.json();storeSession(session);sbSession=session;btn.textContent='SIGN IN';btn.disabled=false;checkTierAccess(session);}catch(e){err.textContent=e.message;btn.textContent='SIGN IN';btn.disabled=false;}}
-async function handleSignup(){var email=document.getElementById('auth-email').value.trim(),password=document.getElementById('auth-password').value,btn=document.getElementById('auth-btn'),err=document.getElementById('auth-error');err.textContent='';err.style.color='var(--red)';if(!email||!password){err.textContent='Email and password required';return;}if(password.length<6){err.textContent='Password must be at least 6 characters';return;}btn.disabled=true;btn.textContent='CREATING...';try{var r=await fetch(API_URL+'/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});if(!r.ok){var e=await r.json();throw new Error(e.error||'Signup failed');}err.style.color='var(--green)';err.textContent='Account created! Check your email to confirm, then sign in.';btn.textContent='SIGN IN';btn.disabled=false;toggleAuthMode('login');}catch(e){err.textContent=e.message;btn.textContent='CREATE ACCOUNT';btn.disabled=false;}}
-
-var ctxDebounce=null;
-function wireContextHighlight(){
-  var ctxInputEl=document.getElementById('context-input');
-  if(!ctxInputEl)return;
-  ctxInputEl.addEventListener('input',function(){
-    clearTimeout(ctxDebounce);
-    ctxDebounce=setTimeout(refreshNewsHighlights,250);
-  });
-}
-function initApp(){cleanLS();document.getElementById('ticker-count').textContent='CRF \u00b7 '+watchlist.length+' TICKERS';renderWatchlist();renderTrackRecord();startClock();refreshTickerLinks();wireContextHighlight();onPrefsChange(function(){renderWatchlist();renderTrackRecord();renderMarketTs();refreshTickerLinks();});fetchMarket();setTimeout(fetchCreditStatus,2000);setInterval(function(){fetchMarket()},4*60*1000);enforceMarketState();setInterval(enforceMarketState,60*1000);if(sbSession&&sbSession.email){var pb=document.getElementById('profile-btn');if(pb)pb.textContent=sbSession.email.charAt(0).toUpperCase();var pme=document.getElementById('profile-menu-email');if(pme)pme.textContent=sbSession.email;}}
 async function checkTierAccess(session){
   var expectedTier='starter';
   var err=document.getElementById('auth-error');
   if(session.tier!==expectedTier){
-    // Everyone without an active STARTER subscription lands on the free
-    // tier -- new signup or lapsed, no distinction, no login wall (free
-    // has never required auth). The free tier's own upgrade button is
-    // what sends them to Stripe checkout, not this redirect.
     if(err){
       err.style.color='var(--amber)';
       if(session.tier==='free'){
@@ -509,7 +901,7 @@ async function checkTierAccess(session){
     return false;
   }
   initWatchlistSync({API_URL:API_URL, authH:authH, addSecret:addSecret});
-  onWatchlistSave(schedulePushWatchlist);
+  onWatchlistSave(function(){ schedulePushWatchlist(); renderRolodexFromWatchlist(); });
   await pullWatchlistFromServer();
   showScreen('app-root');initApp();
   return true;
@@ -519,7 +911,6 @@ async function checkAuth(){
   var stored=getStoredSession();
   if(!stored||!isSessionValid(stored)){showScreen('auth-screen');bindAuthEvents();return;}
   sbSession=stored;
-  // Refresh tier from server (subscriber row may have changed since login)
   try{
     var r=await fetch(API_URL+'/auth/me?supabase_token='+encodeURIComponent(stored.token));
     if(r.ok){
@@ -527,7 +918,6 @@ async function checkAuth(){
       if(fresh.tier){
         stored.tier=fresh.tier;
         stored.hasSubscribed=!!fresh.hasSubscribed;
-        // Rebuild redirectUrl based on fresh tier
         var URLS={free:'https://tradetribunal.app/',starter:'https://tradetribunal.app/starter/',pro:'https://tradetribunal.app/pro/',shark:'https://tradetribunal.app/shark/'};
         stored.redirectUrl=URLS[fresh.tier]||URLS.free;
         storeSession(stored);
@@ -544,13 +934,6 @@ initTickerCache({API_URL:API_URL, authH:authH, addSecret:addSecret});
 
 checkAuth();
 
-window.fetchMarket = fetchMarket;
-window.analyzeAll = analyzeAll;
-window.analyzeTicker = analyzeTicker;
-window.resetCard = resetCard;
-window.toggleGates = toggleGates;
-window.toggleGlossary = toggleGlossary;
-window.filterGlossary = filterGlossary;
 window.authLogout = authLogout;
 window.toggleProfileMenu = toggleProfileMenu;
 window.promptLogResults = promptLogResults;
