@@ -2672,7 +2672,7 @@ one hand-written `types/api.d.ts` for the real `/analyze` and
 `tsc --noEmit` run to see what else surfaces beyond what's already found
 above.
 
-### Phase 0 shipped (Aug 14, 2026, `trade-verdict` only — not yet in `Tra`)
+### Phase 0 shipped (Aug 14, 2026, `trade-verdict`; mirrored into `Tra` Aug 16, 2026)
 
 Landed the same day as the plan above: a real `tsconfig.json`
 (`checkJs`/`noEmit`/`allowJs`, no build step) scoped exactly to
@@ -2730,12 +2730,29 @@ type 'HTMLElement'`, `window.foo` assignments) on pre-existing
 outside Phase 0's actual scope (the typedefs), not a regression and not
 something Phase 0 promised to zero out.
 
-**Not done in this pass:** mirroring `tsconfig.json`/`shared/types.js`'s
-JSDoc-typing approach into `Tra`'s own copy of `gates-extended.js` — this
-session's repo scope was `trade-verdict` only. `server.js` (where the
-real `/analyze` handler, `evaluateProxyStatus()`, and `evaluateGate1()`
-actually live) and every tier's `app.js` are still outside `checkJs`'s
-scope too, per the plan's own reasoning (untyped Express/Stripe/Supabase
+**Mirrored into `Tra` (Aug 16, 2026, `Tra` PR #35).** `Tra`'s repo scope
+wasn't available to the session that shipped Phase 0 above, so this was
+flagged there as a deliberate follow-up rather than done in that same
+pass — picked back up once `Tra` was added. `Tra` now has its own
+`tsconfig.json` (scoped to `gates-extended.js`; that repo has no
+`shared/` subdirectory, so it's a flatter layout than this one) and
+`types.js`, kept identical to this repo's `shared/types.js` in the actual
+`@typedef` bodies (only header commentary differs, adjusted for `Tra`'s
+own context) — confirmed via diff that `Tra`'s `gates-extended.js` was
+otherwise byte-identical to this repo's copy before adding the JSDoc, so
+this was a pure annotation mirror, not a reimplementation carrying any
+logic-drift risk. Re-verified the mechanism there too, not just assumed
+it would transfer: reproduced the same Aug 13, 2026 Gate 5 bug shape
+against `Tra`'s real typedefs and got the same `tsc` error, plus a clean
+`tsc -p tsconfig.json` run (exit 0, zero errors — `Tra`'s
+`gates-extended.js` has no ES `import`/`export` statements at all,
+unlike this repo's browser-loaded `shared/*.js`, so it doesn't carry the
+`?v=`-cache-busting-driven noise category documented above).
+
+`server.js` (in both repos — where the real `/analyze` handler,
+`evaluateProxyStatus()`, and `evaluateGate1()` actually live), `Tra`'s
+`credits.js`, and every tier's `app.js` are still outside `checkJs`'s
+scope, per the plan's own reasoning (untyped Express/Stripe/Supabase
 surface, much higher noise) — a natural widening for a future pass, not
 an oversight here.
 
