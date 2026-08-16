@@ -3480,6 +3480,110 @@ Tier status above). `preview/rolodex/` itself is untouched — it remains
 the Free-tier, mocked-`/analyze`, isolated-from-`shared/` staging ground
 it always was, not superseded by this real build.
 
+## Frontend: Starter header regression fix + disclaimer trim (Aug 16, 2026)
+
+Direct live feedback right after the Starter Rolodex build above shipped:
+the personal live clock added to the header (to cover what looked like a
+dropped Aug 9 feature) crowded `.app-topbar` on a real device and pushed
+the profile badge/credits chip out of place — not asked for, and a real
+regression from the rebuild itself, not a pre-existing issue. Removed
+`#live-clock` from the header entirely rather than trying to fit it more
+carefully — direct instruction ("you can remove the current completely").
+
+**The market-data "Live · Updated ..." timestamp moved back into the Gate
+box, as a real visible line, not the tooltip-only `title` attribute it had
+regressed to during the rebuild.** New `.market-ts`/`#marketTs` element
+inside `.gate-full-overlay`, between `#gateNote` and `.session-note`;
+`renderMarketTs()` now sets its `textContent` instead of a `title` on
+`#gateNote`. `startClock()` (and its `getTzIana()`/`getTzPref()`-driven
+per-second tick) was removed outright rather than kept dead — nothing
+else in Starter's build referenced it once the header span was gone.
+
+**Also dropped "short-term " from the "trading support" disclaimer
+line**, per direct request — applied everywhere the exact sentence is
+duplicated (`index.html`, `pro/index.html`, `starter/index.html`,
+`shark/index.html`, `preview/rolodex/index.html`), not just Starter,
+since the identical text is copy-pasted across all five and a wording
+correction should hold consistently across all of them.
+
+Verified via headless Chromium: `#live-clock` confirmed absent, `#marketTs`
+renders the real "🔴 Live · Updated ..." text, disclaimer text confirmed
+free of "short-term" everywhere, and the full Starter regression suite
+(auth bypass, Gate dock/undock, pill-tap auto-analyze, Settings modal,
+Session Context highlighting, Import cap, swipe-to-delete, Glossary
+search) re-passed with zero new console errors. `starter/app.js`'s own
+content changed, so its `<script src="./app.js?v=N">` bumped (52→53) —
+no shared-module content changed, so no cascade beyond that one file.
+
+## Frontend: mandatory typography convention — one grey, one size (Aug 16, 2026)
+
+Direct feedback, same round as the header fix above, screenshotted
+against a live Pro-tier page for reference: "ALL grey font must be the
+same lighter shade and size. I'm getting complaints that the font is
+hard to read... What we decide on needs to be mandatory convention
+moving forward." Investigated rather than guessed a number — grepped
+every rule in `starter/index.html` using either grey text token
+(`--ink-dim`/`--ink-faint`, plus the inline `--dim` alias used on the
+auth screen) and found real, unintentional fragmentation: **30 separate
+rules, 6 different font-sizes (9px/9.5px/10px/10.5px/11px/11.5px) and
+two different grey colors**, with no consistent logic behind which
+element got which — pure organic drift across many small edits over the
+Rolodex build, not a deliberate hierarchy.
+
+**Computed actual contrast ratios rather than eyeballing which grey
+looked "hard to read"** (WCAG relative-luminance formula, against this
+theme's three background tones):
+- `--ink-dim` (`#7d8896`): **4.87–5.44:1** — passes WCAG AA (4.5:1) for
+  normal text.
+- `--ink-faint` (`#4c5563`): **2.32–2.60:1** — well below AA, and below
+  even the 3:1 floor for large text. This is almost certainly the
+  concrete "hard to read" complaint, not just the small font sizes.
+
+**Decision, now the mandatory convention for grey/secondary text in this
+app:** every piece of non-primary text (labels, captions, notes, hints,
+meta rows, placeholders, disclaimers, footers) uses exactly
+`color:var(--ink-dim)` at exactly `font-size:11px` — no other grey token,
+no other size, for this text tier. `--ink-faint` is retired for text
+entirely; it stays defined only for genuinely non-text uses (currently
+just `.chevron`'s icon color) where WCAG contrast doesn't apply.
+`11px` was picked as the floor (not a smaller "average") specifically so
+this pass raises the worst-offending small text up rather than shrinking
+anything already at 11/11.5px down — a few purely-cosmetic, non-grey
+caption labels that happened to sit at 10-10.5px right next to now-11px
+grey siblings (`.track-teaser-title`, `.disclaimer-title`,
+`.glossary-cat`, etc.) were bumped to 11px too for visual consistency
+with their neighbors, even though they keep their own brand colors and
+weren't part of the literal "grey font" complaint. Primary/emphasized
+text (prices, verdicts, headings, ticker symbols) is unaffected — this
+convention only governs the secondary/dim text tier.
+
+**Scoped to Starter** (the only tier currently on the Rolodex UI) rather
+than retrofitted onto Free/Pro/Shark's older, structurally different CSS
+— those still use their own pre-existing (and, per this same principle,
+likely equally inconsistent) grey-text patterns. **This is now the
+required standard for any future work on this typography tier — apply
+`var(--ink-dim)` + `11px` by default whenever grey/secondary text is
+added or touched anywhere in this app, including the next tier's own
+Rolodex rebuild (Free/Pro), rather than picking a new ad-hoc size.**
+
+**Verified for layout breakage, not just visually approved** — the
+biggest real risk of a blanket size increase in this specific app is the
+several fixed-height, tight-fit containers this file has already
+documented fragile height math for (the 44px docked Gate bar sharing
+space between its marquee and the "↑ top" jump label, the 3-column Gate
+stat grid, the `.card-head` accordion rows). Headless-Chromium checks
+confirmed: `.app-topbar` stays within its 390px viewport width with zero
+overflow (the exact class of bug documented in the Aug 14 header-overflow
+entry above); the docked `.gate-mini-row` — jump label now at 11px
+instead of 9.5px — still fits with zero horizontal overflow and the jump
+label still fully visible; `#gateGrid`'s 3-column stat labels (SPY/QQQ/
+BTC/etc., now 11px instead of 9.5px) don't overflow their grid cells;
+all three utility cards' collapsed `.card-head` rows stay at their fixed
+44px height with their `.card-sub` text not silently truncated. The full
+prior Starter regression suite (auth, Gate dock/undock, pill-tap
+auto-analyze, Settings, Session Context highlighting, Import, swipe-to-
+delete, Glossary) re-passed unchanged.
+
 ## Verifying changes before you claim done
 
 There's no test suite. What's actually been useful:
