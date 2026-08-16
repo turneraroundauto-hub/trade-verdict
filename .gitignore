@@ -3,3 +3,9 @@
 android/android.keystore
 android/*.keystore
 android/*.jks
+
+# Build tooling (Phase 0-3 of the TypeScript adoption plan, see CLAUDE.md).
+# The emitted .js files ARE committed (they're the real deploy artifact,
+# same as every existing tsc-emitted shared/*.js) -- only the package
+# manager's own local state is excluded here.
+node_modules/

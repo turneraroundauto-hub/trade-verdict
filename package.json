@@ -1,0 +1,14 @@
+{
+  "name": "trade-tribunal",
+  "private": true,
+  "description": "Build tooling only -- this is a static GitHub Pages site, not an npm package. See tsconfig.json/tsconfig.build.json (Phase 0-2 of the TypeScript adoption plan) and esbuild.config.mjs (Phase 3, bundler) for what actually runs. CLAUDE.md, 'Engineering: TypeScript adoption path'.",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build:ts": "tsc -p tsconfig.build.json",
+    "build:bundle": "node esbuild.config.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "esbuild": "^0.28.2"
+  }
+}
