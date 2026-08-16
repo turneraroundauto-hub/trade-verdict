@@ -2756,6 +2756,75 @@ scope, per the plan's own reasoning (untyped Express/Stripe/Supabase
 surface, much higher noise) — a natural widening for a future pass, not
 an oversight here.
 
+### Phase 1 folded into the `Tra` mirror above; Phase 2 kicked off (Aug 16, 2026)
+
+Picked back up in the same session as the `Tra` mirror. Phase 1's own
+description ("shared contract types, hand-mirrored... one file copied
+into both `Tra` and this repo") turned out to be the exact same artifact
+as the `Tra` mirror just shipped — `shared/types.d.ts` (see below) and
+`Tra`'s `types.js` now ARE that one shared, hand-mirrored contract file.
+No separate Phase 1 pass was needed; noted here so it doesn't read as
+skipped.
+
+**Phase 2 (real `.ts`, transpile-only, still no bundler) started with
+two changes:**
+
+1. **`shared/types.js` (JSDoc) replaced by `shared/types.d.ts` (real
+   `interface`/`type` declarations)** — same shapes, formalized into
+   actual TS syntax instead of typedef comments. Zero runtime-behavior
+   risk: this file was never loaded at runtime before (JSDoc
+   `@typedef {import(...)}` is an erased comment) and a `.d.ts` file
+   can't be loaded at runtime either. **Verified, not assumed, that every
+   existing consumer's `@typedef {import('./types.js').X}` reference
+   still resolves correctly against the new `.d.ts` sibling:** temporarily
+   removed `shared/types.js` entirely and re-ran `tsc -p tsconfig.json` —
+   the exact same 26 known/expected baseline errors, zero new ones, zero
+   mentions of `types.js` failing to resolve. This is TypeScript's
+   standard Node-style "`.js` specifier resolves to a sibling `.d.ts`"
+   behavior working exactly as documented, confirmed against this repo's
+   real files rather than taken on faith.
+2. **`shared/ticker-cache.ts`** — the first real `.ts` conversion.
+   Picked as the starting point deliberately: highest fan-out (imported
+   by 6 other files, tied for most in `shared/`) among files with zero
+   *internal* `shared/` dependencies of their own (a true leaf — unlike
+   `watchlist.js`, which imports `ticker-cache.js` and so needs to convert
+   after it, not before). `tsconfig.build.json` (separate from
+   `tsconfig.json`, which stays `noEmit:true` for pure type-checking) is
+   the actual compile step — `npx tsc -p tsconfig.build.json` emits
+   `shared/ticker-cache.js` in place from the `.ts` source, so GitHub
+   Pages keeps serving the identical file path/layout it always has. The
+   emitted `.js` (not the `.ts`) is the real deploy artifact — both are
+   committed together, and the compiled output is what actually ships.
+
+**The full cache-busting cascade this triggered, worked through
+completely, not just the first hop:** `ticker-cache.js`'s content changed
+(even though its behavior is equivalent, the emitted bytes differ from
+the hand-written original) → bumped `?v=4→5` in its 5 importers
+(`shared/watchlist.js`, `app.js`, `starter/app.js`, `pro/app.js`,
+`preview/rolodex/app.js`) → `shared/watchlist.js`'s own content changed
+as a result, so its `?v=27→28` bumped in ITS importers
+(`shared/watchlist-sync.js`'s own relative import, `app.js`,
+`starter/app.js`, `pro/app.js`) → `shared/watchlist-sync.js`'s content
+changed too, `?v=20→21` bumped in its 3 importers → finally, every tier's
+own top-level `app.js` changed (multiple import lines inside each),
+so each tier's `<script src="./app.js?v=N">` bumped too (`index.html`
+42→43, `starter/index.html`/`pro/index.html` 43→44,
+`preview/rolodex/index.html` 23→24). `shark/index.html` confirmed
+untouched (monolithic, no `shared/` imports at all).
+
+**Verified via real headless Chromium, not just that `tsc` was clean:**
+loaded Free tier and the Rolodex preview against a mocked backend,
+confirmed zero JS errors on either, confirmed a real ticker card/pill
+actually renders fetched price data end-to-end through the newly
+TS-compiled `ticker-cache.js` (not just that the file parses).
+
+**Next in Phase 2, not done in this pass:** `shared/watchlist.js`
+(depends on the now-converted `ticker-cache.js`, natural next step),
+`shared/prefs.js` (tied for highest fan-out at 7), then the rest of
+`shared/*.js` by fan-out, then both repos' `gates-extended.js` last
+(largest, highest-stakes file, best converted once the pattern is
+well-proven on smaller modules first).
+
 ## Verifying changes before you claim done
 
 There's no test suite. What's actually been useful:
