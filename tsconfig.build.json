@@ -29,5 +29,5 @@
     "sourceMap": false,
     "removeComments": false
   },
-  "include": ["shared/ticker-cache.ts", "shared/watchlist.ts", "shared/prefs.ts", "shared/track-record.ts"]
+  "include": ["shared/ticker-cache.ts", "shared/watchlist.ts", "shared/prefs.ts", "shared/track-record.ts", "shared/analysis-cache.ts"]
 }
