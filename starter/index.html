@@ -128,7 +128,7 @@
   .gate-mini-row .jump{ font-size:11px; color:var(--ink-dim); letter-spacing:.06em; text-transform:uppercase; flex:none; }
   .gate-marquee{ flex:1; min-width:0; overflow:hidden; display:flex; align-items:center; gap:16px; white-space:nowrap; }
   .gate-marquee .gm-item{ flex:none; font-size:11px; }
-  .gate-marquee .gm-item .sym{ color:var(--ink-dim); margin-right:4px; }
+  .gate-marquee .gm-item .sym{ color:var(--ink-dim); margin-right:4px; text-decoration:none; border-bottom:1px dotted currentColor; }
   .gate-marquee .gm-item .val{ font-weight:700; font-variant-numeric:tabular-nums; }
   .gate-full-overlay{
     position:absolute; top:0; left:0; right:0;
@@ -141,6 +141,7 @@
   .gate-full-label .label{ font-size:12px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; }
   .gate-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:5px 10px; margin-bottom:7px; }
   .gate-stat .k{ font-size:11px; color:var(--ink-dim); letter-spacing:.05em; }
+  .gate-stat .k a{ color:inherit; text-decoration:none; border-bottom:1px dotted currentColor; }
   .gate-stat .v{ font-size:12.5px; font-weight:700; font-variant-numeric:tabular-nums; }
   .up{ color:var(--green); } .down{ color:var(--red); } .flat{ color:var(--amber); } .neutral{ color:var(--ink-dim); }
   .gate-note{ font-size:11px; color:var(--ink-dim); line-height:1.45; }
@@ -196,6 +197,7 @@
   .ctx-match{ background:rgba(255,182,45,.22); color:var(--amber); border-radius:3px; padding:0 2px; font-weight:700; }
   .meta-row{ display:flex; gap:12px; font-size:11px; color:var(--ink-dim); margin-top:4px; flex-wrap:wrap; }
   .meta-row b{ color:var(--ink-dim); font-weight:700; }
+  .meta-row b a{ color:inherit; text-decoration:none; border-bottom:1px dotted currentColor; }
 
   .pregate-strip{ display:flex; gap:8px; align-items:flex-start; margin-top:6px; padding:6px 8px; border-radius:6px; background:var(--surface-2); border:1px solid var(--border); }
   .pregate-dot{ width:7px; height:7px; border-radius:50%; margin-top:4px; flex-shrink:0; }
@@ -380,6 +382,7 @@
           <a class="profile-menu-item" href="https://buy.stripe.com/6oU4gA98t57p4dh2x33VC02" target="_blank">UPGRADE &rarr; Pro</a>
           <button type="button" class="profile-menu-item" onclick="promptLogResults()">LOG RESULTS</button>
           <button type="button" class="profile-menu-item" onclick="openSettingsModal()">SETTINGS</button>
+          <button type="button" class="profile-menu-item" id="exportCsvBtn" onclick="exportWatchlistCSV(this)">EXPORT CSV</button>
           <button type="button" class="profile-menu-item danger" onclick="authLogout()">SIGN OUT</button>
         </div>
       </div>
@@ -503,6 +506,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=53"></script>
+<script type="module" src="./app.js?v=54"></script>
 </body>
 </html>

@@ -10,7 +10,7 @@ import { initTickerCache, fetchTickerData } from '../shared/ticker-cache.js?v=5'
 import { initWatchlist, watchlist, addTickers, removeTicker, onWatchlistSave } from '../shared/watchlist.js?v=32';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache.js?v=3';
 import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=26';
-import { getTzPref, getTzIana, onPrefsChange, tickerHref, newsHref } from '../shared/prefs.js?v=11';
+import { getTzPref, getTzIana, onPrefsChange, tickerHref, newsHref, refreshTickerLinks } from '../shared/prefs.js?v=11';
 import { highlightContextMatches } from '../shared/context-highlight.js?v=2';
 import '../shared/settings-modal.js?v=15';
 
@@ -102,6 +102,14 @@ const GATE_FIELDS = [
   ['iwm','IWM'], ['gld','GLD'], ['uso','USO'], ['tsm','TSM'], ['msft','MSFT'],
 ];
 
+// Every ticker symbol shown anywhere in the app links out via tickerHref()
+// (rule: all ticker symbols are hyperlinked, not just ones inside a card).
+// BTC is displayed bare but tickerHref()/Yahoo's own convention need the
+// real symbol (BTC-USD) — same override Free/Pro's static Gate markup
+// already hardcodes for their BTC tile (see shared/prefs.ts's own comment).
+const GATE_LINK_OVERRIDE = { BTC:'BTC-USD' };
+function gateLinkSymbol(label){ return GATE_LINK_OVERRIDE[label] || label; }
+
 async function fetchMarket(force){
   try{
     var url=force?addSecret(API_URL+'/market?force=true'):addSecret(API_URL+'/market');
@@ -138,7 +146,8 @@ function renderGate(){
     const d = market && market[key];
     const val = (!d || d.change === '?') ? '?' : d.change;
     const cls = (!d || d.change === '?') ? 'neutral' : dirClass(d.direction);
-    return `<div class="gate-stat"><div class="k">${label}</div><div class="v ${cls}">${val}</div></div>`;
+    const sym = gateLinkSymbol(label);
+    return `<div class="gate-stat"><div class="k"><a href="${tickerHref(sym)}" target="_blank" data-ticker="${sym}">${label}</a></div><div class="v ${cls}">${val}</div></div>`;
   }).join('');
   renderMarketTs();
 }
@@ -159,7 +168,8 @@ function buildGateMarquee(){
     const d = market && market[key];
     const val = (!d || d.change === '?') ? '?' : d.change;
     const cls = (!d || d.change === '?') ? 'neutral' : dirClass(d.direction);
-    return `<span class="gm-item"><span class="sym">${label}</span><span class="val ${cls}">${val}</span></span>`;
+    const sym = gateLinkSymbol(label);
+    return `<span class="gm-item"><a class="sym" href="${tickerHref(sym)}" target="_blank" data-ticker="${sym}" onclick="event.stopPropagation()">${label}</a><span class="val ${cls}">${val}</span></span>`;
   }).join('');
   gateMarquee.innerHTML = items + items;
   gateMarqueePos = 0;
@@ -349,6 +359,14 @@ function roloCardHTML(sym, state){
   const phase = m && m.phaseProxy ? m.phaseProxy.replace('PHASE_','') : '?';
   const beta = m && m.beta ? m.beta.toFixed(1) : '?';
   const proxyName = td && td.proxyRule && td.proxyRule.proxy ? td.proxyRule.proxy.name.split('(')[0].trim() : '?';
+  // Only hyperlink when the proxy resolves to exactly one real symbol --
+  // a combined multi-symbol rule (e.g. TSM + KOSPI) has no single linkable
+  // ticker behind its display name, and KOSPI itself isn't a US-tradable
+  // symbol tickerHref() can route correctly.
+  const proxySymbols = td && td.proxyRule && td.proxyRule.proxy && Array.isArray(td.proxyRule.proxy.symbols) ? td.proxyRule.proxy.symbols : [];
+  const proxyHTML = proxySymbols.length === 1
+    ? `<a href="${tickerHref(proxySymbols[0])}" target="_blank">${proxyName}</a>`
+    : proxyName;
   const analyzing = state.analyzing;
   const result = state.result;
   const dir = priceDirClass(td);
@@ -361,7 +379,7 @@ function roloCardHTML(sym, state){
     + `</div>`
     + pregateStripHTML(result)
     + `<div class="headline"><a href="${newsHref(sym)}" target="_blank">${headline}</a> <span class="age">${age}</span></div>`
-    + `<div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>β <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyName}</b></span></div>`
+    + `<div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>β <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span></div>`
     + badgesHTML(result)
     + gateListHTML(result)
     + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : '');
@@ -432,11 +450,28 @@ function positionRoloStack(){
   syncRoloStageHeight();
 }
 
+// Tapping a pill can happen from anywhere on the page -- #roloIndex stays
+// sticky-docked all the way through the Glossary/Track Record/disclaimer/
+// footer (see the Aug 15 "pill dock persisting past the Glossary" fix), so
+// the card itself can be scrolled well out of view when a pill is tapped.
+// scrollIntoView (not a hand-computed scrollTop) so it stays correct
+// automatically as the Gate/pill-strip's own real heights change, rather
+// than re-deriving offsets by hand -- this file has repeatedly relearned
+// that lesson the hard way (see the Rolodex preview's scroll-math sagas).
+function scrollToActiveCard(){
+  const wrap = document.querySelector('.rolo-wrap');
+  if(!wrap) return;
+  const roloIndexH = roloIndex.getBoundingClientRect().height;
+  wrap.style.scrollMarginTop = (GATE_DOCKED_H + roloIndexH) + 'px';
+  wrap.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
 function goRolo(i){
   const count = roloStage.querySelectorAll('.rolo-card').length;
   if(!count) return;
   roloCurrent = Math.max(0, Math.min(count-1, i));
   positionRoloStack();
+  scrollToActiveCard();
   const sym = watchlist[roloCurrent];
   const state = sym && tickerState.get(sym);
   if(state && !state.result && !state.analyzing) analyzeOne(sym);
@@ -696,6 +731,35 @@ function analyzeAll(){ watchlist.forEach((sym)=> analyzeOne(sym)); }
 document.getElementById('analyzeAllBtn').addEventListener('click', analyzeAll);
 document.getElementById('importBtn').addEventListener('click', addTickers);
 
+// ── Export watchlist as CSV (profile-menu, per the original plan flagged
+// during the Rolodex prototype work: Export moves out of the Import card
+// and into the profile badge dropdown). Starter has no card/list split
+// (every ticker in the 7-cap watchlist is already a full card, unlike
+// Pro's 15-card window) and no IV entitlement (tierConfig.iv is Pro+Shark
+// only) -- so this is a plain Ticker/Price/Change% export of the full
+// watchlist, not a copy of Pro's Ticker/List/Price/IV/Change% shape. ──
+export async function exportWatchlistCSV(btnEl){
+  if(!watchlist.length) return alert('Watchlist is empty — nothing to export.');
+  var old;
+  if(btnEl){ old=btnEl.textContent; btnEl.textContent='EXPORTING…'; btnEl.disabled=true; }
+  var rows=await Promise.all(watchlist.map(async function(t){
+    var td=await fetchTickerData(t);
+    var price=td&&td.metrics&&td.metrics.price!=null?td.metrics.price:'';
+    var pct=td&&td.metrics&&typeof td.metrics.pct==='number'?td.metrics.pct.toFixed(2):'';
+    return[t,price,pct];
+  }));
+  var csvEsc=function(v){var s=String(v);return/[",\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s};
+  var csv=[['Ticker','Price','Change%']].concat(rows)
+    .map(function(r){return r.map(csvEsc).join(',')}).join('\r\n');
+  var blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download='trade-tribunal-watchlist-'+new Date().toISOString().slice(0,10)+'.csv';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  if(btnEl){ btnEl.textContent=old; btnEl.disabled=false; }
+}
+
 // ── NO CREDITS ────────────────────────────────────────────────────
 function handleNoCredits(sym){
   const state = tickerState.get(sym);
@@ -853,7 +917,11 @@ function initApp(){
   cleanLS();
   document.getElementById('ticker-count').textContent='CRF · '+watchlist.length+' TICKERS';
   wireContextHighlight();
-  onPrefsChange(function(){ refreshRoloCards(); renderMarketTs(); });
+  onPrefsChange(function(){
+    refreshRoloCards(); renderMarketTs();
+    refreshTickerLinks(document.getElementById('gateGrid'));
+    refreshTickerLinks(gateMarquee);
+  });
   fetchMarket();
   sizeGateSpacer();
   renderRolodexFromWatchlist();
@@ -924,3 +992,4 @@ checkAuth();
 window.authLogout = authLogout;
 window.toggleProfileMenu = toggleProfileMenu;
 window.promptLogResults = promptLogResults;
+window.exportWatchlistCSV = exportWatchlistCSV;
