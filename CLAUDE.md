@@ -3048,6 +3048,58 @@ tracked point stays silent.
 `preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
 `?v=20` per the cache-busting rule.
 
+## Frontend: Rolodex preview — fifth video, found the real reason nothing was ever visible (Aug 16, 2026, `?v=21`)
+
+A fifth real screen recording reproduced the same jump a fifth
+independent time -- **-26px**, same signature (frame 142→143, ~1.56s in,
+residual 0.08, confirmed via a proper 2D search this time, not just
+horizontal-only, to rule out a vertical-misalignment measurement
+artifact -- the best alignment was still purely horizontal, dx=-26,
+dy=0). The `?v=19` heartbeat was visible throughout this clip too and
+advanced normally (tick 2715 -> 2850 -> 3105) right through the jump,
+reconfirming the loop was alive. The overlay's content stayed completely
+unchanged for the ENTIRE clip -- `?v=20`'s `checkRoloScrollWidth()`
+caught nothing either, ruling that leading hypothesis out too.
+
+**With loop-liveness, scrollLeft, scrollWidth, and general layout-shift
+coverage all in place and all coming back empty five times in a row,
+the diagnostic tooling itself became the thing to re-audit** -- and
+found a real, confirmed bug in it, not the app. Reproduced directly:
+`renderDiagOverlay()` reassigns `#marqueeDiag`'s `innerHTML` on every
+new event, but reassigning `innerHTML` does NOT reset `scrollTop`. The
+panel is deliberately touch-scrollable (`?v=15`) so a real touch on it
+-- entirely plausible over a multi-minute session, especially once
+enough content has accumulated to actually scroll -- leaves it scrolled
+away from the top. A brand new event still renders into the DOM
+correctly, but sits scrolled OUT OF the panel's own visible viewport,
+invisible on screen even though it's genuinely there.
+
+**Confirmed via direct reproduction, not inferred:** padded the panel
+with realistic multi-minute-session-scale content, scrolled it partway
+down (matching a real touch), fired a real notable event, and measured
+via `getBoundingClientRect()` that the new entry's rect sat entirely
+above the panel's own visible rect (`entryBottom: 702.5` vs
+`panelTop: 688`) -- present in the DOM, provably invisible on screen.
+This is a real, plausible explanation for every single "the overlay
+caught nothing" report across all five rounds of this investigation --
+the events may well have been firing correctly the entire time.
+
+**Fix:** `renderDiagOverlay()` now force-sets `scrollTop = 0` after every
+render. The panel's whole purpose is surfacing the latest event, so
+snapping back to the top on every update is the correct behavior, not
+just a bug patch. Re-ran the exact same reproduction after the fix and
+confirmed the new entry now measures as visible within the panel's rect.
+Full pill-tap/auto-analyze/accordion/dock regression suite re-run, zero
+errors.
+
+**This is the first fix in this investigation targeted at the
+diagnostic's own visibility rather than at what it's supposed to be
+watching** -- if the marquee-side checks really have been firing this
+whole time, the next occurrence should finally show something.
+
+`preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
+`?v=21` per the cache-busting rule.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
