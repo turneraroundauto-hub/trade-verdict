@@ -4238,6 +4238,30 @@ call site doesn't pass the new argument) re-verified via its own
 existing regression suite for the same reason as always: this change
 touches the shared `rolodex.ts` module.
 
+## Frontend: Free header's credits/sign-in chips stacked vertically, not a horizontal row (Aug 16, 2026)
+
+Direct correction: `.topbar-actions` (the credits chip + the SIGN UP/SIGN
+IN or SIGN OUT chip) was laid out as a horizontal row (`display:flex`,
+no `flex-direction` set — defaults to `row`), so whenever `.app-topbar`
+ran out of width the whole pair wrapped as a unit onto its own line
+*below* the logo/brand, still side-by-side. **Not what's wanted, now or
+in any future pass on this header:** changed `.topbar-actions` to
+`flex-direction:column; align-items:flex-end`, matching
+`preview/rolodex/`'s original design for this same element — the two
+chips now always stack vertically on the right, whether or not the pair
+as a whole still needs to wrap below the logo on a very narrow viewport.
+
+Verified via headless Chromium at two widths (390px and a much tighter
+320px): confirmed both chips stack vertically and stay right-aligned
+(their right edges match) at both widths, confirmed zero horizontal
+overflow (`.app-topbar`'s `scrollWidth` never exceeds its own rendered
+width) at either width, and visually confirmed via screenshot at both.
+Scoped to Free only (`index.html`) — this is the only tier with this
+exact "credits chip + login/sign-up chip" pair; Starter/Pro's header
+uses a credits chip + a single profile-menu button instead, a different
+layout not touched by this fix. Pure CSS/HTML change — `app.js`'s own
+content is unaffected, so no `?v=` bump applies.
+
 ## Verifying changes before you claim done
 
 There's no test suite. What's actually been useful:
