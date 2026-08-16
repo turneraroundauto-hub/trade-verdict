@@ -3167,6 +3167,59 @@ page-level JavaScript cannot observe or fix from here.
 `preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
 `?v=22` per the cache-busting rule.
 
+## Frontend: Rolodex preview — real wrap-boundary bug found via external code review, fixed (Aug 16, 2026, `?v=23`)
+
+Mr. T reviewed `app.js` directly (not another live report) and identified
+a real, distinct bug in both marquees' wrap-boundary math: `sizeGateMarquee()`/
+`sizeRoloMarquee()`'s "boundary element's right edge minus the
+container's own left edge, plus scrollLeft" formula silently assumed the
+container's left edge sat exactly one period before the boundary --
+true only if the container has no padding and the boundary's own
+trailing flex `gap` happens to net out to zero against it. Neither held:
+`.gate-marquee` has `gap:16px` and no padding; `#roloIndex` has
+`padding-left:14px` and `gap:6px`.
+
+**Verified independently before touching anything, not taken on faith:**
+measured the CURRENT code's computed `oneSetW` against the TRUE period
+(distance between pass 1's first item and pass 2's first item, the same
+elements, same instant) on the real rendered page. Gate: computed
+500.20px vs a true 516.20px -- a constant **-16px**, matching `gap - 0
+padding` exactly. Rolo: computed 356.19px vs a true 348.19px -- a
+constant **+8px**, matching `padding(14) - gap(6)` exactly. Both errors
+reproduce every single wrap cycle (not once, unlike the ~26-28px jump
+this file has spent the last several entries chasing elsewhere) --
+genuinely a different bug, found by a different method (direct code
+review vs. real-device video), not the same one restated.
+
+**Fix:** both functions now measure the distance between pass 1's first
+item and pass 2's first item directly (`getBoundingClientRect().left`
+on each), instead of reasoning about the container's own edge, padding,
+and gaps individually. Both measurements are read at the same instant
+with the same `scrollLeft` applied, so the scroll offset cancels out of
+the difference automatically -- no `+ scrollLeft` term needed either,
+simplifying the formula while also fixing it. `sizeRoloMarquee()` needed
+`itemsPerPass` (`watchlist.length + 1`, matching `appendChipPass()`'s
+own chips-then-divider construction) to locate pass 2's first child;
+`sizeGateMarquee()` already had `items.length / 2` available for the
+same purpose.
+
+**Verified the fix eliminates both errors exactly, not just
+approximately:** re-measured both marquees' fixed formula against the
+same true-period calculation -- gate and rolo both now match to
+`<0.01px` (floating-point-exact, not "close enough"). Full pill-tap/
+auto-analyze/accordion/dock regression suite re-run, plus explicit
+`scrollLeft` sampling over 40 frames for both marquees confirming
+smooth, non-jumpy motion -- zero errors.
+
+**This is a real, confirmed, independently-verified fix for a genuine
+bug** -- distinct from (and does not resolve) the still-unexplained
+one-time ~26-28px jump documented in the entries above, which happens
+too early in a page's life to be a wrap event at all. Both bugs were
+real; fixing one doesn't retroactively explain the other.
+
+`preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
+`?v=23` per the cache-busting rule.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
