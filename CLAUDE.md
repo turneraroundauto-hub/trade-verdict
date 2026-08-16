@@ -3112,11 +3112,49 @@ and `shark/index.html` confirmed untouched. `git diff --stat` against
 every previously-converted file's compiled output was empty both before
 and after emit.
 
-**Next in Phase 2, not done in this pass:** `shared/context-highlight.js`/
-`shared/settings-modal.js` (2 importers each), `shared/track-record-sync.js`
-(1) — then both repos' `gates-extended.js` last (largest, highest-stakes
-file, best converted once the pattern is well-proven on smaller modules
-first).
+### `shared/context-highlight.js` converted to `.ts` (Aug 16, 2026)
+
+Seventh Phase 2 conversion, tied with `shared/settings-modal.js` for
+next-highest fan-out (2 importers each), picked first as the smaller,
+zero-DOM leaf (pure tokenize/escape/regex-match logic backing Session
+Context highlighting — no `document`/`window` touched at all).
+
+**Cache-busting cascade needed the `.ts`-source discipline from the
+`track-record.ts` bug fix, and got it right this time**: this module's 2
+importers are `shared/watchlist.js` (whose own `.ts` source also had to
+be bumped, not just its compiled output) and `pro/app.js` — and since
+`watchlist.js`'s content changed as a result, that cascaded a further
+hop into `watchlist-sync.js` (both its compiled `.js` **and** its `.ts`
+source, since it also imports `watchlist.js` by version-pinned path),
+which cascaded once more into every tier's `app.js`, and finally each
+tier's `<script src="./app.js?v=N">`. Full chain: `context-highlight.js`
+`?v=1→2` in `shared/watchlist.js`+`.ts` and `pro/app.js` → `watchlist.js`
+`?v=30→31` in `shared/watchlist-sync.js`+`.ts` and all three tiers'
+`app.js` → `watchlist-sync.js` `?v=24→25` in all three tiers' `app.js`
+→ each tier's `<script>` bumped (`index.html` 48→49,
+`starter/index.html`/`pro/index.html` 49→50). Recompiled after every
+`.ts` source edit (not just the newly-converted file) to regenerate
+`watchlist.js`/`watchlist-sync.js` from their corrected sources, then
+confirmed via `git status --short` that only the files actually touched
+by this cascade changed — no repeat of the silent-revert bug.
+
+**Verified via exact-output comparison across 8 cases**, not just the
+happy path — a normal 2-word match, a no-match case, an HTML-escaping/
+XSS-adjacent case (`<script>` in the headline), a regex-special-character
+case (`C++`), a stopword-only context (correctly produces zero matches),
+empty headline, empty context, and a case with `&`/`%` punctuation —
+all byte-identical between the pre- and post-conversion module. Then
+confirmed live through real headless Chromium on Pro tier: typing real
+Session Context text that shares 2+ words with a mocked headline
+correctly triggers the 250ms-debounced highlight (via
+`refreshNewsHighlights()` → `updateCardMeta()` → the compiled
+`highlightContextMatches()`), producing real `<mark class="ctx-match">`
+spans in the live-rendered news line — zero page errors.
+
+**Next in Phase 2, not done in this pass:** `shared/settings-modal.js`
+(2 importers), `shared/track-record-sync.js` (1) — then both repos'
+`gates-extended.js` last (largest, highest-stakes file, best converted
+once the pattern is well-proven on smaller modules first).
 
 ## Verifying changes before you claim done
 

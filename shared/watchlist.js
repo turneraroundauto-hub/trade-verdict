@@ -1,6 +1,6 @@
 import { fetchTickerData } from './ticker-cache.js?v=5';
 import { tickerHref, newsHref } from './prefs.js?v=11';
-import { highlightContextMatches } from './context-highlight.js?v=1';
+import { highlightContextMatches } from './context-highlight.js?v=2';
 export let watchlist = [];
 let maxTickers = 3;
 let upgradeMessage = '';
