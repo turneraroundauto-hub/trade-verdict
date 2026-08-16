@@ -158,6 +158,45 @@ export function positionRoloStack(): void {
 function scrollToActiveCard(): void {
   const wrap = els.roloStage.closest<HTMLElement>('.rolo-wrap');
   if (!wrap) return;
+  // Force the Gate into its docked layout BEFORE computing the scroll
+  // target, not after. scrollIntoView() computes its destination once,
+  // synchronously, against the CURRENT document layout -- but a real
+  // scroll normally triggers updateGateDockState() to collapse
+  // gateSpacer's ~150-200px of reserved flow space. Left to happen only
+  // via the scroll event, that collapse lands while the native
+  // smooth-scroll animation is already mid-flight toward a target
+  // computed against the OLD (taller) layout -- the page shifts out from
+  // under the animation and it overshoots. Confirmed via direct
+  // getBoundingClientRect measurement (Aug 16, 2026): the active card
+  // ended up rendered partially UNDER the sticky pill strip instead of
+  // below it, breaking pointer targeting on the card's top edge (the
+  // swipe-to-delete gesture's own pointerdown handler). Settling the
+  // dock state first, synchronously, makes the layout stable for the
+  // entire scroll -- idempotent with updateGateDockState()'s own dock
+  // handling once the real scroll event fires (gateDockedLast is already
+  // true, so it's a no-op, no double transition).
+  if (!els.gateCard.classList.contains('docked')) {
+    els.gateCard.classList.add('docked');
+    els.gateCard.setAttribute('aria-expanded', 'false');
+    // gateSpacer's height is CSS-transitioned (.2s) for the normal scroll-
+    // driven dock -- a style write alone doesn't make the LAYOUT (what
+    // scrollIntoView below actually measures) reflect 0 until that
+    // transition finishes animating, confirmed by sampling
+    // getBoundingClientRect() every 30ms through a real dock: it stayed
+    // at the full ~198px for one frame after the style write, then eased
+    // down over the next ~200ms while the scroll (and the wrap's real
+    // position) tracked it the whole way, landing short every time.
+    // Suppress the transition for this forced, synchronous collapse only
+    // (still-natural scroll-driven docks keep their eased "pull up"), and
+    // force a reflow before restoring it so scrollIntoView measures the
+    // real, final, already-collapsed layout.
+    const prevTransition = els.gateSpacer.style.transition;
+    els.gateSpacer.style.transition = 'none';
+    els.gateSpacer.style.height = '0px';
+    void els.gateSpacer.offsetHeight;
+    els.gateSpacer.style.transition = prevTransition;
+    gateDockedLast = true;
+  }
   const roloIndexH = els.roloIndex.getBoundingClientRect().height;
   wrap.style.scrollMarginTop = (GATE_DOCKED_H + roloIndexH) + 'px';
   wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });

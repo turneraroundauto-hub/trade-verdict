@@ -2533,8 +2533,8 @@ that's a separate, deliberate cleanup decision, not implied by this one.
 
 | Tier | Files | Status |
 |---|---|---|
-| Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
-| Starter | `starter/index.html` + `starter/app.js` | Rebuilt onto the Rolodex UI Aug 16, 2026 (see "Frontend: Rolodex UI shipped to Starter" below) — sticky-docking Gate, marquee ticker-pill strip, single-active-card stage with tap-pill-then-swipe-to-delete, real auth/credits/Settings/Session-Context-highlighting/server-sync unchanged. First real (non-preview) tier on the Rolodex UI; Free/Pro/Shark still on their prior designs. **`starter/app.js` is now a bundled build artifact, not hand-written** (Phase 3 kickoff, same day) — the real source is `starter/app.ts`, compiled via `node esbuild.config.mjs`; edit the `.ts`, never the `.js` directly. Its Rolodex-mechanics half now lives in `shared/rolodex.ts`, shared and ready for Free/Pro's own future Rolodex builds to import rather than re-copy. |
+| Free | `index.html` + `app.js` | Rebuilt onto the Rolodex UI Aug 16, 2026 (see "Frontend: Rolodex UI shipped to Free" below) — second real (non-preview) tier on the Rolodex UI, after Starter. **`app.js` is now a bundled build artifact, not hand-written** — the real source is `app.ts` (repo root), compiled via `node esbuild.config.mjs`; edit the `.ts`, never the `.js` directly. Consumes `shared/rolodex.ts` for Gate dock/marquee/stacked-card/swipe mechanics, same as Starter. Its top-level "redirect a paid session elsewhere" check still halts the rest of module init (`redirectingToPaidTier` flag, unchanged from before this rebuild) — see the testing note below for why that mattered. |
+| Starter | `starter/index.html` + `starter/app.js` | Rebuilt onto the Rolodex UI Aug 16, 2026 (see "Frontend: Rolodex UI shipped to Starter" below) — sticky-docking Gate, marquee ticker-pill strip, single-active-card stage with tap-pill-then-swipe-to-delete, real auth/credits/Settings/Session-Context-highlighting/server-sync unchanged. First real (non-preview) tier on the Rolodex UI; Pro/Shark still on their prior designs. **`starter/app.js` is now a bundled build artifact, not hand-written** (Phase 3 kickoff, same day) — the real source is `starter/app.ts`, compiled via `node esbuild.config.mjs`; edit the `.ts`, never the `.js` directly. Its Rolodex-mechanics half now lives in `shared/rolodex.ts`, shared with (and now also consumed by) Free's own Rolodex build rather than re-copied. |
 | Pro | `pro/index.html` + `pro/app.js` | Rebuilt Aug 2, 2026 (trade-verdict PRs #23, #24, #26, #27, #28 + `Tra` PR #5) — on shared modules, plus Pro-exclusive Analyst View, Proxy Resolution Explorer + live coherence strip, Sector Heat Map, a CSV export (Ticker/List/Price/IV/Change%, real IV via Alpaca options snapshots), trigger/ticker track-record breakdowns, server-synced track record (Aug 4, 2026, see Frontend architecture above — Pro only), and a card/watchlist split: only the first 15 tickers (in list order) render as full analysis cards, the rest render as compact price/%chg/news rows with no ANALYZE button and no credit cost — `analyzeAll()` scopes to the 15-card window only (max 5 credits). **Confirmed working live by Mr. T**, including the IV export. Its two Shark upsell teases (Proxy Explorer, Heat Map) link to `shark/coming-soon.html` (see Shark row), not straight to Stripe checkout. Proxy Resolution Explorer and Heat Map both still iterate the full watchlist, not the 15-card window — see the Alpaca section's "known follow-ups" above. |
 | Shark | `shark/index.html` (no separate `app.js` — still monolithic) | **NOT rebuilt — deliberately deferred as of Aug 2, 2026, not a backlog gap.** Mr. T wants Shark's eventual rebuild to lean on more Alpaca-driven visuals, likely after upgrading to Alpaca's "Plus" data plan first. Don't pick this up proactively without checking that's still the plan — it still carries the same reorder/log-button bugs Pro had before its rebuild (shared original template) whenever it does happen. A separate, standalone `shark/coming-soon.html` splash (added Aug 2, 2026, licensed mascot art at `shared/assets/shark-mascot.png`) exists alongside it — email waitlist writes directly to Supabase's `shark_waitlist` table (anon insert-only via RLS) from the browser, no backend involvement. |
 
@@ -4030,6 +4030,160 @@ the shared `.ts` files' own internal imports (still needed for Free/Pro's
 current unbundled consumption — only the *bundler's resolution*, not the
 source files themselves, was changed); minification/source maps (no
 build-artifact story exists yet for this repo, deliberately deferred).
+
+## Frontend: Rolodex UI shipped to Free, written as real TypeScript from the start (Aug 16, 2026)
+
+Direct instruction: "start the Free tier Rolodex build and continue
+following through phase 3." Second real (non-preview) tier on the
+Rolodex UI, after Starter — and the first tier whose Rolodex build was
+authored as real `.ts` from day one (`app.ts` at repo root) rather than
+converted after the fact, continuing Phase 3 alongside the feature work
+itself rather than as a separate pass.
+
+**Same "invert build direction" approach as Starter**: started from
+Free's real, working `app.js`/`index.html` (anonymous `APP_SECRET` auth,
+`redirectingToPaidTier` guard, `forceDefaults()`, the real weekly-reset
+credit system) and ported the Rolodex mechanics in via `shared/rolodex.ts`
+— not the other way around. `esbuild.config.mjs` gained a second entry
+(`{ in: 'app.ts', out: 'app' }`); the emitted, committed `app.js` is the
+real deploy artifact, same posture as Starter's bundle. Confirmed via the
+same chunk-header grep used for Starter's own duplicate-module check
+(`grep "^// shared/" app.js`) that all 7 shared modules bundle exactly
+once — the `normalizeSharedImports` plugin built during Starter's Phase 3
+kickoff needed no changes to handle a second entry point correctly.
+
+**Real, deliberate differences from Starter's build, each a judgment
+call made in the absence of further instruction:**
+- **Sector Pulse is a static blurred teaser**, ported verbatim from
+  `preview/rolodex/`'s own Free-scoped design (`TIER.pulse:false` — Free
+  has never had real Sector Pulse content). Needs no JS rendering at all,
+  unlike Starter's real `renderPulse()`.
+- **Gate labels shortened to Starter's wording** (`G1  14D` etc., not
+  Free's old longer `G1  PRE-WINDOW 14D`) and the **Gate-1-driven card
+  rim-color mechanic was dropped** — neither Starter's Rolodex nor the
+  original preview ever had a colored card rim, and the verdict glow
+  (`verdict-up`/`verdict-down` green/red pulse) already carries that
+  signal in the Rolodex card language. Kept the two builds visually
+  consistent rather than preserving a Free-only affordance nothing else
+  on the Rolodex UI has.
+- **"WAIT FOR" unified to Starter's "LOOK FOR:"** — CLAUDE.md never
+  established this as tier-specific wording, and the confidence-driven
+  dot color (`confColor()`) this labels was already ported from Starter
+  unchanged, so keeping mismatched label text next to it would've been
+  the actual inconsistency.
+- **The real weekly-credit-reset splash is genuine, live functionality
+  here — not dead code the way `#comeback-screen` was on Starter.**
+  Ported as a full-page overlay (`#comeback-screen`/`startComebackTimer`/
+  `handleNoCredits`), independent of the Rolodex card stack rather than
+  wired into any card — the original design was already a full-viewport
+  takeover regardless of which ticker triggered it, and there was no
+  reason to change that shape. The dual anonymous/signed-in buy-button
+  behavior (sign-in prompt vs. real $0.99 purchase link, since Stripe
+  purchases key off account email) carried over unchanged.
+- **Ticker/news links hardcoded to Yahoo Finance directly**, not routed
+  through `shared/prefs.ts`'s `tickerHref()`/`newsHref()` — Free has
+  never had a Settings UI or a link-site preference (`forceDefaults()`
+  already forces Yahoo/ET regardless of what's saved from another tier
+  in the same browser), so importing `prefs.ts` at all would have been a
+  new dependency for zero behavioral gain. Still satisfies the mandatory
+  "every ticker symbol is a hyperlink" rule — just via a two-line local
+  `tickerHref()`/`newsHref()` instead of the shared helper.
+- **No live clock in the header, timestamp lives in the Gate's
+  `#marketTs` line instead** — built straight into this state rather than
+  reintroducing Starter's since-fixed Aug 16 header-crowding regression
+  (documented above, "Starter header regression fix") and then having to
+  fix it a second time.
+- **No manual refresh button** — matches Starter's Rolodex convention
+  (auto-refresh every 4 minutes via `setInterval`, plus tap-Gate-to-jump-
+  to-top when docked); the old refresh button (`fetchMarket(true)`) was
+  Free's own pre-Rolodex affordance, not carried forward.
+- **Sources line now includes Alpaca** (extended-hours pricing, weekly
+  carryover) — this was previously only listed on Starter's disclaimer,
+  but `Tra`'s Alpaca integrations apply uniformly to every tier's
+  `/ticker/:symbol` and `/analyze` responses regardless of tier, so the
+  old Free-only Finnhub/Anthropic/Unusual-Whales list was already
+  factually incomplete, not a deliberate scope difference.
+- **Footer keeps its Privacy Policy link** (`/privacy/`), which Starter's
+  footer doesn't have — Free is the tier actually wrapped in the Android
+  TWA and submitted to Play Console (see the Google Play launch section
+  above), where a reachable privacy policy is a real Play Store
+  requirement, not just a nice-to-have.
+
+**A real, genuine bug in `shared/rolodex.ts` found and fixed during
+verification — affects Starter too, not something this build
+introduced.** Testing swipe-to-delete via a real headless-Chromium
+pointer-drag (not just reading the code) intermittently landed the
+`pointerdown` on `#roloIndex`'s sticky pill strip instead of the
+`.rolo-card` underneath it — confirmed via `elementFromPoint()` and
+direct `getBoundingClientRect()` sampling that the active card's real
+rendered top edge was ABOVE the pill strip's bottom edge, a genuine
+visual/interactive overlap. Root-caused by sampling `#gateSpacer`'s real
+computed height every 30ms through a pill tap: `scrollToActiveCard()`
+(in `shared/rolodex.ts`, used by both Free and Starter) sets
+`wrap.style.scrollMarginTop` and calls `scrollIntoView({behavior:
+'smooth'})` while the Gate is still undocked — the resulting scroll
+itself is what normally triggers `updateGateDockState()` to collapse
+`#gateSpacer`'s ~150-200px of reserved flow space, but that collapse is
+CSS-transitioned (`.2s`), so the *layout* `scrollIntoView` and the
+in-flight scroll animation actually observe keeps shifting for the next
+200ms while the transition eases — the page moves out from under the
+already-committed scroll target and it consistently lands short,
+overlapping the sticky pill strip. A first fix attempt (forcing
+`gateSpacer.style.height='0px'` synchronously before computing the
+scroll target) still didn't work — the same 30ms-sampling technique
+showed the *style* was set immediately but the *rendered* height stayed
+at its old value for one full frame before the transition took over,
+proving a style write alone doesn't make the layout `scrollIntoView`
+reads reflect the change. **Actual fix:** suppress `gateSpacer`'s
+transition for this one forced, synchronous collapse
+(`transition:'none'`, force a reflow via `offsetHeight`, restore the
+transition), so `scrollIntoView` and the real scroll animation both
+operate against an already-final, stable layout. Natural scroll-driven
+docking (the normal case, not a pill tap) is untouched — it still eases
+via the transition exactly as before. Re-verified via the same
+30ms-sampling technique: the active card's real position now lands
+flush against the pill strip's bottom edge with zero overlap, and the
+swipe gesture removes the correct ticker end-to-end. Re-ran Starter's
+full existing regression suite (`verify-starter.mjs`) against the fixed
+shared module — all pass, zero new errors, confirming the fix is a pure
+correctness improvement for both tiers, not a Free-specific patch.
+
+**Verified via real headless Chromium, both an anonymous session and a
+signed-in-but-free session** (the lapsed-subscriber/free-account sync
+path) — separately, since they exercise genuinely different code paths
+(`initWatchlistSync`/`pullWatchlistFromServer` only fire when
+`sbSession.token` is set): ticker count, Gate render, no live-clock
+element, `#marketTs` populated, Sources line includes Alpaca, footer
+Privacy Policy link present, Sector Pulse teaser renders (blur + upsell,
+no Settings modal/profile-menu/CSV-export elements exist anywhere in the
+DOM, matching Free's real capability set), pill-tap auto-analyze,
+real `/analyze` request body shape (all 8 relay fields present), Gate
+dock/undock via real incremental scroll, Session Context highlighting
+produces real `<mark class="ctx-match">` spans, Import respects the real
+3-ticker cap (an over-cap add silently no-ops behind the native
+`alert()`), swipe-to-delete removes the correct ticker end-to-end in
+both auth states, Glossary search filters correctly, and a real
+`NO_CREDITS` 402 correctly shows the full-page comeback splash with the
+right buy-button text/link for each auth state and correctly hides again
+on close. Zero real console/page errors in either auth state — the only
+network failures observed were `fonts.googleapis.com` (this sandbox's
+own documented restriction, not a regression) and intermittent
+`/status` fetch failures that don't affect any assertion (matches this
+file's own fail-safe-by-design posture for that endpoint).
+
+**Not verified:** a real end-to-end round trip against live credentials
+(`tra-zacg.onrender.com` is unreachable from this sandbox, same standing
+limitation as every other backend-dependent feature in this file) —
+spot-check a real anonymous analysis and a real signed-in-but-free
+watchlist sync after deploy.
+
+**Explicitly not done in this pass:** Pro's own Rolodex rebuild (needs
+its own design pass per the deep-dive audit that preceded this build —
+Pro's card/list-window split and exclusive features don't map onto the
+Rolodex UI as directly as Free/Starter's did); Shark (still deliberately
+deferred, per Tier status above). `preview/rolodex/` itself is untouched
+— it remains the mocked-`/analyze`, isolated-from-`shared/` staging
+ground it always was, not superseded by this real build.
 
 ## Verifying changes before you claim done
 
