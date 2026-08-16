@@ -1,9 +1,9 @@
-import { initTickerCache, fetchTickerData } from '../shared/ticker-cache.js?v=4';
-import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, setWatchlist, removeTicker, setRenderScope, getOverflow, onRenderWatchlist, onWatchlistSave, cardsReady, refreshNewsHighlights } from '../shared/watchlist.js?v=27';
+import { initTickerCache, fetchTickerData } from '../shared/ticker-cache.js?v=5';
+import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, setWatchlist, removeTicker, setRenderScope, getOverflow, onRenderWatchlist, onWatchlistSave, cardsReady, refreshNewsHighlights } from '../shared/watchlist.js?v=28';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache.js?v=2';
 import { renderTrackRecord, logResult, getAccuracyLog, clearLog, onLogSave } from '../shared/track-record.js?v=15';
 import { initTrackRecordSync, pullTrackRecordFromServer, schedulePushTrackRecord } from '../shared/track-record-sync.js?v=12';
-import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=20';
+import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=21';
 import { tickerHref, newsHref, getTzPref, getTzIana, onPrefsChange, refreshTickerLinks } from '../shared/prefs.js?v=10';
 import '../shared/settings-modal.js?v=13';
 import { highlightContextMatches } from '../shared/context-highlight.js?v=1';

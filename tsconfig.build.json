@@ -1,0 +1,33 @@
+{
+  // Phase 2 of the TypeScript adoption plan (CLAUDE.md, "Engineering:
+  // TypeScript adoption path" — Aug 14, 2026 plan, Aug 16, 2026 pickup).
+  // Separate from tsconfig.json (Phase 0/1, noEmit:true, type-checking
+  // only) because Phase 2 needs a real compile step: this one actually
+  // EMITS .js next to each converted .ts source. No bundler (that's
+  // Phase 3, deliberately deferred until paired with the Rolodex UI
+  // rework) — tsc emits one .js per .ts file, in place, so GitHub Pages
+  // keeps serving the exact same file layout and the `?v=N`
+  // cache-busting convention on every importer keeps working completely
+  // unchanged. The emitted .js IS the deploy artifact — commit it
+  // alongside its .ts source, same as any other generated file this repo
+  // doesn't have CI/build tooling for.
+  //
+  // Run with `npx tsc -p tsconfig.build.json` after editing any .ts file
+  // in scope, then verify the emitted .js and bump ?v= on it (and every
+  // importer) per the cache-busting rule exactly as if you'd hand-edited
+  // the .js directly — Phase 2 changes what AUTHORS the .js, not the
+  // cache-busting discipline around shipping it.
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "skipLibCheck": true,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "noEmit": false,
+    "declaration": false,
+    "sourceMap": false,
+    "removeComments": false
+  },
+  "include": ["shared/ticker-cache.ts"]
+}

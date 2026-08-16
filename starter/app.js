@@ -1,8 +1,8 @@
-import { initTickerCache, fetchTickerData } from '../shared/ticker-cache.js?v=4';
-import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, onWatchlistSave, refreshNewsHighlights } from '../shared/watchlist.js?v=27';
+import { initTickerCache, fetchTickerData } from '../shared/ticker-cache.js?v=5';
+import { initWatchlist, watchlist, addTickers, renderWatchlist, updateCardMeta, onWatchlistSave, refreshNewsHighlights } from '../shared/watchlist.js?v=28';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache.js?v=2';
 import { renderTrackRecord } from '../shared/track-record.js?v=15';
-import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=20';
+import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=21';
 import { getTzPref, getTzIana, onPrefsChange, refreshTickerLinks } from '../shared/prefs.js?v=10';
 import '../shared/settings-modal.js?v=13';
 

@@ -11,11 +11,25 @@
   // yet (untyped Express/Stripe/Supabase surface, much higher noise) — a
   // natural follow-up once Phase 0 proves out, not part of this pass.
   //
-  // Tra (the real backend, turneraroundauto-hub/Tra) has its own copy of
-  // gates-extended.js — per the two-repo mirror convention, this
-  // tsconfig.json is a candidate to mirror there too, adjusted for that
-  // repo's own file layout. Not done in this pass since this session's
-  // repo scope is trade-verdict only.
+  // Mirrored into Tra (Aug 16, 2026, Tra PR #35) — Tra has its own
+  // tsconfig.json/types.js, kept identical in the actual typedef bodies.
+  //
+  // Phase 1 ("shared contract types, hand-mirrored") is effectively the
+  // same artifact as the mirror above — one shapes file, kept identical
+  // across both repos — so it shipped together with the Tra mirror rather
+  // than as a separate pass.
+  //
+  // Phase 2 (real .ts files, transpile-only, no bundler) picked up Aug 16,
+  // 2026 — see tsconfig.build.json for the emit config. shared/types.js
+  // (JSDoc) was replaced outright by shared/types.d.ts (real interfaces);
+  // verified via a real tsc run with types.js removed that every existing
+  // `@typedef {import('./types.js').X}` reference across gates-extended.js/
+  // shared/*.js still resolves correctly against the .d.ts sibling with
+  // zero new errors — standard TS Node-style resolution, not a guess.
+  // shared/ticker-cache.ts is the first real .ts conversion (highest
+  // fan-out leaf module — no internal shared/ dependencies, imported by 6
+  // other files) — its compiled shared/ticker-cache.js is the actual
+  // deploy artifact, committed alongside the .ts source.
   //
   // KNOWN, EXPECTED baseline noise on a fresh run (documented by the
   // investigation, not fixed by this pass):
@@ -31,9 +45,9 @@
   //      known noise rather than casting every DOM access for this pass.
   // Neither category is a real bug — both were called out by name when
   // this plan was written. What Phase 0 actually adds is real @typedefs
-  // (shared/types.js) for the shapes that have shipped hidden bugs before
+  // (shared/types.d.ts) for the shapes that have shipped hidden bugs before
   // (GateResult / SectorContext / TickerData / the /analyze contract),
-  // applied to gates-extended.js and shared/ticker-cache.js/watchlist.js.
+  // applied to gates-extended.js and shared/ticker-cache.ts/watchlist.js.
   "compilerOptions": {
     "allowJs": true,
     "checkJs": true,
@@ -45,5 +59,5 @@
     "noImplicitAny": false,
     "strictNullChecks": false
   },
-  "include": ["shared/*.js", "gates-extended.js"]
+  "include": ["shared/*.js", "shared/*.ts", "shared/*.d.ts", "gates-extended.js"]
 }
