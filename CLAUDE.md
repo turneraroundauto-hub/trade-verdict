@@ -3202,6 +3202,44 @@ converted once the pattern is well-proven on smaller modules first).
 Once `track-record-sync.js` lands, every file in `shared/` will be real
 `.ts` except `gates-extended.js` itself.
 
+### `shared/track-record-sync.js` converted to `.ts` (Aug 16, 2026)
+
+Ninth Phase 2 conversion — the last file in `shared/` besides
+`gates-extended.js` itself. Its only importer (`pro/app.js`, since
+track-record sync is Pro-only — see Frontend architecture above) and its
+one dependency (`track-record.js`) were both already in place, so this
+converted with zero new coordination needed. Structurally near-identical
+to `watchlist-sync.ts` (same pull/retry/seed-push/debounced-push shape),
+new `TrackRecordSyncConfig` interface kept separate from
+`WatchlistSyncConfig` for the same reason as before — coincidentally
+identical shapes today, not a guarantee they stay coupled.
+
+**Verified via real behavioral comparison across all three code paths**
+(same technique as `watchlist-sync.ts`) — a Node harness ran the pre- and
+post-conversion module side by side against a fake `fetch`, confirming
+byte-identical results for a normal pull, the empty-GET-response
+seed-push fallback, and `schedulePushTrackRecord()`'s debounce. Then
+confirmed the two paths that matter most in production through real
+headless Chromium against the real Pro-tier app: a mocked `GET /track`
+correctly hydrates the log via `replaceLog()` on login (the actual
+`pullTrackRecordFromServer()` call site), and logging a new result plus
+`schedulePushTrackRecord()` correctly fires a debounced `POST /track`
+carrying both the pulled and newly-logged entries — zero page errors.
+
+**Cache-busting cascade:** `track-record-sync.js` `?v=14→15` in its 1
+importer (`pro/app.js` only) → `pro/index.html`'s own `<script
+src="./app.js?v=N">` bumped (51→52). `app.js`/`starter/app.js` and their
+`index.html`s correctly untouched — Free/Starter never sync track
+record. `preview/rolodex/` and `shark/index.html` confirmed untouched.
+
+**Phase 2 milestone: every file in `shared/` is now real `.ts` except
+`gates-extended.js`.** What's left of Phase 2 is exactly what the plan
+always said would be last: both repos' `gates-extended.js` — the
+largest, highest-stakes file, converted only once the pattern was
+well-proven on every smaller module first, which it now has been across
+nine conversions with zero behavioral regressions caught by any of the
+verification techniques used along the way.
+
 ## Verifying changes before you claim done
 
 There's no test suite. What's actually been useful:
