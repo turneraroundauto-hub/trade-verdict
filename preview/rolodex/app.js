@@ -806,16 +806,54 @@ function watchRoloScrollGroundTruth(){
 }
 roloIndex.addEventListener('scroll', watchRoloScrollGroundTruth, { passive:true });
 
+// Heartbeat + self-healing loop (Aug 16, 2026) -- a THIRD real device
+// video showed the exact same precise, permanent jump, and STILL zero
+// new diagnostic entries appeared for the entire clip, even though
+// marqueeDiagCheck's own logic (a plain 3px threshold compare, running
+// unconditionally every call) has no structural reason to miss a real
+// ~7 CSS px (~26 real device px) shift. That leaves one untested
+// possibility: this function's own rAF chain silently dying (an
+// uncaught exception anywhere in here stops `requestAnimationFrame`
+// from ever being called again, with nothing visible on a real phone to
+// say so) -- which would explain BOTH symptoms at once, since
+// marqueeDiagCheck only ever runs from inside this same function. The
+// continuing steady visual motion doesn't rule this out either: with
+// `-webkit-overflow-scrolling:touch` + `touch-action:pan-x` on
+// #roloIndex, native momentum/anchoring scrolling could plausibly keep
+// things moving even if this JS loop itself had already died.
+// roloMarqueeHeartbeat is a live, always-current timestamp (not a log
+// entry) proving on the next screenshot/video whether this function is
+// genuinely still executing at that moment. The try/catch makes the loop
+// self-healing regardless of root cause -- any exception gets surfaced
+// via pushDiagEvent instead of silently and permanently killing the
+// chain, and requestAnimationFrame is guaranteed to be re-scheduled from
+// a finally block either way.
+let roloMarqueeHeartbeat = 0;
+let roloMarqueeHeartbeatErrorLogged = false;
 const ROLO_MARQUEE_SPEED = 0.5;
 function stepRoloMarquee(){
-  let wrapDelta = 0;
-  if(!roloMarqueePaused && roloMarqueeDataReady && roloMarqueeOneSetW > 0){
-    roloMarqueePos += ROLO_MARQUEE_SPEED;
-    if(roloMarqueePos >= roloMarqueeOneSetW){ roloMarqueePos -= roloMarqueeOneSetW; wrapDelta = roloMarqueeOneSetW; }
-    roloIndex.scrollLeft = roloMarqueePos;
+  try{
+    roloMarqueeHeartbeat++;
+    if(roloMarqueeHeartbeat % 15 === 0){
+      const hb = document.getElementById('diagHeartbeat');
+      if(hb) hb.textContent = 'loop alive: ' + new Date().toISOString().slice(11, 23) + ' (tick ' + roloMarqueeHeartbeat + ')';
+    }
+    let wrapDelta = 0;
+    if(!roloMarqueePaused && roloMarqueeDataReady && roloMarqueeOneSetW > 0){
+      roloMarqueePos += ROLO_MARQUEE_SPEED;
+      if(roloMarqueePos >= roloMarqueeOneSetW){ roloMarqueePos -= roloMarqueeOneSetW; wrapDelta = roloMarqueeOneSetW; }
+      roloIndex.scrollLeft = roloMarqueePos;
+    }
+    marqueeDiagCheck(roloCountDivider, 'lastRoloLeft', 'ROLO', wrapDelta, roloIndex.scrollLeft);
+  }catch(e){
+    if(!roloMarqueeHeartbeatErrorLogged){
+      roloMarqueeHeartbeatErrorLogged = true;
+      pushDiagEvent(new Date().toISOString().slice(11, 23) + ' ROLO-LOOP-ERROR: ' + (e && e.message || e), true);
+      console.error('[rolo-marquee-loop]', e);
+    }
+  }finally{
+    requestAnimationFrame(stepRoloMarquee);
   }
-  marqueeDiagCheck(roloCountDivider, 'lastRoloLeft', 'ROLO', wrapDelta, roloIndex.scrollLeft);
-  requestAnimationFrame(stepRoloMarquee);
 }
 requestAnimationFrame(stepRoloMarquee);
 

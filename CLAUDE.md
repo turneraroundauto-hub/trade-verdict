@@ -2905,6 +2905,68 @@ whether this specific mechanism is (or isn't) what's firing.
 `preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
 `?v=18` per the cache-busting rule.
 
+## Frontend: Rolodex preview — third video, marquee-loop heartbeat + self-healing (Aug 16, 2026, `?v=19`)
+
+A third real screen recording (91fps, 2.39s) was analyzed the same
+way: full-resolution lossless frame-by-frame cross-correlation. Same
+result again -- a clean, precise **-26px single-frame shift**, this
+time at frame 13→14 (~0.14s into this particular clip; this recording
+plausibly started well after the marquee had already been running for a
+while, so this timing isn't directly comparable to the ~2.2s figure from
+the first two videos, but the magnitude is the same to the pixel).
+
+**The overlay showed literally zero new entries for the entire clip**,
+before and after the jump, despite the `?v=18` retention fix
+specifically targeting this. That fix addressed EVICTION, but this is
+evidence of a DETECTION gap, not a retention one -- nothing was ever
+logged in the first place, notable or otherwise, so there was nothing to
+evict. `marqueeDiagCheck`'s own logic (a plain 3px threshold compare,
+called unconditionally every tick) has no structural reason to miss a
+~26 real-device-px (~7 CSS px) shift -- unless the function it lives
+inside, `stepRoloMarquee`, silently stopped running at some point before
+the jump. An uncaught exception anywhere in that function would do
+exactly that (stop calling `requestAnimationFrame` again, with nothing
+visible on a real phone to say so) -- and the marquee's continuing
+smooth visual motion doesn't rule this out, since `#roloIndex` has
+`-webkit-overflow-scrolling:touch` + `touch-action:pan-x`, so native
+momentum/scroll-anchoring could plausibly keep things moving even if
+this specific JS loop had already died.
+
+**Fix: a live heartbeat plus a self-healing loop.** `#diagHeartbeat` (a
+small always-visible line, separate from the scrollable event log so it
+never gets overwritten by a re-render) shows a live "loop alive:
+HH:MM:SS.mmm (tick N)" reading, updated every 15 ticks from inside
+`stepRoloMarquee` itself -- directly provable on the next
+screenshot/video whether this function is genuinely still executing at
+the moment of a jump, removing the need to infer it indirectly.
+`stepRoloMarquee`'s body is now wrapped in `try/finally`:
+`requestAnimationFrame(stepRoloMarquee)` is guaranteed to fire again
+regardless of what happens inside, and any exception gets caught,
+logged as a notable `ROLO-LOOP-ERROR` diag event (so it's visible
+instead of silent), and the loop keeps running afterward rather than
+dying permanently.
+
+**Verified via injected fault, not just that it compiles.** Directly
+overrode `#roloIndex`'s `scrollLeft` setter to throw once (simulating an
+unexpected real-device failure inside the exact line that would trigger
+one) and confirmed: the error is caught and logged (`ROLO-LOOP-ERROR`,
+correctly flagged notable/red); the heartbeat keeps advancing
+uninterrupted through and after the injected failure; the loop provably
+never stops. Also confirmed the heartbeat advances normally under
+ordinary operation with zero errors.
+
+**Status: still no confirmed root-cause mechanism for the jump itself**,
+but this closes the one remaining structural gap in the diagnostic
+tooling -- if the loop really is dying on a real device, the next
+video/screenshot's heartbeat will show a stale timestamp frozen before
+the jump, which would finally explain why nothing has been caught
+despite three independent, precisely-matching occurrences. If the
+heartbeat is instead still ticking normally right through the next
+occurrence, that rules this theory out too and narrows things further.
+
+`preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
+`?v=19` per the cache-busting rule.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
