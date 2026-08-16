@@ -3232,13 +3232,85 @@ src="./app.js?v=N">` bumped (51→52). `app.js`/`starter/app.js` and their
 `index.html`s correctly untouched — Free/Starter never sync track
 record. `preview/rolodex/` and `shark/index.html` confirmed untouched.
 
-**Phase 2 milestone: every file in `shared/` is now real `.ts` except
-`gates-extended.js`.** What's left of Phase 2 is exactly what the plan
-always said would be last: both repos' `gates-extended.js` — the
-largest, highest-stakes file, converted only once the pattern was
-well-proven on every smaller module first, which it now has been across
-nine conversions with zero behavioral regressions caught by any of the
-verification techniques used along the way.
+### `gates-extended.js` (`trade-verdict`'s copy) converted to `.ts` (Aug 16, 2026)
+
+Tenth Phase 2 conversion — the file the whole plan named as "last,"
+picked up now that the pattern was proven across nine smaller modules
+with zero behavioral regressions. **Structurally different from every
+prior conversion in one important way**: this file is required via
+plain CommonJS `require("./gates-extended")` in `server.js`, not
+ES-module-loaded by a browser — no `?v=` cache-busting applies to it at
+all, and (per the two-repo rule) it exists in both this repo and `Tra`,
+the real backend. This PR covers only `trade-verdict`'s copy; the `Tra`
+mirror is a separate follow-up, same split as Phase 0's Tra mirror.
+
+**A real, non-obvious compatibility bug found and fixed before this
+could ship, not caught by `tsc` at all.** The first attempt imported
+`RegimeState` from `shared/types.d.ts` via a real `import type {...}`
+statement, matching every other Phase 2 file's pattern. That compiled
+clean under `tsc -p tsconfig.json` — but silently broke the file at
+*runtime*: any real `import`/`export` statement (type-only or not)
+makes `tsc` treat the whole file as an ES module, which — regardless of
+`isolatedModules` — emits a trailing `export {};` into the compiled
+output once every real import is type-erased. That single line is
+enough for Node's module-type auto-detection to load the file as ESM
+instead of CommonJS, which silently discards the real
+`module.exports = {...}` assignment — confirmed directly: `require()`
+against the broken build returned `{}`, zero exports, no thrown error
+of any kind to signal the problem. Caught by actually calling
+`require()` on the compiled output and checking `Object.keys()`, not by
+`tsc` or `node --check` (both passed clean on the broken version) —
+worth remembering for any future CommonJS `.ts` conversion in either
+repo: **`tsc`/`node --check` passing is not sufficient proof a
+CommonJS-required file still works; actually `require()` it and check
+what it exports.**
+
+**A JSDoc-based workaround was tried and rejected, not just skipped.**
+Reusing `RegimeState` via a JSDoc `@typedef {import(...)}`/`@type`
+comment (the exact mechanism this file's own JSDoc-only phase, and
+every plain-`.js` file under this repo's `checkJs` setup, already relies
+on) avoids the `export {}` problem — but a scratch repro confirmed
+TypeScript silently does **not** enforce JSDoc type annotations inside
+a real `.ts` file, only inside `.js` under `checkJs`. That would have
+shipped code that *looks* typed without being checked at all — worse
+than no typing, since it creates false confidence. **The actual fix:**
+a real, `tsc`-enforced local `RegimeValidationResult` interface,
+deliberately duplicated rather than imported from
+`shared/types.d.ts`'s `RegimeState` — a narrow, documented exception to
+every other Phase 2 file's "reuse the shared contract type" pattern,
+forced by this one file's CommonJS constraint rather than an oversight.
+If the two shapes ever need to diverge, that's a real thing to
+reconcile by hand, flagged in the code itself.
+
+**Verified far more thoroughly than any prior conversion, given this is
+the file that has shipped two real production bugs already (the Aug 13
+Gate 5 `evaluateProxyStatus` bug, and the Proxy Coherence Check bug one
+level up).** A real behavioral comparison ran all 13 exported functions
+against the pre- and post-conversion module side by side via direct
+`require()` calls (not a browser harness) — 33 individual cases
+covering every branch: all 8 branches of `evaluateGate1Sessions`
+(insufficient data, flat, all three uptrend bands, all three downtrend
+bands), all 3 cases of `proxyCoherenceCheck` (including the real
+crash-scale `-6.20%` TSM value from the Aug 13 incident), all 3 reachable
+states of `regimeValidation` (UNKNOWN/INTACT/a real decorrelated series
+producing DEGRADING), all 3 tiers of `resolveFixedProxyBreak`
+(primary-proxy adoption, fundamentals-confirmed, fundamentals-speculative),
+5 scenarios of `hasForceDownAuthority` (unknown gate, unscoped exemption,
+out-of-scope ticker, BROKEN-regime suspension, DEGRADING-regime
+mandatory-coherence-check), plus `contextTextMatches`/
+`buildupPatternCheck`/`corroborateSessionContext` and the exported
+constants — **every single case byte-identical** between old and new.
+Then, same discipline as Phase 0's own verification, reproduced the
+real Aug 13 Gate 5 bug shape directly against the new file's actual
+`proxyCoherenceCheck(tickerPct: number, proxyPct: number)` signature —
+`tsc` flagged `Argument of type 'string' is not assignable to parameter
+of type 'number'` immediately, confirming this would have caught that
+exact bug class on save.
+
+**`Tra`'s copy, still open — a real follow-up, not forgotten.** Once
+mirrored there (same non-behavioral, transpile-only conversion — no
+`Tra` PR needed on the actual deployed logic side, since nothing about
+runtime behavior changes), Phase 2 is fully complete in both repos.
 
 ## Verifying changes before you claim done
 
