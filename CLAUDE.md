@@ -3744,6 +3744,47 @@ exactly `"G1  14D"` with no trailing status word; both `.headline` and
 dim grey. Full prior Starter regression suite and the fixed-height
 overflow checks re-passed with zero new console errors.
 
+## Backend: LOW confidence didn't always ship a real wait_for (Aug 16, 2026)
+
+Prompted by a direct question, right after the confidence-driven "LOOK
+FOR" dot above shipped: is the LOW-confidence/`wait_for` overlap actually
+always true? Audited every place `/analyze` sets `confidence = "LOW"`
+(`Tra`'s `server.js`, 3 explicit sites) rather than assume the "heavily
+overlap" claim from that PR's own summary held everywhere:
+
+1. Gate 5 RED downgrading an UP verdict to FLAT — sets `wait_for` in the
+   same statement. Guaranteed.
+2. The non-exempt-DOWN congruency fallback (redCount < 2) — uses
+   `parsed.wait_for = parsed.wait_for || "default text"`. Guaranteed.
+3. **The Proxy Coherence Check's "possible decoupling" branch
+   (`coherence.forceDown === false`) — sets only `confidence = "LOW"`,
+   never touches `wait_for` at all.** Real gap.
+
+A fourth path has no guarantee either: when the model self-assigns `LOW`
+on its own (per the CONFIDENCE rubric, with no server override firing),
+the prompt never instructs it to pair that with a `wait_for`.
+
+**Fix (`Tra` PR #37, mirrored into `trade-verdict`'s `server.js`): one
+invariant, not four patches.** Rather than fix each site individually,
+added a single check after every confidence-setting branch has already
+run: `if (parsed.confidence === "LOW" && (!parsed.wait_for ||
+parsed.wait_for === "null")) parsed.wait_for = "Additional confirmation
+needed before directional entry.";` — closes the real gap and the
+model-only path in one place, and the `||`/falsy check means it never
+overwrites a real `wait_for` a branch or the model already provided
+(including the `"null"` literal string, which every tier's frontend
+already treats as empty).
+
+Verified by extracting the exact snippet and running it against 7
+synthetic cases: the real gap gets the default filled in; all three
+branches that already set a real `wait_for` are left untouched; a
+model-provided `"null"` string is caught the same as `undefined`;
+MEDIUM/HIGH confidence cases are never touched. **Not verified against a
+live deploy** — same standing sandbox limitation as every other backend
+change in this file. This closes the loop the confidence-driven "LOOK
+FOR" dot needed: LOW confidence now always ships with something to
+actually look for, not just sometimes.
+
 ## Verifying changes before you claim done
 
 There's no test suite. What's actually been useful:
