@@ -830,6 +830,33 @@ roloIndex.addEventListener('scroll', watchRoloScrollGroundTruth, { passive:true 
 // a finally block either way.
 let roloMarqueeHeartbeat = 0;
 let roloMarqueeHeartbeatErrorLogged = false;
+// A FOURTH real video (Aug 16, 2026) reproduced the same ~26-27px jump
+// yet again, and this time the heartbeat -- visible in-frame, ticking
+// 4905 -> 4935 across the exact moment of the jump -- proved the loop
+// was definitely alive and running normally right through it. That
+// rules out a dead loop for good, and points at a real, different gap:
+// marqueeDiagCheck only ever tracks ONE reference element
+// (roloCountDivider, specifically the FIRST pass's divider). If a
+// chip's rendered width changes somewhere else in the strip -- a LATER
+// pass's copy of a ticker, say, since renderPill() updates every
+// duplicate instance of a symbol independently rather than through one
+// shared node -- content before that point in DOM order wouldn't shift
+// at all, while the divider being tracked could easily sit on the wrong
+// side of that boundary and see nothing, even though real content
+// on-screen visibly jumped. roloIndex.scrollWidth is immune to this --
+// it reflects the strip's TOTAL content width regardless of WHERE in
+// the DOM a change happens, so a real per-chip width change shows up
+// here no matter which specific element caused it.
+let roloLastScrollWidth = null;
+function checkRoloScrollWidth(){
+  const w = roloIndex.scrollWidth;
+  if(roloLastScrollWidth != null && w !== roloLastScrollWidth){
+    const t = new Date().toISOString().slice(11, 23);
+    pushDiagEvent(`${t} SCROLLWIDTH changed ${roloLastScrollWidth}->${w} (Δ${w-roloLastScrollWidth})`, true);
+    console.warn('[rolo-scrollwidth]', { from:roloLastScrollWidth, to:w });
+  }
+  roloLastScrollWidth = w;
+}
 const ROLO_MARQUEE_SPEED = 0.5;
 function stepRoloMarquee(){
   try{
@@ -845,6 +872,7 @@ function stepRoloMarquee(){
       roloIndex.scrollLeft = roloMarqueePos;
     }
     marqueeDiagCheck(roloCountDivider, 'lastRoloLeft', 'ROLO', wrapDelta, roloIndex.scrollLeft);
+    checkRoloScrollWidth();
   }catch(e){
     if(!roloMarqueeHeartbeatErrorLogged){
       roloMarqueeHeartbeatErrorLogged = true;
@@ -870,6 +898,7 @@ async function renderRolodexFromWatchlist(){
   // there's nothing left to shift once it actually starts moving.
   roloMarqueePos = 0;
   roloMarqueeDataReady = false;
+  roloLastScrollWidth = null;
   watchlist.forEach((sym)=>{
     if(!tickerState.has(sym)) tickerState.set(sym, { td:null, result:null, analyzing:false, error:null });
     const card = document.createElement('div');

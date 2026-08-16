@@ -2967,6 +2967,87 @@ occurrence, that rules this theory out too and narrows things further.
 `preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
 `?v=19` per the cache-busting rule.
 
+## Frontend: Rolodex preview — fourth video rules out dead loop, scrollWidth diagnostic added (Aug 16, 2026, `?v=20`)
+
+A fourth real screen recording (91fps, 6.32s) reproduced the same
+anomaly a fourth independent time -- **-27px**, same precise magnitude
+as the prior three (-26, -26, -28, -27), same single-frame signature,
+confirmed via the same full-resolution lossless frame-by-frame method.
+
+**Direct, in-frame proof the loop was alive.** This video happened to
+have the `?v=19` heartbeat already visible on screen. Read it at the
+exact video frame the jump occurs (tick 4905) and again ~25 frames later
+(tick 4935) -- the heartbeat had genuinely advanced right through the
+moment of the jump. This is the first hard, direct evidence (not
+inference) that `stepRoloMarquee`'s loop was NOT dead at the moment of a
+real occurrence, ruling out the `?v=19` theory for good.
+
+**Three concrete hypotheses were checked against the actual code
+directly, not assumed either way, per a live suggestion:**
+- *Missing clones causing an empty gap before snapping back* -- doesn't
+  apply; the strip already renders multiple full duplicate passes (see
+  the marquee-wrap work earlier in this file), confirmed still true by
+  reading `appendChipPass()`/the guard loop in
+  `renderRolodexFromWatchlist()`.
+- *Wrap math using `offsetWidth`/`clientWidth` instead of `scrollWidth`,
+  introducing rounding error* -- already ruled out by the `?v=11` fix,
+  which specifically moved `sizeRoloMarquee()` to sub-pixel
+  `getBoundingClientRect()` for exactly this reason. Re-confirmed by
+  reading the current code -- still true.
+- *A CSS `transition` (or `scroll-behavior:smooth`) on the scroll
+  container animating the "snap back" instead of resetting instantly* --
+  checked directly: `.rolo-index`/`#roloIndex` has no `transition`
+  property of any kind, and `scroll-behavior:smooth` doesn't appear
+  anywhere in this file. Doesn't apply here (this is a real, common cause
+  of marquee "sliding backward" bugs in general, just not present in this
+  specific implementation).
+
+**So if the loop is alive and none of those three apply, why does
+`marqueeDiagCheck` still miss it every time?** Re-examined its actual
+tracking scope, and found a real, previously-unnoticed gap:
+`marqueeDiagCheck` only ever watches ONE reference element --
+`roloCountDivider`, specifically the FIRST duplicate pass's divider.
+`renderPill(sym)` updates every duplicate instance of a symbol's chip
+independently (`document.querySelectorAll('.rolo-chip[data-sym="..."]')`,
+not one shared/templated node) -- if a chip's rendered width changes in
+a LATER pass, only content sharing that pass (and everything after it)
+shifts; content before it, including the FIRST pass's divider being
+tracked, wouldn't move at all, or would move by a different amount
+depending on where in the DOM order the affected pass sits. A single
+fixed tracking point can miss a real, visible shift purely because of
+where it happens to sit relative to whatever actually changed.
+
+**Fix: track `#roloIndex.scrollWidth` itself, not just one element's
+position.** `checkRoloScrollWidth()` runs every tick alongside the
+existing check, comparing the strip's total content width frame to
+frame -- immune to the tracking-gap above, since a real per-chip width
+change shows up in the TOTAL regardless of which specific DOM node
+caused it or where it sits. Reset alongside `roloMarqueePos`/
+`roloMarqueeDataReady` in `renderRolodexFromWatchlist()` so a real,
+legitimate watchlist rebuild doesn't false-positive against its own
+large, expected content-width change.
+
+**Verified concretely, not just that it compiles:** confirmed zero false
+positives during ordinary idle operation; directly mutated ONE chip in a
+LATER duplicate pass only (not the first, matching the exact gap this
+fix targets) and confirmed it's caught and logged, where the prior
+divider-only check would have missed it; confirmed a real watchlist
+rebuild via the actual Import UI does not false-positive despite its own
+genuine, large scrollWidth change.
+
+**Status: still no confirmed root-cause mechanism**, but the dead-loop
+theory is now conclusively ruled out (not just untested), three
+plausible general causes have been checked against the actual code and
+ruled out specifically for this implementation, and the diagnostic now
+covers a real tracking gap the last three rounds couldn't see past. Next
+real occurrence: check for a `SCROLLWIDTH changed` entry -- if content
+width genuinely is changing somewhere in the strip, this will name the
+exact before/after numbers even if `marqueeDiagCheck`'s own single
+tracked point stays silent.
+
+`preview/rolodex/app.js` and `preview/rolodex/index.html` bumped to
+`?v=20` per the cache-busting rule.
+
 | Tier | Files | Status |
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt, on shared modules, current. Its top-level "redirect a paid session elsewhere" check now actually halts the rest of module init (`redirectingToPaidTier` flag, added Aug 3, 2026) — see the testing note below for why that mattered. |
