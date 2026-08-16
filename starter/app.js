@@ -4,7 +4,7 @@ import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cach
 import { renderTrackRecord } from '../shared/track-record.js?v=17';
 import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync.js?v=25';
 import { getTzPref, getTzIana, onPrefsChange, refreshTickerLinks } from '../shared/prefs.js?v=11';
-import '../shared/settings-modal.js?v=14';
+import '../shared/settings-modal.js?v=15';
 
 const API_URL='https://tra-zacg.onrender.com';
 const SUPABASE_URL='https://oinomcikdyisrbfeeirp.supabase.co';
