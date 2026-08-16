@@ -3584,6 +3584,124 @@ prior Starter regression suite (auth, Gate dock/undock, pill-tap
 auto-analyze, Settings, Session Context highlighting, Import, swipe-to-
 delete, Glossary) re-passed unchanged.
 
+## Frontend: mandatory rule — every ticker symbol is a hyperlink (Aug 16, 2026)
+
+Direct instruction: "ticker symbols in the gate should be hyperlinked,
+this should be annotated as a rule for all ticker symbols." The Gate's
+own index tickers (SPY/QQQ/BTC/SOXX/XBI/IWM/GLD/USO/TSM/MSFT, in both
+`#gateGrid`'s full-detail view and `#gateMarquee`'s docked marquee) were
+plain text — every other ticker symbol in the app (card ticker/news
+links, Pro's compact rows/heat-map/trigger labels) already routes through
+`tickerHref()`, so this was a real, isolated gap rather than a
+considered exception.
+
+**Rule, now permanent for any ticker symbol displayed anywhere in this
+app:** if it identifies a specific security, it links out via
+`tickerHref()` (or `newsHref()` where a news-specific link makes more
+sense, per the existing convention). This applies to passive/label
+tickers, not just the ones already inside a ticker card. Two carve-outs,
+both deliberate:
+- **BTC needs `tickerHref('BTC-USD')`, not `tickerHref('BTC')`** — the
+  app displays the bare label "BTC" but Yahoo/the other link sites all
+  need the real `BTC-USD` symbol to resolve correctly. This isn't a new
+  decision — Free/Pro's own static Gate markup already hardcodes exactly
+  this override for their BTC tile (`data-ticker="BTC-USD"`,
+  `shared/prefs.ts`'s own top comment even calls this out: "or 'BTC-USD'
+  for the header's crypto tile"). Starter's new `GATE_LINK_OVERRIDE`
+  map/`gateLinkSymbol()` helper generalizes that same pattern rather than
+  hardcoding BTC inline, so a future non-equity symbol needing the same
+  treatment has somewhere to go.
+- **A proxy label only gets linked when it resolves to exactly one real
+  symbol.** Gate 5's proxy can be a combined multi-symbol rule (e.g. TSM
+  + KOSPI); the display name in that case isn't a single linkable
+  ticker, and KOSPI itself isn't a US-tradable symbol `tickerHref()` can
+  route correctly in the first place (same class of problem the Aug 10
+  ARCC/Egypt mis-route incident already taught this app to take
+  seriously). `roloCardHTML`'s meta-row PROXY field only wraps the label
+  in an `<a>` when `td.proxyRule.proxy.symbols.length === 1`; otherwise
+  it stays plain text, matching this file's established "fail safe to
+  plain text rather than guess a wrong link" posture.
+
+**Live-updates when the link-site preference changes.** Ticker cards
+already re-render on every `onPrefsChange` fire (which calls
+`tickerHref()` fresh), so they needed no extra wiring. The Gate's grid/
+marquee links are built once per `/market` fetch (every 4 minutes), not
+on every pref change, so they'd otherwise go stale until the next fetch
+— fixed by giving both a `data-ticker` attribute and calling the shared
+`refreshTickerLinks()` (already used by Free/Pro's static markup for the
+same reason) scoped to `#gateGrid`/`#gateMarquee` inside the
+`onPrefsChange` callback, rather than fully rebuilding the grid/marquee
+(which would reset the marquee's scroll position and visibly jump).
+
+Verified via headless Chromium: every Gate grid/marquee link resolves to
+the correct `tickerHref()` URL, BTC correctly resolves to `BTC-USD`, a
+single-symbol proxy (TSM) renders as a real link, and the docked
+marquee's `.sym` links call `event.stopPropagation()` so tapping one
+doesn't also trigger the docked bar's own tap-to-jump-to-top handler.
+
+## Frontend: Export CSV moved to the profile-menu dropdown (Aug 16, 2026)
+
+Closes a note left open since the Rolodex prototype work (Aug 14, "the
+import is missing the input window... remove the export button and
+write a print to add it to the profile badge drop-down... not built
+here, since this prototype has no profile badge component at all yet")
+— Starter's real build has a real profile-menu dropdown now, so this
+picked that plan back up for real, per direct instruction.
+
+**Not a copy of Pro's CSV shape.** Pro's `exportWatchlistCSV()`
+(`pro/app.js`) exports `Ticker,List,Price,IV,Change%` — the `List`
+column exists because Pro splits its watchlist into a 15-card window vs.
+a compact overflow list, and `IV` because Pro has real IV entitlement
+(`tierConfig.iv`). Starter has neither: every ticker in its 7-ticker cap
+is already a full card (no card/list split to tag), and Starter has no
+`iv` flag — including an `IV` column that always read `N/A` would be
+misleading rather than just absent. Starter's export is a plain
+`Ticker,Price,Change%` of the full (7-ticker-max) watchlist — same
+`fetchTickerData()`-backed row-building, CSV-escaping, and
+`trade-tribunal-watchlist-<date>.csv` filename convention as Pro's, just
+without the two columns Starter can't populate honestly.
+
+Wired as `#exportCsvBtn` in the profile-menu dropdown (between SETTINGS
+and SIGN OUT), calling the same `exportWatchlistCSV(this)` pattern as
+Pro's button (disables + shows "EXPORTING…" while the per-ticker
+`fetchTickerData()` calls resolve, restores after). Verified via headless
+Chromium: clicking it from the open profile menu triggers a real file
+download with the correct header row and real per-ticker data.
+
+## Frontend: tapping a ticker pill smooth-scrolls to its card (Aug 16, 2026)
+
+Direct instruction: "when tapping a ticker pill from the marquee,
+smoothly jump screen to the ticker card and prompt to analyze." The
+auto-analyze-on-tap half of this already existed (`goRolo()`, Aug 15,
+`?v=6`) — what was missing is that `#roloIndex` (the pill strip) stays
+sticky-docked all the way through the Glossary/Track Record/disclaimer/
+footer (the Aug 15 "pill dock persisting past the Glossary" fix), so a
+pill tapped while scrolled that far down leaves the actual card
+(`.rolo-wrap`/`#roloStage`, plain document flow, not sticky) well above
+the current viewport with nothing bringing it back into view.
+
+**Implementation deliberately avoids hand-computed scroll offsets.**
+This file already has an extensive, hard-won history of scroll-position
+math going subtly wrong in this exact page (the Gate dock-threshold
+sagas, the marquee wrap-boundary arithmetic bug) — every one of those
+was eventually fixed by measuring the real rendered thing instead of
+assuming a derived value. `scrollToActiveCard()` uses the browser's own
+`scrollIntoView({behavior:'smooth', block:'start'})` on `.rolo-wrap`,
+with `scroll-margin-top` set fresh on every call from the two real
+sticky elements currently stacked above it (`GATE_DOCKED_H` + `#roloIndex`'s
+own live `getBoundingClientRect().height`) — no coordinate arithmetic of
+this app's own to get wrong, and it stays correct automatically if either
+sticky element's height ever changes. Called from `goRolo()`, which is
+only ever invoked from a pill's click handler — never fires on the
+initial render or on any other call path.
+
+Verified via headless Chromium: scrolled to the true bottom of the page
+(past the Glossary/Track Record/disclaimer/footer, confirming the exact
+scenario this was built for), tapped a pill, and confirmed the page
+smooth-scrolled up with the target card back in the viewport afterward
+— re-ran the full existing pill-tap/auto-analyze regression alongside it
+with no regressions.
+
 ## Verifying changes before you claim done
 
 There's no test suite. What's actually been useful:
