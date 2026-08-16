@@ -3785,6 +3785,131 @@ change in this file. This closes the loop the confidence-driven "LOOK
 FOR" dot needed: LOW confidence now always ships with something to
 actually look for, not just sometimes.
 
+## Backend: confidence redefined as price-confirmed corroboration, not "did a rule fire" (Aug 16, 2026)
+
+Direct follow-up, same conversation as the `wait_for` fix above. Prompted
+by a pointed question — why not extend the same guarantee to MEDIUM and
+HIGH? — that surfaced a much bigger issue than the `wait_for` gap: **every
+server-side override branch in `/analyze` capped `confidence` at a flat
+`MEDIUM` or `LOW` regardless of how corroborated its own trigger actually
+was.** Not one of the ~9 override branches could ever produce `HIGH` —
+`HIGH` only survived when the model self-assigned it *and* no override
+fired at all. Worked through with Mr. T directly (not guessed at) what
+`confidence` should actually mean: **the AI's own sense of certainty in
+its read, given all the inputs** — and specifically, whether the ticker's
+own observed price move *and* its sector/proxy's observed price move
+independently confirm the mechanical trigger driving the verdict. "If the
+chart is showing what the math says it should be doing, that's the
+indication of confidence" — his framing, confirmed as the actual design.
+
+**Why blanket pass-through of the model's own number doesn't work
+either.** When an override *flips* the verdict (e.g. the model says UP,
+then Pre-Gate finds a solvency red flag and forces DOWN), the model's
+original confidence was about its own UP call — not the DOWN that
+actually ships. Confidence has to be re-grounded in whatever verdict
+*actually ships*, including overridden ones — it can't just be "whatever
+the model said," and it can't just be "capped because a rule fired"
+either. Both are wrong for the same reason: neither actually measures
+whether the final call is corroborated.
+
+**The real definition, agreed on before writing any code:**
+- **HIGH** — the ticker's own price move AND its proxy/sector's price
+  move both independently agree with the direction being asserted. Two
+  real, independent signals confirming each other is the actual bar —
+  not "nothing objected."
+- **MEDIUM** — the trigger is real and clean on its own terms, but there's
+  no independent price data to confirm or deny it (missing, or a move too
+  small to be a real signal) — genuinely unconfirmed, not contradicted.
+- **LOW** — a signal that IS available moves opposite the asserted
+  direction — the math and the chart are actively disagreeing. This
+  should be the tier the app is trying to avoid landing in, not a routine
+  third of the distribution — if the underlying gates are sound and the
+  market's behaving the way the rules expect, LOW shouldn't come up
+  often. Its recurring is itself a signal worth noticing.
+
+**Implementation (`Tra` server.js, mirrored into `trade-verdict`'s
+`server.js`):** new `priceConfirmedConfidence(direction, tickerPct,
+proxyPct)` helper, reused across every override branch that asserts a
+direction, replacing the flat `"MEDIUM"` literal each one used to write.
+`tickerPct`/`proxyPct` were already computed once at the top of
+`/analyze` (Proposal 2/4's own tickerPct/proxyPct, sourced from
+`openingBarData`'s bar-1 move and `sectorContext`'s parsed change
+strings) — no new fetches needed. Moves inside ±1.0% count as
+negligible/unavailable, not agreement or disagreement — the same
+tolerance `gates-extended.ts`'s own `proxyCoherenceCheck()` already uses
+for its flat band (`COHERENCE_FLAT_BAND_PCT`), kept as its own local
+constant here rather than importing that one, since coupling a
+single-check-tuned value to a generic threshold for no real reason isn't
+worth it. This directly answers the "don't tie confidence to anything
+negligible" concern raised mid-discussion — a 0.1% intraday wobble can no
+longer register as either confirming or contradicting anything.
+
+**Per-branch application, not a blanket swap** — six sites now call the
+helper, three intentionally don't:
+- Pre-Gate hardTrigger, Gate 0 RED, Gate 1 forceDown, and the Gate 5
+  RED+Gate 2 RED double-negative — all now call
+  `priceConfirmedConfidence("DOWN", tickerPct, proxyPct)`. Gate 0
+  YELLOW+UP calls it with `"UP"` instead of just capping at MEDIUM — if
+  the ticker's own price is genuinely cutting through the sector
+  headwind, that's real evidence, not something to hedge against by
+  default.
+- **Gate 5's Proxy Coherence Check branch got more nuance than a plain
+  helper call, because `proxyCoherenceCheck()` already distinguishes two
+  meaningfully different `forceDown:true` cases that a generic sign check
+  would flatten together:** Case 1 (ticker actively moved *with* the
+  proxy) is genuine two-signal confirmation → `HIGH`. Case 2 (ticker is
+  flat, inside the coherence check's own flat band — hasn't caught up
+  yet, but hasn't contradicted the trigger either) → `MEDIUM`, not HIGH.
+  The prior code treated both cases identically (`coherence.forceDown ===
+  true` → flat `MEDIUM`); `coherence.case` was already being returned by
+  `gates-extended.ts`, just never read here.
+- Gate 5's plain-forceDown `else` branch (no coherence check possible —
+  either not Taiwan/Korea-gated, or `tickerPct`/`proxyPct` genuinely
+  missing) now calls the generic helper instead of a flat `MEDIUM` too —
+  a real, incidental improvement for dynamically-resolved primary proxies
+  (Patch 2), which skip the coherence check entirely today since it's
+  scoped to the fixed Taiwan/Korea case, but still get real credit now
+  when their own `tickerPct`/`proxyPct` happen to be available and agree.
+- **Left untouched, deliberately:** the Gate 5 RED-alone case that
+  downgrades an UP verdict to FLAT (catalyst fighting sector — a genuine
+  *gate-vs-gate* conflict, Gate 2 positive vs. Gate 5 negative, not a
+  price-confirmation question) and the non-exempt-DOWN congruency
+  fallback (insufficient RED-gate count — genuinely insufficient
+  evidence, also not a price question). Both stay `LOW` for reasons that
+  have nothing to do with `tickerPct`/`proxyPct` agreeing or not.
+
+**The LLM-facing prompt got the same philosophy, not just the
+server-enforced branches.** Added one clarifying line under the
+`CONFIDENCE:` rubric: `"Congruency confirmed" means the ticker's own
+price action and its sector/proxy's price action both point the same way
+as the verdict — not just that the pre-determined gate statuses happen to
+be green.` A light, additive clarification rather than a rewrite of the
+tuned rubric — the self-assigned (no-override) path already implicitly
+required multi-signal gate agreement; this makes explicit that "agreement"
+means the same price-confirmation test the server-enforced branches now
+use, not just gate-status color.
+
+**Verified by simulation** (same discipline as every other gate-logic
+change in this file — no way to test a live `/analyze` call from this
+sandbox): extracted `priceConfirmedConfidence()` and ran it against 14
+synthetic cases — both signals confirming (HIGH), both missing (MEDIUM),
+one confirming/one missing (MEDIUM), either signal contradicting (LOW),
+negligible/noise-level moves on either side correctly treated as
+non-signals (MEDIUM, not LOW or HIGH), the exact ±1.0% boundary (at the
+threshold = MEDIUM, just past it = HIGH/LOW), and the real Aug 13, 2026
+crash-scale TSM value (-6.2%) from the Gate 5 bug-fix history above
+(HIGH, both signals agree). Separately verified the Gate 5 coherence-check
+Case 1/Case 2/Case 3 split end-to-end against `proxyCoherenceCheck()`'s
+real logic (not reimplemented) — Case 1 → HIGH, Case 2 (flat/lagging
+ticker) → MEDIUM, Case 3 (decoupled) → LOW, using the same real Aug 13
+example plus a synthetic Case 2. **Not verified against a live deploy** —
+same standing sandbox limitation as every backend change in this file.
+To confirm live: watch for a HIGH-confidence card on a clean forceDown
+(e.g. a genuine Gate 0 RED session where the ticker itself is also down
+hard) — something that was structurally impossible before this change —
+and watch whether LOW confidence actually stays rare in practice, per the
+"this is the tier we're trying to avoid" framing above.
+
 ## Verifying changes before you claim done
 
 There's no test suite. What's actually been useful:
