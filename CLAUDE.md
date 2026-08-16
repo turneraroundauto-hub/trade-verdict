@@ -3702,6 +3702,48 @@ smooth-scrolled up with the target card back in the viewport afterward
 — re-ran the full existing pill-tap/auto-analyze regression alongside it
 with no regressions.
 
+## Frontend: gate-card text color, status-word removal, confidence-driven "LOOK FOR" dot (Aug 16, 2026)
+
+Three direct instructions, landed together, all scoped to a card's gate
+breakdown (not the Gate 0 market box, which is unaffected):
+
+1. **"the news links and gate language font should be white."** The
+   news headline (`.headline`/`.headline a`) and each gate's descriptive
+   note (`.gate-row .gn`) were on `var(--ink-dim)` — correct per the
+   mandatory grey-text convention above for genuinely secondary text, but
+   these two are substantive analysis content, not captions/labels, and
+   reads as under-emphasized next to it. Both switched to `var(--ink)`
+   (full-brightness white). `.headline .age` (the "9d ago" timestamp) and
+   `.gate-row .gl` (the "G1 14D" gate label) deliberately stay on
+   `var(--ink-dim)` — those are genuinely secondary annotations, not the
+   "language" being asked for here.
+2. **"remove the color words 'yellow, green, red' next to gates."** Each
+   gate row rendered its literal status word (`<span class="gs"
+   style="color:...">${gate.status}</span>`) next to the label — fully
+   redundant with the color-coded dot immediately to its left. Removed
+   the `.gs` span (and its now-dead CSS rule) entirely; the dot alone
+   still conveys GREEN/YELLOW/RED. `CONFIDENCE`'s `HIGH`/`MEDIUM`/`LOW`
+   text is a different word set, not a "color word," and was left alone.
+3. **"the dot color next to 'look for' should match the confidence level
+   color. if the confidence is low, the look for should be red."** The
+   Pre-Gate strip's dot (`pregateStripHTML()`) was colored off Gate 5's
+   own status (`sigColor(g5.status)`) — a leftover from before the strip
+   was generalized to show `result.wait_for` regardless of which gate
+   triggered it. Re-pointed at `result.confidence` instead, via a new
+   shared `confColor()` helper (`HIGH`→green, `MEDIUM`→amber, `LOW`/
+   fallback→red) — the exact same mapping the `CONFIDENCE` row already
+   used inline, now a single source of truth both call sites share
+   instead of two copies that could drift.
+
+Verified via headless Chromium: a LOW-confidence mocked result renders
+the "LOOK FOR" dot in `var(--red)` (confirmed via computed style, not
+just reading the code); zero `.gs` elements exist anywhere in the DOM
+after rendering a full gate breakdown; a gate row's label text is
+exactly `"G1  14D"` with no trailing status word; both `.headline` and
+`.gate-row .gn` compute to `rgb(233, 237, 243)` (`--ink`) rather than the
+dim grey. Full prior Starter regression suite and the fixed-height
+overflow checks re-passed with zero new console errors.
+
 ## Verifying changes before you claim done
 
 There's no test suite. What's actually been useful:

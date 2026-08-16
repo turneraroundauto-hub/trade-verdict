@@ -294,12 +294,18 @@ function badgesHTML(result){
   return html ? `<div class="card-badges">${html}</div>` : '';
 }
 
+// Shared HIGH/MEDIUM/LOW -> color mapping — single source of truth for
+// both the CONFIDENCE row and the "LOOK FOR" strip's dot, so the two
+// never drift into disagreeing about what a given confidence level means.
+function confColor(conf){
+  return conf === 'HIGH' ? 'var(--green)' : conf === 'MEDIUM' ? 'var(--amber)' : 'var(--red)';
+}
+
 function pregateStripHTML(result){
   if(!result || !result.gates) return '';
   const waitText = (result.wait_for && result.wait_for !== 'null') ? result.wait_for : '';
   if(!waitText) return '';
-  const g5 = result.gates.g5_korea || {};
-  return `<div class="pregate-strip"><div class="pregate-dot" style="background:${sigColor(g5.status)}"></div>`
+  return `<div class="pregate-strip"><div class="pregate-dot" style="background:${confColor(result.confidence)}"></div>`
     + `<div class="pregate-note"><span class="wait-lbl">LOOK FOR: </span>${waitText}</div>`
     + '</div>';
 }
@@ -322,11 +328,10 @@ function gateListHTML(result){
       return '<div class="gate-clear"><span class="gate-dot" style="background:var(--green)"></span><span>PRE-GATE clear</span></div>';
     }
     return `<div class="gate-row"><span class="gate-dot" style="background:${sigColor(gate.status)}"></span>`
-      + `<div><span class="gl">${label}</span><span class="gs" style="color:${sigColor(gate.status)}">${gate.status||''}</span>`
+      + `<div><span class="gl">${label}</span>`
       + (gate.note ? `<div class="gn">${gate.note}</div>` : '') + '</div></div>';
   }).join('');
-  const confColor = result.confidence === 'HIGH' ? 'var(--green)' : result.confidence === 'MEDIUM' ? 'var(--amber)' : 'var(--red)';
-  const conf = `<div class="conf-row"><span class="conf-lbl">CONFIDENCE</span><span class="conf-val" style="color:${confColor}">${result.confidence||''}</span></div>`;
+  const conf = `<div class="conf-row"><span class="conf-lbl">CONFIDENCE</span><span class="conf-val" style="color:${confColor(result.confidence)}">${result.confidence||''}</span></div>`;
   return '<div class="gate-list">' + rows + logSectionHTML() + conf + '</div>';
 }
 
