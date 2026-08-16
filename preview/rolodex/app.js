@@ -338,11 +338,27 @@ const DIAG_NOTABLE_PX = 30;
 // gets capped.
 const diagNotableEvents = [];
 const diagRoutineEvents = [];
+// Real bug found and confirmed (Aug 16, 2026): reassigning innerHTML
+// does NOT reset scrollTop, so once the panel has enough content to
+// scroll (any real multi-minute session) and gets scrolled away from
+// the top -- the panel is deliberately touch-scrollable, so any real
+// touch on it could do this -- a brand new event still renders but sits
+// scrolled OUT OF the visible viewport, invisible on screen even though
+// it's genuinely in the DOM. Directly reproduced: padded the panel with
+// realistic content, scrolled it away from the top, fired a real
+// notable event, and confirmed via getBoundingClientRect() that the new
+// entry's rect sat entirely above the panel's own visible rect. This is
+// a real, plausible explanation for every "the overlay caught nothing"
+// report across every round of this investigation so far -- the events
+// may well have been firing the whole time, just scrolled out of view.
+// The panel's whole purpose is showing the latest event, so forcing it
+// back to the top on every update is the correct fix, not a preference.
 function renderDiagOverlay(){
   const el = document.getElementById('marqueeDiag');
   if(!el) return;
   const rows = diagNotableEvents.concat(diagRoutineEvents);
   el.innerHTML = '<div class="diag-title">jump diag (scroll for history)</div>' + rows.map((e)=> `<div>${e}</div>`).join('');
+  el.scrollTop = 0;
 }
 function pushDiagEvent(line, notable){
   if(notable){
