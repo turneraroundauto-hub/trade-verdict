@@ -140,19 +140,30 @@ function buildGateMarquee(){
   requestAnimationFrame(sizeGateMarquee);
 }
 
-// Same fix as the pill strip's sizeRoloMarquee(): scrollWidth rounds to
-// the nearest integer per spec, so scrollWidth/2 can be off by up to
-// ~0.5px from where the content actually repeats even though the two
-// passes are truly identical. Measures the real boundary (the last item
-// of the first pass) via getBoundingClientRect() instead, which keeps
-// full sub-pixel precision.
+// Real bug found via external code review (Aug 16, 2026), confirmed by
+// direct measurement before shipping: the previous "boundary - container
+// + scrollLeft" formula silently assumed the container's own left edge
+// coincided with "one period before the boundary," which is only true if
+// there's no padding and the trailing flex `gap` after the boundary
+// happens to equal any padding difference. Neither held here --
+// .gate-marquee has a 16px gap and no padding, so the old formula came
+// out exactly 16px SHORT of the true period (measured: computed 500.2px
+// vs a true 516.2px, a constant -16px, not noise). This is a genuine,
+// distinct, recurring-every-wrap bug -- separate from the one-time
+// ~26-28px jump this investigation has been chasing elsewhere, which
+// happens too early in a page's life to be a wrap at all.
+//
+// Fix: measure the distance between the first item of pass 1 and the
+// first item of pass 2 directly. Since both are read at the same instant
+// with the same scrollLeft applied to both, that offset cancels out of
+// the difference entirely -- no need to reason about padding, gaps, or
+// scrollLeft at all, and no container-edge assumption to get wrong.
 function sizeGateMarquee(){
   const items = gateMarquee.querySelectorAll('.gm-item');
   if(items.length < 2){ gateMarqueeOneSetW = gateMarquee.scrollWidth / 2; return; }
-  const lastOfFirstPass = items[items.length / 2 - 1];
-  const containerLeft = gateMarquee.getBoundingClientRect().left;
-  const boundaryRight = lastOfFirstPass.getBoundingClientRect().right;
-  gateMarqueeOneSetW = (boundaryRight - containerLeft) + gateMarquee.scrollLeft;
+  const firstPassStart = items[0].getBoundingClientRect().left;
+  const secondPassStart = items[items.length / 2].getBoundingClientRect().left;
+  gateMarqueeOneSetW = secondPassStart - firstPassStart;
 }
 window.addEventListener('resize', sizeGateMarquee);
 
@@ -732,11 +743,24 @@ let roloCountDivider = null;
 // constant mismatch between where the code wrapped and where the
 // content actually repeats, on top of scrollLeft's own integer rounding
 // (see stepRoloMarquee below).
+// Real bug found via external code review (Aug 16, 2026), confirmed by
+// direct measurement before shipping: the same class of error as the
+// Gate marquee's fix just above, but in the opposite direction here.
+// #roloIndex has a 14px left padding and NO analogous gap-compensation
+// once the divider (not a plain item) is the measured boundary --
+// measured: the old formula computed 356.19px against a true period of
+// 348.19px, a constant +8px = padding(14) - gap(6), not noise. Same fix:
+// measure pass1's first chip against pass2's first chip directly, so
+// scrollLeft/padding/gaps all cancel out of the difference instead of
+// needing to be reasoned about individually. itemsPerPass is the
+// watchlist length plus the one trailing divider per pass, matching
+// appendChipPass()'s own construction order below.
 function sizeRoloMarquee(){
-  if(roloCountDivider){
-    const containerLeft = roloIndex.getBoundingClientRect().left;
-    const dividerRight = roloCountDivider.getBoundingClientRect().right;
-    roloMarqueeOneSetW = (dividerRight - containerLeft) + roloIndex.scrollLeft;
+  const itemsPerPass = watchlist.length + 1;
+  if(roloCountDivider && roloIndex.children.length >= itemsPerPass * 2){
+    const firstPassStart = roloIndex.children[0].getBoundingClientRect().left;
+    const secondPassStart = roloIndex.children[itemsPerPass].getBoundingClientRect().left;
+    roloMarqueeOneSetW = secondPassStart - firstPassStart;
   } else {
     roloMarqueeOneSetW = roloIndex.scrollWidth / 2;
   }
