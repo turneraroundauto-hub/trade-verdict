@@ -3151,10 +3151,56 @@ correctly triggers the 250ms-debounced highlight (via
 `highlightContextMatches()`), producing real `<mark class="ctx-match">`
 spans in the live-rendered news line — zero page errors.
 
-**Next in Phase 2, not done in this pass:** `shared/settings-modal.js`
-(2 importers), `shared/track-record-sync.js` (1) — then both repos'
-`gates-extended.js` last (largest, highest-stakes file, best converted
-once the pattern is well-proven on smaller modules first).
+### `shared/settings-modal.js` converted to `.ts` (Aug 16, 2026)
+
+Eighth Phase 2 conversion, the more DOM-heavy of the two files tied at 2
+importers (the Settings modal — timezone/link-site/custom-template UI).
+Unlike `watchlist.ts`'s deliberate choice to leave its gesture code
+untyped, **this file's real, pre-existing `checkJs` errors — all 11 of
+them (9× `.value` on a bare-`HTMLElement`-typed `getElementById` result,
+2× the `window.openSettingsModal`/`closeSettingsModal` bridges) — got
+actually fixed**, not left as accepted noise: `as HTMLSelectElement`/
+`as HTMLInputElement`/`as HTMLElement` casts at every `getElementById`
+call (matching each element's real tag — `<select id="settings-tz">`,
+`<input id="settings-custom-ex-url">`, etc. — confirmed against the
+literal markup this same function injects via `innerHTML`, not guessed),
+and a `declare global { interface Window {...} }` augmentation for both
+bridges, same pattern as `watchlist.ts`'s `addTickers` and
+`track-record.ts`'s `logResult`/`clearLog`. The difference from
+`watchlist.ts`'s gesture code isn't inconsistency — it's that this
+file's DOM structure is fixed and known (a template string this same
+module owns and injects once), not a dynamic pointer-event target chain
+with no fixed shape to cast against.
+
+**Verified with the most direct comparison yet, given how DOM-heavy this
+file is**: rather than a Node harness stubbing `document`, ran the
+pre- and post-conversion module **each in its own real page** against
+the real compiled `shared/prefs.js` (not a stub), driven by an identical
+Playwright interaction script — open the modal, switch timezone, switch
+link-site to Custom (reveals the custom-template fields), paste a real
+example URL to exercise `detectTickerInUrl`/`buildTemplateFromExample`
+end-to-end, close, reopen, and confirm every field correctly rehydrates
+from saved prefs. Every observed value (dropdown option lists, selected
+values, status text/color, `display` states, zero page errors) was
+**byte-identical** between the two runs. Then re-ran the two most
+load-bearing interactions (open modal, switch timezone, close) through
+real headless Chromium against the actual repo's Pro-tier page —
+confirmed `window.openSettingsModal`/`closeSettingsModal` work, and the
+timezone switch round-trips through the real compiled `prefs.js`.
+
+**Cache-busting cascade:** `settings-modal.js` `?v=14→15` in its 2
+importers (`starter/app.js`, `pro/app.js` — Free has no Settings UI and
+never imports it, so `index.html`'s own `<script>` tag correctly stays
+untouched) → each importer's own `<script src="./app.js?v=N">` bumped
+(`starter/index.html`/`pro/index.html` 50→51). `preview/rolodex/` and
+`shark/index.html` confirmed untouched.
+
+**Next in Phase 2, not done in this pass:** `shared/track-record-sync.js`
+(1 importer, depends on the already-converted `track-record.js`) — then
+both repos' `gates-extended.js` last (largest, highest-stakes file, best
+converted once the pattern is well-proven on smaller modules first).
+Once `track-record-sync.js` lands, every file in `shared/` will be real
+`.ts` except `gates-extended.js` itself.
 
 ## Verifying changes before you claim done
 
