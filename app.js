@@ -781,6 +781,7 @@ function positionRoloStack() {
 function scrollToActiveCard() {
   const wrap = els.roloStage.closest(".rolo-wrap");
   if (!wrap) return;
+  if (cb.beforeScrollToCard) cb.beforeScrollToCard();
   if (!els.gateCard.classList.contains("docked")) {
     els.gateCard.classList.add("docked");
     els.gateCard.setAttribute("aria-expanded", "false");
@@ -1198,6 +1199,38 @@ function wireAccordionHead(head) {
 document.querySelectorAll(".card[data-card] > .card-head").forEach(wireAccordionHead);
 var roloStage = document.getElementById("roloStage");
 var roloIndex = document.getElementById("roloIndex");
+var appHeader = document.getElementById("appHeader");
+var scrollerEl = document.getElementById("scroller");
+function setHeaderHidden(hidden, instant) {
+  if (appHeader.classList.contains("header-hidden") === hidden && !instant) return;
+  appHeader.classList.toggle("header-hidden", hidden);
+  const target = (hidden ? 0 : appHeader.getBoundingClientRect().height) + "px";
+  if (instant) {
+    const prevTransition = scrollerEl.style.transition;
+    scrollerEl.style.transition = "none";
+    scrollerEl.style.paddingTop = target;
+    void scrollerEl.offsetHeight;
+    scrollerEl.style.transition = prevTransition;
+  } else {
+    scrollerEl.style.paddingTop = target;
+  }
+}
+function sizeHeaderSpacer() {
+  if (!appHeader.classList.contains("header-hidden")) {
+    scrollerEl.style.paddingTop = appHeader.getBoundingClientRect().height + "px";
+  }
+}
+var headerLastScrollY = 0;
+function wireHeaderScroll() {
+  scrollerEl.addEventListener("scroll", () => {
+    const y = scrollerEl.scrollTop;
+    const delta = y - headerLastScrollY;
+    if (y < 10) setHeaderHidden(false);
+    else if (delta > 4) setHeaderHidden(true);
+    else if (delta < -4) setHeaderHidden(false);
+    headerLastScrollY = y;
+  }, { passive: true });
+}
 var tickerState = /* @__PURE__ */ new Map();
 var TYPE_COLOR = { CANARY: "var(--amber)", SENTIMENT: "var(--blue)", FLOW: "var(--green)" };
 var SIZING_LABEL = { FULL: "Full", HALF: "Half", QUARTER: "\xBC size" };
@@ -1643,6 +1676,9 @@ function initApp() {
   }, 4 * 60 * 1e3);
   enforceMarketState();
   setInterval(enforceMarketState, 60 * 1e3);
+  sizeHeaderSpacer();
+  wireHeaderScroll();
+  window.addEventListener("resize", sizeHeaderSpacer);
 }
 async function boot() {
   if (redirectingToPaidTier) return;
@@ -1667,7 +1703,8 @@ async function boot() {
       const state = tickerState.get(sym);
       if (state && !state.result && !state.analyzing) analyzeOne(sym);
     },
-    onDeleteConfirmed: deleteActiveTicker
+    onDeleteConfirmed: deleteActiveTicker,
+    beforeScrollToCard: () => setHeaderHidden(true, true)
   });
   if (sbSession && sbSession.token) {
     initWatchlistSync({ API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });

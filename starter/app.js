@@ -1020,6 +1020,7 @@ function positionRoloStack() {
 function scrollToActiveCard() {
   const wrap = els.roloStage.closest(".rolo-wrap");
   if (!wrap) return;
+  if (cb.beforeScrollToCard) cb.beforeScrollToCard();
   if (!els.gateCard.classList.contains("docked")) {
     els.gateCard.classList.add("docked");
     els.gateCard.setAttribute("aria-expanded", "false");
