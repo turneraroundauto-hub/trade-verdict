@@ -61,11 +61,36 @@
 
   .safe-top{ height:env(safe-area-inset-top,32px); background:var(--bg-raise); flex:none; }
 
-  /* ── HEADER — same Rolodex structure/typography as Starter's, plain
-     grey FREE tier chip and a single sign-in/out chip (no profile menu —
-     Free has no Settings/CSV/log-results, so there's nothing to put in
-     one). No live clock in the header (Starter's own Aug 16 fix moved
-     that into the Gate's #marketTs line after it crowded this same
+  /* ── HEADER — position:fixed, slides away on scroll-down via transform
+     only (never a layout-affecting property mid-scroll -- the exact
+     lesson this file's own Aug 13, 2026 collapsing-card saga already
+     learned the hard way: a sticky/fixed element's own box changing
+     shape reactively during an in-flight scroll gesture is what's
+     fragile, transform/opacity is the safe way to animate one). Removed
+     from #app-shell's flex flow entirely once fixed, so #scroller
+     naturally expands to the full 100dvh and actually reclaims that
+     space when the header hides -- not just a visual cover-up that still
+     reserves the slot. #scroller's own padding-top (set by
+     sizeHeaderSpacer() in app.ts, measured from the real rendered
+     height, not a guessed pixel value) keeps content clear of the header
+     when it's shown; the Gate's own sticky "top:0" naturally sticks right
+     at that padding edge, i.e. right below the header, with no changes
+     needed to the Gate's own positioning math. Direct request, Aug 16,
+     2026: "give more screen real estate" on scroll down. */
+  .app-header{
+    position:fixed; top:0; left:0; right:0; z-index:250;
+    max-width:480px; margin:0 auto;
+    transition:transform .25s ease;
+    will-change:transform;
+  }
+  .app-header.header-hidden{ transform:translateY(-100%); }
+  @media (prefers-reduced-motion: reduce){ .app-header{ transition:none; } }
+
+  /* ── HEADER content — same Rolodex structure/typography as Starter's,
+     plain grey FREE tier chip and a single sign-in/out chip (no profile
+     menu — Free has no Settings/CSV/log-results, so there's nothing to
+     put in one). No live clock in the header (Starter's own Aug 16 fix
+     moved that into the Gate's #marketTs line after it crowded this same
      brand-meta row on a real device) — this build starts from that
      already-fixed state instead of reintroducing the regression. ────── */
   .app-topbar{
@@ -90,7 +115,12 @@
   .auth-chip{ font-size:9px; font-weight:700; color:var(--blue); background:var(--blue-dim); border:1px solid rgba(74,168,255,.4); border-radius:4px; padding:4px 8px; white-space:nowrap; text-decoration:none; font-family:var(--mono); display:inline-flex; align-items:center; gap:4px; }
   .auth-chip.signed-in{ color:var(--ink-dim); background:none; border-color:var(--border); }
 
-  .app-scroll{ flex:1; overflow-y:auto; overflow-x:hidden; }
+  /* padding-top is set/animated in lockstep with .app-header's own
+     hide/show transform (app.ts's setHeaderHidden()) -- same .25s easing
+     so the header sliding away and the content expanding into its
+     vacated space read as one motion, not two. */
+  .app-scroll{ flex:1; overflow-y:auto; overflow-x:hidden; transition:padding-top .25s ease; }
+  @media (prefers-reduced-motion: reduce){ .app-scroll{ transition:none; } }
 
   /* ── GATE: fixed-height sticky bar; full detail is an absolutely
      positioned overlay, opacity-crossfaded on dock state; a plain spacer
@@ -339,22 +369,23 @@
 </div>
 
 <div class="app-shell">
-  <div class="safe-top"></div>
-
-  <div class="app-topbar">
-    <div class="header-brand">
-      <img src="./shared/assets/logo-mark.png?v=2" alt="" class="header-logo">
-      <div class="header-title-wrap">
-        <div class="brand"><span class="t1">TRADE</span> <span class="t2">TRIBUNAL</span></div>
-        <div class="brand-meta">
-          <span id="ticker-count">CRF · 3 TICKERS</span>
-          <span class="tier-chip">FREE</span>
+  <div class="app-header" id="appHeader">
+    <div class="safe-top"></div>
+    <div class="app-topbar">
+      <div class="header-brand">
+        <img src="./shared/assets/logo-mark.png?v=2" alt="" class="header-logo">
+        <div class="header-title-wrap">
+          <div class="brand"><span class="t1">TRADE</span> <span class="t2">TRIBUNAL</span></div>
+          <div class="brand-meta">
+            <span id="ticker-count">CRF · 3 TICKERS</span>
+            <span class="tier-chip">FREE</span>
+          </div>
         </div>
       </div>
-    </div>
-    <div class="topbar-actions">
-      <a id="credits-btn" class="credits-chip" href="https://buy.stripe.com/3cI3cwacxarJ8txb3z3VC00" target="_blank">+ CREDITS</a>
-      <a id="auth-action-btn" class="auth-chip" href="https://tradetribunal.app/starter/">&#128274; SIGN UP / SIGN IN</a>
+      <div class="topbar-actions">
+        <a id="credits-btn" class="credits-chip" href="https://buy.stripe.com/3cI3cwacxarJ8txb3z3VC00" target="_blank">+ CREDITS</a>
+        <a id="auth-action-btn" class="auth-chip" href="https://tradetribunal.app/starter/">&#128274; SIGN UP / SIGN IN</a>
+      </div>
     </div>
   </div>
 
@@ -479,7 +510,7 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=51"></script>
+<script type="module" src="./app.js?v=52"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));

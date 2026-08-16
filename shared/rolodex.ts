@@ -42,6 +42,18 @@ export interface RolodexCallbacks {
   // (shared/watchlist.ts's real one, with persistence/sync/undo toast).
   onDeleteConfirmed: (sym: string) => void;
   getWatchlist: () => string[];
+  // Optional. Called synchronously at the very start of
+  // scrollToActiveCard(), before any scroll-target measurement -- lets a
+  // tier settle any of ITS OWN fixed/sticky chrome above #scroller (e.g.
+  // Free's position:fixed hide-on-scroll header, Aug 16, 2026) into its
+  // final expected state first, the same reason this function already
+  // force-settles the Gate's own dock state before computing the target:
+  // scrollIntoView()'s destination is computed once, synchronously, and
+  // anything that changes #scroller's layout afterward -- even something
+  // this module has never heard of -- shifts the page out from under the
+  // in-flight scroll animation the exact same way the Gate/gateSpacer
+  // race did.
+  beforeScrollToCard?: () => void;
 }
 
 const GATE_MARQUEE_SPEED = 0.4;
@@ -158,6 +170,7 @@ export function positionRoloStack(): void {
 function scrollToActiveCard(): void {
   const wrap = els.roloStage.closest<HTMLElement>('.rolo-wrap');
   if (!wrap) return;
+  if (cb.beforeScrollToCard) cb.beforeScrollToCard();
   // Force the Gate into its docked layout BEFORE computing the scroll
   // target, not after. scrollIntoView() computes its destination once,
   // synchronously, against the CURRENT document layout -- but a real
