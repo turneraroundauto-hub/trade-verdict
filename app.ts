@@ -403,6 +403,20 @@ function deleteActiveTicker(sym: string): void {
   removeTicker(sym); // shared/watchlist.ts: persists, syncs, shows its own undo toast
 }
 
+// A permanent, non-ticker "Starter?" upsell pill that repeats alongside
+// the real ticker pills in the marquee -- never part of `watchlist`, never
+// routed through goRolo()/analyzeOne(), doesn't count toward the 3-ticker
+// cap or the "— N —" divider count (that count is still watchlist.length,
+// computed independently). Just a plain link to the Starter upgrade page.
+function buildUpsellChip(): HTMLElement {
+  const a = document.createElement('a');
+  a.className = 'rolo-chip-upsell';
+  a.href = TIER.stripeLink;
+  a.target = '_blank';
+  a.textContent = 'Starter?';
+  return a;
+}
+
 async function renderRolodexFromWatchlist(): Promise<void> {
   document.getElementById('ticker-count')!.textContent = 'CRF · ' + watchlist.length + ' TICKERS';
   roloStage.innerHTML = '';
@@ -418,7 +432,7 @@ async function renderRolodexFromWatchlist(): Promise<void> {
     const chip = document.createElement('button');
     chip.className = 'rolo-chip'; chip.dataset.sym = sym; chip.dataset.idx = String(i);
     return chip;
-  }, `— ${watchlist.length} —`);
+  }, `— ${watchlist.length} —`, buildUpsellChip);
   watchlist.forEach((sym) => renderPill(sym));
 
   rolodex.clampRoloCurrent();

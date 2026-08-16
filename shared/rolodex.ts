@@ -359,15 +359,26 @@ function stepRoloMarquee(): void {
 // loop, the click->goRolo wiring, and the native-focus-scroll suppression
 // on each chip, all of which are pure mechanics independent of what a
 // chip actually looks like.
+//
+// buildExtraChip is optional and, when supplied, appends ONE additional
+// non-ticker element into every repeated pass (after the watchlist's real
+// chips, before the divider) -- e.g. Free's "Starter?" upsell pill (Aug
+// 16, 2026). It's deliberately NOT routed through goRolo/the active-card
+// index at all (the caller wires its own href/click behavior on the
+// element it returns) and doesn't affect the watchlist or its tickers in
+// any way -- purely a repeating, marquee-visible promotional pill. Still
+// mechanics-owned (repeating it correctly across passes, keeping the
+// wrap-boundary math correct) even though its content is tier-specific.
 export function rebuildRoloIndex(
   watchlist: string[],
   buildChip: (sym: string, idx: number) => HTMLButtonElement,
   dividerText: string,
+  buildExtraChip?: () => HTMLElement,
 ): void {
   els.roloIndex.innerHTML = '';
   roloMarqueePos = 0;
   roloMarqueeDataReady = false;
-  roloItemsPerPass = watchlist.length + 1;
+  roloItemsPerPass = watchlist.length + (buildExtraChip ? 1 : 0) + 1;
 
   function appendChipPass(): HTMLElement {
     watchlist.forEach((sym, i) => {
@@ -376,6 +387,11 @@ export function rebuildRoloIndex(
       chip.addEventListener('pointerdown', (e) => e.preventDefault());
       els.roloIndex.appendChild(chip);
     });
+    if (buildExtraChip) {
+      const extra = buildExtraChip();
+      extra.addEventListener('pointerdown', (e) => e.preventDefault());
+      els.roloIndex.appendChild(extra);
+    }
     const divider = document.createElement('span');
     divider.className = 'rolo-divider';
     divider.textContent = dividerText;
