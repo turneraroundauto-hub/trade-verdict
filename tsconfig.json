@@ -60,5 +60,5 @@
     "noImplicitAny": false,
     "strictNullChecks": false
   },
-  "include": ["shared/*.js", "shared/*.ts", "shared/*.d.ts", "gates-extended.ts"]
+  "include": ["shared/*.js", "shared/*.ts", "shared/*.d.ts", "gates-extended.ts", "analyze-helpers.ts"]
 }

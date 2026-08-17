@@ -2536,7 +2536,7 @@ that's a separate, deliberate cleanup decision, not implied by this one.
 | Free | `index.html` + `app.js` | Rebuilt onto the Rolodex UI Aug 16, 2026 (see "Frontend: Rolodex UI shipped to Free" below) — second real (non-preview) tier on the Rolodex UI, after Starter. **`app.js` is now a bundled build artifact, not hand-written** — the real source is `app.ts` (repo root), compiled via `node esbuild.config.mjs`; edit the `.ts`, never the `.js` directly. Consumes `shared/rolodex.ts` for Gate dock/marquee/stacked-card/swipe mechanics, same as Starter. Its top-level "redirect a paid session elsewhere" check still halts the rest of module init (`redirectingToPaidTier` flag, unchanged from before this rebuild) — see the testing note below for why that mattered. |
 | Starter | `starter/index.html` + `starter/app.js` | Rebuilt onto the Rolodex UI Aug 16, 2026 (see "Frontend: Rolodex UI shipped to Starter" below) — sticky-docking Gate, marquee ticker-pill strip, single-active-card stage with tap-pill-then-swipe-to-delete, real auth/credits/Settings/Session-Context-highlighting/server-sync unchanged. First real (non-preview) tier on the Rolodex UI; Pro/Shark still on their prior designs. **`starter/app.js` is now a bundled build artifact, not hand-written** (Phase 3 kickoff, same day) — the real source is `starter/app.ts`, compiled via `node esbuild.config.mjs`; edit the `.ts`, never the `.js` directly. Its Rolodex-mechanics half now lives in `shared/rolodex.ts`, shared with (and now also consumed by) Free's own Rolodex build rather than re-copied. |
 | Pro | `pro/index.html` + `pro/app.js` | Rebuilt onto the Rolodex UI Aug 16, 2026 (see "Frontend: Rolodex UI shipped to Pro" below) — third real (non-preview) tier on the Rolodex UI, after Starter and Free. **`pro/app.js` is now a bundled build artifact, not hand-written** — the real source is `pro/app.ts`, compiled via `node esbuild.config.mjs`; edit the `.ts`, never the `.js` directly. Consumes `shared/rolodex.ts` for Gate dock/marquee/stacked-card/swipe mechanics, same as Starter/Free. Keeps its pre-Rolodex Pro-exclusive features — Analyst View (per-card expandable subsection), Proxy Resolution Explorer + live coherence strip, Sector Heat Map, real (not teaser) server-synced Track Record with trigger/ticker accuracy breakdowns, CSV export — all ported forward, not dropped; see that section for exactly what changed shape (card/watchlist split → pill-strip cap + overflow accordion) vs. what ported unchanged. |
-| Shark | `shark/index.html` (no separate `app.js` — still monolithic) | **NOT rebuilt — deliberately deferred as of Aug 2, 2026, not a backlog gap.** Mr. T wants Shark's eventual rebuild to lean on more Alpaca-driven visuals, likely after upgrading to Alpaca's "Plus" data plan first. Don't pick this up proactively without checking that's still the plan — it still carries the same reorder/log-button bugs Pro had before its rebuild (shared original template) whenever it does happen. A separate, standalone `shark/coming-soon.html` splash (added Aug 2, 2026, licensed mascot art at `shared/assets/shark-mascot.png`) exists alongside it — email waitlist writes directly to Supabase's `shark_waitlist` table (anon insert-only via RLS) from the browser, no backend involvement. |
+| Shark | `shark/index.html` (no separate `app.js` — still monolithic) | **NOT rebuilt — shelved indefinitely as of Aug 17, 2026, not a backlog gap.** Earlier notes here framed this as blocked on an Alpaca "Plus" data-plan upgrade Mr. T might do at some point; that framing is retired per direct instruction — it's just off the table now, not "pending a decision." Don't pick this up proactively; it still carries the same reorder/log-button bugs Pro had before its rebuild (shared original template) whenever it does eventually happen. A separate, standalone `shark/coming-soon.html` splash (added Aug 2, 2026, licensed mascot art at `shared/assets/shark-mascot.png`) exists alongside it — email waitlist writes directly to Supabase's `shark_waitlist` table (anon insert-only via RLS) from the browser, no backend involvement. |
 
 Tier config (ticker cap, cache TTL, credits, tracker, `alpaca`, `iv`) is
 enforced **server-side** in `Tra`'s `credits.js` `TIERS` object — check
@@ -3307,10 +3307,18 @@ real Aug 13 Gate 5 bug shape directly against the new file's actual
 of type 'number'` immediately, confirming this would have caught that
 exact bug class on save.
 
-**`Tra`'s copy, still open — a real follow-up, not forgotten.** Once
-mirrored there (same non-behavioral, transpile-only conversion — no
-`Tra` PR needed on the actual deployed logic side, since nothing about
-runtime behavior changes), Phase 2 is fully complete in both repos.
+**`Tra`'s copy — done, confirmed Aug 16, 2026 (`Tra` PR #36, merged before
+this note was corrected).** This entry previously said "still open" —
+that was stale: a separate session with `Tra` access had already mirrored
+the conversion (same non-behavioral, transpile-only approach, same local
+`RegimeValidationResult` interface duplicated for the same CommonJS
+reason) and merged it. Re-confirmed directly by cloning `Tra` and
+diffing its `gates-extended.ts` against this repo's own — identical
+except for one header-comment line adjusted for `Tra`'s flatter layout
+(`types.js` vs `shared/types.d.ts`), and `require('./gates-extended.js')`
+against `Tra`'s compiled output returns all 14 expected exports (not the
+empty-object ESM/CommonJS gotcha this file documents above). **Phase 2 is
+fully complete in both repos.**
 
 ## Frontend: Rolodex UI shipped to Starter — the first real (non-preview) tier (Aug 16, 2026)
 
@@ -4520,6 +4528,86 @@ pull/push after deploy.
 **Phase 3 status after this pass:** Starter, Free, and Pro all have their own bundled `app.ts` entry
 point. Shark remains the only tier not on this pattern — still deliberately deferred, per Tier status
 above.
+
+## Engineering: Phase 4 shipped — real test suite, TypeScript adoption plan closed out (Aug 17, 2026)
+
+Direct instruction: "finish up the loose end from phase 2 and complete phase 4 so this can be done,"
+with Shark explicitly confirmed shelved indefinitely (no longer "pending the Alpaca Plus decision" —
+just off the table, don't revisit without being asked).
+
+**Phase 2's "loose end" turned out to already be closed — the note above was stale, not the work.**
+Re-read the "gates-extended.js (trade-verdict's copy) converted to .ts" entry above and found it still
+said `Tra`'s own mirror was "still open, a real follow-up, not forgotten." Added `Tra` to this session's
+repo scope to actually check, rather than trust the note — its `gates-extended.ts` was already there,
+committed via `Tra` PR #36 and merged *before* the Aug 16 confidence-redefinition work even started.
+Confirmed it's a real, working mirror, not a stray file: `require('./gates-extended.js')` against `Tra`'s
+compiled output returns all 14 expected exports, and diffing `Tra`'s `gates-extended.ts` against this
+repo's own showed the code identical, only one header-comment line differing (`types.js` vs
+`shared/types.d.ts`, matching `Tra`'s flatter layout). Corrected the stale note in place rather than
+leaving both versions in the file.
+
+**Phase 4 — a real gap, not stale documentation, so this pass actually built it.** The plan's own
+description named exactly what to protect: "every recent gate-logic change... was already verified with
+a throwaway Node script... converts work already being done into permanent regression coverage for the
+trickiest logic in the app." `gates-extended.ts`'s 10 exported functions were cleanly testable as-is
+(already a real, `require()`-able CommonJS module) — but the *other* half of "the trickiest logic," the
+functions behind the Aug 13, 2026 Gate 5 forceDown-unreachable bug and the Aug 16 LOW-confidence gap
+(`priceConfirmedConfidence`, `normalizeMarketReading`, `evaluateProxyStatus`), lived inline inside
+`server.js`, which has no `module.exports` at all and calls `app.listen()` at the bottom — requiring it
+for a test would start a real server as a side effect. Skipping those and testing only `gates-extended.ts`
+would have left Phase 4 covering half of what it was actually scoped to protect.
+
+**Fix: extracted the four pure functions into `analyze-helpers.ts`**, a new file following the exact
+same CommonJS-safe pattern `gates-extended.ts` already established (no `import`/`export` statements —
+same ESM/`export {}`-silently-breaks-`require()` trap documented there — a plain
+`declare var module: {exports:any}` plus a literal `module.exports = {...}` at the bottom instead).
+`server.js` now requires it via `const ah = require("./analyze-helpers");` and calls the four functions
+through the `ah.` namespace, matching the existing `gx.` convention for `gates-extended.js`. **Verified
+this was pure code motion, not just asserted:** extracted the *original* inline function bodies from
+`git show HEAD:server.js` into a throwaway comparison module and ran both old and new side by side
+across 23 cases — including the real Aug 13, 2026 crash-scale `-6.20%` TSM value and the exact
+multi-symbol label-pairing bug case — every single one byte-identical. Also did a full real boot test
+(`npm install`, `node server.js`) to confirm the edited file starts cleanly end-to-end, not just that
+`node --check` and `tsc` were happy.
+
+**The real test suite (`tests/gates-extended.test.js`, `tests/analyze-helpers.test.js`, 75 cases,
+`node --test tests/*.test.js` via `npm test`) — no new dependency, Node's built-in test runner, exactly
+as the plan's own text suggested.** Covers every branch this file's own incident writeups already
+named: all 8 `evaluateGate1Sessions` branches, all 3 `proxyCoherenceCheck` cases (including the real
+Aug 13 crash example), all 4 `regimeValidation`/`hasForceDownAuthority` states (UNKNOWN/INTACT/
+DEGRADING/BROKEN), all 4 `resolveFixedProxyBreak` tiers, `contextTextMatches`/`buildupPatternCheck`/
+`corroborateSessionContext`, and for `analyze-helpers.ts`: every `priceConfirmedConfidence` boundary
+(including the exact ±1.0% negligible-move threshold), `normalizeMarketReading`'s two accepted shapes,
+and `evaluateProxyStatus`'s RED/YELLOW/GREEN thresholds plus the exact multi-symbol mislabeling case
+the Aug 13 fix targeted.
+
+**A real, honest snag while writing the `gates-extended.ts` tests, worth keeping as a technique note:**
+three of the DEGRADING/secondary-tier/exhaustion-threshold fixtures failed on the first run — not
+because the underlying logic was wrong, but because hand-guessed synthetic price/correlation series
+didn't actually land in the target band (e.g. a "decorrelated" fixture that was still positively
+correlated enough to read as INTACT). Rather than loosen the assertions to fit whatever the fixture
+produced, tuned the *fixtures* by running small throwaway scripts against the real `gx.pearson()`/
+`gx.regimeValidation()`/`gx.resolveFixedProxyBreak()` functions themselves until they landed cleanly in
+the intended band, then locked in those exact values with a comment explaining why. All 75 cases pass
+on a clean run.
+
+**Both changes landed the same way this file's two-repo rule always requires:** `Tra` (the real backend)
+gets the actual `analyze-helpers.ts`/`server.js` change and its own copy of the test suite (`Tra` PR
+#40); this repo's `server.js`/`analyze-helpers.ts` are the mirror, cosmetic/historical per the usual
+rule, but this repo's own copy of the test suite is real and load-bearing here too, since
+`gates-extended.ts` is genuinely used by both. `Tra`'s `tsconfig.json`/`tsconfig.build.json` both
+widened to include `analyze-helpers.ts`, same as this repo's.
+
+**Status: the TypeScript adoption plan (Phases 0-4) is now fully complete in both repos.** Phase 0/1
+(JSDoc + shared contract types): done. Phase 2 (real `.ts`, transpile-only): done in both repos,
+confirmed above. Phase 3 (bundler): done for Starter/Free/Pro, Shark intentionally excluded (see next
+paragraph). Phase 4 (real test suite): done, this entry. Nothing further planned on this thread unless
+new work surfaces a reason to revisit it.
+
+**Shark: shelved indefinitely, not "pending a decision" anymore.** Every earlier note in this file
+framed Shark's rebuild as blocked on an Alpaca "Plus" data-plan upgrade that might happen at some
+point. Per direct instruction this session, that framing is retired — Shark is shelved indefinitely.
+Don't pick it up, don't ask about the Alpaca plan, unless explicitly asked to revisit it.
 
 ## Terminology rule
 
