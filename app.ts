@@ -189,11 +189,19 @@ function renderGate(): void {
   const status = (market && market.gateStatus) || 'GREEN';
   const color = sigColor(status);
   document.getElementById('gateMiniDot')!.style.background = color;
-  document.getElementById('gateMiniLabel')!.textContent = status + ' GATE';
-  (document.getElementById('gateMiniLabel') as HTMLElement).style.color = color;
   document.getElementById('gateFullDot')!.style.background = color;
-  document.getElementById('gateFullLabel')!.textContent = status + ' Gate';
-  (document.getElementById('gateFullLabel') as HTMLElement).style.color = color;
+  // The dot alone carries Gate 0's GREEN/YELLOW/RED market-direction read
+  // (set above, unchanged) -- the text label next to it is a literal
+  // market open/closed indicator instead, independent of that direction,
+  // so a RED-dot session during regular hours still correctly reads
+  // "MARKET OPEN" rather than implying the market itself is closed.
+  const closed = isMarketClosed();
+  const marketLabel = closed ? 'MARKET CLOSED' : 'MARKET OPEN';
+  const marketColor = closed ? 'var(--red)' : 'var(--green)';
+  document.getElementById('gateMiniLabel')!.textContent = marketLabel;
+  (document.getElementById('gateMiniLabel') as HTMLElement).style.color = marketColor;
+  document.getElementById('gateFullLabel')!.textContent = marketLabel;
+  (document.getElementById('gateFullLabel') as HTMLElement).style.color = marketColor;
   document.getElementById('gateNote')!.textContent = (market && market.gateNote) || (market ? '' : 'Tap to retry — data unavailable.');
 
   const grid = document.getElementById('gateGrid') as HTMLElement;

@@ -1717,11 +1717,14 @@ function renderGate() {
   const status = market && market.gateStatus || "GREEN";
   const color = sigColor(status);
   document.getElementById("gateMiniDot").style.background = color;
-  document.getElementById("gateMiniLabel").textContent = status + " GATE";
-  document.getElementById("gateMiniLabel").style.color = color;
   document.getElementById("gateFullDot").style.background = color;
-  document.getElementById("gateFullLabel").textContent = status + " Gate";
-  document.getElementById("gateFullLabel").style.color = color;
+  const closed = isMarketClosed();
+  const marketLabel = closed ? "MARKET CLOSED" : "MARKET OPEN";
+  const marketColor = closed ? "var(--red)" : "var(--green)";
+  document.getElementById("gateMiniLabel").textContent = marketLabel;
+  document.getElementById("gateMiniLabel").style.color = marketColor;
+  document.getElementById("gateFullLabel").textContent = marketLabel;
+  document.getElementById("gateFullLabel").style.color = marketColor;
   document.getElementById("gateNote").textContent = market && market.gateNote || (market ? "" : "Tap to retry \u2014 data unavailable.");
   const grid = document.getElementById("gateGrid");
   grid.innerHTML = GATE_FIELDS.map(([key, label]) => {
