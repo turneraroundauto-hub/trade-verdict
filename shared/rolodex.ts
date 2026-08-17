@@ -410,6 +410,146 @@ export function markRoloMarqueeDataReady(): void {
   roloMarqueeDataReady = true;
 }
 
+// ── Card-header help balloons ───────────────────────────────────────────
+// One shared popover element (position:fixed, appended to <body> once)
+// reused for every "(?)" help button on the page -- Gate + every utility
+// card. Mechanics only, same scope boundary as the rest of this module:
+// the actual short-copy strings (keyed by whatever id a given "(?)"
+// button carries) are tier-owned, passed in once via initHelpBalloons().
+//
+// Dismissal-by-timeout is deliberately short (5s) per the balloon's own
+// design brief -- keep it short enough to read in one glance, not a
+// persistent tooltip. A click on the SAME button toggles it closed early;
+// a click on a DIFFERENT help button, a glossary link inside the balloon,
+// an outside click, Escape, or a scroll/resize all close it too.
+const HELP_BALLOON_MS = 5000;
+// A tap that brings an off-screen "(?)" button into view (browsers/test
+// automation both do this for a click on a non-visible element) fires a
+// real #scroller 'scroll' event essentially simultaneously with the click
+// that opens the balloon -- close-on-scroll must not treat that as "the
+// user scrolled away" and immediately undo the balloon it was just asked
+// to open. Any #scroller scroll within this grace window of the balloon
+// having opened is ignored; anything after it is a real subsequent scroll.
+const HELP_SCROLL_GRACE_MS = 200;
+let helpEl: HTMLElement | null = null;
+let helpTimer: ReturnType<typeof setTimeout> | null = null;
+let helpOpenKey: string | null = null;
+let helpOpenedAt = 0;
+let helpContent: Record<string, string> = {};
+
+function ensureHelpEl(): HTMLElement {
+  if (helpEl) return helpEl;
+  const el = document.createElement('div');
+  el.className = 'help-balloon';
+  el.setAttribute('role', 'tooltip');
+  document.body.appendChild(el);
+  helpEl = el;
+  return el;
+}
+
+export function closeHelpBalloon(): void {
+  if (helpTimer) { clearTimeout(helpTimer); helpTimer = null; }
+  if (helpEl) helpEl.classList.remove('open');
+  helpOpenKey = null;
+}
+
+// Clamped to the viewport, not the caller's own scroll container -- the
+// balloon is position:fixed precisely so it isn't clipped by any of this
+// page's several overflow:hidden/sticky containers (.rolo-stage,
+// .gate-full-overlay, etc.).
+function positionHelpBalloon(btn: HTMLElement, el: HTMLElement): void {
+  const margin = 10;
+  const r = btn.getBoundingClientRect();
+  const w = el.offsetWidth, h = el.offsetHeight;
+  let left = Math.min(Math.max(r.left, margin), window.innerWidth - margin - w);
+  let top = r.bottom + 8;
+  if (top + h > window.innerHeight - margin) top = Math.max(margin, r.top - h - 8);
+  el.style.left = left + 'px';
+  el.style.top = top + 'px';
+}
+
+function openHelpBalloon(btn: HTMLElement, key: string): void {
+  if (helpOpenKey === key && helpEl && helpEl.classList.contains('open')) { closeHelpBalloon(); return; }
+  const html = helpContent[key];
+  if (!html) return;
+  const el = ensureHelpEl();
+  el.classList.remove('open');
+  el.innerHTML = html;
+  positionHelpBalloon(btn, el);
+  requestAnimationFrame(() => el.classList.add('open'));
+  helpOpenKey = key;
+  helpOpenedAt = Date.now();
+  if (helpTimer) clearTimeout(helpTimer);
+  helpTimer = setTimeout(closeHelpBalloon, HELP_BALLOON_MS);
+}
+
+// Delegated at the document level, in the CAPTURE phase, so a "(?)"
+// button or a glossary link nested inside an existing clickable header
+// (.card-head's own accordion-toggle listener, #gateCard's own tap-to-
+// jump-to-top listener) never also fires that ancestor's handler --
+// capture runs before any bubble-phase listener registered directly on
+// the ancestor gets a chance to. Content is tier-owned (content map) and
+// the actual glossary jump is tier-owned too (buildGlossary()/
+// filterGlossary() are per-tier), so onGlossaryJump is a callback rather
+// than something this module implements itself -- same "mechanics here,
+// content/business-logic in the tier" split as the rest of this file.
+//
+// This also sidesteps a real cross-tier inconsistency: Starter/Pro wire
+// static markup via inline onclick="..." + a window.fn bridge, Free wires
+// everything via addEventListener with no window bridge at all. A single
+// shared delegated listener works identically under both conventions
+// without forcing either tier to adopt the other's pattern just for this
+// one feature.
+export function initHelpBalloons(content: Record<string, string>, onGlossaryJump: (term: string) => void): void {
+  helpContent = content;
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    const link = target.closest<HTMLElement>('.help-glossary-link');
+    if (link) {
+      e.preventDefault(); e.stopPropagation();
+      closeHelpBalloon();
+      onGlossaryJump(link.dataset.term || '');
+      return;
+    }
+    const btn = target.closest<HTMLElement>('[data-help]');
+    if (btn) {
+      e.preventDefault(); e.stopPropagation();
+      openHelpBalloon(btn, btn.dataset.help || '');
+      return;
+    }
+    if (helpEl && helpEl.classList.contains('open') && !helpEl.contains(target)) closeHelpBalloon();
+  }, true);
+  document.addEventListener('keydown', (e) => {
+    const target = e.target as HTMLElement;
+    if ((e.key === 'Enter' || e.key === ' ') && (target.closest('[data-help]') || target.closest('.help-glossary-link'))) {
+      e.stopPropagation();
+    } else if (e.key === 'Escape') {
+      closeHelpBalloon();
+    }
+  }, true);
+  // Scoped to the page's own scroll container, NOT window, and
+  // deliberately NOT capture-phase -- 'scroll' events don't bubble, so a
+  // plain (bubble-phase) listener directly on #scroller only ever fires
+  // when #scroller ITSELF is the scroll target, never for a descendant's
+  // own scroll. That distinction matters here: #roloIndex (the ticker
+  // pill marquee) and #gateMarquee both live inside #scroller and write
+  // their own scrollLeft every animation frame -- real, continuous
+  // 'scroll' events with nothing to do with the user's viewport moving.
+  // A CAPTURE-phase listener (whether on window or on #scroller itself)
+  // still sees those, since capture always walks the full target-to-root
+  // ancestor chain regardless of bubbling -- confirmed live: both closed
+  // the balloon within one frame of opening it, every single time, with
+  // zero user interaction. Bubble-phase on #scroller is the one
+  // combination that only reacts to #scroller's own real position change
+  // (real user scroll, or a real programmatic jump like
+  // scrollToActiveCard()/jumpToTop()).
+  els.scroller.addEventListener('scroll', () => {
+    if (Date.now() - helpOpenedAt < HELP_SCROLL_GRACE_MS) return;
+    closeHelpBalloon();
+  });
+  window.addEventListener('resize', closeHelpBalloon);
+}
+
 // ── Init ─────────────────────────────────────────────────────────────
 export function initRolodex(elements: RolodexElements, callbacks: RolodexCallbacks): void {
   els = elements;

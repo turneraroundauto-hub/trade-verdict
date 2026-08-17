@@ -658,6 +658,8 @@ var GLOSSARY: GlossaryTerm[] = [
   {cat:'MARKET STRUCTURE',term:'Beta (β)',def:'A stock’s volatility relative to the overall market (SPY), where 1.0 = moves in line with the market, >1 amplifies market moves, <1 dampens them. Shown on each card as β. A negative beta means the stock tends to move opposite the market — treat it as effectively uncorrelated to its assigned Gate 5 proxy rather than confirming or denying that proxy read.',ex:'IREN at β2.1 is expected to move ~2.1% for every 1% SPY move. A rare β−0.3 name would be expected to drift up on a red SPY day.'},
   {cat:'MARKET STRUCTURE',term:'Intraday',def:'Within a single trading day — opened and evaluated before the next session begins, as opposed to a multi-day swing or long-term hold. This app’s entire CRF framework is built around intraday timing: the Opening Drive window, Gate 3’s same-day bar sequence, and same-day stop-loss discipline.',ex:'An intraday call on SMMT is graded against its move by that day’s close, not next week’s — Gate 3’s opening-bar sequence only exists because the framework is timing a single session.'},
   {cat:'CRF FRAMEWORK',term:'Verdict Icons — 👍 UP / 👎 DOWN / HOLD',def:'👍 means the app leans bullish (expects the stock to rise), 👎 means it leans bearish (expects it to fall), and HOLD means it’s not confident enough either way, or the market’s closed.',ex:'Simple as a thumbs up or thumbs down on a movie — just for a stock’s next move instead.'},
+  {cat:'CRF FRAMEWORK',term:'Confidence',def:'How strongly the verdict’s own price action agrees with the trigger driving it. HIGH means both the ticker’s own move and its sector proxy’s move confirm the call. MEDIUM means the trigger is clean but there’s no independent price data to confirm or deny it yet. LOW means real price action is actually moving against the call — and every LOW-confidence verdict always ships a real “LOOK FOR” note explaining what to watch for before acting.',ex:'A DOWN verdict where the stock itself is also selling off hard is HIGH confidence. The same DOWN verdict on a stock that’s actually holding flat or ticking up is LOW — check the LOOK FOR note before acting.'},
+  {cat:'TRADING TERMINOLOGY',term:'Ticker',def:'The short letter code (usually 1-5 letters) that identifies one specific stock or fund on an exchange, like IREN or SPY. What you type into Import to add a name to your watchlist.',ex:'MU, ALAB, and TSM are all tickers — three different companies, three different symbols.'},
 ];
 
 var glossaryBuilt = false;
@@ -680,14 +682,41 @@ function buildGlossary(): void {
   });
   body.innerHTML = html;
 }
-function toggleGlossary(): void {
+function setGlossaryOpen(open: boolean): void {
   var panel = document.getElementById('glossary-panel')!;
   var arrow = document.getElementById('glossary-arrow')!;
   var header = document.getElementById('glossary-header')!;
-  var open = panel.classList.toggle('open');
+  panel.classList.toggle('open', open);
   arrow.classList.toggle('open', open);
   header.classList.toggle('open', open);
   if (open) buildGlossary();
+}
+function toggleGlossary(): void {
+  var panel = document.getElementById('glossary-panel')!;
+  setGlossaryOpen(!panel.classList.contains('open'));
+}
+// Opens the Glossary (if closed), clears any active search filter so the
+// term can't be hidden by it, then scrolls the matching entry into view
+// and flashes it -- the "screen jump" a help-balloon glossary link
+// triggers. Matches by substring against the same lowercase data-term
+// text filterGlossary() already searches, so no separate id/slug needs
+// keeping in sync with the GLOSSARY array above.
+function jumpToGlossaryTerm(key: string): void {
+  setGlossaryOpen(true);
+  var search = document.getElementById('glossary-search') as HTMLInputElement | null;
+  if (search) search.value = '';
+  filterGlossary('');
+  var k = key.toLowerCase();
+  var target: HTMLElement | null = null;
+  document.querySelectorAll<HTMLElement>('.glossary-term').forEach(function (el) {
+    if (!target && el.dataset.term && el.dataset.term.indexOf(k) !== -1) target = el;
+  });
+  if (target) {
+    var hit = target as HTMLElement;
+    hit.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    hit.classList.add('glossary-flash');
+    setTimeout(function () { hit.classList.remove('glossary-flash'); }, 1600);
+  }
 }
 function filterGlossary(query: string): void {
   buildGlossary();
@@ -708,6 +737,17 @@ function filterGlossary(query: string): void {
 }
 document.getElementById('glossary-header')!.addEventListener('click', toggleGlossary);
 document.getElementById('glossary-search')!.addEventListener('input', (e) => filterGlossary((e.target as HTMLInputElement).value));
+
+// ── Card-header help balloons ──────────────────────────────────────────
+// Short, keep-it-to-a-glance copy per "(?)" button (keyed by its
+// data-help id in index.html). Heavy terminology inside links straight
+// to the matching Glossary entry via jumpToGlossaryTerm() above.
+const HELP_CONTENT: Record<string, string> = {
+  gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against — feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read — tap the docked bar to jump back to top.',
+  pulse: 'A live AI-written read on today’s market mood and <a class="help-glossary-link" href="#" data-term="sector rotation">sector rotation</a> — Starter and up unlocks the real, per-session version.',
+  context: 'Type in real news or catalysts you already know. Matched against headlines as corroboration for Gate 2 — when it lines up with 2 of 3 real signals, it’s marked CONTEXT-CORROBORATED.',
+  io: 'Paste or type <a class="help-glossary-link" href="#" data-term="ticker">tickers</a>, one per line or comma-separated, to add them to your watchlist.',
+};
 
 // ── init ────────────────────────────────────────────────────────────
 function initApp(): void {
@@ -746,6 +786,7 @@ async function boot(): Promise<void> {
     },
     onDeleteConfirmed: deleteActiveTicker,
   });
+  rolodex.initHelpBalloons(HELP_CONTENT, jumpToGlossaryTerm);
 
   // Signed-in-but-free is the lapsed-subscriber case (or a free signup
   // that created an account) — sync their watchlist so a Starter/Pro/
