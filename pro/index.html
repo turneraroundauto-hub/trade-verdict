@@ -172,6 +172,28 @@
   .card.expanded .card-body{ grid-template-rows:1fr; }
   .card-body-inner{ overflow:hidden; }
   .card-body-pad{ padding:0 14px 14px; }
+
+  /* "(?)" help buttons on every card header + the Gate's own header, and
+     the fixed-position balloon they pop open — shared/rolodex.ts owns
+     the open/fade/dismiss mechanics, this is just the look. */
+  .help-btn{
+    flex:none; width:18px; height:18px; border-radius:50%; padding:0;
+    border:1px solid var(--border-2); background:var(--surface-2); color:var(--ink-dim);
+    font-family:var(--mono); font-size:10px; font-weight:700; line-height:1; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .help-btn:hover, .help-btn:focus-visible{ color:var(--ink); border-color:var(--blue); outline:none; }
+  .gate-full-label .help-btn{ margin-left:2px; }
+  .help-balloon{
+    position:fixed; z-index:250; max-width:250px; padding:10px 12px;
+    background:var(--surface-2); border:1px solid var(--border-2); border-radius:10px;
+    box-shadow:0 10px 28px rgba(0,0,0,.5);
+    font-size:11px; line-height:1.5; color:var(--ink-dim);
+    opacity:0; transform:translateY(-4px); pointer-events:none;
+    transition:opacity .15s ease, transform .15s ease;
+  }
+  .help-balloon.open{ opacity:1; transform:translateY(0); pointer-events:auto; }
+  .help-balloon a.help-glossary-link{ color:var(--blue); text-decoration:underline; cursor:pointer; }
   @media (prefers-reduced-motion: reduce){
     .card-body, .chevron, .app-scroll, .gate-mini-row, .gate-full-overlay, #gateCard{ transition:none !important; }
   }
@@ -397,6 +419,8 @@
   .glossary-cat{ padding:8px 14px 4px; font-size:11px; font-weight:700; color:var(--purple); letter-spacing:.1em; border-bottom:1px solid var(--border); }
   .glossary-term{ padding:9px 14px; border-bottom:1px solid rgba(255,255,255,.05); display:none; }
   .glossary-term.visible{ display:block; }
+  @keyframes glossaryFlash{ 0%{ background:var(--blue-dim); } 100%{ background:transparent; } }
+  .glossary-term.glossary-flash{ animation:glossaryFlash 1.6s ease; }
   .glossary-term-name{ font-size:11px; font-weight:700; color:var(--ink); margin-bottom:3px; }
   .glossary-term-def{ font-size:11px; color:var(--ink-dim); line-height:1.5; }
   .glossary-term-example{ font-size:11px; color:var(--ink-dim); margin-top:3px; font-style:italic; line-height:1.4; }
@@ -492,7 +516,7 @@
         <span class="jump">↑ top</span>
       </div>
       <div class="gate-full-overlay" id="gateFullOverlay">
-        <div class="gate-full-label"><span class="dot" id="gateFullDot"></span><span class="label" id="gateFullLabel">LOADING…</span></div>
+        <div class="gate-full-label"><span class="dot" id="gateFullDot"></span><span class="label" id="gateFullLabel">LOADING…</span><button type="button" class="help-btn" data-help="gate" aria-label="What is this?">?</button></div>
         <div class="gate-grid" id="gateGrid"></div>
         <div class="gate-note" id="gateNote">Fetching live data…</div>
         <div class="market-ts" id="marketTs"></div>
@@ -510,6 +534,7 @@
             <div class="card-label" style="color:var(--purple)">Sector Pulse</div>
             <div class="card-sub">AI market summary</div>
           </div>
+          <button type="button" class="help-btn" data-help="pulse" aria-label="What is this?">?</button>
           <svg class="chevron" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
         <div class="card-body"><div class="card-body-inner"><div class="card-body-pad">
@@ -524,6 +549,7 @@
             <div class="card-label" style="color:var(--amber)">Session Context</div>
             <div class="card-sub">Empty · auto-included in every analysis</div>
           </div>
+          <button type="button" class="help-btn" data-help="context" aria-label="What is this?">?</button>
           <svg class="chevron" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
         <div class="card-body"><div class="card-body-inner"><div class="card-body-pad">
@@ -540,6 +566,7 @@
             <div class="card-label" style="color:var(--blue)">Import</div>
             <div class="card-sub">Paste or type tickers to add · unlimited on Pro</div>
           </div>
+          <button type="button" class="help-btn" data-help="io" aria-label="What is this?">?</button>
           <svg class="chevron" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
         <div class="card-body"><div class="card-body-inner"><div class="card-body-pad">
@@ -568,6 +595,7 @@
             <div class="card-sub">Beyond the top 15 · tap + to promote to a card</div>
           </div>
           <span class="card-count-badge" id="compact-count">0</span>
+          <button type="button" class="help-btn" data-help="watchlist" aria-label="What is this?">?</button>
           <svg class="chevron" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
         <div class="card-body"><div class="card-body-inner"><div class="card-body-pad">
@@ -586,6 +614,7 @@
             <div class="card-label" style="color:var(--purple)">Proxy Resolution Explorer</div>
             <div class="card-sub">Gate 5 proxy + live coherence per ticker</div>
           </div>
+          <button type="button" class="help-btn" data-help="proxy" aria-label="What is this?">?</button>
           <svg class="chevron" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
         <div class="card-body"><div class="card-body-inner"><div class="card-body-pad">
@@ -609,6 +638,7 @@
             <div class="card-sub">Fixed sectors + your watchlist</div>
           </div>
           <button type="button" class="proxy-refresh-btn" id="heatmap-refresh-btn" title="Refresh heat map" style="margin-left:8px">&#8635;</button>
+          <button type="button" class="help-btn" data-help="heatmap" aria-label="What is this?">?</button>
           <svg class="chevron" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
         <div class="card-body"><div class="card-body-inner"><div class="card-body-pad">
@@ -627,6 +657,7 @@
             <div class="card-label" style="color:var(--purple)">Track Record</div>
             <div class="card-sub">Log verdicts and track your accuracy</div>
           </div>
+          <button type="button" class="help-btn" data-help="track" aria-label="What is this?">?</button>
           <svg class="chevron" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
         <div class="card-body"><div class="card-body-inner"><div class="card-body-pad">
@@ -646,7 +677,7 @@
         </div>
         <div class="glossary-panel" id="glossary-panel">
           <div class="glossary-search-wrap">
-            <input class="glossary-search" id="glossary-search" placeholder="Search 63 terms — greeks, CRF, sector, trading...">
+            <input class="glossary-search" id="glossary-search" placeholder="Search 65 terms — greeks, CRF, sector, trading...">
           </div>
           <div id="glossary-no-results" class="glossary-no-results">No matching terms.</div>
           <div id="glossary-body"></div>
@@ -670,6 +701,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=1"></script>
+<script type="module" src="./app.js?v=2"></script>
 </body>
 </html>

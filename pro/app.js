@@ -1350,6 +1350,92 @@ function rebuildRoloIndex(watchlist2, buildChip, dividerText, buildExtraChip) {
 function markRoloMarqueeDataReady() {
   roloMarqueeDataReady = true;
 }
+var HELP_BALLOON_MS = 5e3;
+var HELP_SCROLL_GRACE_MS = 200;
+var helpEl = null;
+var helpTimer = null;
+var helpOpenKey = null;
+var helpOpenedAt = 0;
+var helpContent = {};
+function ensureHelpEl() {
+  if (helpEl) return helpEl;
+  const el = document.createElement("div");
+  el.className = "help-balloon";
+  el.setAttribute("role", "tooltip");
+  document.body.appendChild(el);
+  helpEl = el;
+  return el;
+}
+function closeHelpBalloon() {
+  if (helpTimer) {
+    clearTimeout(helpTimer);
+    helpTimer = null;
+  }
+  if (helpEl) helpEl.classList.remove("open");
+  helpOpenKey = null;
+}
+function positionHelpBalloon(btn, el) {
+  const margin = 10;
+  const r = btn.getBoundingClientRect();
+  const w = el.offsetWidth, h = el.offsetHeight;
+  let left = Math.min(Math.max(r.left, margin), window.innerWidth - margin - w);
+  let top = r.bottom + 8;
+  if (top + h > window.innerHeight - margin) top = Math.max(margin, r.top - h - 8);
+  el.style.left = left + "px";
+  el.style.top = top + "px";
+}
+function openHelpBalloon(btn, key) {
+  if (helpOpenKey === key && helpEl && helpEl.classList.contains("open")) {
+    closeHelpBalloon();
+    return;
+  }
+  const html = helpContent[key];
+  if (!html) return;
+  const el = ensureHelpEl();
+  el.classList.remove("open");
+  el.innerHTML = html;
+  positionHelpBalloon(btn, el);
+  requestAnimationFrame(() => el.classList.add("open"));
+  helpOpenKey = key;
+  helpOpenedAt = Date.now();
+  if (helpTimer) clearTimeout(helpTimer);
+  helpTimer = setTimeout(closeHelpBalloon, HELP_BALLOON_MS);
+}
+function initHelpBalloons(content, onGlossaryJump) {
+  helpContent = content;
+  document.addEventListener("click", (e) => {
+    const target = e.target;
+    const link = target.closest(".help-glossary-link");
+    if (link) {
+      e.preventDefault();
+      e.stopPropagation();
+      closeHelpBalloon();
+      onGlossaryJump(link.dataset.term || "");
+      return;
+    }
+    const btn = target.closest("[data-help]");
+    if (btn) {
+      e.preventDefault();
+      e.stopPropagation();
+      openHelpBalloon(btn, btn.dataset.help || "");
+      return;
+    }
+    if (helpEl && helpEl.classList.contains("open") && !helpEl.contains(target)) closeHelpBalloon();
+  }, true);
+  document.addEventListener("keydown", (e) => {
+    const target = e.target;
+    if ((e.key === "Enter" || e.key === " ") && (target.closest("[data-help]") || target.closest(".help-glossary-link"))) {
+      e.stopPropagation();
+    } else if (e.key === "Escape") {
+      closeHelpBalloon();
+    }
+  }, true);
+  els.scroller.addEventListener("scroll", () => {
+    if (Date.now() - helpOpenedAt < HELP_SCROLL_GRACE_MS) return;
+    closeHelpBalloon();
+  });
+  window.addEventListener("resize", closeHelpBalloon);
+}
 function initRolodex(elements, callbacks) {
   els = elements;
   cb = callbacks;
@@ -2509,7 +2595,9 @@ var GLOSSARY = [
   { cat: "CRF FRAMEWORK", term: "Sector Heat Map", def: "A Pro-only panel showing how different industries are doing today at a glance, so you can quickly spot which sectors are green and which are red.", ex: "Like a weather map, but for which parts of the stock market are stormy right now." },
   { cat: "MARKET STRUCTURE", term: "Beta (\u03B2)", def: "A stock\u2019s volatility relative to the overall market (SPY), where 1.0 = moves in line with the market, >1 amplifies market moves, <1 dampens them. Shown on each card as \u03B2. A negative beta means the stock tends to move opposite the market \u2014 treat it as effectively uncorrelated to its assigned Gate 5 proxy rather than confirming or denying that proxy read.", ex: "IREN at \u03B22.1 is expected to move ~2.1% for every 1% SPY move. A rare \u03B2\u22120.3 name would be expected to drift up on a red SPY day." },
   { cat: "MARKET STRUCTURE", term: "Intraday", def: "Within a single trading day \u2014 opened and evaluated before the next session begins, as opposed to a multi-day swing or long-term hold. This app\u2019s entire CRF framework is built around intraday timing: the Opening Drive window, Gate 3\u2019s same-day bar sequence, and same-day stop-loss discipline.", ex: "An intraday call on SMMT is graded against its move by that day\u2019s close, not next week\u2019s \u2014 Gate 3\u2019s opening-bar sequence only exists because the framework is timing a single session." },
-  { cat: "CRF FRAMEWORK", term: "Verdict Icons \u2014 \u{1F44D} UP / \u{1F44E} DOWN / HOLD", def: "\u{1F44D} means the app leans bullish (expects the stock to rise), \u{1F44E} means it leans bearish (expects it to fall), and HOLD means it\u2019s not confident enough either way, or the market\u2019s closed.", ex: "Simple as a thumbs up or thumbs down on a movie \u2014 just for a stock\u2019s next move instead." }
+  { cat: "CRF FRAMEWORK", term: "Verdict Icons \u2014 \u{1F44D} UP / \u{1F44E} DOWN / HOLD", def: "\u{1F44D} means the app leans bullish (expects the stock to rise), \u{1F44E} means it leans bearish (expects it to fall), and HOLD means it\u2019s not confident enough either way, or the market\u2019s closed.", ex: "Simple as a thumbs up or thumbs down on a movie \u2014 just for a stock\u2019s next move instead." },
+  { cat: "CRF FRAMEWORK", term: "Confidence", def: "How strongly the verdict\u2019s own price action agrees with the trigger driving it. HIGH means both the ticker\u2019s own move and its sector proxy\u2019s move confirm the call. MEDIUM means the trigger is clean but there\u2019s no independent price data to confirm or deny it yet. LOW means real price action is actually moving against the call \u2014 and every LOW-confidence verdict always ships a real \u201CLOOK FOR\u201D note explaining what to watch for before acting.", ex: "A DOWN verdict where the stock itself is also selling off hard is HIGH confidence. The same DOWN verdict on a stock that\u2019s actually holding flat or ticking up is LOW \u2014 check the LOOK FOR note before acting." },
+  { cat: "TRADING TERMINOLOGY", term: "Ticker", def: "The short letter code (usually 1-5 letters) that identifies one specific stock or fund on an exchange, like IREN or SPY. What you type into Import to add a name to your watchlist.", ex: "MU, ALAB, and TSM are all tickers \u2014 three different companies, three different symbols." }
 ];
 var glossaryBuilt = false;
 function buildGlossary() {
@@ -2532,14 +2620,37 @@ function buildGlossary() {
   });
   body.innerHTML = html;
 }
-function toggleGlossary() {
+function setGlossaryOpen(open) {
   var panel = document.getElementById("glossary-panel");
   var arrow = document.getElementById("glossary-arrow");
   var header = document.getElementById("glossary-header");
-  var open = panel.classList.toggle("open");
+  panel.classList.toggle("open", open);
   arrow.classList.toggle("open", open);
   header.classList.toggle("open", open);
   if (open) buildGlossary();
+}
+function toggleGlossary() {
+  var panel = document.getElementById("glossary-panel");
+  setGlossaryOpen(!panel.classList.contains("open"));
+}
+function jumpToGlossaryTerm(key) {
+  setGlossaryOpen(true);
+  var search = document.getElementById("glossary-search");
+  if (search) search.value = "";
+  filterGlossary("");
+  var k = key.toLowerCase();
+  var target = null;
+  document.querySelectorAll(".glossary-term").forEach(function(el) {
+    if (!target && el.dataset.term && el.dataset.term.indexOf(k) !== -1) target = el;
+  });
+  if (target) {
+    var hit = target;
+    hit.scrollIntoView({ behavior: "smooth", block: "center" });
+    hit.classList.add("glossary-flash");
+    setTimeout(function() {
+      hit.classList.remove("glossary-flash");
+    }, 1600);
+  }
 }
 function filterGlossary(query) {
   buildGlossary();
@@ -2564,6 +2675,16 @@ function filterGlossary(query) {
 }
 document.getElementById("glossary-header").addEventListener("click", toggleGlossary);
 document.getElementById("glossary-search").addEventListener("input", (e) => filterGlossary(e.target.value));
+var HELP_CONTENT = {
+  gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against \u2014 feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read \u2014 tap the docked bar to jump back to top.',
+  pulse: 'A quick AI-written read on today\u2019s overall market mood and <a class="help-glossary-link" href="#" data-term="sector rotation">sector rotation</a> \u2014 informational only, doesn\u2019t change any gate.',
+  context: "Type in real news or catalysts you already know. Matched against headlines as corroboration for Gate 2 \u2014 when it lines up with 2 of 3 real signals, it\u2019s marked CONTEXT-CORROBORATED.",
+  io: 'Paste or type <a class="help-glossary-link" href="#" data-term="ticker">tickers</a>, one per line or comma-separated, to add them to your watchlist \u2014 unlimited on Pro.',
+  watchlist: 'Every <a class="help-glossary-link" href="#" data-term="ticker">ticker</a> beyond your top 15 pill cards. Tap + on any row to promote it into the main card window.',
+  proxy: 'Which sector proxy each ticker is being checked against for <a class="help-glossary-link" href="#" data-term="gate 5">Gate 5</a>, and whether the two are still moving together right now.',
+  heatmap: "A color-coded snapshot of fixed sectors plus every ticker in your watchlist, sorted by % change.",
+  track: "Your logged verdict history \u2014 hit rate by gate trigger and by ticker. Log \u2713 RIGHT / \u2717 WRONG after the session closes to build a real accuracy record."
+};
 function initApp() {
   cleanLS();
   document.getElementById("ticker-count").textContent = "CRF \xB7 " + watchlist.length + " TICKERS";
@@ -2673,6 +2794,7 @@ initRolodex({
   },
   onDeleteConfirmed: deleteActiveTicker
 });
+initHelpBalloons(HELP_CONTENT, jumpToGlossaryTerm);
 checkAuth();
 document.getElementById("analyzeAllBtn").addEventListener("click", analyzeAll);
 document.getElementById("importBtn").addEventListener("click", addTickers);
