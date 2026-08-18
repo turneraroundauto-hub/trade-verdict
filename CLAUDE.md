@@ -5420,3 +5420,48 @@ only path to actually confirming that. This guard is a real safety net
 regardless: even if the root cause turns out to be something else
 entirely, a cross-company solvency flag should never have been trusted in
 the first place.
+
+## Backend: /analyze "Failed to parse AI response" on MU, right after the
+## Pre-Gate work above (Aug 18, 2026)
+
+Reported live immediately after the cross-company-guard deploy: tapping
+ANALYZE on MU returned "Failed to parse AI response" instead of a
+verdict. A different failure mode from everything else in the Pre-Gate
+saga above — this isn't Pre-Gate returning a wrong status, it's the
+`/analyze` LLM call itself returning something that doesn't parse as
+JSON at all.
+
+**Leading hypothesis, not confirmed (`Tra` PR pending / `trade-verdict`
+PR pending, mirrored per the two-repo rule):** this session's new
+persistent-solvency-flag notes are meaningfully longer/more detailed than
+the original Pre-Gate notes — they now quote the flag date, the matched
+company name, and both dual-clearance conditions (filing/catalyst status)
+— and that note gets embedded directly into the `/analyze` prompt
+(`Note: ${preGateResult.note}`). The model plausibly writes a
+correspondingly longer "reason" when reacting to a more detailed
+override, and at `max_tokens: 800` for a full 6-gate JSON breakdown,
+that's plausibly enough to get the response truncated mid-object —
+which `JSON.parse` would report exactly as this failure mode, not a
+markdown-fence or genuinely-malformed-JSON issue, just an incomplete one.
+
+**Two changes, one confirmable, one a low-risk mitigation:**
+1. `max_tokens` bumped 800→1400 on the `/analyze` Anthropic call. Cheap,
+   low-risk regardless of whether this is the actual cause — more budget
+   never hurts correctness, it only costs a little more per call.
+2. **The parse-failure catch block now actually logs the raw response
+   server-side** (`[ANALYZE PARSE FAIL]`, tagged with `stop_reason` and
+   the first 2000 chars of the raw text) — previously the raw text was
+   only ever returned in the HTTP response body, which the frontend
+   doesn't surface to the user, so a parse failure was completely
+   undiagnosable from Render logs alone. If `stop_reason` reads
+   `"max_tokens"` on a future occurrence, that directly confirms the
+   truncation theory; if it reads `"end_turn"` with genuinely malformed
+   JSON in the body, the real cause is something else entirely (a stray
+   prose preamble, a markdown fence variant not stripped by the existing
+   regex, etc.) and this log will show that too.
+
+**Not verified against a live occurrence** — same standing sandbox
+limitation as everything else in this saga (no reachable Anthropic API
+credentials from here either). To confirm: if this recurs, check Render
+logs for `[ANALYZE PARSE FAIL]` and read `stop_reason` directly rather
+than guessing again.
