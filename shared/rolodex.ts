@@ -176,10 +176,37 @@ export function getRoloCurrent(): number {
   return roloCurrent;
 }
 
+// Caps the active .rolo-card to the space actually available below
+// whichever dock sits above the Rolodex stage -- the docked Gate plus the
+// pill strip, since .rolo-wrap always sits after #roloIndex in every
+// tier's markup, the same "dock offset" every below-pill utility card
+// already uses (capCardBodyHeight above) -- with internal scroll past
+// that, matching the same treatment every accordion card already got.
+// activeCard.scrollHeight (not offsetHeight) reports the true, un-clipped
+// content height regardless of any max-height already applied from a
+// previous call, so this is safe to call every time without needing to
+// clear the cap first.
+const ROLO_CARD_MIN_HEIGHT = 160;
+const ROLO_CARD_BOTTOM_MARGIN = 16;
+
+function capRoloCardHeight(activeCard: HTMLElement): void {
+  const roloIndexH = els.roloIndex.getBoundingClientRect().height;
+  const available = els.scroller.clientHeight - GATE_DOCKED_H - roloIndexH - ROLO_CARD_BOTTOM_MARGIN;
+  const cap = Math.max(ROLO_CARD_MIN_HEIGHT, available);
+  if (activeCard.scrollHeight > cap) {
+    activeCard.style.maxHeight = cap + 'px';
+    activeCard.style.overflowY = 'auto';
+  } else {
+    activeCard.style.maxHeight = '';
+    activeCard.style.overflowY = '';
+  }
+}
+
 export function syncRoloStageHeight(): void {
   const cards = Array.from(els.roloStage.querySelectorAll<HTMLElement>('.rolo-card'));
   const activeCard = cards[roloCurrent];
   if (!activeCard) return;
+  capRoloCardHeight(activeCard);
   els.roloStage.style.height = activeCard.offsetHeight + 'px';
 }
 
@@ -723,6 +750,7 @@ export function initRolodex(elements: RolodexElements, callbacks: RolodexCallbac
   window.addEventListener('resize', sizeGateSpacer);
   window.addEventListener('resize', sizeRoloMarquee);
   window.addEventListener('resize', recapExpandedCards);
+  window.addEventListener('resize', syncRoloStageHeight);
 
   let gateTickingLocal = false;
   els.scroller.addEventListener('scroll', () => {

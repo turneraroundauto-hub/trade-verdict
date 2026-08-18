@@ -5005,6 +5005,63 @@ confirmed via the usual chunk-header grep that all three bundles still contain e
 `shared/rolodex.ts` chunk); `?v=` bumped in all three tiers' own `<script>` tags (`index.html` 59→60,
 `starter/index.html` 62→63, `pro/index.html` 7→8).
 
+## Frontend: the active ticker card also caps to the available screen height (Aug 18, 2026)
+
+Direct follow-up, same round as the Glossary fix above: "I should have mentioned the ticker cards should
+get the same treatment... keeping the frame height limited to the screen." The height-cap fix (the
+below-pill card snap entry above) only ever touched `.card[data-card]` utility cards — the Rolodex's own
+active `.rolo-card` (a real analyzed ticker, 6 gates + confidence + a possibly-long note per gate) was
+never in scope for it and still grew to its full, uncapped content height, same "hard to find the bottom"
+problem for a long analyzed card as the utility cards had before their own fix.
+
+**Same cap, applied to a structurally different element.** `.rolo-card` isn't an accordion body — it's an
+absolutely-positioned card inside `.rolo-stage`, whose own height `syncRoloStageHeight()` already sets to
+match the active card's real height on every switch/re-render. New `capRoloCardHeight(activeCard)`
+computes the same "space available below whichever dock sits above it" as `capCardBodyHeight()` — always
+`GATE_DOCKED_H + roloIndex height`, since `.rolo-wrap` (and the stage inside it) always sits after
+`#roloIndex` in every tier's markup, exactly like the below-pill utility cards — and applies it as the
+active card's own `max-height` + `overflow-y:auto` before `syncRoloStageHeight()` reads
+`activeCard.offsetHeight` to size the stage, so the stage's own height (and its existing `.28s` grow/shrink
+transition when switching between cards) automatically tracks the capped value with no separate plumbing.
+Reading `activeCard.scrollHeight` (not `offsetHeight`) to decide whether to cap is what makes this safe to
+call unconditionally on every sync, capped-already-or-not: `scrollHeight` always reports the true,
+un-clipped content height regardless of any `max-height` a previous call already applied.
+
+**No scroll-clamping bug to fix here, unlike the below-pill cards.** That fix was needed because
+`snapCardUnderDock()`'s `scrollIntoView` computes its target against the still-collapsing accordion body,
+and a card near the bottom of the page doesn't have enough content below it yet to physically scroll that
+far. `scrollToActiveCard()` (the Rolodex's own pill-tap-to-card scroll) doesn't have this problem by
+construction — it scrolls so `.rolo-wrap`'s TOP edge lands at the dock offset, which never depends on the
+stage's own height, and `.rolo-wrap` is never the last thing on the page (Watchlist/Proxy/Heat Map/Track/
+Glossary all follow it on Pro, plenty of room regardless of the active card's height). Confirmed directly,
+not assumed: re-ran the exact pill-tap snap check against a deliberately tall (6 RED/YELLOW gates, long
+notes) mocked `/analyze` response — still lands flush at the same `GATE_DOCKED_H + roloIndexH` offset as
+before, capped or not.
+
+Also added baseline CSS (`overflow-x:hidden; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;`)
+to `.rolo-card` in all three tiers, matching `.card-body-pad`'s own baseline from the earlier fix — inert
+when a card isn't capped, a real internally-scrollable card (with momentum on iOS, no scroll-chaining into
+the outer page) once one is.
+
+**Verified via real headless Chromium, a genuinely tall mocked `/analyze` response (6 gates, all RED/
+YELLOW, long notes) across all three tiers:** confirmed the active card's true content height
+(~1,114-1,155px in the test viewport) genuinely exceeds its capped/rendered height (~609-611px) and that
+the card is actually internally scrollable (`scrollTop` moves, `scrollHeight > clientHeight`); confirmed a
+normal, short analyzed card stays completely uncapped (`max-height` empty) — the fix is a no-op for
+anything that already fits; confirmed swipe-to-delete still works correctly on an uncapped card (capping
+only ever changes `overflow-y`/`max-height`, nothing about the swipe gesture's own transform/pointer
+handling). Re-ran the full existing regression suite afterward since this touches shared
+`syncRoloStageHeight()`, called from every tier's own re-render path: pill-tap auto-analyze, the Sector
+Pulse natural-dock soft-snap, and all five of Pro's below-pill/Glossary card snaps (Watchlist/Proxy/Heat
+Map/Track Record/Glossary) — all unaffected, still land flush. `npx tsc -p tsconfig.json` shows the same
+known 7-error `?v=N` baseline, zero new errors; `npm test` (75 cases) unaffected, all pass — this change
+doesn't touch `gates-extended.ts`/`analyze-helpers.ts`.
+
+`app.js`/`starter/app.js`/`pro/app.js` rebuilt via `node esbuild.config.mjs` (only `shared/rolodex.ts`
+changed — confirmed via the usual chunk-header grep that all three bundles still contain exactly one
+`shared/rolodex.ts` chunk, no duplicate-module regression); `?v=` bumped in all three tiers' own
+`<script>` tags (`index.html` 60→61, `starter/index.html` 63→64, `pro/index.html` 8→9).
+
 ## Terminology rule
 
 Verdicts are UP / DOWN / FLAT only, with a magnitude and a sizing action.

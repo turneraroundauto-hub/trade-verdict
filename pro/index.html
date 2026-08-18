@@ -312,6 +312,7 @@
     padding:16px; display:flex; flex-direction:column;
     transition:transform .32s cubic-bezier(.2,.7,.2,1), opacity .32s ease, filter .32s ease;
     will-change:transform;
+    overflow-x:hidden; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;
   }
   /* Swipe-to-delete on the active card only. Same visual/threshold
      pattern as production's real card-list swipe (shared/watchlist.ts),
@@ -698,6 +699,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=8"></script>
+<script type="module" src="./app.js?v=9"></script>
 </body>
 </html>

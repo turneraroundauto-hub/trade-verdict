@@ -765,10 +765,25 @@ var roloCurrent = 0;
 function getRoloCurrent() {
   return roloCurrent;
 }
+var ROLO_CARD_MIN_HEIGHT = 160;
+var ROLO_CARD_BOTTOM_MARGIN = 16;
+function capRoloCardHeight(activeCard) {
+  const roloIndexH = els.roloIndex.getBoundingClientRect().height;
+  const available = els.scroller.clientHeight - GATE_DOCKED_H - roloIndexH - ROLO_CARD_BOTTOM_MARGIN;
+  const cap = Math.max(ROLO_CARD_MIN_HEIGHT, available);
+  if (activeCard.scrollHeight > cap) {
+    activeCard.style.maxHeight = cap + "px";
+    activeCard.style.overflowY = "auto";
+  } else {
+    activeCard.style.maxHeight = "";
+    activeCard.style.overflowY = "";
+  }
+}
 function syncRoloStageHeight() {
   const cards = Array.from(els.roloStage.querySelectorAll(".rolo-card"));
   const activeCard = cards[roloCurrent];
   if (!activeCard) return;
+  capRoloCardHeight(activeCard);
   els.roloStage.style.height = activeCard.offsetHeight + "px";
 }
 function positionRoloStack() {
@@ -1121,6 +1136,7 @@ function initRolodex(elements, callbacks) {
   window.addEventListener("resize", sizeGateSpacer);
   window.addEventListener("resize", sizeRoloMarquee);
   window.addEventListener("resize", recapExpandedCards);
+  window.addEventListener("resize", syncRoloStageHeight);
   let gateTickingLocal = false;
   els.scroller.addEventListener("scroll", () => {
     if (gateTickingLocal) return;
