@@ -237,10 +237,11 @@ function refreshGateMarquee(): void {
 // ── Utility card accordion (Pulse/Context/Import) ─────────────────────
 function wireAccordionHead(head: Element): void {
   function toggle(): void {
-    const card = head.closest('.card')!;
+    const card = head.closest('.card') as HTMLElement;
     const wasExpanded = card.classList.contains('expanded');
     card.classList.toggle('expanded', !wasExpanded);
     head.setAttribute('aria-expanded', String(!wasExpanded));
+    if (!wasExpanded) rolodex.snapCardUnderDock(card);
   }
   head.addEventListener('click', toggle);
   head.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter' || (e as KeyboardEvent).key === ' ') { e.preventDefault(); toggle(); } });

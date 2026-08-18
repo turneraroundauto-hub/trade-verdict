@@ -232,12 +232,13 @@ function refreshGateMarquee(): void {
 // ── Utility card accordion (Pulse/Context/Import/Watchlist/Proxy/Heat/Track/Glossary) ──
 function wireAccordionHead(head: Element): void {
   function toggle(): void {
-    const card = head.closest('.card')!;
+    const card = head.closest('.card') as HTMLElement;
     const wasExpanded = card.classList.contains('expanded');
     card.classList.toggle('expanded', !wasExpanded);
     head.setAttribute('aria-expanded', String(!wasExpanded));
     if (!wasExpanded) {
-      const kind = (card as HTMLElement).dataset.card;
+      rolodex.snapCardUnderDock(card);
+      const kind = card.dataset.card;
       if (kind === 'watchlist') renderOverflowList();
       else if (kind === 'proxy') renderProxyExplorer();
       else if (kind === 'heatmap') renderHeatMap();

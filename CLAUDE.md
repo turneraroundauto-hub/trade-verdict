@@ -4708,6 +4708,78 @@ pass, zero new errors. `index.html`/`starter/index.html`/`pro/index.html` `?v=` 
 own `app.ts` content changed on top of the concurrent session's own bumps; no shared module was touched
 by this pass, so no further cascade was needed.
 
+## Frontend: utility/watchlist cards soft-snap under whichever dock sits above them (Aug 18, 2026)
+
+Direct request: expanding Sector Pulse should soft-snap its top edge to sit right under the collapsed
+docked Gate; more generally, tapping any card to expand it should smooth-scroll (not jump, not reorder)
+so its top lands flush under whichever sticky bar is directly above it on the page — the docked Gate for
+Pulse/Session Context/Import, and (Pro only) the docked ticker-pill strip for Watchlist/Proxy/Heat
+Map/Track Record, since those sit below `#roloIndex` in the page. Explicit constraints from the request,
+carried through the implementation: never reorder cards, only scroll; keep free scrolling completely
+unaffected afterward — no persistent CSS `scroll-snap-type` lock, just a one-time smooth scroll on expand.
+
+**Implementation, entirely in `shared/rolodex.ts` — mechanics, not tier-specific content, per this
+module's own scope boundary.** `scrollToActiveCard()` (the existing pill-tap-to-ticker-card scroll,
+Aug 16) already did exactly this for one specific case — force the Gate docked synchronously, then
+`scrollIntoView` with a `scrollMarginTop` accounting for the Gate's docked height plus the pill strip's
+own docked height. Extracted that shared "force-dock + measure the pill strip's real height" logic into
+`forceGateDockedSync()`, then added a new export, `snapCardUnderDock(cardEl)`, that applies the same
+scroll to any card element — determining whether to also add the pill strip's height via a live
+`Node.compareDocumentPosition()` check against `#roloIndex`, rather than a hand-maintained per-tier list
+of "which cards come before/after the pill strip." This is deliberate: it stays correct automatically as
+tiers add or reorder utility cards (Pro's Watchlist/Proxy/Heat Map/Track Record cards all sit after
+`#roloIndex` in the DOM, same as the active ticker card; Free/Starter's three utility cards all sit
+before it, same as the Gate) without this module needing to know anything tier-specific about which
+cards exist.
+
+Wired into each tier's own `wireAccordionHead()` (`app.ts`, `starter/app.ts`, `pro/app.ts` — this
+listener itself stays tier-owned, same split as everywhere else in `shared/rolodex.ts`'s design): calls
+`rolodex.snapCardUnderDock(card)` only when the card is being *expanded* (`!wasExpanded`), never on
+collapse — collapsing a card should never move the scroll position. Pro's version calls it before its
+existing lazy-render dispatch (`renderOverflowList()`/`renderProxyExplorer()`/`renderHeatMap()`) — order
+doesn't actually matter here, since a card's top edge doesn't move when its body's content populates
+below it, only its bottom does.
+
+**No new failure mode re-litigated — reused the already-hard-won `forceGateDockedSync()` fix
+verbatim.** The synchronous-collapse-before-measuring dance (kill `gateSpacer`'s transition, force a
+reflow, restore it) that `scrollToActiveCard()` needed on Aug 16 to avoid the scroll target shifting out
+from under an in-flight animation applies identically here — sharing the one implementation instead of
+duplicating it means any future fix to that mechanism benefits both call sites automatically.
+
+**Verified via real, incremental headless-Chromium checks, not a single fixed-position jump** — matching
+this file's own repeatedly-learned lesson about scroll-timing bugs specifically: measured, for each of
+Free/Starter/Pro, that (1) expanding Sector Pulse or Session Context from the very top of the page forces
+the Gate to dock and lands the card's top exactly `GATE_DOCKED_H` (44px) below `#scroller`'s own top
+(not raw viewport coordinates — this file's own Aug 15 measurement-methodology lesson), (2) the existing
+ticker-card pill-tap snap still lands at `GATE_DOCKED_H + roloIndexHeight`, unchanged, (3) on Pro,
+expanding the Watchlist accordion (which sits below `#roloIndex`) lands at that same combined offset, not
+the Gate-only one, confirming the DOM-position check correctly classifies a tier-specific card it knows
+nothing about, (4) collapsing an already-expanded card never moves `#scroller`'s `scrollTop`, and
+(5) a manual scroll immediately after a snap moves the page normally — free scroll is genuinely
+unaffected, not locked. Re-ran the full existing Free/Starter/Pro regression suites afterward — all pass,
+zero new console errors (only the standing, pre-existing `fonts.googleapis.com`/`/status` sandbox-network
+failures already documented elsewhere in this file).
+
+**A real, self-inflicted testing bug caught and fixed while writing this verification, not an app bug —
+worth keeping as its own reminder alongside the Aug 15 ALAB-pill flakiness lesson.** A fixed
+`waitForTimeout(700)` after triggering a snap intermittently read the scroll position before the smooth
+`scrollIntoView` animation had actually finished, producing a spurious failing measurement on an
+otherwise-correct page (confirmed by re-running the identical scenario multiple times back to back — the
+underlying app behavior was 100% consistent, only the fixed-delay test assertion flickered). Fixed the
+test harness with a `waitForScrollSettle()` helper that polls `#scroller.scrollTop` until it stops
+changing between checks, rather than guessing an animation duration — the same "measure the real thing,
+don't guess a constant" discipline this file already applies to the app's own code, applied here to the
+test script that verifies it.
+
+`app.js`/`starter/app.js`/`pro/app.js` rebuilt from their `.ts` sources via `node esbuild.config.mjs`
+(only `shared/rolodex.ts` and the three tiers' `wireAccordionHead()` changed — no other shared module
+touched); confirmed via the usual chunk-header grep that all three bundles still contain exactly one
+`shared/rolodex.ts` chunk, no duplicate-module regression. `?v=` bumped in all three tiers' own
+`<script>` tags (`index.html` 56→57, `starter/index.html` 59→60, `pro/index.html` 4→5) since each
+tier's own bundled `app.js` content changed as a result of the shared `rolodex.ts` edit — no shared
+module besides the bundler-only `rolodex.ts` was touched, so no further `?v=` cascade applies (`rolodex.ts`
+has no raw-browser `?v=N` consumer at all, same as noted when it was first extracted).
+
 ## Terminology rule
 
 Verdicts are UP / DOWN / FLAT only, with a magnitude and a sizing action.
