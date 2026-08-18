@@ -249,12 +249,12 @@
   .log-upgrade-btn{ font-size:9px; font-weight:700; color:var(--blue); background:var(--blue-dim); border:1px solid rgba(74,168,255,.4); border-radius:4px; padding:5px 10px; text-decoration:none; }
 
   .gate-list{ display:flex; flex-direction:column; gap:6px; margin-top:10px; }
-  .gate-row{ display:flex; align-items:flex-start; gap:8px; }
-  .gate-dot{ width:8px; height:8px; border-radius:50%; margin-top:4px; flex:none; }
+  .gate-row{ display:flex; flex-direction:column; gap:2px; }
+  .gate-row-head{ display:flex; align-items:center; gap:8px; }
+  .gate-dot{ width:8px; height:8px; border-radius:50%; flex:none; }
   .gate-row .gl{ font-size:11px; letter-spacing:.05em; color:var(--ink-dim); font-weight:700; }
-  .gate-row .gn{ font-size:11px; color:var(--ink); line-height:1.5; margin-top:1px; }
+  .gate-row .gn{ font-size:11px; color:var(--ink); line-height:1.5; padding-left:16px; }
   .gate-clear{ display:flex; align-items:center; gap:6px; opacity:.55; }
-  .gate-clear .gate-dot{ margin-top:0; }
   .gate-clear span{ font-size:11px; color:var(--ink-dim); }
   .conf-row{ display:flex; align-items:center; margin-top:2px; gap:6px; }
   .conf-lbl{ font-size:11px; color:var(--ink-dim); letter-spacing:.05em; }
@@ -453,7 +453,7 @@
           <span class="card-icon">✎</span>
           <div class="card-title-wrap">
             <div class="card-label" style="color:var(--amber)">Session Context</div>
-            <div class="card-sub">Empty · auto-included in every analysis</div>
+            <div class="card-sub">Auto-included in every analysis</div>
           </div>
           <button type="button" class="help-btn" data-help="context" aria-label="What is this?">?</button>
           <svg class="chevron" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -532,6 +532,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=58"></script>
+<script type="module" src="./app.js?v=59"></script>
 </body>
 </html>

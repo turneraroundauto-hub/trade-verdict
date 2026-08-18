@@ -380,9 +380,8 @@ function gateListHTML(sym: string, result: AnalyzeResponse | null): string {
     if (gate === g.pre_gate && gate.status === 'GREEN') {
       return '<div class="gate-clear"><span class="gate-dot" style="background:var(--green)"></span><span>PRE-GATE clear</span></div>';
     }
-    return `<div class="gate-row"><span class="gate-dot" style="background:${sigColor(gate.status)}"></span>`
-      + `<div><span class="gl">${label}</span>`
-      + (gate.note ? `<div class="gn">${gate.note}</div>` : '') + '</div></div>';
+    return `<div class="gate-row"><div class="gate-row-head"><span class="gate-dot" style="background:${sigColor(gate.status)}"></span><span class="gl">${label}</span></div>`
+      + (gate.note ? `<div class="gn">${gate.note}</div>` : '') + '</div>';
   }).join('');
   const conf = `<div class="conf-row"><span class="conf-lbl">CONFIDENCE</span><span class="conf-val" style="color:${confColor(result.confidence)}">${result.confidence || ''}</span></div>`;
   const v = (result.verdict || 'FLAT').toUpperCase();
