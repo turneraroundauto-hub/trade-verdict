@@ -5280,3 +5280,56 @@ of the prior three merges (Render dashboard, not visible from here), and
 (2) the actual filing date/accession/wording of PARA's real distress
 filing, to check it both falls inside the new 730-day window and actually
 contains language this app's keyword list would match.
+
+**The PARA filing turned out to be a red herring — not a distress filing
+at all.** Mr. T sent the actual PDF (accession `0002041610-26-000016`).
+It's Item 7.01 (Regulation FD) + Item 9.01 — a routine segment-reporting
+restructure (Studios/Direct-to-Consumer/TV Media, switching from Adjusted
+OIBDA to Adjusted EBITDA), filed by **Paramount Skydance Corporation,
+ticker PSKY**, not PARA — the merged successor entity created when
+Paramount Global and Skydance closed their merger Aug 7, 2025 (exactly
+what the filing's own "Successor"/"Predecessor" accounting split
+documents). No going-concern, bankruptcy, default, or delisting language
+anywhere in it, and the actual numbers (TV Media alone profitable to the
+tune of $875M in the shown quarter) don't read as distressed. Pre-Gate
+showing GREEN for this filing was correct — the real lesson is that
+`PARA` may no longer correctly identify this company post-merger at all
+(the CIK-numbering reasoning that flagged this as suspicious — 2,041,610
+is a newly-assigned CIK, consistent with a brand-new post-merger
+registrant — held up). **Not yet resolved:** whether SEC's ticker map
+still points `PARA` at the old, now-superseded Paramount Global entity,
+whether it fails to resolve at all, or something else — and whether the
+watchlist ticker itself should be updated to `PSKY`. Genuinely useful
+example of this file's own repeated lesson (the Aug 10, 2026 ARCC/Egypt
+mis-route, the DRAM CIK saga) showing up a third time, on the SEC-lookup
+side this time instead of the ticker-link side.
+
+**Real bug still open, now with much stronger evidence: `PLAG` and `XTI`,
+real currently-listed tickers with verbatim "substantial doubt"/"going
+concern" language in their real 10-Ks (quoted directly from the actual
+filings, not paraphrased), confirmed live to still show GREEN Pre-Gate —
+after all four fixes above deployed and Render confirmed redeployed.**
+Both exact phrases have been in `PRE_GATE_TRIGGERS.solvency`'s keyword
+list since before any of today's fixes, so this isn't a keyword-coverage
+gap, a lookback-window gap, or a stale-deploy issue — something about the
+actual SEC request/CIK-resolution mechanism itself is still not working,
+and four rounds of reasoning-from-documentation fixes (real, individually
+justified, but each unverifiable from this sandbox) haven't found it.
+
+**Stopped guessing a fifth time — shipped diagnostic logging instead
+(`Tra` PR pending / `trade-verdict` PR pending, mirrored per the two-repo
+rule).** `getCik()` now logs which tier resolved a symbol's CIK (primary
+map / `KNOWN_CIK_OVERRIDES` / fund map / live EDGAR search) and the
+company name from SEC's own `title` field when available (new
+`tickerCikNameCache`, populated alongside the existing ticker->CIK map).
+`searchEdgarFilings()` now logs the exact request URL, the HTTP response
+status, the response body on any non-2xx status, and the hit count on
+success. All lines tagged `[PRE-GATE]` for easy grepping. Since
+`preGateCache`/`tickerCikCache` are plain in-memory state that goes cold
+on every deploy (same as documented elsewhere in this file), the very
+next request for `PLAG`/`XTI` after this deploys will be a genuine cache
+miss and produce fresh log lines — no separate cache-bypass mechanism
+needed. **Next step, requires a human:** check Render logs for
+`[PRE-GATE]` lines after re-triggering `PLAG`/`XTI`, and paste them back —
+this is the only way to see what's actually happening against a live SEC
+response from a sandbox that can't reach `sec.gov` at all.
