@@ -1056,11 +1056,44 @@ function scrollToActiveCard() {
   wrap.style.scrollMarginTop = GATE_DOCKED_H + roloIndexH + "px";
   wrap.scrollIntoView({ behavior: "smooth", block: "start" });
 }
+var CARD_BODY_MIN_HEIGHT = 120;
+var CARD_BODY_BOTTOM_MARGIN = 16;
+function capCardBodyHeight(cardEl, dockOffset) {
+  const pad = cardEl.querySelector(".card-body-pad");
+  const head = cardEl.querySelector(".card-head");
+  if (!pad || !head) return;
+  const available = els.scroller.clientHeight - dockOffset - head.getBoundingClientRect().height - CARD_BODY_BOTTOM_MARGIN;
+  pad.style.maxHeight = Math.max(CARD_BODY_MIN_HEIGHT, available) + "px";
+}
+function dockOffsetFor(cardEl, roloIndexH) {
+  const afterPillStrip = !!(els.roloIndex.compareDocumentPosition(cardEl) & Node.DOCUMENT_POSITION_FOLLOWING);
+  return GATE_DOCKED_H + (afterPillStrip ? roloIndexH : 0);
+}
 function snapCardUnderDock(cardEl) {
   const roloIndexH = forceGateDockedSync();
-  const afterPillStrip = !!(els.roloIndex.compareDocumentPosition(cardEl) & Node.DOCUMENT_POSITION_FOLLOWING);
-  cardEl.style.scrollMarginTop = GATE_DOCKED_H + (afterPillStrip ? roloIndexH : 0) + "px";
+  const dockOffset = dockOffsetFor(cardEl, roloIndexH);
+  capCardBodyHeight(cardEl, dockOffset);
+  cardEl.style.scrollMarginTop = dockOffset + "px";
+  const body = cardEl.querySelector(".card-body");
+  if (!body) {
+    cardEl.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  const prevTransition = body.style.transition;
+  body.style.transition = "none";
+  body.style.gridTemplateRows = "1fr";
+  void body.offsetHeight;
   cardEl.scrollIntoView({ behavior: "smooth", block: "start" });
+  body.style.gridTemplateRows = "0fr";
+  void body.offsetHeight;
+  body.style.transition = prevTransition;
+  body.style.gridTemplateRows = "";
+}
+function recapExpandedCards() {
+  const roloIndexH = els.roloIndex.getBoundingClientRect().height;
+  document.querySelectorAll(".card.expanded[data-card]").forEach((cardEl) => {
+    capCardBodyHeight(cardEl, dockOffsetFor(cardEl, roloIndexH));
+  });
 }
 function goRolo(i) {
   const count = els.roloStage.querySelectorAll(".rolo-card").length;
@@ -1326,6 +1359,7 @@ function initRolodex(elements, callbacks) {
   window.addEventListener("resize", sizeGateMarquee);
   window.addEventListener("resize", sizeGateSpacer);
   window.addEventListener("resize", sizeRoloMarquee);
+  window.addEventListener("resize", recapExpandedCards);
   let gateTickingLocal = false;
   els.scroller.addEventListener("scroll", () => {
     if (gateTickingLocal) return;

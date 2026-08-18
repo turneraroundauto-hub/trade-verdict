@@ -262,6 +262,32 @@ function scrollToActiveCard(): void {
   wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+// Caps an expanding card's body to the space actually available below
+// whichever dock sits above it, and lets it scroll internally past that --
+// so a long card (many Watchlist rows, a long Track Record table) reads as
+// a sheet that fits the screen, not an accordion that pushes the whole
+// page to an arbitrary length with no visible bottom. Capped on
+// .card-body-pad specifically, not .card-body-inner (which must keep a
+// plain, uncapped overflow:hidden for the 0fr/1fr collapse trick below to
+// keep working) -- .card-body's own grid row sizes to .card-body-inner's
+// intrinsic content height, which naturally shrinks to match its now-
+// capped child, so nothing about the collapse mechanism needs touching.
+const CARD_BODY_MIN_HEIGHT = 120;
+const CARD_BODY_BOTTOM_MARGIN = 16;
+
+function capCardBodyHeight(cardEl: HTMLElement, dockOffset: number): void {
+  const pad = cardEl.querySelector<HTMLElement>('.card-body-pad');
+  const head = cardEl.querySelector<HTMLElement>('.card-head');
+  if (!pad || !head) return;
+  const available = els.scroller.clientHeight - dockOffset - head.getBoundingClientRect().height - CARD_BODY_BOTTOM_MARGIN;
+  pad.style.maxHeight = Math.max(CARD_BODY_MIN_HEIGHT, available) + 'px';
+}
+
+function dockOffsetFor(cardEl: HTMLElement, roloIndexH: number): number {
+  const afterPillStrip = !!(els.roloIndex.compareDocumentPosition(cardEl) & Node.DOCUMENT_POSITION_FOLLOWING);
+  return GATE_DOCKED_H + (afterPillStrip ? roloIndexH : 0);
+}
+
 // Soft-snaps a tapped/expanded utility card's top edge to sit just under
 // whichever docked sticky bar sits directly above it on the page --
 // determined by real DOM order, not a hand-maintained per-tier list, so it
@@ -276,11 +302,61 @@ function scrollToActiveCard(): void {
 // locks scroll -- a single smooth scrollIntoView, same as
 // scrollToActiveCard(), so free scrolling immediately afterward is
 // completely unaffected.
+//
+// Confirmed real (Aug 18, 2026): Watchlist/Proxy/Heat Map/Track Record --
+// the cards below the ticker pills -- were landing well short of flush,
+// worse the further down the page they sat. Root cause: at the instant
+// this runs, the just-toggled 'expanded' class hasn't actually grown the
+// card's body yet -- .card-body's grid-template-rows is CSS-transitioned
+// (.22s), so scrollIntoView below computes/clamps its target against the
+// STILL-COLLAPSED document height. For a card near the bottom of the page
+// (not much content below it while collapsed), that clamp is real: the
+// browser can't scroll further than what's currently scrollable, and once
+// the accordion finishes growing a moment later and more room becomes
+// available, the already-dispatched scroll never revisits its target --
+// it just stops wherever it got clamped. Same class of bug
+// forceGateDockedSync() above exists to prevent, just for a GROWING
+// element instead of a shrinking one. Confirmed empirically: Watchlist/
+// Proxy (higher up, already enough content below them) landed flush;
+// Heat Map/Track Record (lower, not enough) landed 20-80px short,
+// worse the lower the card sat -- exactly the "not consistent" symptom.
+//
+// Fix: force the body to its real final (capped) height synchronously --
+// transition suppressed -- so the scroll target is computed against the
+// true final layout, then revert to collapsed and restore the transition
+// so the visual accordion-open animation still plays normally afterward.
+// Mirrors forceGateDockedSync()'s own suppress/force-reflow/restore
+// dance, just in the opposite (grow, not shrink) direction.
 export function snapCardUnderDock(cardEl: HTMLElement): void {
   const roloIndexH = forceGateDockedSync();
-  const afterPillStrip = !!(els.roloIndex.compareDocumentPosition(cardEl) & Node.DOCUMENT_POSITION_FOLLOWING);
-  cardEl.style.scrollMarginTop = (GATE_DOCKED_H + (afterPillStrip ? roloIndexH : 0)) + 'px';
+  const dockOffset = dockOffsetFor(cardEl, roloIndexH);
+  capCardBodyHeight(cardEl, dockOffset);
+  cardEl.style.scrollMarginTop = dockOffset + 'px';
+
+  const body = cardEl.querySelector<HTMLElement>('.card-body');
+  if (!body) { cardEl.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+
+  const prevTransition = body.style.transition;
+  body.style.transition = 'none';
+  body.style.gridTemplateRows = '1fr';
+  void body.offsetHeight; // commit the real final (capped) height now
+
   cardEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  body.style.gridTemplateRows = '0fr';
+  void body.offsetHeight; // commit back to collapsed before restoring the transition
+  body.style.transition = prevTransition;
+  body.style.gridTemplateRows = ''; // hand control back to the .expanded class rule, now animated
+}
+
+// Re-caps every currently-expanded card's body on resize (rotation, a
+// desktop window resize) -- the available-height math above is a snapshot
+// of the viewport at expand time and doesn't self-update otherwise.
+function recapExpandedCards(): void {
+  const roloIndexH = els.roloIndex.getBoundingClientRect().height;
+  document.querySelectorAll<HTMLElement>('.card.expanded[data-card]').forEach((cardEl) => {
+    capCardBodyHeight(cardEl, dockOffsetFor(cardEl, roloIndexH));
+  });
 }
 
 export function goRolo(i: number): void {
@@ -646,6 +722,7 @@ export function initRolodex(elements: RolodexElements, callbacks: RolodexCallbac
   window.addEventListener('resize', sizeGateMarquee);
   window.addEventListener('resize', sizeGateSpacer);
   window.addEventListener('resize', sizeRoloMarquee);
+  window.addEventListener('resize', recapExpandedCards);
 
   let gateTickingLocal = false;
   els.scroller.addEventListener('scroll', () => {
