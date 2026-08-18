@@ -5243,3 +5243,40 @@ PARA (or another known distress ticker) once `Tra` deploys and the DDL
 patch is applied, confirm Pre-Gate now shows the persistent-flag RED note,
 and watch for it to stay RED across multiple days/deploys even as the
 45-day window rolls forward.
+
+**Follow-up, still reported GREEN after the persistent-flag mechanism
+deployed and the DDL patch ran (`Tra` PR #44 / `trade-verdict` PR pending,
+mirrored per the two-repo rule).** Found a real, independent gap in the
+persistent-flag design itself, by reasoning through it rather than another
+live test (this sandbox still can't reach `sec.gov`/Render/Supabase to
+observe what's actually happening): the persistent-flag mechanism can only
+ever **persist** a flag once one has been created — and a flag is only ever
+created from a hit inside the routine 45-day `searchEdgarFilings()` window.
+If the ticker's actual triggering filing (a going-concern opinion in an
+annual 10-K, say) already predates that 45-day window by the time this code
+first runs for that ticker, the flag never gets created in the first
+place — Pre-Gate falls through to "No solvency, dilution, or guidance-cut
+language found in recent SEC filings" and stays GREEN indefinitely, which
+matches the reported symptom exactly.
+
+**Fix:** a new `PRE_GATE_SOLVENCY_LOOKBACK_DAYS` (730 days / 2 years) wide
+pre-check, run before the routine 45-day search whenever a ticker has no
+existing flag — searches solvency keywords only, over the wide window, and
+immediately flags + returns RED on a hit, regardless of how old the filing
+is. Dilution/guidance-cut deliberately keep the narrow 45-day window — only
+solvency needed this, since only solvency is meant to persist indefinitely.
+Adds at most one extra SEC call per never-flagged ticker per day (bounded
+by the existing 24h `preGateCache`, not per-request).
+
+**This is a real, independently-justified fix regardless of whether it's
+the actual root cause of the live report** — the logical gap is provable
+from the code alone. But three straight "still not working" reports on the
+same underlying issue, with zero ability from this sandbox to observe
+Render's deploy state, the live Supabase table, or the actual SEC filing
+in question, means this session flagged directly to Mr. T (rather than
+guessing a fifth time) that confirming two things live is now the more
+valuable next step: (1) whether `Tra` has actually redeployed after each
+of the prior three merges (Render dashboard, not visible from here), and
+(2) the actual filing date/accession/wording of PARA's real distress
+filing, to check it both falls inside the new 730-day window and actually
+contains language this app's keyword list would match.
