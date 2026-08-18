@@ -941,6 +941,7 @@ function sizeGateSpacer() {
   spacerHeight = currentGateFullHeight();
   els.gateSpacer.style.height = (els.gateCard.classList.contains("docked") ? 0 : spacerHeight) + "px";
   updateGateDockState();
+  scheduleFirstCardSnapCheck();
 }
 function updateGateDockState() {
   const docked = els.scroller.scrollTop >= dockThreshold;
@@ -953,6 +954,24 @@ function updateGateDockState() {
 }
 function jumpToTop() {
   els.scroller.scrollTo({ top: 0, behavior: "smooth" });
+}
+var FIRST_CARD_SNAP_MAX_DELTA = 80;
+var FIRST_CARD_SNAP_SETTLE_MS = 120;
+var firstCardSnapTimer = null;
+function snapFirstCardUnderGateDock() {
+  if (!els.gateCard.classList.contains("docked")) return;
+  const card = document.querySelector(".content")?.firstElementChild;
+  if (!card) return;
+  const scrollerTop = els.scroller.getBoundingClientRect().top;
+  const cardTop = card.getBoundingClientRect().top - scrollerTop;
+  const delta = cardTop - GATE_DOCKED_H;
+  if (Math.abs(delta) > 0.5 && Math.abs(delta) <= FIRST_CARD_SNAP_MAX_DELTA) {
+    els.scroller.scrollBy({ top: delta, behavior: "smooth" });
+  }
+}
+function scheduleFirstCardSnapCheck() {
+  if (firstCardSnapTimer) clearTimeout(firstCardSnapTimer);
+  firstCardSnapTimer = setTimeout(snapFirstCardUnderGateDock, FIRST_CARD_SNAP_SETTLE_MS);
 }
 var gateMarqueeOneSetW = 0;
 var gateMarqueePos = 0;
@@ -1316,6 +1335,7 @@ function initRolodex(elements, callbacks) {
       gateTickingLocal = false;
     });
   }, { passive: true });
+  els.scroller.addEventListener("scroll", scheduleFirstCardSnapCheck, { passive: true });
   els.gateCard.addEventListener("click", () => {
     if (els.gateCard.classList.contains("docked")) jumpToTop();
   });
