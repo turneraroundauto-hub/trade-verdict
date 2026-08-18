@@ -5166,3 +5166,43 @@ this from scratch, more incrementally, if picked back up again — the
 mistake this pass made wasn't any single fix being wrong in isolation,
 it's stacking five more changes on an unverified live system in one day
 without confirming each one actually worked before building the next.
+
+**Correction, same day:** the `/analyze` `max_tokens`/parse-logging PR
+(`Tra` #46) was reported as merged but never actually was — only the
+`trade-verdict` mirror (#185) got merged. The real fix never ran in
+production, so a retest that still hit "Failed to parse AI response"
+wasn't proof the fix failed, it was never live to begin with. Confirmed
+after the full revert (which put `max_tokens` back to its original 800,
+unrelated to anything reverted) that the parse error is gone — consistent
+with the original truncation theory, now moot since it was never
+deployed either way. **Lesson: verify a merge actually happened in the
+repo that deploys, don't just report success from having called the
+tool once** — this cost real, avoidable debugging time on top of
+everything else this saga already cost.
+
+**Rebuilt, observation-first this time (`Tra` PR pending / `trade-verdict`
+PR pending, mirrored per the two-repo rule).** Direct instruction: keep
+the `pre_gate_solvency_state` table (a viable path, not abandoned) and
+get CIK/SEC data resolution actually reliable before rebuilding any
+enforcement on top of it. Re-landed only the two request-correctness
+fixes that were never actually disproven — the widened solvency keywords
+and the missing `dateRange=custom` param — plus full diagnostic logging
+(`getCik()` logs which tier resolved a ticker and the company name from
+SEC's own data; `searchEdgarFilings()` logs the exact request URL, HTTP
+status, hit count, and **every matched hit's own reported company
+name**). Deliberately NOT re-added: the persistent flag, the wide
+730-day lookback, and the cross-company guard — none of the actual
+enforcement mechanism that caused the MU false positive. This is
+observation-only; Pre-Gate's real-time behavior for any given request is
+otherwise unchanged from the reverted state.
+
+**Next step, requires a human:** trigger a fresh Pre-Gate check on a
+known-good ticker (e.g. MU) and a known-distressed one (PLAG/XTI), then
+grep Render logs for `[PRE-GATE]`. The `companies:` field on every
+`searchEdgarFilings` log line is the actual test of the long-standing
+`ciks`-scoping theory — if a healthy ticker's search ever returns hits
+from a different company's name, that confirms the cross-attribution
+bug directly, with real evidence instead of another guess. Only once
+this data is in hand should the persistent-flag/enforcement layer get
+rebuilt, informed by what actually happens rather than reasoned about
+from documentation.
