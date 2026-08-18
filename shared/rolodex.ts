@@ -149,32 +149,26 @@ export function positionRoloStack(): void {
   syncRoloStageHeight();
 }
 
-// Tapping a pill can happen from anywhere on the page -- #roloIndex stays
-// sticky-docked all the way through content that follows it, so the card
-// itself can be scrolled well out of view. scrollIntoView (not a hand-
-// computed scrollTop) so it stays correct automatically as the Gate/pill-
-// strip's own real heights change, rather than re-deriving offsets by
-// hand -- this codebase has repeatedly relearned that lesson the hard way.
-function scrollToActiveCard(): void {
-  const wrap = els.roloStage.closest<HTMLElement>('.rolo-wrap');
-  if (!wrap) return;
-  // Force the Gate into its docked layout BEFORE computing the scroll
-  // target, not after. scrollIntoView() computes its destination once,
-  // synchronously, against the CURRENT document layout -- but a real
-  // scroll normally triggers updateGateDockState() to collapse
-  // gateSpacer's ~150-200px of reserved flow space. Left to happen only
-  // via the scroll event, that collapse lands while the native
-  // smooth-scroll animation is already mid-flight toward a target
-  // computed against the OLD (taller) layout -- the page shifts out from
-  // under the animation and it overshoots. Confirmed via direct
-  // getBoundingClientRect measurement (Aug 16, 2026): the active card
-  // ended up rendered partially UNDER the sticky pill strip instead of
-  // below it, breaking pointer targeting on the card's top edge (the
-  // swipe-to-delete gesture's own pointerdown handler). Settling the
-  // dock state first, synchronously, makes the layout stable for the
-  // entire scroll -- idempotent with updateGateDockState()'s own dock
-  // handling once the real scroll event fires (gateDockedLast is already
-  // true, so it's a no-op, no double transition).
+// Forces the Gate into its docked layout synchronously and returns the pill
+// strip's current (docked) height -- shared by scrollToActiveCard() and
+// snapCardUnderDock() below, both of which need the page settled into its
+// final docked layout BEFORE computing a scrollIntoView target, not after.
+// scrollIntoView() computes its destination once, synchronously, against
+// the CURRENT document layout -- but a real scroll normally triggers
+// updateGateDockState() to collapse gateSpacer's ~150-200px of reserved
+// flow space. Left to happen only via the scroll event, that collapse
+// lands while the native smooth-scroll animation is already mid-flight
+// toward a target computed against the OLD (taller) layout -- the page
+// shifts out from under the animation and it overshoots. Confirmed via
+// direct getBoundingClientRect measurement (Aug 16, 2026): the active card
+// ended up rendered partially UNDER the sticky pill strip instead of below
+// it, breaking pointer targeting on the card's top edge (the swipe-to-
+// delete gesture's own pointerdown handler). Settling the dock state
+// first, synchronously, makes the layout stable for the entire scroll --
+// idempotent with updateGateDockState()'s own dock handling once the real
+// scroll event fires (gateDockedLast is already true, so it's a no-op, no
+// double transition).
+function forceGateDockedSync(): number {
   if (!els.gateCard.classList.contains('docked')) {
     els.gateCard.classList.add('docked');
     els.gateCard.setAttribute('aria-expanded', 'false');
@@ -184,7 +178,7 @@ function scrollToActiveCard(): void {
     // transition finishes animating, confirmed by sampling
     // getBoundingClientRect() every 30ms through a real dock: it stayed
     // at the full ~198px for one frame after the style write, then eased
-    // down over the next ~200ms while the scroll (and the wrap's real
+    // down over the next ~200ms while the scroll (and the target's real
     // position) tracked it the whole way, landing short every time.
     // Suppress the transition for this forced, synchronous collapse only
     // (still-natural scroll-driven docks keep their eased "pull up"), and
@@ -197,9 +191,42 @@ function scrollToActiveCard(): void {
     els.gateSpacer.style.transition = prevTransition;
     gateDockedLast = true;
   }
-  const roloIndexH = els.roloIndex.getBoundingClientRect().height;
+  return els.roloIndex.getBoundingClientRect().height;
+}
+
+// Tapping a pill can happen from anywhere on the page -- #roloIndex stays
+// sticky-docked all the way through content that follows it, so the card
+// itself can be scrolled well out of view. scrollIntoView (not a hand-
+// computed scrollTop) so it stays correct automatically as the Gate/pill-
+// strip's own real heights change, rather than re-deriving offsets by
+// hand -- this codebase has repeatedly relearned that lesson the hard way.
+function scrollToActiveCard(): void {
+  const wrap = els.roloStage.closest<HTMLElement>('.rolo-wrap');
+  if (!wrap) return;
+  const roloIndexH = forceGateDockedSync();
   wrap.style.scrollMarginTop = (GATE_DOCKED_H + roloIndexH) + 'px';
   wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Soft-snaps a tapped/expanded utility card's top edge to sit just under
+// whichever docked sticky bar sits directly above it on the page --
+// determined by real DOM order, not a hand-maintained per-tier list, so it
+// stays correct as tiers add/reorder cards (Pro's Watchlist/Proxy/Heat Map/
+// Track Record cards all sit below #roloIndex, same as the active ticker
+// card; Sector Pulse/Session Context/Import sit above it, same as the
+// Gate). A card before #roloIndex snaps under the docked Gate alone
+// (GATE_DOCKED_H); a card after it snaps under the docked Gate PLUS the
+// pill strip's own docked height, exactly matching scrollToActiveCard()'s
+// own offset for the same reason -- both sticky bars are stacked and
+// occupying real space above it once docked. Never reorders anything or
+// locks scroll -- a single smooth scrollIntoView, same as
+// scrollToActiveCard(), so free scrolling immediately afterward is
+// completely unaffected.
+export function snapCardUnderDock(cardEl: HTMLElement): void {
+  const roloIndexH = forceGateDockedSync();
+  const afterPillStrip = !!(els.roloIndex.compareDocumentPosition(cardEl) & Node.DOCUMENT_POSITION_FOLLOWING);
+  cardEl.style.scrollMarginTop = (GATE_DOCKED_H + (afterPillStrip ? roloIndexH : 0)) + 'px';
+  cardEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 export function goRolo(i: number): void {

@@ -778,9 +778,7 @@ function positionRoloStack() {
   if (els.roloHint) els.roloHint.textContent = cards.length ? roloCurrent + 1 + " / " + cards.length : "\u2014 / \u2014";
   syncRoloStageHeight();
 }
-function scrollToActiveCard() {
-  const wrap = els.roloStage.closest(".rolo-wrap");
-  if (!wrap) return;
+function forceGateDockedSync() {
   if (!els.gateCard.classList.contains("docked")) {
     els.gateCard.classList.add("docked");
     els.gateCard.setAttribute("aria-expanded", "false");
@@ -791,9 +789,20 @@ function scrollToActiveCard() {
     els.gateSpacer.style.transition = prevTransition;
     gateDockedLast = true;
   }
-  const roloIndexH = els.roloIndex.getBoundingClientRect().height;
+  return els.roloIndex.getBoundingClientRect().height;
+}
+function scrollToActiveCard() {
+  const wrap = els.roloStage.closest(".rolo-wrap");
+  if (!wrap) return;
+  const roloIndexH = forceGateDockedSync();
   wrap.style.scrollMarginTop = GATE_DOCKED_H + roloIndexH + "px";
   wrap.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+function snapCardUnderDock(cardEl) {
+  const roloIndexH = forceGateDockedSync();
+  const afterPillStrip = !!(els.roloIndex.compareDocumentPosition(cardEl) & Node.DOCUMENT_POSITION_FOLLOWING);
+  cardEl.style.scrollMarginTop = GATE_DOCKED_H + (afterPillStrip ? roloIndexH : 0) + "px";
+  cardEl.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 function goRolo(i) {
   const count = els.roloStage.querySelectorAll(".rolo-card").length;
@@ -1275,6 +1284,7 @@ function wireAccordionHead(head) {
     const wasExpanded = card.classList.contains("expanded");
     card.classList.toggle("expanded", !wasExpanded);
     head.setAttribute("aria-expanded", String(!wasExpanded));
+    if (!wasExpanded) snapCardUnderDock(card);
   }
   head.addEventListener("click", toggle);
   head.addEventListener("keydown", (e) => {
