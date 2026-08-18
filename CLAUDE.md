@@ -5206,3 +5206,49 @@ bug directly, with real evidence instead of another guess. Only once
 this data is in hand should the persistent-flag/enforcement layer get
 rebuilt, informed by what actually happens rather than reasoned about
 from documentation.
+
+**The real root cause, found from that data (`Tra` PR pending /
+`trade-verdict` PR pending, mirrored per the two-repo rule).** Real
+Render logs for BALY (a live, current going-concern case — the Aug 17,
+2026 liquidity warning, `substantial doubt`/`going concern` verbatim in
+the Q2 10-Q) showed the `ciks`-scoping theory was WRONG: the search
+itself was working perfectly — `searchEdgarFilings CIK 0001747079: 3
+hit(s), companies: Bally's Corp (BALY) (CIK 0001747079) | ...` — three
+real hits, correctly and exclusively attributed to Bally's Corp itself.
+No cross-company contamination anywhere. Same clean result for INO (7
+hits, all correctly attributed to Inovio Pharmaceuticals). The search
+request, CIK resolution, and `dateRange=custom` were never the problem.
+
+The actual bug was one step further downstream: `evaluatePreGate()` ran
+ONE combined query (all three categories' keywords OR'd together), got
+real hits back, then tried to figure out *which* category each hit
+belonged to by re-scanning a `hit.highlight` field for the keyword text.
+EDGAR's full-text search response doesn't reliably populate `highlight`
+the way that code assumed — so BALY's 3 real, correctly-found hits
+re-classified to zero categories and fell through to GREEN with "SEC
+filings matched search terms but none confirmed a hard/soft trigger
+category on closer classification." Every genuine hit was being found,
+then silently discarded one line later.
+
+**Fix: stopped trying to reclassify hits after the fact — search each
+category separately instead.** `evaluatePreGate()` now runs one
+`searchEdgarFilings()` call per `PRE_GATE_TRIGGERS` category (solvency,
+dilution, guidanceCut) instead of one combined query. A hit returned
+from a query scoped to only ONE category's keywords is guaranteed, by
+construction of a full-text keyword search, to actually contain that
+category's language somewhere in the filing — there's no post-hoc
+classification step left to get wrong, because the query itself IS the
+classification. Costs 3 SEC calls per `evaluatePreGate()` invocation
+instead of 1, but this only runs once per ticker per 24h
+(`preGateCache`), so the extra throttled calls are a modest, acceptable
+price for a mechanism that actually works.
+
+**Verified against the real evidence, not another simulation.** BALY's
+real logged response (3 hits, all Bally's Corp, all within the 45-day
+window) run through the new per-category logic: the solvency-scoped
+query alone would return those same 3 hits directly as solvency matches
+— no highlight parsing, no ambiguity, `hasHardTrigger` becomes true, RED.
+This is the one fix in this entire saga that's grounded in an actual
+live SEC response rather than reasoning about documented API behavior.
+**Still not confirmed against a fresh live deploy** — the next real test
+is re-checking BALY after this ships and seeing RED instead of GREEN.
