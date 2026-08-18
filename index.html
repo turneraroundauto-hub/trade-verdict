@@ -156,7 +156,7 @@
   .card-body{ display:grid; grid-template-rows:0fr; transition:grid-template-rows .22s ease; }
   .card.expanded .card-body{ grid-template-rows:1fr; }
   .card-body-inner{ overflow:hidden; }
-  .card-body-pad{ padding:0 14px 14px; }
+  .card-body-pad{ padding:0 14px 14px; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; }
 
   /* "(?)" help buttons on every card header + the Gate's own header, and
      the fixed-position balloon they pop open — shared/rolodex.ts owns
@@ -509,7 +509,7 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=58"></script>
+<script type="module" src="./app.js?v=59"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));

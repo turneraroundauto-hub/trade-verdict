@@ -4843,6 +4843,80 @@ changed — confirmed via the usual chunk-header grep that all three bundles sti
 `shared/rolodex.ts` chunk, no duplicate-module regression); `?v=` bumped in all three tiers' own
 `<script>` tags (`index.html` 57→58, `starter/index.html` 60→61, `pro/index.html` 5→6).
 
+## Frontend: below-pill card snap fixed for real (not just "consistent already"), card bodies capped to screen height (Aug 18, 2026)
+
+Direct live report: cards below the ticker pills (Pro's Watchlist/Proxy/Heat Map/Track Record) "aren't
+soft snapping consistently to the nearest docked marquee when expanded," and separately, expanded cards
+"should only expand the frame height of the available screen" — currently a card grows to the full length
+of its content (many watchlist rows, a long track record table) with no visible bottom, forcing a lot of
+extra scrolling to find where it ends.
+
+**The snap-consistency report was real, not imagined — reproduced and root-caused before touching
+anything.** A real headless-Chromium pass against Pro with a realistic watchlist confirmed Watchlist and
+Proxy landed flush (44px + pill-strip height below the docked bars) but Heat Map and Track Record landed
+20-80px short, worse the further down the page the card sat — exactly the "not consistent" symptom.
+
+**Root cause: `snapCardUnderDock()`'s `scrollIntoView` call computes its target against the document's
+CURRENT (still-collapsed) height, before the just-toggled accordion's own CSS-transitioned
+`grid-template-rows:0fr→1fr` growth has actually happened.** For a card near the bottom of the page —
+Heat Map, Track Record — there isn't yet enough content below it (while still collapsed) to physically
+scroll far enough to reach the flush position; the browser silently clamps the scroll to whatever's
+scrollable AT THAT INSTANT, and once the accordion finishes growing a moment later and more room becomes
+available, the already-dispatched scroll animation never revisits its target — it just stops wherever it
+got clamped. Confirmed directly: sampling `#scroller.scrollHeight` frame-by-frame after the click showed
+it climbing over the next ~250ms as the accordion's own CSS transition progressed, while the smooth-scroll
+animation had already committed to (and stopped at) a scrollTop matching the maxScroll available at click
+time, not the larger one available once the accordion caught up a moment later. Watchlist/Proxy "worked"
+purely because they happen to sit higher up the page, where there's already enough content below them even
+before their own body grows — not because the mechanism was actually correct.
+
+This is the exact same class of bug `forceGateDockedSync()` already exists to prevent for the Gate's own
+spacer — just in the opposite direction (a GROWING element instead of a shrinking one), and on the card
+being expanded itself rather than the dock above it.
+
+**Fix, mirroring `forceGateDockedSync()`'s own suppress/force-reflow/restore dance:** `snapCardUnderDock()`
+now temporarily forces the card's `.card-body` to its real final height synchronously (transition
+suppressed, forced reflow) immediately before calling `scrollIntoView`, so the scroll target is computed
+against the true final layout — then reverts to collapsed and restores the transition so the visual
+accordion-open animation still plays normally afterward, unaffected. Verified via frame-sampling that the
+accordion still visibly animates open (not an instant jump) with this dance in place, and re-verified the
+original repro (Watchlist/Proxy/Heat Map/Track Record from a real incremental scroll) now lands all four
+flush, not just the two that happened to work before.
+
+**Card-height cap, landed in the same pass since it's the same code path.** Added
+`capCardBodyHeight(cardEl, dockOffset)`, called from `snapCardUnderDock()` right before the forced-height
+dance above (so the forced-height measurement automatically respects the cap, no separate plumbing
+needed) — computes the space actually available below whichever dock sits above the card
+(`scroller.clientHeight − dockOffset − headHeight − margin`) and applies it as a `max-height` to
+`.card-body-pad` specifically, not `.card-body-inner` (which must keep a plain, uncapped `overflow:hidden`
+for the existing 0fr/1fr collapse trick to keep working — `.card-body`'s grid row sizes to
+`.card-body-inner`'s intrinsic content height, which naturally shrinks to match its now-capped child, so
+the collapse mechanism needed zero changes). `.card-body-pad` picked up `overflow-y:auto` (plus
+`overflow-x:hidden`, `overscroll-behavior:contain` so an internal scroll doesn't chain into scrolling the
+whole page once it hits its own end, and `-webkit-overflow-scrolling:touch` for iOS momentum) as baseline
+CSS in all three tiers' `<style>` blocks (identical hand-copied rule, same as every other shared CSS
+constant in this file) — harmless when no JS-driven `max-height` is set (a card that fits within one
+screen just never triggers scrolling), and a real internal scrollbar once a card's content exceeds it.
+Re-capped on window resize (`recapExpandedCards()`, wired alongside the existing `sizeGateMarquee`/
+`sizeGateSpacer`/`sizeRoloMarquee` resize listeners) since the available-height math is a snapshot of the
+viewport at expand time and doesn't self-update otherwise — a phone rotation or a desktop window resize
+while a card is open re-measures and re-applies the cap for every currently-expanded card.
+
+**Verified, not assumed:** a synthetic 50-ticker watchlist (35 overflow rows) confirmed the Watchlist
+card's body caps at the computed available height (567px in the test viewport) while its true content
+height (1788px) is much taller, and that the capped body is genuinely internally scrollable
+(`pad.scrollTop` moves, `pad.scrollHeight > pad.clientHeight`). Re-ran the full existing regression suite
+afterward since this touches the shared `snapCardUnderDock()` every tier calls: pill-tap auto-analyze, the
+Sector Pulse natural-dock soft-snap (previous entry, unaffected), Free/Starter's Pulse/Context/Import
+accordion snaps (all still land flush at 44px — the fix and the cap are both no-ops for cards with modest
+content, by construction), and a deep-scroll stability check (no unwanted jump). `npx tsc -p tsconfig.json`
+shows the same known 7-error `?v=N` baseline, zero new errors; `npm test` (75 cases) unaffected, all pass.
+
+`app.js`/`starter/app.js`/`pro/app.js` rebuilt via `node esbuild.config.mjs` (only `shared/rolodex.ts`
+changed — confirmed via the usual chunk-header grep that all three bundles still contain exactly one
+`shared/rolodex.ts` chunk, no duplicate-module regression); `?v=` bumped in all three tiers' own
+`<script>` tags (`index.html` 58→59, `starter/index.html` 61→62, `pro/index.html` 6→7).
+
 ## Terminology rule
 
 Verdicts are UP / DOWN / FLAT only, with a magnitude and a sizing action.
