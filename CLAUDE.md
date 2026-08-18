@@ -5333,3 +5333,90 @@ needed. **Next step, requires a human:** check Render logs for
 `[PRE-GATE]` lines after re-triggering `PLAG`/`XTI`, and paste them back —
 this is the only way to see what's actually happening against a live SEC
 response from a sandbox that can't reach `sec.gov` at all.
+
+**Much worse than "still green" — a real, healthy company got a
+fabricated hard-down trigger (`Tra` PR pending / `trade-verdict` PR
+pending, mirrored per the two-repo rule).** Reported live, right after the
+diagnostic-logging deploy: MU (Micron, a large, financially healthy
+semiconductor company) started showing a persistent Pre-Gate solvency RED
+("going-concern/bankruptcy/default/delisting language found") — while
+XTI, the genuinely distressed ticker confirmed via a real quoted 10-K,
+*still* showed GREEN. Exactly the opposite of correct in both directions
+at once.
+
+**A structural gap made this worse than a normal false positive: the
+persistent-flag mechanism has no way to self-correct a wrongly-set
+flag.** Once `pre_gate_solvency_state` has a `flagged=true` row, it stays
+RED forever until both dual-clearance conditions are met — and for a
+company that never had a real problem, neither condition (a filing
+"resolving" a nonexistent issue, a catalyst "confirming" a nonexistent
+recovery) has any natural reason to ever fire. A false positive here
+could get permanently stuck without manual intervention. **Immediate
+remediation, run as part of the DDL patch below:** `delete from
+pre_gate_solvency_state where ticker = 'MU';` — safe regardless of root
+cause, since the app will simply re-flag MU if a real trigger genuinely
+exists once the fix below is live.
+
+**Root cause not yet confirmed** (still can't reach `sec.gov` from this
+sandbox), but the leading theory: `searchEdgarFilings()`'s `ciks=`
+parameter may not be reliably constraining EDGAR's full-text search to
+the intended company, so a solvency-keyword hit from some *other*
+distressed company in SEC's full corpus gets attributed to whatever
+ticker happened to be checked. This would explain both halves of the
+report at once — MU's CIK resolves cleanly (a real, well-known ticker),
+so it reaches the search and can pick up a stray unrelated hit; XTI's own
+card showed every other data field empty (no 52W, no phase, no beta, no
+opening bar — `BLIND SEQUENCE mode`), consistent with its CIK resolution
+failing entirely and short-circuiting to the "No SEC CIK found" GREEN
+before ever reaching a search that could catch its own real filing.
+
+**Fix shipped regardless of confirming the exact root cause: a
+cross-company match guard, `checkHitCompanyMatch()`/
+`companyNamesLikelyMatch()`.** SEC's own `company_tickers.json` already
+carries each ticker's company name (`title` field) — now captured
+alongside the existing ticker→CIK map as `tickerCikNameCache` (Aug 18,
+2026, earlier in this same investigation). Every solvency-category search
+hit's own reported company (`display_names`, already returned by EDGAR's
+full-text search) is now cross-checked against the requested ticker's
+expected company before it's ever allowed to flag or force RED — normalized
+(case/punctuation/corporate-suffix-insensitive) and requiring at least one
+shared 4+-letter word. A mismatch is suppressed (not counted as a hard
+trigger, logged loudly as `[PRE-GATE] MISMATCH`) rather than trusted.
+Fails **permissive** when either name is unavailable to compare (e.g. a
+ticker resolved via `KNOWN_CIK_OVERRIDES`/the fund map/live EDGAR search,
+none of which carry a name) — this is a targeted guard against a confirmed
+cross-attribution failure mode, not a general filter, so it should never
+block a real match just because metadata happens to be thin. Applied to
+all three places a solvency hit can flag: the wide-lookback pre-check
+(walks hits in order, flags the first trusted one, falls through to the
+narrower search if every hit is untrusted), the 45-day classification
+loop (suppresses an untrusted solvency match before `hasHardTrigger` is
+even computed, so it can't force RED at all), and the existing-flag note
+(now surfaces the stored `trigger_company_name` so even an already-flagged
+ticker's attribution is visible in the app itself, not just Render logs).
+
+**`pre_gate_solvency_state` gained a `trigger_company_name` column**
+(`supabase-ddl-patch11-solvency-company-name.sql`, additive `alter table`
+— patch10 already ran in production, so this doesn't touch the existing
+columns) — stores the matched filing's own reported company name
+alongside every flag, so a mismatch (or a legitimate match) stays visible
+directly in the Pre-Gate note text going forward, not buried in Render
+logs a human has to go looking for.
+
+**Verified by simulation, not a live deploy** — same standing posture as
+every backend change in this file, but this one mattered enough to check
+carefully: ran the actual `companyNamesLikelyMatch()`/
+`normalizeCompanyName()` logic against 10 synthetic cases — exact match,
+a real corporate-suffix variation (Inc/Corp), the actual MU-vs-unrelated-
+microcap scenario, two completely unrelated companies, both permissive-
+fallback cases (either name missing), case/punctuation insensitivity, a
+legitimate multi-entity filer list, and a short-generic-word false-match
+check — all 10 correct. Also confirmed a real `node server.js` boot with
+zero missing-export/reference errors. **Not verified:** whether this
+guard actually stops the live MU-class mismatch (still can't reach
+`sec.gov`), and the underlying `ciks`-scoping theory is still unconfirmed
+either way — the diagnostic logging from the previous entry is still the
+only path to actually confirming that. This guard is a real safety net
+regardless: even if the root cause turns out to be something else
+entirely, a cross-company solvency flag should never have been trusted in
+the first place.
