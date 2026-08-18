@@ -165,7 +165,7 @@
   .card-body{ display:grid; grid-template-rows:0fr; transition:grid-template-rows .22s ease; }
   .card.expanded .card-body{ grid-template-rows:1fr; }
   .card-body-inner{ overflow:hidden; }
-  .card-body-pad{ padding:0 14px 14px; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; }
+  .card-body-pad{ padding:0 14px 14px; overflow-y:auto; overflow-x:hidden; touch-action:pan-y; -webkit-overflow-scrolling:touch; }
 
   /* "(?)" help buttons on every card header + the Gate's own header, and
      the fixed-position balloon they pop open — shared/rolodex.ts owns
@@ -288,7 +288,7 @@
     padding:16px; display:flex; flex-direction:column;
     transition:transform .32s cubic-bezier(.2,.7,.2,1), opacity .32s ease, filter .32s ease;
     will-change:transform;
-    overflow-x:hidden; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;
+    overflow-x:hidden; touch-action:pan-y; -webkit-overflow-scrolling:touch;
   }
   /* Swipe-to-delete on the active card only (Aug 16, 2026 — direct
      request: "click pill to allow card to swipe to delete"). Same

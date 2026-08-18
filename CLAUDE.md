@@ -5062,6 +5062,73 @@ changed — confirmed via the usual chunk-header grep that all three bundles sti
 `shared/rolodex.ts` chunk, no duplicate-module regression); `?v=` bumped in all three tiers' own
 `<script>` tags (`index.html` 60→61, `starter/index.html` 63→64, `pro/index.html` 8→9).
 
+## Frontend: the card-height-cap CSS broke swipe-to-delete and blocked scroll-chaining (Aug 18, 2026)
+
+Direct live report on the two height-cap fixes just above: "swipe to delete the ticker card is broke" and
+"a persistent scrolling past the end of the inside of a card should continue scrolling the whole page."
+Both real, both self-inflicted by the baseline CSS those two fixes added to `.rolo-card`/`.card-body-pad`
+— `overflow-x:hidden; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;` — reasoned about at
+the time as harmless safety padding, not verified against a real touch gesture before shipping.
+
+**Root cause 1 (swipe-to-delete): `overflow-x:hidden` alone silently turns on `overflow-y:auto`.** Per the
+CSS spec's overflow computed-value rule, setting only one axis to a non-`visible` value forces the OTHER
+axis to compute as `auto` too — confirmed directly via `getComputedStyle()`: a plain, short/uncapped
+`.rolo-card` (never touched by the JS-driven `max-height`/`overflow-y` cap at all) already reported
+`overflowY: 'auto'`, purely from the baseline `overflow-x:hidden` rule. That's enough for the browser's
+native touch-scroll-gesture recognizer to treat the card as a scrollable container and capture the touch
+before it ever reaches the app's own pointer-based swipe handler (`onRoloPointerDown`/`onRoloPointerMove`
+in `shared/rolodex.ts`) — invisible to a mouse-based test (confirmed: `page.mouse`-driven drag swiped
+correctly every time) and only reproducible with real touch input, which is exactly why this shipped
+without being caught the first time. Reproduced conclusively with Chromium's CDP `Input.dispatchTouchEvent`
+(real touch-event dispatch, not mouse emulation) — swipe consistently failed with the broken CSS in place,
+consistently worked once removed.
+
+**Fix: `touch-action:pan-y` instead of leaving the browser to infer gesture intent from `overflow`
+alone.** Same relationship `.rolo-stage` already has with the page (`touch-action:pan-y` there reserves
+vertical panning for native scrolling and leaves horizontal panning for the JS swipe handler) — applied
+directly to `.rolo-card` and `.card-body-pad` themselves now that each one is independently scrollable.
+Verified via the same real-touch CDP technique: vertical touch-drag on a genuinely tall/capped card still
+scrolls it natively (`scrollTop` moves), AND horizontal swipe-to-delete still works on that same capped
+card — both gestures coexist correctly on one element once `touch-action` (not an inferred `overflow`
+side-effect) is what's actually telling the browser which direction to hand off to native scrolling.
+
+**A second, latent instance of the identical bug, not yet reported but fixed the same way.** Pro's
+Watchlist accordion has its own independent compact-row swipe-to-delete gesture
+(`onCompactPointerDown`/`onCompactPointerMove` in `pro/app.ts`) inside `.card-body-pad` — the exact same
+`overflow-x:hidden`-forces-`overflow-y:auto` mechanism applied there too, for the same reason, so it was
+silently broken by the same commit even though nobody had hit it yet. Fixed by the same `touch-action:pan-y`
+change on `.card-body-pad` (shared CSS across all three tiers), verified directly with a real CDP touch
+swipe on a compact row — confirmed working.
+
+**Root cause 2 (scroll-chaining): `overscroll-behavior:contain` was the literal opposite of what was
+wanted.** Added in the original height-cap work with the stated reasoning "so an internal scroll doesn't
+chain into scrolling the whole page once it hits its own end" — a real design decision, just the wrong
+one; direct correction: scrolling to a capped card's own end should hand off to `#scroller` and keep
+going, not stop dead. Fix: removed the declaration entirely, falling back to the CSS default
+`overscroll-behavior:auto`, which is precisely "chain to the next scrollable ancestor once this one can't
+scroll further."
+
+**Verified with real, continuous wheel-scroll gestures (not a single jump), both card types:** scrolled a
+capped `.rolo-card` past its own max in one continuous set of wheel ticks and confirmed `#scroller` picked
+up the remainder and kept scrolling past where the card's own end left off; repeated the same check against
+a capped `.card-body-pad` (Pro's Watchlist accordion, 18-ticker watchlist) with the same result. **Touch-
+specific scroll-chaining (as opposed to swipe-to-delete, verified above) was not independently confirmed
+via CDP's synthetic touch dispatch** — the same touch-simulation attempt that cleanly reproduced/fixed the
+swipe-to-delete bug did not show `#scroller` picking up the remainder the way wheel scrolling did, most
+likely a CDP synthetic-touch limitation (multi-phase "scroll inner then chain to outer" gestures depend on
+compositor-thread touch handling that `Input.dispatchTouchEvent` doesn't fully replicate) rather than a
+real app bug, given `overscroll-behavior:auto` is the browser's own literal default chaining behavior and
+wheel-based chaining through the exact same `overflow:hidden` ancestors (`.rolo-stage`, `.card-body-inner`)
+worked cleanly — flagged here rather than asserted as proven, same "say what's unverified" posture as
+every other sandbox-limited check in this file. Spot-check a real continuous finger drag on an actual
+device if this resurfaces.
+
+Pure CSS change — no `.ts`/`.js` files touched, so no `esbuild` rebuild or `?v=` bump was needed for this
+one. `npx tsc -p tsconfig.json` (unaffected either way) still shows the same known 7-error baseline;
+`npm test` (75 cases) unaffected, all pass. Re-ran the full existing regression suite (pill-tap
+auto-analyze, the Sector Pulse natural-dock soft-snap, all five of Pro's below-pill/Glossary card snaps)
+to confirm the `touch-action` change didn't disturb anything else — all still land flush.
+
 ## Terminology rule
 
 Verdicts are UP / DOWN / FLAT only, with a magnitude and a sizing action.
