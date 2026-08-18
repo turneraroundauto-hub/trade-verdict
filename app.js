@@ -1332,13 +1332,23 @@ function refreshGateMarquee() {
   }).join("");
   buildGateMarquee(itemsHTML);
 }
+function expandCard(card) {
+  card.classList.add("expanded");
+  const head = card.querySelector(".card-head");
+  if (head) head.setAttribute("aria-expanded", "true");
+  if (card.dataset.card === "glossary") buildGlossary();
+  snapCardUnderDock(card);
+}
 function wireAccordionHead(head) {
   function toggle() {
     const card = head.closest(".card");
     const wasExpanded = card.classList.contains("expanded");
-    card.classList.toggle("expanded", !wasExpanded);
-    head.setAttribute("aria-expanded", String(!wasExpanded));
-    if (!wasExpanded) snapCardUnderDock(card);
+    if (wasExpanded) {
+      card.classList.remove("expanded");
+      head.setAttribute("aria-expanded", "false");
+    } else {
+      expandCard(card);
+    }
   }
   head.addEventListener("click", toggle);
   head.addEventListener("keydown", (e) => {
@@ -1676,6 +1686,7 @@ var GLOSSARY = [
   { cat: "CRF FRAMEWORK", term: "Gate 3 \u2014 Opening Bar", def: "Watches how the stock trades in the first few minutes after the market opens, since that early action often hints at where the rest of the day is headed.", ex: "Like judging a race by how strong the runners look at the starting gun." },
   { cat: "CRF FRAMEWORK", term: "Gate 4 \u2014 Phase Identification", def: "Figures out whether a stock\u2019s big move is just getting started, already well underway, or has gone so far it might be due for a pullback.", ex: "Early innings vs. late innings of the same game." },
   { cat: "CRF FRAMEWORK", term: "Gate 5 \u2014 Dynamic Sector Proxy", def: "Compares the stock to other companies or funds in the same industry, to see if it\u2019s moving with its peers or acting strangely on its own.", ex: "Checking if one kid in class is sick, or if the whole class has the flu." },
+  { cat: "CRF FRAMEWORK", term: "Proxy", def: "The specific peer stock, ETF, or index a ticker is measured against for Gate 5 \u2014 shown on each card as PROXY. If the ticker and its proxy are moving together, that confirms the read; if they diverge, Gate 5 treats it as a warning sign.", ex: "IREN and CIFR are both checked against TSM, since Taiwan chip-supply stress hits the whole AI/semi trade the same way." },
   { cat: "TICKER CLASSIFICATIONS", term: "Canary", def: "European or institutional base that prices macro risk early. When canaries fall while sentiment names rise, reversal is coming.", ex: "ASML fell before MU/ALAB. Warned 10-21 days early." },
   { cat: "TICKER CLASSIFICATIONS", term: "Sentiment", def: "Moves most directly with AI capex or sector confidence, ignoring macro until it breaks.", ex: "MU, NVDA, AMD. Ran +47% into Broadcom miss then crashed 12.8%." },
   { cat: "TICKER CLASSIFICATIONS", term: "Flow", def: "Moves on mechanical buying events. Institutions distribute at the opening bar on positive catalyst days.", ex: "ALAB opened $315 on Computex day, flushed to $292 in 30 min on 1.1M shares." },
@@ -1753,21 +1764,14 @@ function buildGlossary() {
   });
   body.innerHTML = html;
 }
-function setGlossaryOpen(open) {
-  var panel = document.getElementById("glossary-panel");
-  var arrow = document.getElementById("glossary-arrow");
-  var header = document.getElementById("glossary-header");
-  panel.classList.toggle("open", open);
-  arrow.classList.toggle("open", open);
-  header.classList.toggle("open", open);
-  if (open) buildGlossary();
-}
-function toggleGlossary() {
-  var panel = document.getElementById("glossary-panel");
-  setGlossaryOpen(!panel.classList.contains("open"));
+function ensureGlossaryOpen() {
+  var card = document.getElementById("card-glossary");
+  if (!card) return;
+  if (!card.classList.contains("expanded")) expandCard(card);
+  else snapCardUnderDock(card);
 }
 function jumpToGlossaryTerm(key) {
-  setGlossaryOpen(true);
+  ensureGlossaryOpen();
   var search = document.getElementById("glossary-search");
   if (search) search.value = "";
   filterGlossary("");
@@ -1806,7 +1810,6 @@ function filterGlossary(query) {
   var nr = document.getElementById("glossary-no-results");
   if (nr) nr.style.display = !anyVisible && q ? "block" : "none";
 }
-document.getElementById("glossary-header").addEventListener("click", toggleGlossary);
 document.getElementById("glossary-search").addEventListener("input", (e) => filterGlossary(e.target.value));
 var HELP_CONTENT = {
   gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against \u2014 feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read \u2014 tap the docked bar to jump back to top.',

@@ -201,14 +201,31 @@ function refreshGateMarquee(): void {
   rolodex.buildGateMarquee(itemsHTML);
 }
 
-// ── Utility card accordion (Pulse/Context/Import) ─────────────────────
+// ── Utility card accordion (Pulse/Context/Import/Glossary) ────────────
+// expandCard() is also the entry point jumpToGlossaryTerm()/jumpToAbout()
+// (below, near the Glossary functions / profile menu) call to ensure the
+// Glossary card is open+snapped -- buildGlossary() is a plain function
+// declaration (hoisted), so referencing it here ahead of its own
+// definition further down the file is safe.
+function expandCard(card: HTMLElement): void {
+  card.classList.add('expanded');
+  const head = card.querySelector('.card-head'); if (head) head.setAttribute('aria-expanded', 'true');
+  // Synchronous, not fetched -- build BEFORE snapping so the forced-
+  // height scroll-target computation (inside snapCardUnderDock) measures
+  // the real, capped content height instead of the still-empty panel.
+  if (card.dataset.card === 'glossary') buildGlossary();
+  rolodex.snapCardUnderDock(card);
+}
 function wireAccordionHead(head: Element): void {
   function toggle(): void {
     const card = head.closest('.card') as HTMLElement;
     const wasExpanded = card.classList.contains('expanded');
-    card.classList.toggle('expanded', !wasExpanded);
-    head.setAttribute('aria-expanded', String(!wasExpanded));
-    if (!wasExpanded) rolodex.snapCardUnderDock(card);
+    if (wasExpanded) {
+      card.classList.remove('expanded');
+      head.setAttribute('aria-expanded', 'false');
+    } else {
+      expandCard(card);
+    }
   }
   head.addEventListener('click', toggle);
   head.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter' || (e as KeyboardEvent).key === ' ') { e.preventDefault(); toggle(); } });
@@ -576,6 +593,7 @@ var GLOSSARY: GlossaryTerm[] = [
   {cat:'CRF FRAMEWORK',term:'Gate 3 — Opening Bar',def:'Watches how the stock trades in the first few minutes after the market opens, since that early action often hints at where the rest of the day is headed.',ex:'Like judging a race by how strong the runners look at the starting gun.'},
   {cat:'CRF FRAMEWORK',term:'Gate 4 — Phase Identification',def:'Figures out whether a stock’s big move is just getting started, already well underway, or has gone so far it might be due for a pullback.',ex:'Early innings vs. late innings of the same game.'},
   {cat:'CRF FRAMEWORK',term:'Gate 5 — Dynamic Sector Proxy',def:'Compares the stock to other companies or funds in the same industry, to see if it’s moving with its peers or acting strangely on its own.',ex:'Checking if one kid in class is sick, or if the whole class has the flu.'},
+  {cat:'CRF FRAMEWORK',term:'Proxy',def:'The specific peer stock, ETF, or index a ticker is measured against for Gate 5 — shown on each card as PROXY. If the ticker and its proxy are moving together, that confirms the read; if they diverge, Gate 5 treats it as a warning sign.',ex:'IREN and CIFR are both checked against TSM, since Taiwan chip-supply stress hits the whole AI/semi trade the same way.'},
   {cat:'TICKER CLASSIFICATIONS',term:'Canary',def:'European or institutional base that prices macro risk early. When canaries fall while sentiment names rise, reversal is coming.',ex:'ASML fell before MU/ALAB. Warned 10-21 days early.'},
   {cat:'TICKER CLASSIFICATIONS',term:'Sentiment',def:'Moves most directly with AI capex or sector confidence, ignoring macro until it breaks.',ex:'MU, NVDA, AMD. Ran +47% into Broadcom miss then crashed 12.8%.'},
   {cat:'TICKER CLASSIFICATIONS',term:'Flow',def:'Moves on mechanical buying events. Institutions distribute at the opening bar on positive catalyst days.',ex:'ALAB opened $315 on Computex day, flushed to $292 in 30 min on 1.1M shares.'},
@@ -653,18 +671,31 @@ function buildGlossary(): void {
   });
   body.innerHTML = html;
 }
-function setGlossaryOpen(open: boolean): void {
-  var panel = document.getElementById('glossary-panel')!;
-  var arrow = document.getElementById('glossary-arrow')!;
-  var header = document.getElementById('glossary-header')!;
-  panel.classList.toggle('open', open);
-  arrow.classList.toggle('open', open);
-  header.classList.toggle('open', open);
-  if (open) buildGlossary();
+// Ensures the Glossary card is expanded and snapped into view -- idempotent,
+// safe to call even when it's already open (still re-snaps, since the
+// caller is explicitly asking to jump there). The Glossary card is now a
+// plain .card[data-card="glossary"], wired through the same
+// expandCard()/wireAccordionHead() mechanism as every other accordion card
+// (see above) -- this is just the "ensure open" entry point for callers
+// that don't have a click event to work from (help balloons, the About
+// profile-menu link, below).
+function ensureGlossaryOpen(): void {
+  var card = document.getElementById('card-glossary') as HTMLElement | null;
+  if (!card) return;
+  if (!card.classList.contains('expanded')) expandCard(card);
+  else rolodex.snapCardUnderDock(card);
 }
-function toggleGlossary(): void {
-  var panel = document.getElementById('glossary-panel')!;
-  setGlossaryOpen(!panel.classList.contains('open'));
+// Profile-menu "ABOUT" link -- the Glossary's first category (CRF
+// FRAMEWORK) is a plain-English walkthrough of the whole app (CRF,
+// Pre-Gate, Gate 0-5), so jumping there IS the About page; no separate
+// content to maintain. Clears any active search filter (so CRF FRAMEWORK
+// isn't hidden behind a leftover query) before snapping the card into view.
+function jumpToAbout(): void {
+  var m = document.getElementById('profile-menu'); if (m) m.classList.remove('open');
+  var search = document.getElementById('glossary-search') as HTMLInputElement | null;
+  if (search) search.value = '';
+  filterGlossary('');
+  ensureGlossaryOpen();
 }
 // Opens the Glossary (if closed), clears any active search filter so the
 // term can't be hidden by it, then scrolls the matching entry into view
@@ -673,7 +704,7 @@ function toggleGlossary(): void {
 // text filterGlossary() already searches, so no separate id/slug needs
 // keeping in sync with the GLOSSARY array above.
 function jumpToGlossaryTerm(key: string): void {
-  setGlossaryOpen(true);
+  ensureGlossaryOpen();
   var search = document.getElementById('glossary-search') as HTMLInputElement | null;
   if (search) search.value = '';
   filterGlossary('');
@@ -706,7 +737,6 @@ function filterGlossary(query: string): void {
   var nr = document.getElementById('glossary-no-results');
   if (nr) (nr as HTMLElement).style.display = (!anyVisible && q) ? 'block' : 'none';
 }
-document.getElementById('glossary-header')!.addEventListener('click', toggleGlossary);
 document.getElementById('glossary-search')!.addEventListener('input', (e) => filterGlossary((e.target as HTMLInputElement).value));
 
 // ── Card-header help balloons ──────────────────────────────────────────
@@ -822,9 +852,11 @@ declare global {
     toggleProfileMenu: typeof toggleProfileMenu;
     promptLogResults: typeof promptLogResults;
     exportWatchlistCSV: typeof exportWatchlistCSV;
+    jumpToAbout: typeof jumpToAbout;
   }
 }
 window.authLogout = authLogout;
 window.toggleProfileMenu = toggleProfileMenu;
 window.promptLogResults = promptLogResults;
 window.exportWatchlistCSV = exportWatchlistCSV;
+window.jumpToAbout = jumpToAbout;
