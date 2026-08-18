@@ -4679,8 +4679,22 @@ even after both PRs merged — confirmed directly, not assumed, by re-measuring 
 just shorten the two clipping `.card-sub` strings — Watchlist to "Beyond top 15", Import to "Paste or
 type tickers to add" — leaving the already-existing `.help-btn`/balloon exactly where the other session
 put it (a sibling of `.card-title-wrap`, unaffected by the text edit). Both now measure clean at 0px
-overflow. **Lesson worth keeping:** before adding new UI mechanics to a shared file mid-session, re-fetch
-and check for concurrent work first — this file's own two-repo-drift lessons are about staying in sync
+overflow.
+
+**A second, real regression surfaced only after rebasing onto the concurrent PRs, caught by re-measuring
+rather than assuming the fix was complete.** Adding a `.help-btn` sibling to *every* utility card (not
+just Watchlist, which already had a count-badge eating into its width) shrank `.card-title-wrap`'s
+available space on cards that had measured clean before — **Session Context** ("Empty · auto-included in
+every analysis," clipping by 6px on all three tiers) and Pro's **Proxy Resolution Explorer** ("Gate 5
+proxy + live coherence per ticker," clipping by 13px). Neither was part of the original report; both were
+found by re-running the exact same `scrollWidth`-vs-`clientWidth` measurement against the merged tree
+instead of trusting the pre-rebase result. Fixed the same way: Context shortened to "Auto-included in
+every analysis" (drops the redundant "Empty · " prefix — the textarea itself already shows emptiness),
+Proxy shortened to "Proxy + live coherence per ticker" (drops the redundant "Gate 5 " prefix — the card's
+own title already says "Proxy Resolution Explorer"). Re-measured clean across all three tiers afterward.
+
+**Lesson worth keeping:** before adding new UI mechanics to a shared file mid-session, re-fetch and check
+for concurrent work first — this file's own two-repo-drift lessons are about staying in sync
 across repos, but the exact same discipline applies within one repo when another session might be
 landing overlapping work in parallel.
 
