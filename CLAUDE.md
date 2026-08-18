@@ -5134,3 +5134,112 @@ to confirm the `touch-action` change didn't disturb anything else — all still 
 Verdicts are UP / DOWN / FLAT only, with a magnitude and a sizing action.
 "Stand down" and "go" are prohibited anywhere in UI copy, verdict labels, or
 generated text (a permanent rule from the Jul 28-29, 2026 framework rebuild).
+
+## Backend: Pre-Gate was silently never blocking anything — two bugs, then a
+## real redesign (Aug 18, 2026)
+
+Reported live: PARA filed a distress 8-K but Pre-Gate showed GREEN
+("PRE-GATE clear"). Turned out to be three separate things, found and
+fixed in sequence, each confirmed by direct live report before moving to
+the next — worth reading in order since each one looked like it should
+have been "the fix" until the next report proved otherwise.
+
+**Bug 1 — keyword coverage (`Tra` PR #41 / `trade-verdict` PR #180, both
+merged).** `PRE_GATE_TRIGGERS.solvency` only matched narrow auditor-opinion
+phrasing (`"substantial doubt"`, `"going concern"`) — the language a
+10-K/10-Q footnote uses, not what a company's own distress 8-K typically
+says (a bankruptcy filing, a debt default, a delisting notice — Items
+1.03/2.04/3.01). Widened to add `"chapter 11"`, `"chapter 7 bankruptcy"`,
+`"voluntary petition for bankruptcy"`, `"bankruptcy protection"`,
+`"insolvent"`, `"insolvency"`, `"receivership"`, `"event of default"`,
+`"notice of default"`, `"acceleration of indebtedness"`, `"notice of
+delisting"`, `"delisting notice"`.
+
+**Bug 2 — a much bigger, systemic one (`Tra` PR #42 / `trade-verdict` PR
+#181, both merged).** Reported still-GREEN immediately after Bug 1
+deployed, which pointed at something deeper than keyword coverage.
+`searchEdgarFilings()` calls `efts.sec.gov/LATEST/search-index` with
+`startdt`/`enddt` but never sent `dateRange=custom` — a parameter that
+endpoint requires whenever a custom date range is supplied (the real EDGAR
+full-text-search UI always sends it alongside a custom range). Without it
+the request is liable to be rejected outright; `searchEdgarFilings()` fails
+safe to `[]` on any error, and `evaluatePreGate()` then reports GREEN —
+meaning this could have made **every** ticker read as Pre-Gate-clean
+regardless of its actual filings, the whole time this feature has existed,
+not just tickers missing keyword coverage. Added `&dateRange=custom`.
+**Unverified against a live SEC EDGAR response** — same standing sandbox
+limitation as every other SEC-related change in this file (sec.gov is
+unreachable from here) — reasoned from the endpoint's documented behavior,
+not confirmed against a real response.
+
+**Redesign — persistent solvency flag (`Tra` PR pending / `trade-verdict`
+PR pending, mirrored per the two-repo rule).** Direct instruction, once the
+two bugs above were fixed: "Any negative filings to SEC should be a hard
+down until a corroborated and congruent positive catalyst including
+removing the 'going concern' stain." Scoped via `AskUserQuestion` before
+building (three questions, all answered decisively):
+1. **Scope: solvency only**, not dilution/guidance-cut — those stay
+   soft/escalating exactly as before, untouched.
+2. **Persistence: a real durable flag, no time decay** — not just a wider
+   lookback window. New `pre_gate_solvency_state` table
+   (`supabase-ddl-patch10-solvency-state.sql`, same two-step RLS-disable +
+   explicit `revoke` pattern every service-role table here uses). Once a
+   hard solvency trigger fires, the ticker stays flagged and keeps forcing
+   RED on every `/ticker/:symbol` request — independent of the 45-day
+   rolling EDGAR window every other Pre-Gate check still uses — until it's
+   explicitly cleared. This directly closes the gap Bug 1/2 exposed: a
+   real, still-unresolved going-concern situation used to be able to
+   silently stop forcing anything the moment it aged out of 45 days, even
+   though nothing about the company's actual condition had changed.
+3. **Clearance: both conditions required, not either alone** — (a) a
+   subsequent 10-Q/10-K that no longer contains the going-concern/distress
+   language, AND (b) a corroborated, congruent positive catalyst. Checked
+   together (`checkSolvencyClearance()`), each on its own natural cadence
+   (bounded by Pre-Gate's own existing 24h cache, same as every other
+   Pre-Gate check — no separate throttle needed):
+   - **Filing check** (`checkSolvencyFilingClear()`) — reuses
+     `searchEdgarFilings()`, now generalized to accept optional
+     `forms`/`sinceDate` overrides, scoped to 10-Q/10-K only (a
+     going-concern opinion lives in the audited financials, not an 8-K)
+     and searched from the flag's onset date. Full-text search can only
+     confirm what DOES match, never what doesn't, so an empty result is
+     ambiguous by itself (resolved, or simply no new 10-Q/10-K filed yet)
+     — `hasNewerFiling()` independently confirms a real subsequent filing
+     actually exists via SEC's `data.sec.gov/submissions` feed before
+     calling it clear.
+   - **Catalyst check** (`checkSolvencyCatalystClear()`) — "corroborated"
+     (real resolution language in recent news, via the existing
+     `fetchNewsBodiesForCorroboration()` from Proposal 4) AND "congruent"
+     (the ticker's own price agrees, via the existing
+     `fetchTickerMetrics()`'s `.pct`) both required — same "don't clear on
+     one signal alone" posture as every other corroboration mechanism in
+     this file (Proposal 4's own corroboration, the Gate 5 Proxy Coherence
+     Check). `SOLVENCY_CATALYST_KEYWORDS` (refinancing/compliance/
+     restructuring/guidance-raise language) and the `+2%` price threshold
+     are a first draft, same posture as `PRE_GATE_TRIGGERS` itself — not a
+     tuned spec, flagged as needing real-world review.
+   - Both checks reuse existing fetches/functions — no new Alpaca/Finnhub
+     call added to the common case, since they only ever run for a ticker
+     that's already flagged (the rare case), not on every request.
+
+**Requires the DDL patch to actually take effect** — same posture as every
+other new service-role table in this file (Proposal 3's
+`proxy_regime_state`, etc.): the code guards every call with
+`if (!supabase) return null`, so it boots and runs fine, and simply
+no-ops (falls back to the old 45-day-window-only behavior) until
+`supabase-ddl-patch10-solvency-state.sql` is actually run in the Supabase
+SQL editor and the table is exposed via Data API → Exposed tables.
+
+**Verified by simulation, not a live deploy** — same standing posture as
+every backend change in this file. Ran the actual clearance-decision logic
+(price-threshold + keyword-match AND, and the newer-filing date-comparison
+math) against 10 synthetic cases — both signals confirming (clear), either
+missing or contradicting (not clear), the exact `+2%` boundary, a filing
+before vs. after the flag date — all correct. Also confirmed a real
+`node server.js` boot with zero missing-export/reference errors. **Not
+verified:** a live SEC EDGAR/Finnhub/Alpaca round trip (sandbox can't
+reach any of those hosts, standing limitation) — to confirm live, re-run
+PARA (or another known distress ticker) once `Tra` deploys and the DDL
+patch is applied, confirm Pre-Gate now shows the persistent-flag RED note,
+and watch for it to stay RED across multiple days/deploys even as the
+45-day window rolls forward.
