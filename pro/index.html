@@ -96,7 +96,7 @@
   .brand .t1{ color:var(--green); } .brand .t2{ color:var(--red); }
   .brand-meta{ font-size:11px; color:var(--ink-dim); margin-top:2px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-family:var(--mono); }
   .tier-chip{ font-size:9px; font-weight:700; color:var(--purple); background:var(--purple-dim); border:1px solid rgba(206,147,216,.4); border-radius:3px; padding:1px 6px; letter-spacing:.08em; }
-  .topbar-actions{ display:flex; flex-direction:column; gap:6px; align-items:flex-end; position:relative; }
+  .topbar-actions{ display:flex; gap:6px; align-items:center; position:relative; }
   .credits-chip{ font-size:9px; font-weight:700; color:var(--amber); background:var(--amber-dim); border:1px solid rgba(255,182,45,.3); border-radius:4px; padding:4px 8px; white-space:nowrap; text-decoration:none; font-family:var(--mono); }
   .profile-wrap{ position:relative; }
   .profile-btn{ width:32px; height:32px; border-radius:50%; background:var(--purple-dim); border:1px solid rgba(206,147,216,.4); color:var(--purple); font-family:var(--mono); font-size:13px; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; }
@@ -262,12 +262,12 @@
   .log-recorded{ font-family:var(--mono); font-size:9px; padding:3px 8px; border-radius:4px; font-weight:700; }
 
   .gate-list{ display:flex; flex-direction:column; gap:6px; margin-top:10px; }
-  .gate-row{ display:flex; align-items:flex-start; gap:8px; }
-  .gate-dot{ width:8px; height:8px; border-radius:50%; margin-top:4px; flex:none; }
+  .gate-row{ display:flex; flex-direction:column; gap:2px; }
+  .gate-row-head{ display:flex; align-items:center; gap:8px; }
+  .gate-dot{ width:8px; height:8px; border-radius:50%; flex:none; }
   .gate-row .gl{ font-size:11px; letter-spacing:.05em; color:var(--ink-dim); font-weight:700; }
-  .gate-row .gn{ font-size:11px; color:var(--ink); line-height:1.5; margin-top:1px; }
+  .gate-row .gn{ font-size:11px; color:var(--ink); line-height:1.5; padding-left:16px; }
   .gate-clear{ display:flex; align-items:center; gap:6px; opacity:.55; }
-  .gate-clear .gate-dot{ margin-top:0; }
   .gate-clear span{ font-size:11px; color:var(--ink-dim); }
   .conf-row{ display:flex; align-items:center; margin-top:2px; gap:6px; }
   .conf-lbl{ font-size:11px; color:var(--ink-dim); letter-spacing:.05em; }
@@ -564,7 +564,7 @@
           <span class="card-icon">⬇</span>
           <div class="card-title-wrap">
             <div class="card-label" style="color:var(--blue)">Import</div>
-            <div class="card-sub">Paste or type tickers to add · unlimited on Pro</div>
+            <div class="card-sub">Paste or type tickers to add</div>
           </div>
           <button type="button" class="help-btn" data-help="io" aria-label="What is this?">?</button>
           <svg class="chevron" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -592,7 +592,7 @@
           <span class="card-icon">📋</span>
           <div class="card-title-wrap">
             <div class="card-label" style="color:var(--blue)">Watchlist</div>
-            <div class="card-sub">Beyond the top 15 · tap + to promote to a card</div>
+            <div class="card-sub">Beyond top 15</div>
           </div>
           <span class="card-count-badge" id="compact-count">0</span>
           <button type="button" class="help-btn" data-help="watchlist" aria-label="What is this?">?</button>
@@ -701,6 +701,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=3"></script>
+<script type="module" src="./app.js?v=4"></script>
 </body>
 </html>

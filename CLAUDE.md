@@ -4609,6 +4609,91 @@ framed Shark's rebuild as blocked on an Alpaca "Plus" data-plan upgrade that mig
 point. Per direct instruction this session, that framing is retired — Shark is shelved indefinitely.
 Don't pick it up, don't ask about the Alpaca plan, unless explicitly asked to revisit it.
 
+## Frontend: gate-dot alignment fix, Pro header/topbar bug, Watchlist/Import card-sub truncation (Aug 18, 2026)
+
+Three live-reported issues from a real phone, two screenshots (one unlabeled, one Pro) — all Rolodex-UI
+polish, no logic changes.
+
+**1. Gate status dots not lined up with their label's first line, "across all tiers."** The
+`.gate-row`/`.gate-dot` CSS (byte-identical, hand-copied into Free/Starter/Pro's `index.html`) relied on
+a guessed `margin-top:4px` on the dot to visually center it against the label's cap-height — a constant
+tuned to look right for whatever monospace font a desktop browser happens to resolve `--mono`'s stack
+to. A synthetic repro with that exact CSS in this sandbox measured only a 1-2.5px dot/label offset and
+looked fine on screen — but the `--mono` stack's real first match on Android is `Roboto Mono` (a font
+this sandbox doesn't have installed, and Playwright's browser couldn't fetch from Google Fonts either to
+test against, since browser launches here don't pick up the proxy the way `curl`/Node do) — different
+fonts have different line-height metrics, so a margin-top tuned against one font's metrics is not
+guaranteed to land correctly against another's. Rather than guess a new constant for a font this sandbox
+can't actually render, **fixed the alignment structurally instead of numerically**: restructured the
+markup so the dot and the label share their own inner flex row
+(`.gate-row-head{display:flex;align-items:center;gap:8px}`), decoupled from the multi-line note text
+below it (`.gate-row` itself becomes `flex-direction:column`, `.gn` gets `padding-left:16px` to stay
+visually indented under the label like before). `align-items:center` on a two-item single-line flex row
+centers the dot against the label's actual line-box by construction, for any font, with nothing left to
+mistune. Verified two ways: (1) a font-metric-sensitivity test — same markup, deliberately different
+computed line-heights — showed 0.00px dot/label-center offset in every case, versus the old approach's
+1-2.5px-and-unverifiable-on-a-real-device gap; (2) a real Pro-tier render with a full mocked 6-gate
+analyzed card measured `0` offset on all 6 rows. Applied identically to `index.html`/`starter/index.html`/
+`pro/index.html`'s CSS and each tier's own `gateListHTML()` markup (not a shared module — three
+hand-copied, now-identical edits, same as the CSS always was).
+
+**2. Pro's credits chip stacked above the profile button instead of beside it, unlike Starter.** A real
+bug from Pro's own build (Aug 16, 2026): `pro/index.html`'s `.topbar-actions` was written as
+`flex-direction:column;align-items:flex-end` — Free tier's deliberate vertical-stack pattern (a direct,
+different-shaped fix from earlier the same day, for Free's two-chip credits+sign-in pair) — instead of
+Starter's actual horizontal `display:flex;gap:6px;align-items:center`. Since Pro was built by copying
+Starter's CSS as the base, this was very likely an absent-minded copy from the Free-tier work done
+immediately prior in the same session, not a deliberate choice. Fixed by matching Starter's rule exactly.
+Verified via real render: credits chip and profile avatar now share one row, vertically centered against
+each other (confirmed via `getBoundingClientRect()`, not just a screenshot glance — a 20px-tall chip and
+a 32px-tall circular avatar centered on a `align-items:center` row do NOT share the same `.top`, so the
+real check compares vertical centers, not raw top values).
+
+**3. Watchlist (and, caught by directly measuring rather than guessing, Import) accordion subtitles
+clipping.** `.card-sub` is a fixed single-line `overflow:hidden;text-overflow:ellipsis;white-space:nowrap`
+element, and the Watchlist card's subtitle text ("Beyond the top 15 · tap + to promote to a card") is the
+longest of any utility card *and* has to share its row with a count badge, shrinking its available width
+further than the others. Measured every card-sub's `scrollWidth` vs `clientWidth` on the real page rather
+than guessing which ones clip from character count alone — two genuinely clip: **Watchlist** (as
+reported) and **Import** ("Paste or type tickers to add · unlimited on Pro," never reported but longer
+than Watchlist's own text and confirmed clipping the same way). The other five (Pulse/Context/Proxy/
+Heatmap/Track) measured clean, left untouched.
+
+**First fix attempt built a redundant second "(?)" system, caught before it shipped.** Per the direct
+request ("this info is better suited in (?) instead of the text per drop down"), the first pass added a
+new `.info-btn` next to the card label plus a `showCardInfo(e, text)` helper (`stopPropagation` +
+`alert()`). Before committing, `git fetch origin main` turned up two PRs merged by a *different*,
+concurrent session in the time since this repo was last synced — "Add card-header help balloons with
+glossary screen-jump links" and a font-size/Gate-label follow-up — that had **already** added a proper
+`.help-btn`/`data-help="X"` system (`shared/rolodex.ts`'s `initHelpBalloons()`, fading balloon popups
+with inline Glossary jump-links, not a plain `alert()`) to every utility card on all three tiers,
+**including Watchlist and Import specifically** — confirmed by diffing that PR's `HELP_CONTENT` object
+directly rather than assuming. Shipping the from-scratch `.info-btn` on top of that would have put two
+different-looking "?" buttons and two different help mechanisms on the same card. Reverted the whole
+`.info-btn`/`showCardInfo` addition before it was committed.
+
+**What that other PR did NOT do: shorten the actual `.card-sub` text.** It added the help balloon
+*alongside* the still-too-long subtitle, so the real clipping bug this entry opened with was still live
+even after both PRs merged — confirmed directly, not assumed, by re-measuring `scrollWidth` vs
+`clientWidth` against the post-merge markup. **The actual fix, once the redundant system was removed:**
+just shorten the two clipping `.card-sub` strings — Watchlist to "Beyond top 15", Import to "Paste or
+type tickers to add" — leaving the already-existing `.help-btn`/balloon exactly where the other session
+put it (a sibling of `.card-title-wrap`, unaffected by the text edit). Both now measure clean at 0px
+overflow. **Lesson worth keeping:** before adding new UI mechanics to a shared file mid-session, re-fetch
+and check for concurrent work first — this file's own two-repo-drift lessons are about staying in sync
+across repos, but the exact same discipline applies within one repo when another session might be
+landing overlapping work in parallel.
+
+**Verified together via one real headless-Chromium pass** (mocked backend, a full 6-gate analyzed card,
+tapping the pill first, run against the rebased tree with both concurrent PRs merged in): all 6 gate-dot
+offsets measured `0`; topbar `flexDirection:row` with credits left of and vertically centered against the
+profile avatar; all 7 card-subs measured non-clipping; the pre-existing `.help-btn`/balloon for Watchlist
+and Import both confirmed still present and unaffected by the text shortening. Re-ran the full existing
+Free/Starter/Pro regression suites afterward since the gate-row markup change touches every tier — all
+pass, zero new errors. `index.html`/`starter/index.html`/`pro/index.html` `?v=` bumped since each tier's
+own `app.ts` content changed on top of the concurrent session's own bumps; no shared module was touched
+by this pass, so no further cascade was needed.
+
 ## Terminology rule
 
 Verdicts are UP / DOWN / FLAT only, with a magnitude and a sizing action.
