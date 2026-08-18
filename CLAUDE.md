@@ -4917,6 +4917,94 @@ changed — confirmed via the usual chunk-header grep that all three bundles sti
 `shared/rolodex.ts` chunk, no duplicate-module regression); `?v=` bumped in all three tiers' own
 `<script>` tags (`index.html` 58→59, `starter/index.html` 61→62, `pro/index.html` 6→7).
 
+## Frontend: Glossary converted to a real accordion card, profile-menu "About" link, Proxy term added (Aug 18, 2026)
+
+Direct live report, same round as the below-pill card snap fix above: "you missed the Glossary with that
+previous fix for all tiers." Correct — the Glossary was never actually part of the `.card[data-card]`
+accordion family the snap/height-cap fix above (and the tap-to-expand snap before it) both apply to. It
+had its own bespoke markup (`.glossary-tile`/`.glossary-tile-header`/`.glossary-panel`) and its own bespoke
+toggle (`toggleGlossary()`/`setGlossaryOpen()`, plain class-toggling, no `snapCardUnderDock()` call at
+all) and its own static `max-height:60vh` cap instead of the dynamic, dock-aware one every other card now
+has — so it had neither the snap-to-dock behavior nor the "cap to actually-available screen space"
+behavior, in any tier.
+
+**Fix: stopped maintaining a second, parallel accordion mechanism — converted the Glossary into a real
+`.card[data-card="glossary"]`, identical in shape to every other utility card**, in all three tiers'
+HTML (`.glossary-tile-header` → `.card-head` with the standard icon/title-wrap/chevron; `.glossary-panel`
+→ `.card-body`/`.card-body-inner`/`.card-body-pad`). It's now picked up automatically by the same
+`document.querySelectorAll('.card[data-card] > .card-head').forEach(wireAccordionHead)` loop every other
+card already goes through — no separate click listener, no separate `.open`-class toggling, and it
+inherits `snapCardUnderDock()`'s snap-to-dock fix and `capCardBodyHeight()`'s dynamic height cap for free,
+with zero changes needed in `shared/rolodex.ts` itself (the whole point of that module being "mechanics,
+not tier content" — Glossary just needed to actually BE a card, not a special case). `.glossary-search-wrap`/
+`.glossary-cat`/`.glossary-term`/`.glossary-no-results` kept their own CSS (search box, term rows, category
+headers, the flash-on-jump animation) but had their own horizontal `14px` padding stripped, since
+`.card-body-pad` now provides that — left in place, it would have doubled up to a 28px left/right inset,
+visually inconsistent with every other card's content.
+
+**`wireAccordionHead()` refactored in all three tiers to extract a shared `expandCard(card)`** (previously
+a closure-local `toggle()` did everything inline) — collapse stays a simple class removal, but expand now
+goes through one function every "jump to this card" caller can reuse: the accordion click handler, the
+help-balloon's existing `jumpToGlossaryTerm()` (now built on a new `ensureGlossaryOpen()` — idempotent,
+re-snaps even if already open, since a caller reaching for it is explicitly asking to jump there), and the
+new profile-menu "About" link below. On Pro, `expandCard()` also carries the pre-existing Watchlist/Proxy/
+Heat Map lazy-render dispatch, now joined by a `kind === 'glossary'` branch. **Ordering matters and is
+deliberate:** `buildGlossary()` (synchronous — a plain string-concat + `innerHTML` assignment over the
+whole term list, not fetched) is called **before** `snapCardUnderDock()`, not after, so the forced-height
+scroll-target measurement inside `snapCardUnderDock()` sees the real, already-capped content height
+instead of the still-empty panel — the exact "forced height must reflect the true final layout" discipline
+the below-pill card snap fix above already established, applied here to content-population timing instead
+of a CSS transition. Watchlist/Proxy/Heat Map's own renders stayed in their existing after-snap position
+since they're fetch-based and populate well after this function returns regardless of ordering.
+
+**"About" in the profile-menu dropdown (Starter + Pro only — Free has no profile menu at all).** Per
+direct instruction: since the Glossary's first category (CRF FRAMEWORK — CRF, Pre-Gate, Gate 0-5) is
+already a plain-English walkthrough of the whole app, jumping there **is** the About page — no separate
+About content was written or needed. `jumpToAbout()` closes the profile menu, clears any active Glossary
+search filter (so CRF FRAMEWORK can't be hidden behind a leftover query), and calls `ensureGlossaryOpen()`
+— landing the user at the top of the Glossary, CRF FRAMEWORK visible first, exactly the section that
+explains the app. Wired as a plain `.profile-menu-item` button (`onclick="jumpToAbout()"`, same inline-
+onclick + `window.fn` bridge convention every other profile-menu item and this repo's inline-handler cards
+already use), placed between EXPORT CSV and the danger-styled SIGN OUT — matching where Starter/Pro already
+group their non-destructive account actions.
+
+**"Add Proxy to the terms list."** A generic "Proxy" term didn't exist in any tier — only a Pro-exclusive
+"Proxy tier (Gate 5)" (the *confidence* label for a comparison) and (Pro-only) "Proxy Resolution Explorer"
+existed; nothing defined what a Proxy actually *is*, even though every tier's card meta row shows a
+"PROXY" field. Added under CRF FRAMEWORK, right after "Gate 5 — Dynamic Sector Proxy" (where the concept is
+introduced) in all three tiers — identical definition on Free/Starter, Pro's copy adds one sentence
+cross-referencing "Proxy tier (Gate 5)" for the confidence label, since that term only exists there. Each
+tier's search-box placeholder term count bumped to match (`index.html`/`starter/index.html` 63→64,
+`pro/index.html` 65→66).
+
+**Verified via real headless Chromium across all three tiers, not assumed to transfer from one:** confirmed
+the old `.glossary-tile`/`.glossary-panel` classes are gone from the rendered DOM (real conversion, not a
+CSS-only reskin); confirmed a real incremental scroll to the Glossary (which sits near the very bottom of
+the page, after Track Record on Pro) followed by a tap lands its head flush at the correct dock offset on
+all three tiers — the exact scenario the below-pill snap fix above was built for, now covering the one card
+that had been missed; confirmed the body genuinely caps (measured `padScrollH` in the 8,000-9,000px range
+against a ~565-567px rendered/capped height — the full term list is long) and is internally scrollable;
+confirmed the search filter and the flash-on-jump-via-help-balloon behavior both still work unchanged
+end-to-end (clicked a real `[data-help="gate"]` balloon, followed its "Gate 0" link, confirmed the Glossary
+opened, scrolled to, and flashed the correct term); confirmed the new Proxy term renders with the right
+per-tier copy; confirmed the About link (Starter + Pro) closes the profile menu, expands+snaps the Glossary,
+and lands on "CRF (Catalyst Response Framework)" as the first visible term. Re-ran the full existing
+regression suite afterward since this touches the shared `wireAccordionHead()` pattern in all three tiers:
+pill-tap auto-analyze, the Sector Pulse natural-dock soft-snap, and all four of Pro's below-pill card snaps
+(Watchlist/Proxy/Heat Map/Track Record) — all still land flush, confirming the `expandCard()` refactor is a
+pure reorganization, not a behavior change for anything that isn't the Glossary. `npx tsc --noEmit` against
+each tier's own `app.ts` (not in `tsconfig.json`'s narrow Phase 0 scope, checked directly, same as every
+other tier-level `app.ts` change) shows only the known `?v=N`-import-resolution baseline, zero new errors;
+`npm test` (75 cases) unaffected, all pass — this change doesn't touch `gates-extended.ts`/`analyze-helpers.ts`.
+
+No `shared/rolodex.ts` changes were needed — `snapCardUnderDock()`/`capCardBodyHeight()` already worked
+generically off DOM structure and position, exactly as designed; the Glossary just needed to actually join
+the `.card[data-card]` family instead of staying a special case. `app.js`/`starter/app.js`/`pro/app.js`
+rebuilt via `node esbuild.config.mjs` (each tier's own `app.ts` changed; `shared/rolodex.ts` did not —
+confirmed via the usual chunk-header grep that all three bundles still contain exactly one
+`shared/rolodex.ts` chunk); `?v=` bumped in all three tiers' own `<script>` tags (`index.html` 59→60,
+`starter/index.html` 62→63, `pro/index.html` 7→8).
+
 ## Terminology rule
 
 Verdicts are UP / DOWN / FLAT only, with a magnitude and a sizing action.

@@ -305,26 +305,18 @@
   .rolo-nav{ display:flex; justify-content:center; align-items:center; padding:2px 4px; }
   .nav-hint{ font-size:11px; color:var(--ink-dim); }
 
-  .glossary-tile{ background:var(--surface); border:1px solid rgba(206,147,216,.25); border-radius:10px; overflow:hidden; }
-  .glossary-tile-header{ padding:12px 14px; display:flex; justify-content:space-between; align-items:center; cursor:pointer; border-bottom:1px solid transparent; transition:border-color .2s; }
-  .glossary-tile-header.open{ border-bottom-color:var(--border); }
-  .glossary-tile-title{ font-size:10.5px; font-weight:700; color:var(--purple); letter-spacing:.08em; }
-  .glossary-tile-arrow{ font-size:11px; color:var(--purple); transition:transform .2s; }
-  .glossary-tile-arrow.open{ transform:rotate(180deg); }
-  .glossary-search-wrap{ padding:10px 14px; border-bottom:1px solid var(--border); }
+  .glossary-search-wrap{ padding:10px 0; border-bottom:1px solid var(--border); }
   .glossary-search{ width:100%; background:var(--surface-2); border:1px solid var(--border); border-radius:5px; padding:7px 12px; color:var(--ink); font-family:var(--mono); font-size:11px; }
   .glossary-search::placeholder{ color:var(--ink-dim); }
-  .glossary-panel{ display:none; max-height:60vh; overflow-y:auto; }
-  .glossary-panel.open{ display:block; }
-  .glossary-cat{ padding:8px 14px 4px; font-size:11px; font-weight:700; color:var(--purple); letter-spacing:.1em; border-bottom:1px solid var(--border); }
-  .glossary-term{ padding:9px 14px; border-bottom:1px solid rgba(255,255,255,.05); display:none; }
+  .glossary-cat{ padding:8px 0 4px; font-size:11px; font-weight:700; color:var(--purple); letter-spacing:.1em; border-bottom:1px solid var(--border); }
+  .glossary-term{ padding:9px 0; border-bottom:1px solid rgba(255,255,255,.05); display:none; }
   .glossary-term.visible{ display:block; }
   @keyframes glossaryFlash{ 0%{ background:var(--blue-dim); } 100%{ background:transparent; } }
   .glossary-term.glossary-flash{ animation:glossaryFlash 1.6s ease; }
   .glossary-term-name{ font-size:11px; font-weight:700; color:var(--ink); margin-bottom:3px; }
   .glossary-term-def{ font-size:11px; color:var(--ink-dim); line-height:1.5; }
   .glossary-term-example{ font-size:11px; color:var(--ink-dim); margin-top:3px; font-style:italic; line-height:1.4; }
-  .glossary-no-results{ padding:20px 14px; font-size:11px; color:var(--ink-dim); text-align:center; display:none; }
+  .glossary-no-results{ padding:20px 0; font-size:11px; color:var(--ink-dim); text-align:center; display:none; }
 
   .track-teaser{ padding:12px 14px; background:var(--blue-dim); border:1px solid rgba(74,168,255,.18); border-radius:10px; display:flex; justify-content:space-between; align-items:center; gap:10px; }
   .track-teaser-title{ font-size:11px; font-weight:700; color:var(--blue); letter-spacing:.08em; margin-bottom:3px; }
@@ -406,6 +398,7 @@
           <button type="button" class="profile-menu-item" onclick="promptLogResults()">LOG RESULTS</button>
           <button type="button" class="profile-menu-item" onclick="openSettingsModal()">SETTINGS</button>
           <button type="button" class="profile-menu-item" id="exportCsvBtn" onclick="exportWatchlistCSV(this)">EXPORT CSV</button>
+          <button type="button" class="profile-menu-item" onclick="jumpToAbout()">ABOUT</button>
           <button type="button" class="profile-menu-item danger" onclick="authLogout()">SIGN OUT</button>
         </div>
       </div>
@@ -493,18 +486,22 @@
         <div class="rolo-nav"><span class="nav-hint" id="roloHint">— / —</span></div>
       </div>
 
-      <div class="glossary-tile">
-        <div class="glossary-tile-header" id="glossary-header">
-          <span class="glossary-tile-title">📚 GLOSSARY — CRF TERMS &amp; MARKET CONCEPTS</span>
-          <span class="glossary-tile-arrow" id="glossary-arrow">▼</span>
+      <div class="card" data-card="glossary" id="card-glossary">
+        <div class="card-head" tabindex="0" role="button" aria-expanded="false" id="glossary-header">
+          <span class="card-icon">📚</span>
+          <div class="card-title-wrap">
+            <div class="card-label" style="color:var(--purple)">Glossary</div>
+            <div class="card-sub">CRF terms &amp; market concepts</div>
+          </div>
+          <svg class="chevron" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
-        <div class="glossary-panel" id="glossary-panel">
+        <div class="card-body"><div class="card-body-inner"><div class="card-body-pad">
           <div class="glossary-search-wrap">
-            <input class="glossary-search" id="glossary-search" placeholder="Search 63 terms — greeks, CRF, sector, trading...">
+            <input class="glossary-search" id="glossary-search" placeholder="Search 64 terms — greeks, CRF, sector, trading...">
           </div>
           <div id="glossary-no-results" class="glossary-no-results">No matching terms.</div>
           <div id="glossary-body"></div>
-        </div>
+        </div></div></div>
       </div>
 
       <div class="track-teaser">
@@ -532,6 +529,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=62"></script>
+<script type="module" src="./app.js?v=63"></script>
 </body>
 </html>
