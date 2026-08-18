@@ -67,6 +67,11 @@ export function sizeGateSpacer(): void {
   spacerHeight = currentGateFullHeight();
   els.gateSpacer.style.height = (els.gateCard.classList.contains('docked') ? 0 : spacerHeight) + 'px';
   updateGateDockState();
+  // Content (e.g. Sector Pulse's real text landing after /market
+  // resolves) can change size independent of any scroll event -- same
+  // "re-check whenever the thing being measured can change" reasoning as
+  // updateGateDockState() just above.
+  scheduleFirstCardSnapCheck();
 }
 
 export function updateGateDockState(): void {
@@ -81,6 +86,55 @@ export function updateGateDockState(): void {
 
 export function jumpToTop(): void {
   els.scroller.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ── Soft-snap Sector Pulse (the first card after the Gate) flush under
+// the docked Gate ────────────────────────────────────────────────────
+// The gateSpacer collapse above already "pulls" the page's content up
+// when the Gate docks (a passive layout reflow, not a scroll -- see
+// updateGateDockState()), but that reflow isn't guaranteed to land the
+// very next card's top edge pixel-flush against the docked bar's bottom
+// edge -- a real, small residual gap or overlap can survive it depending
+// on exactly where the user's scroll gesture stopped relative to the
+// dock threshold. This corrects that residual with one more soft
+// scrollBy(), same "measure the real thing, don't derive it" discipline
+// as every other scroll-position fix in this file's history.
+//
+// Deliberately debounced to scroll-SETTLE, not fired synchronously from
+// the scroll/rAF loop that flips the docked class -- programmatically
+// moving scrollTop while a real touch gesture (or inertial momentum) is
+// still in flight is exactly the fragile pattern the Aug 13, 2026
+// collapsing-card lesson found broken three separate ways on a real
+// device. Waiting for scrolling to actually stop means this never fights
+// the user's own gesture, at the cost of the correction landing a beat
+// after the dock visually finishes rather than perfectly mid-motion --
+// an acceptable trade given that history.
+//
+// Bounded to a small max correction (not a hand-picked "is this near the
+// threshold" flag) so it only ever behaves as a soft snap of a residual
+// few pixels right at the transition -- anywhere else on the page (the
+// user scrolled deep into later content, or all the way back near the
+// top before the Gate would undock) the measured delta is far outside
+// this bound and the check is a no-op by construction.
+const FIRST_CARD_SNAP_MAX_DELTA = 80;
+const FIRST_CARD_SNAP_SETTLE_MS = 120;
+let firstCardSnapTimer: ReturnType<typeof setTimeout> | null = null;
+
+function snapFirstCardUnderGateDock(): void {
+  if (!els.gateCard.classList.contains('docked')) return;
+  const card = document.querySelector('.content')?.firstElementChild as HTMLElement | null;
+  if (!card) return;
+  const scrollerTop = els.scroller.getBoundingClientRect().top;
+  const cardTop = card.getBoundingClientRect().top - scrollerTop;
+  const delta = cardTop - GATE_DOCKED_H;
+  if (Math.abs(delta) > 0.5 && Math.abs(delta) <= FIRST_CARD_SNAP_MAX_DELTA) {
+    els.scroller.scrollBy({ top: delta, behavior: 'smooth' });
+  }
+}
+
+function scheduleFirstCardSnapCheck(): void {
+  if (firstCardSnapTimer) clearTimeout(firstCardSnapTimer);
+  firstCardSnapTimer = setTimeout(snapFirstCardUnderGateDock, FIRST_CARD_SNAP_SETTLE_MS);
 }
 
 // ── Gate's own index marquee (docked bar) ──────────────────────────────
@@ -602,6 +656,11 @@ export function initRolodex(elements: RolodexElements, callbacks: RolodexCallbac
       gateTickingLocal = false;
     });
   }, { passive: true });
+
+  // Separate, independently-debounced listener (see
+  // snapFirstCardUnderGateDock() above) -- runs only once scrolling has
+  // actually settled, not on every rAF-throttled tick above.
+  els.scroller.addEventListener('scroll', scheduleFirstCardSnapCheck, { passive: true });
 
   els.gateCard.addEventListener('click', () => { if (els.gateCard.classList.contains('docked')) jumpToTop(); });
   els.gateCard.addEventListener('keydown', (e) => {

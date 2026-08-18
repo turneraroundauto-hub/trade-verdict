@@ -4780,6 +4780,69 @@ tier's own bundled `app.js` content changed as a result of the shared `rolodex.t
 module besides the bundler-only `rolodex.ts` was touched, so no further `?v=` cascade applies (`rolodex.ts`
 has no raw-browser `?v=N` consumer at all, same as noted when it was first extracted).
 
+## Frontend: Sector Pulse soft-snaps flush under the Gate's own natural scroll-driven dock (Aug 18, 2026)
+
+Direct follow-up to the tap-to-expand soft-snap above: "mostly it works great but one thing I still want
+to smooth out on all tiers... at the moment when gate collapses and docks, the screen should snap the top
+edge of the sector pulse card [to the] edge of the docked gate." A real, distinct gap from what the entry
+above shipped — that one only snapped a card when a user *tapped* it open; the Gate's own **natural**
+scroll-driven dock transition (`updateGateDockState()`, no tap involved) had no equivalent correction at
+all.
+
+**Confirmed the gap was real before writing any fix, not assumed.** `updateGateDockState()`'s existing
+behavior — collapsing `gateSpacer` to `0` with a CSS transition once the Gate docks — is a passive layout
+reflow, not a scroll; it "pulls" the page's content up, but nothing about it guarantees the very next
+card's top edge lands pixel-flush against the docked bar's bottom edge. Verified directly in headless
+Chromium: stopping a scroll gesture that overshoots the ~14px dock threshold by a realistic ~40px (a
+normal real-device overshoot, not an edge case) left Sector Pulse's top edge 26px **under** the docked
+Gate — a real, visible overlap, not merely "off by a rounding error." Landing exactly on the 14px
+threshold itself happens to reflow perfectly flush by the existing algebra (`gateSpacer` is sized to
+exactly `overlayHeight − GATE_DOCKED_H`) — but that's a razor's edge no real scroll gesture reliably stops
+on, which is why the bug reads as "usually a little off" rather than "always broken."
+
+**Fix (`shared/rolodex.ts`), same "measure the real thing, correct the residual" discipline as the entry
+above, not a new mechanism:** a debounced scroll-settle check (`snapFirstCardUnderGateDock()`, gated by
+`scheduleFirstCardSnapCheck()`) measures `.content`'s first child (Sector Pulse on every real tier,
+generic by DOM position rather than an id — this module's own "mechanics, not tier content" scope
+boundary) against the scroller's own `getBoundingClientRect()` (never raw viewport coordinates — this
+file's own Aug 15 measurement lesson) and, once scrolling has genuinely stopped, nudges `scrollTop` by
+whatever small delta is needed to land the card exactly `GATE_DOCKED_H` below the docked bar.
+
+Two deliberate guards, both load-bearing:
+- **Debounced to scroll-*settle* (120ms of no further scroll events), never fired synchronously off the
+  scroll/rAF loop that flips the `docked` class.** Programmatically moving `scrollTop` while a real touch
+  gesture or momentum scroll is still in flight is exactly the fragile pattern the Aug 13, 2026
+  collapsing-card lesson found broken three separate ways on a real device — waiting for the scroll to
+  actually stop means this can never fight the user's own gesture, at the cost of the correction landing a
+  beat after the dock visually finishes rather than perfectly mid-motion. Accepted trade given that
+  history repeating itself once already would be worse.
+- **Bounded to a small max correction (80px)**, not a hand-maintained "are we near the threshold" flag —
+  so it structurally only ever behaves as a soft snap of a residual few pixels right at the transition.
+  Scrolled deep into later content, or back up near the top before the Gate would undock, the measured
+  delta is far outside the bound and the check is a no-op by construction — never a surprise jump anywhere
+  else on the page.
+
+Also invoked once from `sizeGateSpacer()` (same call site `updateGateDockState()` already runs from) so
+content that changes size independent of any scroll event — e.g. Sector Pulse's real text landing after
+`/market` resolves — gets re-checked too, not just live scroll activity.
+
+**Verified via real headless Chromium, including an A/B comparison against the pre-fix code (not just the
+post-fix behavior in isolation) — same repro used to confirm the bug was real in the first place:**
+temporarily reverted the fix, re-ran the ~40px-overshoot scenario, confirmed the same 26px overlap it was
+built to fix; restored the fix, re-ran the identical scenario, confirmed the card lands exactly
+`GATE_DOCKED_H` (44px) below the docked bar and stays there through a longer settle window. Also confirmed:
+scrolling deep past Sector Pulse into later content produces no jump at all (bound correctly excludes it);
+scrolling back up toward the dock zone from below re-snaps flush the same way, symmetric to scrolling down;
+the pre-existing tap-to-expand `snapCardUnderDock()` from the entry above is unaffected (still lands flush
+at 44px); a real pill-tap still fires `/analyze` and renders a verdict correctly. `npx tsc -p tsconfig.json`
+shows the same known 7-error `?v=N`-import-resolution baseline, zero new errors; `npm test` (75 cases,
+`gates-extended`/`analyze-helpers`) unaffected, all pass — this change only touches `shared/rolodex.ts`.
+
+`app.js`/`starter/app.js`/`pro/app.js` rebuilt via `node esbuild.config.mjs` (only `shared/rolodex.ts`
+changed — confirmed via the usual chunk-header grep that all three bundles still contain exactly one
+`shared/rolodex.ts` chunk, no duplicate-module regression); `?v=` bumped in all three tiers' own
+`<script>` tags (`index.html` 57→58, `starter/index.html` 60→61, `pro/index.html` 5→6).
+
 ## Terminology rule
 
 Verdicts are UP / DOWN / FLAT only, with a magnitude and a sizing action.
