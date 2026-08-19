@@ -5252,3 +5252,52 @@ This is the one fix in this entire saga that's grounded in an actual
 live SEC response rather than reasoning about documented API behavior.
 **Still not confirmed against a fresh live deploy** — the next real test
 is re-checking BALY after this ships and seeing RED instead of GREEN.
+
+**A second real bug found immediately after, same technique — a genuine
+false positive on a healthy company (`Tra` PR pending / `trade-verdict`
+PR pending, mirrored per the two-repo rule).** Once the per-category
+search started actually working, it surfaced a RED on STWD (Starwood
+Property Trust) despite a strong recent earnings report. Traced with the
+same discipline as BALY — not reasoned about, verified against the real
+matched text via SEC EDGAR's own search UI (scoped to the exact CIK
+`0001465128`, not a fuzzy name search, which the first attempt at this
+link wrongly used and returned unrelated Starwood-branded entities). The
+real highlighted match: Section 5.7 "Solvency" of a merger agreement
+exhibit (EX-2.1) — boilerplate every M&A deal includes, representing
+that asset "fair saleable value... determined on a **going concern
+basis**" exceeds liabilities post-merger. That's a standard valuation
+*methodology* term ("going concern basis" = valued as an operating
+business, not liquidated), with zero connection to financial distress —
+completely different from the auditor going-concern *qualification*
+("substantial doubt about the Company's ability to continue as a going
+concern") this feature actually exists to catch.
+
+**Root cause: "going concern" was doing double duty as a keyword and
+losing.** It's not exclusively auditor-distress language — it's also
+routine legal/valuation terminology, and `PRE_GATE_TRIGGERS.solvency`
+had it as its own standalone OR'd keyword, so ANY appearance anywhere in
+a filing (including a merger-agreement exhibit's boilerplate solvency
+representation) counted as a hard trigger. **Fix: removed it as a
+standalone keyword, kept `"substantial doubt"` alone.** Every real
+auditor going-concern qualification is required (U.S. GAAP/PCAOB,
+ASU 2014-15) to use "substantial doubt" specifically — confirmed this
+doesn't regress the BALY fix, since BALY's real warning ("raise
+substantial doubt about the company's ability to continue as a going
+concern") contains both phrases together and still matches on
+"substantial doubt" alone.
+
+**A broader, related risk flagged but NOT fixed this pass, deliberately
+scoped out:** several of the other hard-trigger keywords
+(`"event of default"`, `"notice of default"`, `"acceleration of
+indebtedness"`, arguably `"insolvent"`/`"insolvency"`) are plausibly
+exposed to the same class of false positive — they can appear in
+routine defined-terms/boilerplate sections of credit agreements and
+merger agreements (filed as exhibits, which this search indexes in full)
+describing what WOULD constitute a default, not an actual one that
+happened. No live evidence for any of these yet, unlike "going concern"
+which had a confirmed real case — flagged here rather than guessed at
+preemptively, matching the lesson this whole saga has been teaching
+about not shipping unverified fixes. If one of these fires on a healthy
+company, use the exact same technique that cracked both BALY and STWD:
+get the real Render `[PRE-GATE]` log lines, then the real matched
+sentence via SEC EDGAR's CIK-scoped search UI, before touching code.
