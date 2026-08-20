@@ -5301,3 +5301,39 @@ about not shipping unverified fixes. If one of these fires on a healthy
 company, use the exact same technique that cracked both BALY and STWD:
 get the real Render `[PRE-GATE]` log lines, then the real matched
 sentence via SEC EDGAR's CIK-scoped search UI, before touching code.
+
+**The flagged risk above turned out to be real, same day (`Tra` PR
+pending / `trade-verdict` PR pending, mirrored per the two-repo rule).**
+STWD stayed RED after the "going concern" fix — same 2 hits, same
+company, now matching `"insolvent"` instead. A scoped EDGAR search for
+`"insolvent"` on STWD's own CIK returned **1,648 hits, confirmed by
+direct inspection to be boilerplate** — the word is standard
+risk-factor/counterparty-risk/credit-agreement language that appears
+regardless of the filer's own financial health, the identical failure
+mode `"going concern"` had. Given the same underlying mechanism (a bare
+legal/financial term, no requirement that the filer is asserting it
+about itself) was now confirmed twice in one day, the remaining
+generic/definitional keywords were removed as a class rather than
+waiting for a third live false positive on each one individually:
+`"insolvent"`, `"insolvency"`, `"receivership"`, `"event of default"`,
+`"notice of default"`, `"acceleration of indebtedness"` are all gone.
+
+**What's left is deliberately narrow:** `"substantial doubt"` (an actual
+auditor determination) plus phrases that are inherently about a
+bankruptcy/delisting event having actually happened (`"chapter 11"`,
+`"chapter 7 bankruptcy"`, `"voluntary petition for bankruptcy"`,
+`"bankruptcy protection"`, `"notice of delisting"`, `"delisting
+notice"`) — nothing generic/definitional left to trip on boilerplate.
+**Real trade-off, not a free win:** this will now miss real distress
+language that doesn't use one of these specific phrases (e.g., a company
+describing severe liquidity problems without literally invoking
+bankruptcy or "substantial doubt"). Precision over recall, a deliberate
+choice given two confirmed false-positive costs in one day — not a claim
+that recall no longer matters, and worth revisiting once there's a real
+signal that something genuinely distressed is being missed, using the
+same live-evidence discipline this whole saga has converged on.
+
+**Not yet reconfirmed against a live deploy** — same standing posture as
+every fix in this file. Next real test: re-check STWD (should finally go
+GREEN) and re-check BALY (should still be RED, since `"substantial
+doubt"` was never touched).
