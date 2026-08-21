@@ -5301,3 +5301,141 @@ about not shipping unverified fixes. If one of these fires on a healthy
 company, use the exact same technique that cracked both BALY and STWD:
 get the real Render `[PRE-GATE]` log lines, then the real matched
 sentence via SEC EDGAR's CIK-scoped search UI, before touching code.
+
+**The flagged risk above turned out to be real, same day (`Tra` PR
+pending / `trade-verdict` PR pending, mirrored per the two-repo rule).**
+STWD stayed RED after the "going concern" fix — same 2 hits, same
+company, now matching `"insolvent"` instead. A scoped EDGAR search for
+`"insolvent"` on STWD's own CIK returned **1,648 hits, confirmed by
+direct inspection to be boilerplate** — the word is standard
+risk-factor/counterparty-risk/credit-agreement language that appears
+regardless of the filer's own financial health, the identical failure
+mode `"going concern"` had. Given the same underlying mechanism (a bare
+legal/financial term, no requirement that the filer is asserting it
+about itself) was now confirmed twice in one day, the remaining
+generic/definitional keywords were removed as a class rather than
+waiting for a third live false positive on each one individually:
+`"insolvent"`, `"insolvency"`, `"receivership"`, `"event of default"`,
+`"notice of default"`, `"acceleration of indebtedness"` are all gone.
+
+**What's left is deliberately narrow:** `"substantial doubt"` (an actual
+auditor determination) plus phrases that are inherently about a
+bankruptcy/delisting event having actually happened (`"chapter 11"`,
+`"chapter 7 bankruptcy"`, `"voluntary petition for bankruptcy"`,
+`"bankruptcy protection"`, `"notice of delisting"`, `"delisting
+notice"`) — nothing generic/definitional left to trip on boilerplate.
+**Real trade-off, not a free win:** this will now miss real distress
+language that doesn't use one of these specific phrases (e.g., a company
+describing severe liquidity problems without literally invoking
+bankruptcy or "substantial doubt"). Precision over recall, a deliberate
+choice given two confirmed false-positive costs in one day — not a claim
+that recall no longer matters, and worth revisiting once there's a real
+signal that something genuinely distressed is being missed, using the
+same live-evidence discipline this whole saga has converged on.
+
+**Not yet reconfirmed against a live deploy** — same standing posture as
+every fix in this file. Next real test: re-check STWD (should finally go
+GREEN) and re-check BALY (should still be RED, since `"substantial
+doubt"` was never touched).
+
+**Research follow-up, same day: the real fix for the false-positive class
+itself, not just another keyword trim (`Tra` PR pending / `trade-verdict`
+PR pending, mirrored per the two-repo rule).** Prompted directly: "do a
+deeper research dive to find the logic needed in a search that returns
+valid company concerns," with a suggestion to align with SEC's own
+developer-API guidance (declared User-Agent with a contact email, use
+`data.sec.gov`'s structured JSON endpoints, rate-limit under 10 req/sec)
+rather than another keyword patch.
+
+**Structured XBRL data investigated first, disproven by direct
+evidence.** Checked whether `data.sec.gov/api/xbrl/companyconcept/` could
+give a reliable yes/no signal instead of full-text search at all —
+specifically `us-gaap:SubstantialDoubtAboutGoingConcernTextBlock` for
+BALY, a company with a definitively real, current going-concern warning.
+Returned an S3 `NoSuchKey` error — the user checked directly. Widened the
+check to BALY's full `companyfacts` endpoint (every XBRL concept the
+company has ever reported) and searched it for "GoingConcern" —
+**zero matches**, confirmed by the user via browser Ctrl+F. Real
+companies evidently don't reliably tag this disclosure with any
+GoingConcern-named XBRL concept at all, at least not BALY. **Dead end,
+correctly identified as such and not built on.**
+
+Second dead end, caught internally before it was proposed: restricting
+`PRE_GATE_FORMS` to just `10-Q,10-K` (dropping `8-K,S-1,S-3,424B*`) to
+avoid non-primary-disclosure filings. Re-checking the STWD screenshot
+from the "going concern" fix above showed the offending EX-2.1 exhibit
+was itself filed AS PART OF a 10-Q — form-type restriction would not
+have excluded it either. Flagged to the user as a second ruled-out idea
+rather than shipped as another guess.
+
+**The actual fix, found via `WebSearch` against SEC's own documented
+full-text-search response shape, not guessed:** each hit's `_source`
+object carries a `file_type` field identifying which sub-document of the
+filing actually matched — the primary document itself (e.g. `"10-Q"`,
+`"10-K"`) or an attached exhibit (`"EX-2.1"`, `"EX-99.1"`, etc.). EDGAR's
+full-text search indexes exhibits right alongside the primary document
+under the same CIK/form, with no distinction surfaced anywhere except
+this one field — which `searchEdgarFilings()` had never inspected. Both
+confirmed STWD false positives (the "going concern" merger-agreement
+Section 5.7 solvency representation, and the "insolvent" boilerplate)
+trace back to the same underlying gap: a real auditor going-concern
+opinion is part of a company's own audited financial statements — never
+an attachment — so a hit is only trustworthy when it matched inside the
+primary document, not an exhibit.
+
+**Fix (`searchEdgarFilings()`, both repos):** `allHits` (the raw EDGAR
+response) is now filtered through `isExhibit()` — `file_type` starting
+with `"EX-"` (case-insensitive) — before being returned; a hit missing
+`file_type` entirely, or carrying anything else, is kept (fail
+permissive, matching this file's own "don't block on thin metadata"
+posture used for the cross-company guard earlier in this saga — treating
+absent metadata as disqualifying would be a new, unverified assumption
+of its own). Logging extended to show the excluded count and the actual
+exhibit `file_type` values whenever any hit is dropped, so this is
+confirmable in Render logs the same way every other fix in this saga has
+been.
+
+**Verified by simulation, the same discipline as every gate-logic change
+in this file:** ran the real `isExhibit()` predicate against 7 synthetic
+cases — a primary 10-Q, a primary 10-K, the real confirmed STWD `EX-2.1`
+shape, a `EX-99.1` press-release exhibit, a lowercase `ex-10.1` variant,
+a hit with an empty `_source` object, and a hit with no `_source` at all
+— all 7 behaved as intended (exhibits excluded, primary documents and
+metadata-less hits kept). `node --check` clean on both repos' `server.js`;
+`npm test` (75 cases, unaffected — this function isn't in the current
+test suite's scope) still passes clean in both repos.
+
+**Deliberately did NOT restore the broader keyword list ("going
+concern", "insolvent", "insolvency", "receivership", "event of default",
+etc.) alongside this fix, even though the exhibit filter structurally
+closes the specific vector that took them down.** Both STWD false
+positives happened to live in an *exhibit* to a 10-Q, which this fix now
+excludes — but Item 1A "Risk Factors," a mandatory section of the
+*primary* 10-K/10-Q document itself (never an exhibit), routinely
+discusses hypothetical insolvency/going-concern scenarios in exactly the
+same generic, no-first-person-assertion way ("adverse conditions could
+lead to insolvency for our tenants," "a going concern qualification could
+result if..."). That boilerplate would sail straight through the new
+exhibit filter untouched, since it's genuinely part of the primary
+document — meaning restoring those keywords now would very plausibly
+reintroduce the identical false-positive class through a different
+document *section* instead of a different document *attachment*, with
+nothing yet built to catch that. The currently-narrow list
+(`"substantial doubt"` plus the unambiguous bankruptcy/delisting phrases)
+stays as-is; the exhibit filter ships as an independent, additional layer
+of defense — real protection against a confirmed failure mode, not a
+justification for widening scope that hasn't been tested against the
+next one. Revisit broadening the keyword list only alongside a similar
+evidence-driven fix for the Risk-Factors-boilerplate vector specifically,
+not as a side effect of this one.
+
+**Not yet verified against a live deploy** — same standing posture as
+every fix in this file; `efts.sec.gov` is unreachable from this sandbox,
+so the `file_type` field's real presence/values were confirmed via
+`WebSearch`-sourced SEC documentation, not a live response. To confirm:
+re-check STWD (should now stay GREEN under the current narrow keyword
+list even without this fix, since neither of its trigger phrases remain
+in scope — this fix's real test is instead any *future* narrow-keyword
+match that happens to land in an exhibit) and watch Render logs for
+`excluded N exhibit-only hit(s)` lines to confirm the filter is actually
+firing on real traffic.
