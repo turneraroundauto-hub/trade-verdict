@@ -1311,7 +1311,7 @@ function renderGate() {
   document.getElementById("gateMiniDot").style.background = color;
   document.getElementById("gateFullDot").style.background = color;
   const closed = isMarketClosed();
-  const marketLabel = closed ? "MARKET CLOSED" : "MARKET OPEN";
+  const marketLabel = closed ? "CLOSED" : "OPEN";
   const marketColor = closed ? "var(--red)" : "var(--green)";
   document.getElementById("gateMiniLabel").textContent = marketLabel;
   document.getElementById("gateMiniLabel").style.color = marketColor;
@@ -1428,7 +1428,7 @@ function gateListHTML(result) {
     if (gate === g.pre_gate && gate.status === "GREEN") {
       return '<div class="gate-clear"><span class="gate-dot" style="background:var(--green)"></span><span>PRE-GATE clear</span></div>';
     }
-    return `<div class="gate-row"><div class="gate-row-head"><span class="gate-dot" style="background:${sigColor(gate.status)}"></span><span class="gl">${label}</span></div>` + (gate.note ? `<div class="gn">${autoLinkGlossaryTerms(gate.note)}</div>` : "") + "</div>";
+    return `<div class="gate-row"><span class="gate-dot" style="background:${sigColor(gate.status)}"></span><div class="gn"><span class="gl">${label}</span>${gate.note ? " - " + autoLinkGlossaryTerms(gate.note) : ""}</div></div>`;
   }).join("");
   const conf = `<div class="conf-row"><span class="conf-lbl">CONFIDENCE</span><span class="conf-val" style="color:${confColor(result.confidence)}">${result.confidence || ""}</span></div>`;
   return '<div class="gate-list">' + rows + logSectionHTML() + conf + "</div>";
