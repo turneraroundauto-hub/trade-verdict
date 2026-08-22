@@ -13,7 +13,7 @@
 <link rel="apple-touch-icon" href="/shared/assets/icons/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@800&family=Martian+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
   :root{
     --bg:        #080c12;
@@ -35,7 +35,7 @@
     --blue:      #4aa8ff;
     --blue-dim:  rgba(74,168,255,.14);
     --purple:    #ce93d8;
-    --mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+    --mono: 'Martian Mono', ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
     --gate-docked-h: 44px;
     /* Legacy variable names the ported comeback-screen's inline styles
        still reference — aliased to the Rolodex palette above rather than
@@ -149,7 +149,7 @@
   .card-head:focus-visible{ outline:2px solid var(--blue); outline-offset:-2px; }
   .card-icon{ font-size:16px; flex:none; width:18px; text-align:center; }
   .card-title-wrap{ flex:1; min-width:0; }
-  .card-label{ font-size:13px; letter-spacing:.09em; text-transform:uppercase; font-weight:700; color:var(--purple); }
+  .card-label{ font-size:13px; letter-spacing:.09em; text-transform:uppercase; font-weight:700; color:var(--purple); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .card-sub{ font-size:13px; color:var(--ink-dim); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .chevron{ flex:none; width:16px; height:16px; color:var(--ink-faint); transition:transform .2s ease; }
   .card.expanded .chevron{ transform:rotate(180deg); }

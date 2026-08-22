@@ -10,7 +10,7 @@
 <title>Trade Tribunal — Starter</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@800&family=Martian+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
   :root{
     --bg:        #080c12;
@@ -32,7 +32,7 @@
     --blue:      #4aa8ff;
     --blue-dim:  rgba(74,168,255,.14);
     --purple:    #ce93d8;
-    --mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+    --mono: 'Martian Mono', ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
     --gate-docked-h: 44px;
     /* Legacy variable names the ported auth screen's inline styles still
        reference — aliased to the Rolodex palette above rather than kept
@@ -158,7 +158,7 @@
   .card-head:focus-visible{ outline:2px solid var(--blue); outline-offset:-2px; }
   .card-icon{ font-size:16px; flex:none; width:18px; text-align:center; }
   .card-title-wrap{ flex:1; min-width:0; }
-  .card-label{ font-size:13px; letter-spacing:.09em; text-transform:uppercase; font-weight:700; color:var(--purple); }
+  .card-label{ font-size:13px; letter-spacing:.09em; text-transform:uppercase; font-weight:700; color:var(--purple); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .card-sub{ font-size:13px; color:var(--ink-dim); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .chevron{ flex:none; width:16px; height:16px; color:var(--ink-faint); transition:transform .2s ease; }
   .card.expanded .chevron{ transform:rotate(180deg); }
@@ -339,16 +339,16 @@
 <div id="auth-screen" style="display:none;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;background:var(--bg)">
   <div style="width:100%;max-width:340px">
     <h1 class="auth-wordmark"><span class="t1">TRADE</span> <span class="t2">TRIBUNAL</span></h1>
-    <p class="auth-sub" style="font-family:monospace;font-size:13px;color:var(--dim);margin-bottom:28px">CRF Pattern Analysis</p>
+    <p class="auth-sub" style="font-family:var(--mono);font-size:13px;color:var(--dim);margin-bottom:28px">CRF Pattern Analysis</p>
     <div class="auth-card" style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px">
-      <div id="auth-title" style="font-family:monospace;font-size:15px;font-weight:700;color:var(--blue);letter-spacing:.1em;margin-bottom:16px">SIGN IN</div>
-      <label style="font-family:monospace;font-size:13px;color:var(--dim);display:block;margin-bottom:4px">EMAIL</label>
+      <div id="auth-title" style="font-family:var(--mono);font-size:15px;font-weight:700;color:var(--blue);letter-spacing:.1em;margin-bottom:16px">SIGN IN</div>
+      <label style="font-family:var(--mono);font-size:13px;color:var(--dim);display:block;margin-bottom:4px">EMAIL</label>
       <input id="auth-email" type="email" autocomplete="email" placeholder="your@email.com"
-        style="width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:5px;padding:9px 12px;color:var(--white);font-family:monospace;font-size:15px;margin-bottom:12px;box-sizing:border-box">
-      <label style="font-family:monospace;font-size:13px;color:var(--dim);display:block;margin-bottom:4px">PASSWORD</label>
+        style="width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:5px;padding:9px 12px;color:var(--white);font-family:var(--mono);font-size:15px;margin-bottom:12px;box-sizing:border-box">
+      <label style="font-family:var(--mono);font-size:13px;color:var(--dim);display:block;margin-bottom:4px">PASSWORD</label>
       <div style="position:relative;margin-bottom:8px">
         <input id="auth-password" type="password" autocomplete="current-password" placeholder="••••••••"
-          style="width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:5px;padding:9px 40px 9px 12px;color:var(--white);font-family:monospace;font-size:15px;box-sizing:border-box">
+          style="width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:5px;padding:9px 40px 9px 12px;color:var(--white);font-family:var(--mono);font-size:15px;box-sizing:border-box">
         <button type="button" id="eye-btn"
           style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--dim);font-size:18px;padding:4px;line-height:1;-webkit-tap-highlight-color:transparent">
           &#128065;
@@ -356,22 +356,22 @@
       </div>
       <div style="text-align:right;margin-bottom:14px">
         <button type="button" id="reset-link"
-          style="background:none;border:none;font-family:monospace;font-size:13px;color:var(--dim);cursor:pointer;padding:0;text-decoration:underline;-webkit-tap-highlight-color:transparent">
+          style="background:none;border:none;font-family:var(--mono);font-size:13px;color:var(--dim);cursor:pointer;padding:0;text-decoration:underline;-webkit-tap-highlight-color:transparent">
           Forgot password?
         </button>
       </div>
-      <div id="auth-error" style="font-family:monospace;font-size:13px;color:var(--red);margin-bottom:12px;min-height:16px"></div>
+      <div id="auth-error" style="font-family:var(--mono);font-size:13px;color:var(--red);margin-bottom:12px;min-height:16px"></div>
       <button type="button" id="auth-btn"
-        style="width:100%;height:44px;background:rgba(74,168,255,.12);border:1px solid rgba(74,168,255,.4);color:var(--blue);border-radius:6px;font-family:monospace;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:.08em;-webkit-tap-highlight-color:transparent">
+        style="width:100%;height:44px;background:rgba(74,168,255,.12);border:1px solid rgba(74,168,255,.4);color:var(--blue);border-radius:6px;font-family:var(--mono);font-size:15px;font-weight:700;cursor:pointer;letter-spacing:.08em;-webkit-tap-highlight-color:transparent">
         SIGN IN
       </button>
       <button type="button" id="auth-toggle"
-        style="width:100%;margin-top:12px;background:none;border:none;color:var(--dim);font-family:monospace;font-size:13px;cursor:pointer;padding:4px;-webkit-tap-highlight-color:transparent">
+        style="width:100%;margin-top:12px;background:none;border:none;color:var(--dim);font-family:var(--mono);font-size:13px;cursor:pointer;padding:4px;-webkit-tap-highlight-color:transparent">
         New user? Create account
       </button>
     </div>
-    <p style="text-align:center;margin-top:14px"><a href="https://tradetribunal.app/" style="font-family:monospace;font-size:13px;color:var(--dim);text-decoration:underline">&larr; Back to Free tier</a></p>
-    <p style="font-family:monospace;font-size:13px;color:var(--dim);text-align:center;margin-top:16px;line-height:1.6">Trade Tribunal &middot; Not financial advice</p>
+    <p style="text-align:center;margin-top:14px"><a href="https://tradetribunal.app/" style="font-family:var(--mono);font-size:13px;color:var(--dim);text-decoration:underline">&larr; Back to Free tier</a></p>
+    <p style="font-family:var(--mono);font-size:13px;color:var(--dim);text-align:center;margin-top:16px;line-height:1.6">Trade Tribunal &middot; Not financial advice</p>
   </div>
 </div>
 
