@@ -770,7 +770,7 @@ function initApp(): void {
   setInterval(enforceMarketState, 60 * 1000);
   if (sbSession && sbSession.email) {
     var pb = document.getElementById('profile-btn'); if (pb) pb.textContent = sbSession.email.charAt(0).toUpperCase();
-    var pme = document.getElementById('profile-menu-email'); if (pme) pme.textContent = sbSession.email;
+    var pme = document.getElementById('profile-menu-email-text'); if (pme) pme.textContent = sbSession.email;
   }
 }
 

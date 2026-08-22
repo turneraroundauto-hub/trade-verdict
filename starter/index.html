@@ -91,14 +91,15 @@
   .brand{ font-family:'Playfair Display',serif; font-size:clamp(14px,4.2vw,20px); font-weight:800; color:var(--ink); letter-spacing:.3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:max-content; }
   .brand .t1{ color:var(--green); } .brand .t2{ color:var(--red); }
   .brand-meta{ font-size:13px; color:var(--ink-dim); margin-top:2px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-family:var(--mono); }
-  .tier-chip{ font-size:11px; font-weight:700; color:var(--blue); background:var(--blue-dim); border:1px solid rgba(74,168,255,.4); border-radius:3px; padding:1px 6px; letter-spacing:.08em; }
+  .tier-chip{ font-size:11px; font-weight:700; color:var(--amber); background:var(--amber-dim); border:1px solid rgba(255,182,45,.4); border-radius:3px; padding:1px 6px; letter-spacing:.08em; flex:none; }
   .topbar-actions{ display:flex; gap:6px; align-items:center; position:relative; flex-shrink:0; }
   .credits-chip{ font-size:11px; font-weight:700; color:var(--amber); background:var(--amber-dim); border:1px solid rgba(255,182,45,.3); border-radius:4px; padding:4px 8px; white-space:nowrap; text-decoration:none; font-family:var(--mono); }
   .profile-wrap{ position:relative; }
   .profile-btn{ width:32px; height:32px; border-radius:50%; background:var(--blue-dim); border:1px solid rgba(74,168,255,.4); color:var(--blue); font-family:var(--mono); font-size:15px; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; }
   .profile-menu{ display:none; position:absolute; top:38px; right:0; min-width:170px; background:var(--surface); border:1px solid var(--border-2); border-radius:8px; box-shadow:0 10px 28px rgba(0,0,0,.5); z-index:300; overflow:hidden; }
   .profile-menu.open{ display:block; }
-  .profile-menu-email{ padding:9px 12px; font-family:var(--mono); font-size:13px; color:var(--ink-dim); word-break:break-all; border-bottom:1px solid var(--border); }
+  .profile-menu-email{ padding:9px 12px; display:flex; align-items:center; justify-content:space-between; gap:8px; border-bottom:1px solid var(--border); }
+  .profile-menu-email #profile-menu-email-text{ font-family:var(--mono); font-size:13px; color:var(--ink-dim); word-break:break-all; min-width:0; }
   .profile-menu-item{ display:block; width:100%; text-align:left; background:none; border:none; color:var(--ink); font-family:var(--mono); font-size:13px; padding:9px 12px; cursor:pointer; text-decoration:none; box-sizing:border-box; }
   .profile-menu-item:hover{ background:rgba(255,255,255,.05); }
   .profile-menu-item.danger{ color:var(--red); }
@@ -386,7 +387,6 @@
         <div class="brand"><span class="t1">TRADE</span> <span class="t2">TRIBUNAL</span></div>
         <div class="brand-meta">
           <span id="ticker-count">CRF · 7 TICKERS</span>
-          <span class="tier-chip">STARTER</span>
         </div>
       </div>
     </div>
@@ -395,7 +395,10 @@
       <div class="profile-wrap">
         <button type="button" class="profile-btn" id="profile-btn" onclick="toggleProfileMenu(event)">?</button>
         <div class="profile-menu" id="profile-menu">
-          <div class="profile-menu-email" id="profile-menu-email"></div>
+          <div class="profile-menu-email" id="profile-menu-email">
+            <span id="profile-menu-email-text"></span>
+            <span class="tier-chip">STARTER</span>
+          </div>
           <a class="profile-menu-item" href="https://buy.stripe.com/6oU4gA98t57p4dh2x33VC02" target="_blank">UPGRADE &rarr; Pro</a>
           <button type="button" class="profile-menu-item" onclick="promptLogResults()">LOG RESULTS</button>
           <button type="button" class="profile-menu-item" onclick="openSettingsModal()">SETTINGS</button>
@@ -531,6 +534,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=66"></script>
+<script type="module" src="./app.js?v=67"></script>
 </body>
 </html>

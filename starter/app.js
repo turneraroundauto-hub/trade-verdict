@@ -2220,7 +2220,7 @@ function initApp() {
   if (sbSession && sbSession.email) {
     var pb = document.getElementById("profile-btn");
     if (pb) pb.textContent = sbSession.email.charAt(0).toUpperCase();
-    var pme = document.getElementById("profile-menu-email");
+    var pme = document.getElementById("profile-menu-email-text");
     if (pme) pme.textContent = sbSession.email;
   }
 }
