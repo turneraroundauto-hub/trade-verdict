@@ -5653,3 +5653,200 @@ every backend change in this file. To confirm: watch for a real ticker
 with a confirmed Pre-Gate RED and check whether the verdict now renders
 FLAT (not DOWN) when Gates 2/3/4 aren't all YELLOW and no second gate is
 RED, and DOWN when either condition is met.
+
+## Frontend: touch-and-feel polish pass — Gate 0 label, gate bullets, swipe-hint positioning (Aug 22, 2026, `trade-verdict` PRs #201-204, #206)
+
+A separate session, same day as the backend work above (Gate 4/Gate 3
+Friday/Pre-Gate corroboration-pool changes) — pure frontend spacing/
+readability polish, no gate logic touched. Opened with a direct request:
+"go through the touch and feel of the app, with the motive to save room
+and make it easier to read," four concrete asks, Pro tier first.
+
+**Gate 0 label simplified (`renderGate()`, all three tiers as of #206).**
+The market-open/closed label dropped its redundant "MARKET " prefix —
+now just "OPEN"/"CLOSED" — while the color dot beside it keeps carrying
+Gate 0's own independent GREEN/YELLOW/RED market-direction read,
+unchanged. Shipped Pro-only first (#201, per the request's own "make
+changes to Pro tier first"), extended to Free/Starter in #206 once the
+user flagged the tier gap (below).
+
+**Gate rows hyphen-joined onto one line (`gateListHTML()`, all three
+tiers as of #206).** Each gate's dot + label + note previously rendered
+as a two-part block — `.gate-row-head` (dot+label) on its own row, the
+note wrapping below it in a separate `.gn` div, `.gate-row` itself a
+`flex-direction:column` container. Restructured to a single flex row —
+`.gate-row-head` removed entirely, `.gate-row` switched to a plain
+row layout, `.gate-dot` centered against the label via a measured
+`margin-top:6px` (verified against the real Martian Mono font, not a
+system fallback, via a `curl`-the-real-`.woff2`-then-`page.route()`
+technique — this sandbox's browser can't reach `fonts.gstatic.com`
+directly the way `curl`/Node can). Label and note now read as one
+flowing hyphen-joined line: `G1  14D - Ran +22% in 14 days...`.
+
+**IEX/regular-session disclaimer moved into the Gate's `(?)` help
+balloon (#202, all three tiers).** Previously a permanent
+`.session-note` line sitting inside the Gate's full-detail overlay
+(`#gateFullOverlay`) regardless of whether anyone needed it. Removed
+that div/CSS rule outright; the same text is now appended to the
+existing `HELP_CONTENT.gate` balloon string instead — reachable via the
+`(?)` button, out of the way otherwise. Prompted by a screenshot with
+the disclaimer circled, not a written description — confirms this
+file's own repeated lesson about verifying which specific element a
+screenshot-only report is pointing at rather than guessing.
+
+**Swipe-to-delete hint tucked under the ticker symbol (#203, then
+#204, all three tiers).** Two rounds, both from direct screenshot
+feedback on Pro:
+1. `.ticker-swipe-hint` (the "← Swipe to delete" line) was
+   center-aligned and full-width under the ticker row. First fix (#203)
+   just left-aligned it under the symbol (`text-align:left`), still as
+   a sibling block after the whole `.ticker-row`.
+2. That wasn't enough — a card with a tall verdict badge (HOLD / MKT
+   CLOSED) still left a large gap before the hint, reported as "looks
+   like there's a row skipped." Root cause: the sibling block's position
+   was anchored to the bottom of the WHOLE row's stretched height
+   (matching `.ticker-action`'s taller verdict-badge column), not to the
+   shorter `.ticker-left` content next to it. Fixed (#204) by nesting
+   `.ticker-swipe-hint` inside `.ticker-left` as a third child with
+   `flex-basis:100%` (forcing it onto its own line within
+   `.ticker-left`'s own existing `flex-wrap:wrap`), decoupling its
+   position from `.ticker-action`'s height entirely. Verified via a
+   scoped headless-Chromium measurement reproducing the exact
+   tall-badge scenario from the screenshot: a tight, consistent 9px gap,
+   with the hint's top sitting well above the badge's own bottom edge
+   (629 vs 644) — proof the position no longer tracks the badge's
+   height at all.
+
+**A real cross-tier scope gap, caught only because the user pushed
+back.** #201-204 (except #202, already all-tiers) shipped Pro-only
+first, per the request's own phrasing. Once the glossary work below
+(#205) also shipped Free/Starter-only, the user asked "did all changes
+get merged because I'm not seeing all the changes" — followed by a
+direct correction once asked which tier: **"all changes needed to be
+implemented across all tiers."** Re-diffed `app.ts`/`starter/app.ts`
+against `pro/app.ts` directly (not from memory) to confirm exactly what
+was still missing — found Free/Starter never got the Gate 0 label/
+hyphen-bullet change (#206 closed that) and Pro never got the glossary
+overhaul (see below, #207 closed that). **Lesson: when a request doesn't
+explicitly name a scope-limiting phrase like "Pro first," a Pro-only
+delivery is an assumption, not a given — worth confirming the intended
+final scope up front rather than after a "where's the rest of it"
+follow-up.**
+
+Verified throughout via headless Chromium (zero `.gate-row-head`
+elements remain in the DOM, `.gate-row` computes to a flex row not a
+column, dot-beside-label alignment measured directly against the real
+font, the swipe-hint gap measurement above) plus `node --check`/
+`tsc -p tsconfig.json` (same known 7-error `?v=N` baseline throughout,
+zero new errors)/`npm test` (75 cases, unaffected — none of this touches
+`gates-extended.ts`/`analyze-helpers.ts`). `?v=` bumped in every
+touched tier's own `<script>` tag at each step, per the cache-busting
+rule.
+
+## Frontend: Glossary overhaul — yellow terms/white definitions, alphabetical reorder, 25 new market-language terms, purple auto-links (Aug 22, 2026, `trade-verdict` PRs #205, #207)
+
+Same session as the touch-and-feel pass above, a separate, larger ask
+covering four changes to the Glossary card and how its terms surface
+elsewhere in the app. Shipped Free/Starter first (#205), Pro (#207)
+once the same "all tiers" correction described above applied here too.
+
+**Styling.** `.glossary-term-name` switched from white (`--ink`) to
+amber/yellow (`--amber` — this app's palette has no separate `--yellow`
+token, `--amber` is the existing yellow-equivalent used everywhere else
+for YELLOW gate status/HOLD/warnings, reused here rather than inventing
+a new color). `.glossary-term-def` switched from dim grey (`--ink-dim`)
+to full white (`--ink`). `.glossary-term-example` (the italic "e.g. ..."
+line) deliberately left untouched — the request was term/definition
+only.
+
+**Reorder.** Categories are now alphabetical with `CRF FRAMEWORK` pinned
+first (not sorted into its alphabetical slot) — the profile-menu About
+link (see the Aug 18, 2026 Glossary-as-accordion-card entry earlier in
+this file) depends on CRF FRAMEWORK being the first category a user
+lands on. Within every category, terms are alphabetized too, with one
+additional pin: `CRF (Catalyst Response Framework)` itself is forced to
+the literal first entry inside its own category (case-sensitive default
+sort already put it there by luck — `'C','R'` sorts before `'C','o'`
+in `Confidence` — but the reorder script pins it explicitly rather than
+relying on that coincidence holding). Pure reordering of each tier's
+existing `GLOSSARY` array, done with a small Python script (not
+hand-retyped) to eliminate transcription risk across ~65-90 entries per
+tier — `buildGlossary()`'s own rendering logic needed zero changes,
+since it already just preserves array/insertion order.
+
+**25 new terms**, one new category, identical `def`/`ex` text
+byte-for-byte across all three tiers: `PRICE & VALUATION LANGUAGE` —
+Overweight, Undervalued, Overvalued, Fairly Priced, Par, Premium,
+Discount, 52-Week High, 52-Week Low, All-Time High (ATH), All-Time Low
+(ATL), Bullish, Bearish, Overbought, Oversold, Breakout, Breakdown,
+Range-bound, Sideways, Volatile, Rallying, Gapping Up, Gapping Down,
+Floating, Frozen. Free/Starter: 64 → 89 terms. Pro (which already
+carried 66 — its own 3 exclusive entries, Proxy Resolution Explorer /
+Sector Heat Map / Proxy tier (Gate 5), against one fewer than Free/
+Starter's original set, missing "Phase 1 / 2 / 3" — an existing,
+pre-session asymmetry not touched by this pass): 66 → 91. Every tier's
+Glossary search placeholder bumped to match ("64/66 terms" →
+"89/91 terms").
+
+**Purple auto-linking — the largest piece.** A curated subset of the 25
+new terms (the ones plausible in AI-written market commentary, not the
+full Glossary — linking every stray occurrence of a word like "Long"
+would be noise) now auto-link wherever they appear in a card's news
+headline or gate info: per-gate `.gn` notes, the Pre-Gate "LOOK FOR"
+line, and Gate 0's own market note (`#gateNote`, switched from
+`.textContent` to `.innerHTML` to allow it). Pro also got a fourth spot
+Free/Starter don't have at all: the Watchlist-overflow accordion's
+`.compact-news` headline (tickers beyond the 15-card window). New
+`GLOSSARY_LINK_TERMS`/`linkTextSegment()`/`autoLinkGlossaryTerms()` find
+every non-overlapping match against the ORIGINAL text in one pass
+(never sequential per-term string replaces, so one term's inserted
+`<a>` can never be re-scanned and corrupted by the next term's regex)
+and only touch plain-text runs outside existing HTML tags, so a `<mark
+class="ctx-match">` from Session Context highlighting nests correctly
+(`<mark><a>...</a></mark>`) instead of getting corrupted. Styled via a
+new `.term-link` class (`var(--purple)`, the same purple already used
+for `.glossary-cat`/`.card-label` elsewhere in the app). Click handling
+needed zero new code — the links reuse the existing
+`.help-glossary-link` class, already wired to `jumpToGlossaryTerm()` via
+`shared/rolodex.ts`'s `initHelpBalloons()` delegated listener from the
+Aug 18, 2026 help-balloon work.
+
+**A real bug caught by a standalone Node logic test before this
+shipped, not by eyeballing.** The card headline is already wrapped in
+its own `<a>` linking to the full news article — nesting a second `<a>`
+for a glossary term inside it would be invalid HTML (browsers silently
+reparent nested anchors, per spec). `wrapHeadlineLinks()` avoids this by
+splitting the auto-linked headline on its own glossary-term anchors and
+wrapping only the OTHER text runs in the article-link `<a>`, so the two
+kinds of link end up as siblings, never nested. The first version of
+that split regex hardcoded `<a class="help-glossary-link term-link"`
+as a literal prefix — but the anchors `linkTextSegment()` actually
+generates put `href` before `class`
+(`<a href="#" class="help-glossary-link term-link" ...>`). Since the
+regex never matched, `wrapHeadlineLinks()` silently treated the ENTIRE
+headline as already-linked and skipped wrapping it in the article link
+at all — any headline containing a glossary term would have shipped
+with its news-article link completely gone, no error, no visible
+symptom short of the headline just not being clickable anymore. Caught
+by a 13-case pure-logic Node test (`tsx`, no browser/bundler needed —
+same technique this file already uses for gate-logic verification)
+asserting the actual output shape, not just "it doesn't throw"; fixed
+by making the split regex attribute-order-agnostic
+(`<a\b[^>]*\bclass="[^"]*\bterm-link\b[^"]*"[^>]*>`).
+
+**Verified, all three tiers:** `node --check` clean; `tsc -p
+tsconfig.json` shows the same known 7-error `?v=N` baseline, zero new
+errors; `npm test` (75 cases) unaffected, all pass (this doesn't touch
+`gates-extended.ts`/`analyze-helpers.ts`); the 13-case standalone
+auto-linker logic test (single/multi-term linking, no-match passthrough,
+correct `<mark>` nesting, acronym case-sensitivity — `ATH` matches,
+`path` doesn't — overlap resolution, zero nested `<a>` tags, balanced
+anchor counts, plain headlines unaffected); a real headless-Chromium
+pass per tier confirming the exact term count and category/CRF-pinned
+order, amber names, white definitions, purple term-links, zero nested
+`<a>` in the rendered DOM, the article link keeping its own (non-purple)
+color, and clicking a term-link firing the real delegated listener
+end-to-end and flashing the correct Glossary entry — not a mocked
+version of `jumpToGlossaryTerm`, the real one. Pro's auto-linker block
+confirmed byte-identical to Free/Starter's via `diff` before shipping,
+to rule out copy-paste drift across the three hand-duplicated copies.
