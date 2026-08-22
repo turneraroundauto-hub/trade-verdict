@@ -345,12 +345,12 @@ function roloCardHTML(sym: string, state: TickerState): string {
   const dir = priceDirClass(td);
   return `<div class="ticker-row">`
     + `<div class="ticker-left"><span class="ticker-sym ${dir}"><a href="${tickerHref(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}">${price}</span></div>`
-    + '<span class="ticker-swipe-hint">← Swipe to delete</span>'
     + '<div class="ticker-action">'
     + (result ? verdictAreaHTML(sym, result)
       : `<button class="btn btn-blue btn-compact" data-analyze="${sym}" ${analyzing ? 'disabled' : ''}>${analyzing ? 'RUNNING…' : 'ANALYZE'}</button>`)
     + '</div>'
     + `</div>`
+    + '<div class="ticker-swipe-hint">← Swipe to delete</div>'
     + pregateStripHTML(result)
     + `<div class="headline"><a href="${newsHref(sym)}" target="_blank">${headline}</a> <span class="age">${age}</span></div>`
     + `<div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>β <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span></div>`
