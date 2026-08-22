@@ -5439,3 +5439,44 @@ in scope — this fix's real test is instead any *future* narrow-keyword
 match that happens to land in an exhibit) and watch Render logs for
 `excluded N exhibit-only hit(s)` lines to confirm the filter is actually
 firing on real traffic.
+
+## Backend: Gate 4 (Phase) moved server-side — plain math, not an LLM judgment call (Aug 22, 2026)
+
+Prompted by direct review of the "How a Verdict Gets Decided" writeup (see
+below) — Gate 4 was the one remaining gate (besides Gate 2/3) still left
+to the model's own judgment, even though its inputs are already a single
+number the server computes itself: `rangePosition`, the ticker's % position
+in its own 52-week range, built in `/ticker/:symbol`'s fundamentals fetch
+and already relayed to `/analyze` inside `metricsData`. There was never a
+real judgment call for the model to make here — just three fixed
+thresholds (`<30%` GREEN, `30-70%` YELLOW, `>70%` RED) it was being asked
+to apply to a number it had already been handed as plain text.
+
+**Fix (`Tra` + `trade-verdict`, same PR pattern as every other gate):**
+new `evaluateGate4(metricsData)`, same shape/style as `evaluateGate1`,
+called once in `/analyze` from the existing `metricsData` already on the
+request — no new field needed on the wire, unlike Gate 1/5's own
+server-computed results (which get threaded through as their own request
+fields since they depend on data the client fetches separately). Gate 4
+is now enforced the same way as Pre-Gate/Gate 0/Gate 1/Gate 5:
+`parsed.gates.g4_phase` is overwritten server-side right after parsing,
+`SYSTEM_PROMPT`'s Gate 4 section is marked "server-provided, never
+recalculate" (matching Gate 0/1/5's own wording), and the `/analyze`
+prompt hands the model a `GATE 4 — USE EXACTLY THIS` block instead of
+raw range-position data to reason about itself. The model's own job
+description changed from "Run Gates 2, 3, 4" to "Run Gates 2 and 3" —
+Gate 4 joins the other four gates the model is told to copy verbatim.
+
+**Verified by simulation** — 7 synthetic `rangePosition` values (`null`,
+15, the `30`/`70` boundaries themselves, `31`/`71` just past each
+boundary, and `95`) all produced the exact GREEN/YELLOW/RED/note text
+expected, matching the same thresholds `phaseProxy`'s existing
+(cosmetic-only, unaffected by this change) PHASE_1/2/3 labels already
+used. `node --check` clean, `npm test` (75 cases, unaffected — Gate 4 was
+never in that suite's scope) passes clean in both repos.
+
+**Not yet verified against a live deploy** — same standing posture as
+every backend change in this file. To confirm: analyze a ticker known to
+sit deep in its 52-week range (>70%) and confirm Gate 4 renders RED with
+the new note text, and that the model's own `g4_phase` guess (if it makes
+one) never survives past the parse step.
