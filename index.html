@@ -320,8 +320,11 @@
   .glossary-term.visible{ display:block; }
   @keyframes glossaryFlash{ 0%{ background:var(--blue-dim); } 100%{ background:transparent; } }
   .glossary-term.glossary-flash{ animation:glossaryFlash 1.6s ease; }
-  .glossary-term-name{ font-size:13px; font-weight:700; color:var(--ink); margin-bottom:3px; }
-  .glossary-term-def{ font-size:13px; color:var(--ink-dim); line-height:1.5; }
+  .glossary-term-name{ font-size:13px; font-weight:700; color:var(--amber); margin-bottom:3px; }
+  .glossary-term-def{ font-size:13px; color:var(--ink); line-height:1.5; }
+  .term-link{ color:var(--purple); text-decoration:underline; text-decoration-style:dotted; cursor:pointer; }
+  .term-link:hover, .term-link:focus-visible{ text-decoration-style:solid; }
+  .headline a.term-link{ color:var(--purple); border-bottom:none; text-decoration:underline; text-decoration-style:dotted; }
   .glossary-term-example{ font-size:13px; color:var(--ink-dim); margin-top:3px; font-style:italic; line-height:1.4; }
   .glossary-no-results{ padding:20px 0; font-size:13px; color:var(--ink-dim); text-align:center; display:none; }
 
@@ -473,7 +476,7 @@
         </div>
         <div class="card-body"><div class="card-body-inner"><div class="card-body-pad">
           <div class="glossary-search-wrap">
-            <input class="glossary-search" id="glossary-search" placeholder="Search 64 terms — greeks, CRF, sector, trading...">
+            <input class="glossary-search" id="glossary-search" placeholder="Search 89 terms — greeks, CRF, sector, trading...">
           </div>
           <div id="glossary-no-results" class="glossary-no-results">No matching terms.</div>
           <div id="glossary-body"></div>
@@ -505,7 +508,7 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=65"></script>
+<script type="module" src="./app.js?v=66"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
