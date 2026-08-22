@@ -1818,7 +1818,7 @@ function roloCardHTML(sym, state) {
   const analyzing = state.analyzing;
   const result = state.result;
   const dir = priceDirClass(td);
-  return `<div class="ticker-row"><div class="ticker-left"><span class="ticker-sym ${dir}"><a href="${tickerHref(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}">${price}</span></div><span class="ticker-swipe-hint">\u2190 Swipe to delete</span><div class="ticker-action">` + (result ? verdictAreaHTML(sym, result) : `<button class="btn btn-blue btn-compact" data-analyze="${sym}" ${analyzing ? "disabled" : ""}>${analyzing ? "RUNNING\u2026" : "ANALYZE"}</button>`) + `</div></div>` + pregateStripHTML(result) + `<div class="headline"><a href="${newsHref(sym)}" target="_blank">${headline}</a> <span class="age">${age}</span></div><div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>\u03B2 <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span></div>` + badgesHTML(result) + gateListHTML(result) + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : "");
+  return `<div class="ticker-row"><div class="ticker-left"><span class="ticker-sym ${dir}"><a href="${tickerHref(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}">${price}</span></div><div class="ticker-action">` + (result ? verdictAreaHTML(sym, result) : `<button class="btn btn-blue btn-compact" data-analyze="${sym}" ${analyzing ? "disabled" : ""}>${analyzing ? "RUNNING\u2026" : "ANALYZE"}</button>`) + `</div></div><div class="ticker-swipe-hint">\u2190 Swipe to delete</div>` + pregateStripHTML(result) + `<div class="headline"><a href="${newsHref(sym)}" target="_blank">${headline}</a> <span class="age">${age}</span></div><div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>\u03B2 <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span></div>` + badgesHTML(result) + gateListHTML(result) + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : "");
 }
 function renderRoloCard(sym) {
   const card = roloStage.querySelector(`.rolo-card[data-sym="${sym}"]`);
@@ -2027,7 +2027,7 @@ function handleNoCredits(sym) {
     const card = roloStage.querySelector(`.rolo-card[data-sym="${sym}"]`);
     if (card) {
       const n = document.createElement("div");
-      n.style.cssText = "font-family:var(--mono);font-size:8px;color:var(--amber);text-align:center;margin-top:4px";
+      n.style.cssText = "font-family:var(--mono);font-size:10px;color:var(--amber);text-align:center;margin-top:4px";
       n.textContent = "Cached \u2014 no credits remaining";
       card.appendChild(n);
     }
@@ -2220,7 +2220,7 @@ function initApp() {
   if (sbSession && sbSession.email) {
     var pb = document.getElementById("profile-btn");
     if (pb) pb.textContent = sbSession.email.charAt(0).toUpperCase();
-    var pme = document.getElementById("profile-menu-email");
+    var pme = document.getElementById("profile-menu-email-text");
     if (pme) pme.textContent = sbSession.email;
   }
 }
