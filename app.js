@@ -1317,7 +1317,7 @@ function renderGate() {
   document.getElementById("gateMiniLabel").style.color = marketColor;
   document.getElementById("gateFullLabel").textContent = marketLabel;
   document.getElementById("gateFullLabel").style.color = marketColor;
-  document.getElementById("gateNote").textContent = market && market.gateNote || (market ? "" : "Tap to retry \u2014 data unavailable.");
+  document.getElementById("gateNote").innerHTML = autoLinkGlossaryTerms(market && market.gateNote || (market ? "" : "Tap to retry \u2014 data unavailable."));
   const grid = document.getElementById("gateGrid");
   grid.innerHTML = GATE_FIELDS.map(([key, label]) => {
     const d = market && market[key];
@@ -1406,7 +1406,7 @@ function pregateStripHTML(result) {
   if (!result || !result.gates) return "";
   const waitText = result.wait_for && result.wait_for !== "null" ? result.wait_for : "";
   if (!waitText) return "";
-  return `<div class="pregate-strip"><div class="pregate-dot" style="background:${confColor(result.confidence)}"></div><div class="pregate-note"><span class="wait-lbl">LOOK FOR: </span>${waitText}</div></div>`;
+  return `<div class="pregate-strip"><div class="pregate-dot" style="background:${confColor(result.confidence)}"></div><div class="pregate-note"><span class="wait-lbl">LOOK FOR: </span>${autoLinkGlossaryTerms(waitText)}</div></div>`;
 }
 function logSectionHTML() {
   return `<div class="log-row"><span class="log-prompt">TRACK RECORD</span><a class="log-upgrade-btn" href="${TIER.stripeLink}" target="_blank">UPGRADE \u2192 Starter to log results</a></div>`;
@@ -1428,7 +1428,7 @@ function gateListHTML(result) {
     if (gate === g.pre_gate && gate.status === "GREEN") {
       return '<div class="gate-clear"><span class="gate-dot" style="background:var(--green)"></span><span>PRE-GATE clear</span></div>';
     }
-    return `<div class="gate-row"><div class="gate-row-head"><span class="gate-dot" style="background:${sigColor(gate.status)}"></span><span class="gl">${label}</span></div>` + (gate.note ? `<div class="gn">${gate.note}</div>` : "") + "</div>";
+    return `<div class="gate-row"><div class="gate-row-head"><span class="gate-dot" style="background:${sigColor(gate.status)}"></span><span class="gl">${label}</span></div>` + (gate.note ? `<div class="gn">${autoLinkGlossaryTerms(gate.note)}</div>` : "") + "</div>";
   }).join("");
   const conf = `<div class="conf-row"><span class="conf-lbl">CONFIDENCE</span><span class="conf-val" style="color:${confColor(result.confidence)}">${result.confidence || ""}</span></div>`;
   return '<div class="gate-list">' + rows + logSectionHTML() + conf + "</div>";
@@ -1453,7 +1453,7 @@ function roloCardHTML(sym, state) {
   const news = td && td.news;
   const rawHeadline = news ? news.headline : "No news within the last business week";
   const ctxEl = document.getElementById("context-input");
-  const headline = news ? highlightContextMatches(rawHeadline, ctxEl ? ctxEl.value : "") : rawHeadline;
+  const headline = autoLinkGlossaryTerms(news ? highlightContextMatches(rawHeadline, ctxEl ? ctxEl.value : "") : rawHeadline);
   const age = news ? news.ageLabel : "\u2014";
   const m = td && td.metrics;
   const w52 = m && m.rangePosition != null ? m.rangePosition + "%" : "?";
@@ -1465,7 +1465,7 @@ function roloCardHTML(sym, state) {
   const analyzing = state.analyzing;
   const result = state.result;
   const dir = priceDirClass(td);
-  return `<div class="ticker-row"><div class="ticker-left"><span class="ticker-sym ${dir}"><a href="${tickerHref2(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}">${price}</span><div class="ticker-swipe-hint">\u2190 Swipe to delete</div></div><div class="ticker-action">` + (result ? verdictAreaHTML(sym, result) : `<button class="btn btn-blue btn-compact" data-analyze="${sym}" ${analyzing ? "disabled" : ""}>${analyzing ? "RUNNING\u2026" : "ANALYZE"}</button>`) + `</div></div>` + pregateStripHTML(result) + `<div class="headline"><a href="${newsHref2(sym)}" target="_blank">${headline}</a> <span class="age">${age}</span></div><div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>\u03B2 <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span></div>` + badgesHTML(result) + gateListHTML(result) + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : "");
+  return `<div class="ticker-row"><div class="ticker-left"><span class="ticker-sym ${dir}"><a href="${tickerHref2(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}">${price}</span><div class="ticker-swipe-hint">\u2190 Swipe to delete</div></div><div class="ticker-action">` + (result ? verdictAreaHTML(sym, result) : `<button class="btn btn-blue btn-compact" data-analyze="${sym}" ${analyzing ? "disabled" : ""}>${analyzing ? "RUNNING\u2026" : "ANALYZE"}</button>`) + `</div></div>` + pregateStripHTML(result) + `<div class="headline">${wrapHeadlineLinks(sym, headline)} <span class="age">${age}</span></div><div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>\u03B2 <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span></div>` + badgesHTML(result) + gateListHTML(result) + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : "");
 }
 function renderRoloCard(sym) {
   const card = roloStage.querySelector(`.rolo-card[data-sym="${sym}"]`);
@@ -1695,70 +1695,177 @@ function enforceMarketState() {
 }
 var GLOSSARY = [
   { cat: "CRF FRAMEWORK", term: "CRF (Catalyst Response Framework)", def: "A step-by-step checklist this app runs on a stock before giving you a verdict. If enough of the checklist looks good, that\u2019s a thumbs up; if enough looks bad, that\u2019s a thumbs down.", ex: "Think of it like a pre-flight checklist for a trade \u2014 pilots don\u2019t take off until enough boxes are checked." },
-  { cat: "CRF FRAMEWORK", term: "Pre-Gate \u2014 Thesis Integrity", def: "A quick background check on the company itself, looking for red flags like financial trouble, before the app even looks at the stock\u2019s price. A serious red flag here can override everything else.", ex: "Like checking a used car\u2019s title for a salvage flag before you even look under the hood." },
+  { cat: "CRF FRAMEWORK", term: "Confidence", def: "How strongly the verdict\u2019s own price action agrees with the trigger driving it. HIGH means both the ticker\u2019s own move and its sector proxy\u2019s move confirm the call. MEDIUM means the trigger is clean but there\u2019s no independent price data to confirm or deny it yet. LOW means real price action is actually moving against the call \u2014 and every LOW-confidence verdict always ships a real \u201CLOOK FOR\u201D note explaining what to watch for before acting.", ex: "A DOWN verdict where the stock itself is also selling off hard is HIGH confidence. The same DOWN verdict on a stock that\u2019s actually holding flat or ticking up is LOW \u2014 check the LOOK FOR note before acting." },
   { cat: "CRF FRAMEWORK", term: "Gate 0 \u2014 Sector Gate", def: "Checks how the overall stock market is doing today. If the whole market is having a bad day, that drags down the outlook for pretty much everything.", ex: "A rising tide lifts all boats \u2014 a sinking one drags them down too." },
   { cat: "CRF FRAMEWORK", term: "Gate 1 \u2014 Bidirectional Trend Structure", def: "Looks at whether the stock has already made a big move recently, up or down. A stock that\u2019s already run up a lot is riskier to chase, and one that\u2019s fallen too far too fast is a red flag too.", ex: "Like being wary of a stock that already \u201Cran\u201D \u2014 you don\u2019t want to be the last one to the party." },
   { cat: "CRF FRAMEWORK", term: "Gate 2 \u2014 Catalyst Congruence", def: "Checks whether recent news about the company actually supports the direction the app is leaning.", ex: "Makes sure the story and the numbers are telling the same story." },
   { cat: "CRF FRAMEWORK", term: "Gate 3 \u2014 Opening Bar", def: "Watches how the stock trades in the first few minutes after the market opens, since that early action often hints at where the rest of the day is headed.", ex: "Like judging a race by how strong the runners look at the starting gun." },
   { cat: "CRF FRAMEWORK", term: "Gate 4 \u2014 Phase Identification", def: "Figures out whether a stock\u2019s big move is just getting started, already well underway, or has gone so far it might be due for a pullback.", ex: "Early innings vs. late innings of the same game." },
   { cat: "CRF FRAMEWORK", term: "Gate 5 \u2014 Dynamic Sector Proxy", def: "Compares the stock to other companies or funds in the same industry, to see if it\u2019s moving with its peers or acting strangely on its own.", ex: "Checking if one kid in class is sick, or if the whole class has the flu." },
+  { cat: "CRF FRAMEWORK", term: "Pre-Gate \u2014 Thesis Integrity", def: "A quick background check on the company itself, looking for red flags like financial trouble, before the app even looks at the stock\u2019s price. A serious red flag here can override everything else.", ex: "Like checking a used car\u2019s title for a salvage flag before you even look under the hood." },
   { cat: "CRF FRAMEWORK", term: "Proxy", def: "The specific peer stock, ETF, or index a ticker is measured against for Gate 5 \u2014 shown on each card as PROXY. If the ticker and its proxy are moving together, that confirms the read; if they diverge, Gate 5 treats it as a warning sign.", ex: "IREN and CIFR are both checked against TSM, since Taiwan chip-supply stress hits the whole AI/semi trade the same way." },
-  { cat: "TICKER CLASSIFICATIONS", term: "Canary", def: "European or institutional base that prices macro risk early. When canaries fall while sentiment names rise, reversal is coming.", ex: "ASML fell before MU/ALAB. Warned 10-21 days early." },
-  { cat: "TICKER CLASSIFICATIONS", term: "Sentiment", def: "Moves most directly with AI capex or sector confidence, ignoring macro until it breaks.", ex: "MU, NVDA, AMD. Ran +47% into Broadcom miss then crashed 12.8%." },
-  { cat: "TICKER CLASSIFICATIONS", term: "Flow", def: "Moves on mechanical buying events. Institutions distribute at the opening bar on positive catalyst days.", ex: "ALAB opened $315 on Computex day, flushed to $292 in 30 min on 1.1M shares." },
-  { cat: "TICKER CLASSIFICATIONS", term: "Phase 1 / 2 / 3", def: "Phase 1 = discovery, <30% of 52-week range, full size. Phase 2 = acceleration, 30-70%, half size. Phase 3 = priced for perfection, >70%, post-flush only.", ex: "ALAB at $88 = Phase 1. At $300 = Phase 2. At $450 = Phase 3 (sold off on blowout beat)." },
+  { cat: "CRF FRAMEWORK", term: "Verdict Icons \u2014 \u{1F44D} UP / \u{1F44E} DOWN / HOLD", def: "\u{1F44D} means the app leans bullish (expects the stock to rise), \u{1F44E} means it leans bearish (expects it to fall), and HOLD means it\u2019s not confident enough either way, or the market\u2019s closed.", ex: "Simple as a thumbs up or thumbs down on a movie \u2014 just for a stock\u2019s next move instead." },
+  { cat: "MARKET STRUCTURE", term: "Beta (\u03B2)", def: "A stock\u2019s volatility relative to the overall market (SPY), where 1.0 = moves in line with the market, >1 amplifies market moves, <1 dampens them. Shown on each card as \u03B2. A negative beta means the stock tends to move opposite the market \u2014 treat it as effectively uncorrelated to its assigned Gate 5 proxy rather than confirming or denying that proxy read.", ex: "IREN at \u03B22.1 is expected to move ~2.1% for every 1% SPY move. A rare \u03B2\u22120.3 name would be expected to drift up on a red SPY day." },
+  { cat: "MARKET STRUCTURE", term: "Circuit Breaker", def: "Automatic trading halt when market falls a specified percentage. US halts at \u22127%, \u221213%, \u221220%. KOSPI at \u22128%.", ex: "KOSPI circuit breaker June 8 2026 at \u22128.37% \u2192 Gate 5 RED for all AI/semi." },
+  { cat: "MARKET STRUCTURE", term: "Engulfing Candle", def: "Second candle\u2019s body completely contains the first. Bullish engulf = buyers overwhelmed sellers. Gate 3 uses this for Monday signals.", ex: "Monday bar 1 red at $40, bar 2 opens $38 closes $41 = bullish engulf \u2192 Gate 3 GREEN." },
+  { cat: "MARKET STRUCTURE", term: "Extended Hours (Pre-Market / Post-Market)", def: "Trading outside the 9:30am-4:00pm ET regular session: pre-market (4:00-9:30am ET) and post-market (4:00-8:00pm ET) on IEX Exchange\u2019s formal extended sessions. Real prints, but on a much thinner book than the regular consolidated tape \u2014 moves here can reverse hard once the full tape opens.", ex: "CIFR prints $24.16 pre-market on light volume, opens the regular session at $22.10 once the full tape weighs in." },
+  { cat: "MARKET STRUCTURE", term: "Gap Up / Gap Down", def: "Stock opens significantly different from prior close. CRF entry: gap \u22652% from prior close, enter at ask +1%.", ex: "SMMT closed $45, opens $47.50 = +5.5% gap. Check all 5 gates." },
+  { cat: "MARKET STRUCTURE", term: "Intraday", def: "Within a single trading day \u2014 opened and evaluated before the next session begins, as opposed to a multi-day swing or long-term hold. This app\u2019s entire CRF framework is built around intraday timing: the Opening Drive window, Gate 3\u2019s same-day bar sequence, and same-day stop-loss discipline.", ex: "An intraday call on SMMT is graded against its move by that day\u2019s close, not next week\u2019s \u2014 Gate 3\u2019s opening-bar sequence only exists because the framework is timing a single session." },
+  { cat: "MARKET STRUCTURE", term: "Opening Drive", def: "First 90 minutes (9:30-11:00am ET). Highest volume, highest volatility. Most institutional orders execute here. This app is built for this window.", ex: "Stock gaps up 3% with 2\xD7 average volume in bar 1 = Opening Drive setup." },
+  { cat: "MARKET STRUCTURE", term: "Relative Volume (RVOL)", def: "Current volume compared to the average volume for this point in the session. RVOL >2x on an Opening Drive gap is what separates a real institutional move from noise.", ex: "ALAB gaps up 4% on 1.1M shares in the first 5 minutes vs a normal 5-minute average of 280K \u2192 RVOL ~4x, high-conviction signal." },
+  { cat: "MARKET STRUCTURE", term: "Short Squeeze", def: "Heavily shorted stock rises sharply, forcing shorts to buy to cover, pushing price higher. Brief but explosive.", ex: "IREN 18.7% short float, <2 days to cover. Any positive catalyst could trigger a squeeze." },
+  { cat: "MARKET STRUCTURE", term: "Support / Resistance", def: "Price levels where a stock has historically reversed. Support = a floor buyers defended before. Resistance = a ceiling sellers defended before. Neither is guaranteed to hold twice.", ex: "PLUG bounced at $2.10 three times this quarter \u2014 that\u2019s support until it isn\u2019t; a close below it on volume is the tell it broke." },
+  { cat: "MARKET STRUCTURE", term: "VWAP (Volume-Weighted Average Price)", def: "The running average price of a stock for the session, weighted by volume at each price. Resets daily. Widely used intraday as a fair-value line \u2014 price above VWAP favors longs, below favors shorts.", ex: "Stock pops to $52 but VWAP sits at $49.80 \u2014 a lot of the day\u2019s volume already changed hands well below the current price." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Call Option", def: "Right (not obligation) to buy 100 shares at the strike price before expiration. Buyers profit if the stock rises above strike + premium paid.", ex: "Buy 1 SMMT $50 call for $2.00. Stock closes $55 at expiry \u2192 intrinsic value $5.00, profit $3.00/share." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Cash-Secured Put", def: "Selling a put while holding cash to buy shares at strike if assigned. Generates income on names you\u2019d want to own.", ex: "ARCC at $18.50 \u2192 sell $18 put for $0.48. Assigned = effective buy at $17.52." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "DTE (Days to Expiration)", def: "Calendar days remaining until an option contract expires. Theta decay accelerates as DTE shrinks, especially inside the final 2 weeks.", ex: "A 30 DTE option loses value slowly. The same strike at 3 DTE bleeds premium daily even on a flat stock." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Expected Move", def: "Market-implied 1-sigma price range by expiration. Stock stays within this range ~68% of the time.", ex: "Stock $50, ATM IV 80%, 30 DTE \u2192 expected move \xB1$12.30." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Gamma Exposure (GEX)", def: "Aggregate dollar impact of dealer hedging. Positive GEX = dealers dampen moves. Negative GEX = dealers amplify moves.", ex: "SPX negative GEX \u2192 Opening Drive gaps extend. Momentum more reliable." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Implied Volatility (IV)", def: "Market\u2019s expectation of future price movement, annualized. High IV = expensive options. Forward-looking, not historical.", ex: "ALAB IV ran 98-115% during parabolic phase. Selling premium more attractive than buying." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "ITM / ATM / OTM", def: "In-the-money (has intrinsic value \u2014 call strike below spot, put strike above), at-the-money (strike \u2248 spot), out-of-the-money (no intrinsic value yet, pure premium). Delta approximates the odds of finishing ITM.", ex: "Stock at $50: the $45 call is ITM, the $50 call is ATM, the $55 call is OTM." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "IV Crush", def: "Sharp drop in IV immediately after a catalyst. Options lose value even on correct direction.", ex: "Buy put pre-earnings $3.00. Stock drops 5% but IV collapses 55pts \u2192 put now $1.80." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "IV Rank (IVR)", def: "Where current IV sits vs past 52 weeks as a percentile. IVR >80 = Phase 3 signal in CRF.", ex: "IVR 85 = IV higher than 85% of readings this year \u2192 Gate 4 RED lean." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Put Option", def: "Right (not obligation) to sell 100 shares at the strike price before expiration. Buyers profit if the stock falls below strike \u2212 premium paid.", ex: "Buy 1 IREN $35 put for $1.50. Stock drops to $30 at expiry \u2192 intrinsic value $5.00, profit $3.50/share." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Put/Call Skew", def: "Difference between put IV and call IV at equal distance from current price. Positive skew = bearish institutional hedging.", ex: "CHAT showed consistent +4pt put skew \u2192 Gate 2 bearish lean." },
+  { cat: "OPTIONS \u2014 CONCEPTS", term: "Strike Price", def: "The fixed price at which an option\u2019s owner can buy (call) or sell (put) the underlying. Set when the contract is created and never changes.", ex: "A $45 call and a $50 call on the same expiry are different contracts \u2014 the $45 strike is already in-the-money at a $47 stock price, the $50 strike is not." },
   { cat: "OPTIONS \u2014 GREEKS", term: "Delta (\u0394)", def: "How much an option moves per $1 move in the stock. ATM options ~0.50. Also approximates probability of expiring in-the-money.", ex: "Delta 0.50 call gains $0.50 when stock rises $1." },
   { cat: "OPTIONS \u2014 GREEKS", term: "Gamma (\u0393)", def: "Rate of change of delta. High gamma = delta shifts rapidly. Options near expiry and ATM have highest gamma.", ex: "High-gamma option: $1 stock move shifts delta from 0.50 to 0.65." },
+  { cat: "OPTIONS \u2014 GREEKS", term: "Rho (\u03C1)", def: "Sensitivity to a 1% change in interest rates. Smallest of the four Greeks for short-dated options \u2014 matters on LEAPS-length duration, negligible for the Opening Drive holds this app is built around.", ex: "A 6-month call with Rho 0.15 gains ~$0.15 per 1% rate hike \u2014 a rounding error next to a same-day 3% move driven by Delta/Gamma." },
   { cat: "OPTIONS \u2014 GREEKS", term: "Theta (\u0398)", def: "Time decay per day. Sellers\u2019 friend, buyers\u2019 enemy. Accelerates in final 2 weeks before expiry.", ex: "$2.00 option with theta \u22120.05 loses $0.50 over 10 days even if stock flat." },
   { cat: "OPTIONS \u2014 GREEKS", term: "Vega (\u03BD)", def: "Sensitivity to implied volatility. Buying pre-earnings buys vega, but IV collapses after the event (IV crush).", ex: "Buy $3.00 pre-earnings, stock moves your way, IV drops 45pts \u2192 option now $1.80." },
-  { cat: "OPTIONS \u2014 CONCEPTS", term: "Implied Volatility (IV)", def: "Market\u2019s expectation of future price movement, annualized. High IV = expensive options. Forward-looking, not historical.", ex: "ALAB IV ran 98-115% during parabolic phase. Selling premium more attractive than buying." },
-  { cat: "OPTIONS \u2014 CONCEPTS", term: "IV Rank (IVR)", def: "Where current IV sits vs past 52 weeks as a percentile. IVR >80 = Phase 3 signal in CRF.", ex: "IVR 85 = IV higher than 85% of readings this year \u2192 Gate 4 RED lean." },
-  { cat: "OPTIONS \u2014 CONCEPTS", term: "Put/Call Skew", def: "Difference between put IV and call IV at equal distance from current price. Positive skew = bearish institutional hedging.", ex: "CHAT showed consistent +4pt put skew \u2192 Gate 2 bearish lean." },
-  { cat: "OPTIONS \u2014 CONCEPTS", term: "Expected Move", def: "Market-implied 1-sigma price range by expiration. Stock stays within this range ~68% of the time.", ex: "Stock $50, ATM IV 80%, 30 DTE \u2192 expected move \xB1$12.30." },
-  { cat: "OPTIONS \u2014 CONCEPTS", term: "IV Crush", def: "Sharp drop in IV immediately after a catalyst. Options lose value even on correct direction.", ex: "Buy put pre-earnings $3.00. Stock drops 5% but IV collapses 55pts \u2192 put now $1.80." },
-  { cat: "OPTIONS \u2014 CONCEPTS", term: "Cash-Secured Put", def: "Selling a put while holding cash to buy shares at strike if assigned. Generates income on names you\u2019d want to own.", ex: "ARCC at $18.50 \u2192 sell $18 put for $0.48. Assigned = effective buy at $17.52." },
-  { cat: "OPTIONS \u2014 CONCEPTS", term: "Gamma Exposure (GEX)", def: "Aggregate dollar impact of dealer hedging. Positive GEX = dealers dampen moves. Negative GEX = dealers amplify moves.", ex: "SPX negative GEX \u2192 Opening Drive gaps extend. Momentum more reliable." },
-  { cat: "MARKET STRUCTURE", term: "Opening Drive", def: "First 90 minutes (9:30-11:00am ET). Highest volume, highest volatility. Most institutional orders execute here. This app is built for this window.", ex: "Stock gaps up 3% with 2\xD7 average volume in bar 1 = Opening Drive setup." },
-  { cat: "MARKET STRUCTURE", term: "Gap Up / Gap Down", def: "Stock opens significantly different from prior close. CRF entry: gap \u22652% from prior close, enter at ask +1%.", ex: "SMMT closed $45, opens $47.50 = +5.5% gap. Check all 5 gates." },
-  { cat: "MARKET STRUCTURE", term: "Engulfing Candle", def: "Second candle\u2019s body completely contains the first. Bullish engulf = buyers overwhelmed sellers. Gate 3 uses this for Monday signals.", ex: "Monday bar 1 red at $40, bar 2 opens $38 closes $41 = bullish engulf \u2192 Gate 3 GREEN." },
-  { cat: "MARKET STRUCTURE", term: "Circuit Breaker", def: "Automatic trading halt when market falls a specified percentage. US halts at \u22127%, \u221213%, \u221220%. KOSPI at \u22128%.", ex: "KOSPI circuit breaker June 8 2026 at \u22128.37% \u2192 Gate 5 RED for all AI/semi." },
-  { cat: "MARKET STRUCTURE", term: "Short Squeeze", def: "Heavily shorted stock rises sharply, forcing shorts to buy to cover, pushing price higher. Brief but explosive.", ex: "IREN 18.7% short float, <2 days to cover. Any positive catalyst could trigger a squeeze." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "52-Week High", def: "The highest price a stock has traded at over the trailing 52 weeks \u2014 shown on each card as 52W.", ex: "A stock making a new 52-week high is trading at its best price in a full year." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "52-Week Low", def: "The lowest price a stock has traded at over the trailing 52 weeks.", ex: "A stock making a new 52-week low is trading at its worst price in a full year \u2014 worth investigating, not automatically a bargain." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "All-Time High (ATH)", def: "The highest price a stock has ever traded at since it started trading \u2014 not just the trailing year.", ex: "A stock can sit well below its 52-week high while still trading near its all-time high, if that high was set more than a year ago." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "All-Time Low (ATL)", def: "The lowest price a stock has ever traded at, since it started trading.", ex: "A stock hitting a fresh all-time low has never been cheaper in its public trading history." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "Bearish", def: "Expecting the price to fall. This app\u2019s \u{1F44E} DOWN verdict is a bearish call.", ex: "\u201CBearish on the sector\u201D means expecting it to fall broadly, not just one name." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "Breakdown", def: "Price moves decisively below a support level it had been holding, often on above-average volume \u2014 the bearish mirror of a breakout.", ex: "A stock that held $40 for weeks finally closes at $37 on heavy volume \u2014 a breakdown." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "Breakout", def: "Price moves decisively above a resistance level it had been struggling to clear, often on above-average volume.", ex: "A stock that failed at $50 three times finally closes at $52 on 3\xD7 average volume \u2014 a breakout." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "Bullish", def: "Expecting the price to rise. This app\u2019s \u{1F44D} UP verdict is a bullish call.", ex: "\u201CBullish on IREN\u201D means expecting it to rise." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "Discount", def: "Trading below par, fair value, or intrinsic worth \u2014 the opposite of Premium.", ex: "A closed-end fund trading at a 10% discount to net asset value is priced below what its holdings are actually worth." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "Fairly Priced", def: "Trading roughly in line with what a company\u2019s fundamentals justify \u2014 neither a bargain nor stretched.", ex: "A stock at 18\xD7 earnings growing 18% a year, in line with its sector, is fairly priced." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "Floating", def: "Drifting with little conviction in either direction \u2014 not trending, not volatile, just idling near its current price.", ex: "A stock ticking between $29.80 and $30.20 all session on thin volume is floating, not making a real move." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "Frozen", def: "Essentially motionless \u2014 flat price, thin or no volume, nothing fresh to read from it.", ex: "A halted or extremely illiquid stock showing the same last-trade price for hours is frozen." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "Gapping Down", def: "Opens the session noticeably below where it closed the prior day, leaving a visible gap on the chart \u2014 the bearish mirror of gapping up.", ex: "Closes Monday at $45, opens Tuesday at $41 \u2014 gapping down 8.9% overnight." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "Gapping Up", def: "Opens the session noticeably above where it closed the prior day, leaving a visible gap on the chart.", ex: "Closes Monday at $45, opens Tuesday at $48 \u2014 gapping up 6.7% overnight." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "Overbought", def: "Pushed up too far, too fast \u2014 often flagged by momentum indicators like RSI above 70 \u2014 and considered due for a pullback.", ex: "A stock up 40% in two weeks with RSI at 85 is overbought, even if the underlying story is still good." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "Oversold", def: "Pushed down too far, too fast \u2014 RSI below 30 is the common threshold \u2014 and considered due for a bounce.", ex: "A stock down 30% in a broad market flush with RSI at 18 is oversold, even though nothing changed about the company itself." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "Overvalued", def: "Trading above what a company\u2019s fundamentals justify \u2014 often used to flag Phase 3-style names priced for perfection.", ex: "A stock at 80\xD7 forward earnings with slowing growth gets called overvalued even if the chart still looks strong." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "Overweight", def: "An analyst or portfolio call to hold more of a stock than its normal weighting in a benchmark, because it\u2019s expected to outperform. Opposite of Underweight.", ex: "A fund rating MU \u201COverweight\u201D means holding more of it than its ~0.3% weight in the index it tracks." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "Par", def: "A security\u2019s original face value \u2014 100% of what it was issued at. Mostly a bond term; \u201Cat par\u201D means trading exactly at that value.", ex: "A $1,000 bond trading at par sells for $1,000, no more, no less." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "Premium", def: "Trading above par, fair value, or intrinsic worth. On options, the premium is simply the price paid for the contract.", ex: "A closed-end fund trading at a 5% premium to net asset value costs more than the assets it actually holds." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "Rallying", def: "In the middle of a sustained upward move, usually over several sessions.", ex: "A stock up 15% over five straight green days is rallying." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "Range-bound", def: "Trading between a fairly consistent floor and ceiling with no clear trend, bouncing between support and resistance.", ex: "A stock stuck between $18 and $22 for a month, testing each edge without breaking through, is range-bound." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "Sideways", def: "Moving with no clear up or down trend over a stretch of time \u2014 the everyday term for range-bound, consolidating price action.", ex: "A stock unchanged on net over three weeks, chopping in both directions, is trading sideways." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "Undervalued", def: "Trading below what a company\u2019s fundamentals (earnings, growth, assets) suggest it\u2019s actually worth \u2014 a value case, not a momentum one.", ex: "A stock at 8\xD7 earnings when peers trade at 15\xD7, with no clear reason for the gap, gets called undervalued." },
+  { cat: "PRICE & VALUATION LANGUAGE", term: "Volatile", def: "Moving in large, rapid swings in either direction \u2014 high uncertainty about where price settles next, regardless of the underlying trend.", ex: "A stock swinging \xB18% in a single session on light news is volatile, whichever direction it ends up." },
+  { cat: "SECTOR TERMS", term: "BDC (Business Development Company)", def: "Fund making loans to mid-sized businesses, required to distribute 90%+ of income as dividends.", ex: "ARCC is the largest publicly traded BDC. Income from loan interest, not appreciation." },
+  { cat: "SECTOR TERMS", term: "HBM (High Bandwidth Memory)", def: "RAM designed for AI training. Only Micron, Samsung, SK Hynix make it. Core of MU\u2019s AI thesis.", ex: "Hyperscaler capex slowdown = HBM demand slowdown = MU pressure." },
   { cat: "SECTOR TERMS", term: "KOSPI", def: "Korea Composite Stock Price Index. Leading indicator for US AI/semi names. US names lag KOSPI crashes by 1-3 sessions.", ex: "KOSPI \u22126% Tuesday \u2192 NVDA/MU/ALAB pressure Thursday-Friday." },
+  { cat: "SECTOR TERMS", term: "Neocloud", def: "Companies renting GPU compute to AI developers. Borrow billions to buy Nvidia GPUs, rent at premium.", ex: "IREN, CoreWeave. Revenue real; profitability theoretical for most." },
+  { cat: "SECTOR TERMS", term: "SOXX", def: "iShares Semiconductor ETF. Tracks 30 largest US-listed semiconductor companies. Best sector indicator for AI/chip trades.", ex: "SOXX \u22123% while SPY flat = semiconductor-specific stress." },
   { cat: "SECTOR TERMS", term: "TSM (Taiwan Semiconductor)", def: "World\u2019s largest contract chip manufacturer. Single best proxy for global semiconductor health. TSM drop >3% = Gate 5 RED for all AI/semi names.", ex: "TSM \u22124% \u2192 Taiwan semi stress \u2192 risk-off on AI/semi entries." },
   { cat: "SECTOR TERMS", term: "XBI / IBB", def: "Biotech ETFs. XBI equal-weighted (smaller companies more impact). XBI is Gate 5 proxy for biotech/medical names.", ex: "XBI \u22122% \u2192 biotech risk-off \u2192 Gate 5 YELLOW or RED for SMMT/VCYT/IMVT." },
-  { cat: "SECTOR TERMS", term: "SOXX", def: "iShares Semiconductor ETF. Tracks 30 largest US-listed semiconductor companies. Best sector indicator for AI/chip trades.", ex: "SOXX \u22123% while SPY flat = semiconductor-specific stress." },
-  { cat: "SECTOR TERMS", term: "HBM (High Bandwidth Memory)", def: "RAM designed for AI training. Only Micron, Samsung, SK Hynix make it. Core of MU\u2019s AI thesis.", ex: "Hyperscaler capex slowdown = HBM demand slowdown = MU pressure." },
-  { cat: "SECTOR TERMS", term: "Neocloud", def: "Companies renting GPU compute to AI developers. Borrow billions to buy Nvidia GPUs, rent at premium.", ex: "IREN, CoreWeave. Revenue real; profitability theoretical for most." },
-  { cat: "SECTOR TERMS", term: "BDC (Business Development Company)", def: "Fund making loans to mid-sized businesses, required to distribute 90%+ of income as dividends.", ex: "ARCC is the largest publicly traded BDC. Income from loan interest, not appreciation." },
-  { cat: "TRADING TERMINOLOGY", term: "Long", def: "Buying and owning shares expecting price to rise.", ex: "Buy 100 SMMT at $45. Sell at $50. $500 profit." },
-  { cat: "TRADING TERMINOLOGY", term: "Short / Short Selling", def: "Borrowing shares, selling immediately, buying back later. Profit if price falls. Loss if rises \u2014 theoretically unlimited.", ex: "Short 100 IREN at $40. Falls to $32 \u2192 $800 profit." },
+  { cat: "TICKER CLASSIFICATIONS", term: "Canary", def: "European or institutional base that prices macro risk early. When canaries fall while sentiment names rise, reversal is coming.", ex: "ASML fell before MU/ALAB. Warned 10-21 days early." },
+  { cat: "TICKER CLASSIFICATIONS", term: "Flow", def: "Moves on mechanical buying events. Institutions distribute at the opening bar on positive catalyst days.", ex: "ALAB opened $315 on Computex day, flushed to $292 in 30 min on 1.1M shares." },
+  { cat: "TICKER CLASSIFICATIONS", term: "Phase 1 / 2 / 3", def: "Phase 1 = discovery, <30% of 52-week range, full size. Phase 2 = acceleration, 30-70%, half size. Phase 3 = priced for perfection, >70%, post-flush only.", ex: "ALAB at $88 = Phase 1. At $300 = Phase 2. At $450 = Phase 3 (sold off on blowout beat)." },
+  { cat: "TICKER CLASSIFICATIONS", term: "Sentiment", def: "Moves most directly with AI capex or sector confidence, ignoring macro until it breaks.", ex: "MU, NVDA, AMD. Ran +47% into Broadcom miss then crashed 12.8%." },
+  { cat: "TRADING TERMINOLOGY", term: "14-Day Pre-Window", def: "14 trading days before a catalyst. Over +20% move in this window = Gate 1 RED (exhaustion).", ex: "MU ran +35% in 14 days before record earnings. Gate 1 RED. Sold off on the print." },
+  { cat: "TRADING TERMINOLOGY", term: "Bid / Ask (Bid-Ask Spread)", def: "Bid = highest price a buyer will pay right now. Ask = lowest price a seller will accept. The spread between them is a real, invisible cost \u2014 wider on illiquid names and thin extended-hours books.", ex: "IREN bid $39.98 / ask $40.05 \u2014 a market order to buy fills near $40.05, not the $40.00 last-trade price shown on the card." },
   { cat: "TRADING TERMINOLOGY", term: "Defined Risk", def: "Position where max loss is fixed at entry. Buying options or spreads. Cannot lose more than premium paid.", ex: "Buy 1 put for $200. Stock rallies. Max loss = $200." },
-  { cat: "TRADING TERMINOLOGY", term: "Stop Loss", def: "Pre-set price at which you automatically exit to limit losses. Set before entry. CRF: \u22123% for high-conviction names.", ex: "Enter SMMT at $45. Stop at $43.65 (\u22123%). Hit $43.65 \u2192 exit immediately." },
+  { cat: "TRADING TERMINOLOGY", term: "GTC (Good Till Cancelled)", def: "Order that stays active until manually cancelled. Use for stop losses on multi-day holds.", ex: "GTC stop at $43.65 on SMMT triggers automatically even if it gaps down overnight." },
+  { cat: "TRADING TERMINOLOGY", term: "Ladder / Laddering", def: "Splitting one order into several smaller limit orders staggered across a price range instead of one order at one price. Improves average fill price on size that would otherwise move a thin book.", ex: "Instead of one 500-share market buy, ladder 100 shares each at $45.00/$45.10/$45.20/$45.30/$45.40." },
+  { cat: "TRADING TERMINOLOGY", term: "Limit Order", def: "An order that only fills at your specified price or better. Guarantees price, not execution \u2014 can go unfilled if the stock never trades there.", ex: "Limit buy SMMT at $45.00 while it\u2019s trading $45.20 \u2014 sits unfilled until the price comes down to you (or never)." },
+  { cat: "TRADING TERMINOLOGY", term: "Long", def: "Buying and owning shares expecting price to rise.", ex: "Buy 100 SMMT at $45. Sell at $50. $500 profit." },
+  { cat: "TRADING TERMINOLOGY", term: "Market Order", def: "An order that fills immediately at the best available price. Guarantees execution, not price \u2014 on a fast-moving or thin name you can pay meaningfully more than the last quote.", ex: "A market buy during a gap-up Opening Drive can fill 1-2% above the price you saw when you clicked." },
+  { cat: "TRADING TERMINOLOGY", term: "Pyramiding", def: "Adding to a winning position in smaller increments as it moves in your favor.", ex: "100 shares at $45. Rises to $47 \u2192 add 50. Hits $49 \u2192 add 25." },
   { cat: "TRADING TERMINOLOGY", term: "Sector Rotation", def: "Money moving from one sector to another. Sector pulse blurb tracks this daily.", ex: "AI fears \u2192 money rotates from NVDA into GLD and USO." },
   { cat: "TRADING TERMINOLOGY", term: "Sell the News", def: "Stock falls after a positive catalyst because good news was already priced in. Phase 3 behavior.", ex: "ALAB beats Q1 by 12%. Stock drops 13% next day. Beat was priced in." },
-  { cat: "TRADING TERMINOLOGY", term: "14-Day Pre-Window", def: "14 trading days before a catalyst. Over +20% move in this window = Gate 1 RED (exhaustion).", ex: "MU ran +35% in 14 days before record earnings. Gate 1 RED. Sold off on the print." },
-  { cat: "TRADING TERMINOLOGY", term: "Pyramiding", def: "Adding to a winning position in smaller increments as it moves in your favor.", ex: "100 shares at $45. Rises to $47 \u2192 add 50. Hits $49 \u2192 add 25." },
-  { cat: "TRADING TERMINOLOGY", term: "GTC (Good Till Cancelled)", def: "Order that stays active until manually cancelled. Use for stop losses on multi-day holds.", ex: "GTC stop at $43.65 on SMMT triggers automatically even if it gaps down overnight." },
-  { cat: "OPTIONS \u2014 GREEKS", term: "Rho (\u03C1)", def: "Sensitivity to a 1% change in interest rates. Smallest of the four Greeks for short-dated options \u2014 matters on LEAPS-length duration, negligible for the Opening Drive holds this app is built around.", ex: "A 6-month call with Rho 0.15 gains ~$0.15 per 1% rate hike \u2014 a rounding error next to a same-day 3% move driven by Delta/Gamma." },
-  { cat: "OPTIONS \u2014 CONCEPTS", term: "Call Option", def: "Right (not obligation) to buy 100 shares at the strike price before expiration. Buyers profit if the stock rises above strike + premium paid.", ex: "Buy 1 SMMT $50 call for $2.00. Stock closes $55 at expiry \u2192 intrinsic value $5.00, profit $3.00/share." },
-  { cat: "OPTIONS \u2014 CONCEPTS", term: "Put Option", def: "Right (not obligation) to sell 100 shares at the strike price before expiration. Buyers profit if the stock falls below strike \u2212 premium paid.", ex: "Buy 1 IREN $35 put for $1.50. Stock drops to $30 at expiry \u2192 intrinsic value $5.00, profit $3.50/share." },
-  { cat: "OPTIONS \u2014 CONCEPTS", term: "Strike Price", def: "The fixed price at which an option\u2019s owner can buy (call) or sell (put) the underlying. Set when the contract is created and never changes.", ex: "A $45 call and a $50 call on the same expiry are different contracts \u2014 the $45 strike is already in-the-money at a $47 stock price, the $50 strike is not." },
-  { cat: "OPTIONS \u2014 CONCEPTS", term: "DTE (Days to Expiration)", def: "Calendar days remaining until an option contract expires. Theta decay accelerates as DTE shrinks, especially inside the final 2 weeks.", ex: "A 30 DTE option loses value slowly. The same strike at 3 DTE bleeds premium daily even on a flat stock." },
-  { cat: "OPTIONS \u2014 CONCEPTS", term: "ITM / ATM / OTM", def: "In-the-money (has intrinsic value \u2014 call strike below spot, put strike above), at-the-money (strike \u2248 spot), out-of-the-money (no intrinsic value yet, pure premium). Delta approximates the odds of finishing ITM.", ex: "Stock at $50: the $45 call is ITM, the $50 call is ATM, the $55 call is OTM." },
-  { cat: "TRADING TERMINOLOGY", term: "Bid / Ask (Bid-Ask Spread)", def: "Bid = highest price a buyer will pay right now. Ask = lowest price a seller will accept. The spread between them is a real, invisible cost \u2014 wider on illiquid names and thin extended-hours books.", ex: "IREN bid $39.98 / ask $40.05 \u2014 a market order to buy fills near $40.05, not the $40.00 last-trade price shown on the card." },
-  { cat: "TRADING TERMINOLOGY", term: "Limit Order", def: "An order that only fills at your specified price or better. Guarantees price, not execution \u2014 can go unfilled if the stock never trades there.", ex: "Limit buy SMMT at $45.00 while it\u2019s trading $45.20 \u2014 sits unfilled until the price comes down to you (or never)." },
-  { cat: "TRADING TERMINOLOGY", term: "Market Order", def: "An order that fills immediately at the best available price. Guarantees execution, not price \u2014 on a fast-moving or thin name you can pay meaningfully more than the last quote.", ex: "A market buy during a gap-up Opening Drive can fill 1-2% above the price you saw when you clicked." },
-  { cat: "TRADING TERMINOLOGY", term: "Ladder / Laddering", def: "Splitting one order into several smaller limit orders staggered across a price range instead of one order at one price. Improves average fill price on size that would otherwise move a thin book.", ex: "Instead of one 500-share market buy, ladder 100 shares each at $45.00/$45.10/$45.20/$45.30/$45.40." },
-  { cat: "MARKET STRUCTURE", term: "VWAP (Volume-Weighted Average Price)", def: "The running average price of a stock for the session, weighted by volume at each price. Resets daily. Widely used intraday as a fair-value line \u2014 price above VWAP favors longs, below favors shorts.", ex: "Stock pops to $52 but VWAP sits at $49.80 \u2014 a lot of the day\u2019s volume already changed hands well below the current price." },
-  { cat: "MARKET STRUCTURE", term: "Relative Volume (RVOL)", def: "Current volume compared to the average volume for this point in the session. RVOL >2x on an Opening Drive gap is what separates a real institutional move from noise.", ex: "ALAB gaps up 4% on 1.1M shares in the first 5 minutes vs a normal 5-minute average of 280K \u2192 RVOL ~4x, high-conviction signal." },
-  { cat: "MARKET STRUCTURE", term: "Support / Resistance", def: "Price levels where a stock has historically reversed. Support = a floor buyers defended before. Resistance = a ceiling sellers defended before. Neither is guaranteed to hold twice.", ex: "PLUG bounced at $2.10 three times this quarter \u2014 that\u2019s support until it isn\u2019t; a close below it on volume is the tell it broke." },
-  { cat: "MARKET STRUCTURE", term: "Extended Hours (Pre-Market / Post-Market)", def: "Trading outside the 9:30am-4:00pm ET regular session: pre-market (4:00-9:30am ET) and post-market (4:00-8:00pm ET) on IEX Exchange\u2019s formal extended sessions. Real prints, but on a much thinner book than the regular consolidated tape \u2014 moves here can reverse hard once the full tape opens.", ex: "CIFR prints $24.16 pre-market on light volume, opens the regular session at $22.10 once the full tape weighs in." },
-  { cat: "MARKET STRUCTURE", term: "Beta (\u03B2)", def: "A stock\u2019s volatility relative to the overall market (SPY), where 1.0 = moves in line with the market, >1 amplifies market moves, <1 dampens them. Shown on each card as \u03B2. A negative beta means the stock tends to move opposite the market \u2014 treat it as effectively uncorrelated to its assigned Gate 5 proxy rather than confirming or denying that proxy read.", ex: "IREN at \u03B22.1 is expected to move ~2.1% for every 1% SPY move. A rare \u03B2\u22120.3 name would be expected to drift up on a red SPY day." },
-  { cat: "MARKET STRUCTURE", term: "Intraday", def: "Within a single trading day \u2014 opened and evaluated before the next session begins, as opposed to a multi-day swing or long-term hold. This app\u2019s entire CRF framework is built around intraday timing: the Opening Drive window, Gate 3\u2019s same-day bar sequence, and same-day stop-loss discipline.", ex: "An intraday call on SMMT is graded against its move by that day\u2019s close, not next week\u2019s \u2014 Gate 3\u2019s opening-bar sequence only exists because the framework is timing a single session." },
-  { cat: "CRF FRAMEWORK", term: "Verdict Icons \u2014 \u{1F44D} UP / \u{1F44E} DOWN / HOLD", def: "\u{1F44D} means the app leans bullish (expects the stock to rise), \u{1F44E} means it leans bearish (expects it to fall), and HOLD means it\u2019s not confident enough either way, or the market\u2019s closed.", ex: "Simple as a thumbs up or thumbs down on a movie \u2014 just for a stock\u2019s next move instead." },
-  { cat: "CRF FRAMEWORK", term: "Confidence", def: "How strongly the verdict\u2019s own price action agrees with the trigger driving it. HIGH means both the ticker\u2019s own move and its sector proxy\u2019s move confirm the call. MEDIUM means the trigger is clean but there\u2019s no independent price data to confirm or deny it yet. LOW means real price action is actually moving against the call \u2014 and every LOW-confidence verdict always ships a real \u201CLOOK FOR\u201D note explaining what to watch for before acting.", ex: "A DOWN verdict where the stock itself is also selling off hard is HIGH confidence. The same DOWN verdict on a stock that\u2019s actually holding flat or ticking up is LOW \u2014 check the LOOK FOR note before acting." },
+  { cat: "TRADING TERMINOLOGY", term: "Short / Short Selling", def: "Borrowing shares, selling immediately, buying back later. Profit if price falls. Loss if rises \u2014 theoretically unlimited.", ex: "Short 100 IREN at $40. Falls to $32 \u2192 $800 profit." },
+  { cat: "TRADING TERMINOLOGY", term: "Stop Loss", def: "Pre-set price at which you automatically exit to limit losses. Set before entry. CRF: \u22123% for high-conviction names.", ex: "Enter SMMT at $45. Stop at $43.65 (\u22123%). Hit $43.65 \u2192 exit immediately." },
   { cat: "TRADING TERMINOLOGY", term: "Ticker", def: "The short letter code (usually 1-5 letters) that identifies one specific stock or fund on an exchange, like IREN or SPY. What you type into Import to add a name to your watchlist.", ex: "MU, ALAB, and TSM are all tickers \u2014 three different companies, three different symbols." }
 ];
+var GLOSSARY_LINK_TERMS = [
+  { re: /\b52-Week High\b/gi, key: "52-week high" },
+  { re: /\b52-Week Low\b/gi, key: "52-week low" },
+  { re: /\bAll-Time High\b/gi, key: "all-time high" },
+  { re: /\bATH\b/g, key: "all-time high" },
+  { re: /\bAll-Time Low\b/gi, key: "all-time low" },
+  { re: /\bATL\b/g, key: "all-time low" },
+  { re: /\bFairly Priced\b/gi, key: "fairly priced" },
+  { re: /\bRange-bound\b/gi, key: "range-bound" },
+  { re: /\bGapping Up\b/gi, key: "gapping up" },
+  { re: /\bGapping Down\b/gi, key: "gapping down" },
+  { re: /\bOverweight\b/gi, key: "overweight" },
+  { re: /\bUndervalued\b/gi, key: "undervalued" },
+  { re: /\bOvervalued\b/gi, key: "overvalued" },
+  { re: /\bat par\b/gi, key: "par" },
+  { re: /\bPremium\b/gi, key: "premium" },
+  { re: /\bDiscount\b/gi, key: "discount" },
+  { re: /\bBullish\b/gi, key: "bullish" },
+  { re: /\bBearish\b/gi, key: "bearish" },
+  { re: /\bOverbought\b/gi, key: "overbought" },
+  { re: /\bOversold\b/gi, key: "oversold" },
+  { re: /\bBreakout\b/gi, key: "breakout" },
+  { re: /\bBreakdown\b/gi, key: "breakdown" },
+  { re: /\bSideways\b/gi, key: "sideways" },
+  { re: /\bVolatile\b/gi, key: "volatile" },
+  { re: /\bRallying\b/gi, key: "rallying" },
+  { re: /\bFloating\b/gi, key: "floating" },
+  { re: /\bFrozen\b/gi, key: "frozen" }
+];
+function linkTextSegment(text) {
+  if (!text) return text;
+  var hits = [];
+  GLOSSARY_LINK_TERMS.forEach(function(lt) {
+    lt.re.lastIndex = 0;
+    var mm;
+    while (mm = lt.re.exec(text)) {
+      hits.push({ start: mm.index, end: mm.index + mm[0].length, text: mm[0], key: lt.key });
+      if (mm[0].length === 0) lt.re.lastIndex++;
+    }
+  });
+  if (!hits.length) return text;
+  hits.sort(function(a, b) {
+    return a.start - b.start || b.end - b.start - (a.end - a.start);
+  });
+  var kept = [];
+  var lastEnd = -1;
+  hits.forEach(function(h) {
+    if (h.start >= lastEnd) {
+      kept.push(h);
+      lastEnd = h.end;
+    }
+  });
+  var out = "", pos = 0;
+  kept.forEach(function(h) {
+    out += text.slice(pos, h.start);
+    out += '<a href="#" class="help-glossary-link term-link" data-term="' + h.key + '">' + h.text + "</a>";
+    pos = h.end;
+  });
+  out += text.slice(pos);
+  return out;
+}
+function autoLinkGlossaryTerms(html) {
+  if (!html) return html;
+  var TAG_RE = /<[^>]*>/g;
+  var out = "", lastIndex = 0, m;
+  while (m = TAG_RE.exec(html)) {
+    out += linkTextSegment(html.slice(lastIndex, m.index));
+    out += m[0];
+    lastIndex = m.index + m[0].length;
+  }
+  out += linkTextSegment(html.slice(lastIndex));
+  return out;
+}
+function wrapHeadlineLinks(sym, html) {
+  var href = newsHref2(sym);
+  var parts = html.split(/(<a\b[^>]*\bclass="[^"]*\bterm-link\b[^"]*"[^>]*>.*?<\/a>)/g);
+  return parts.map(function(p) {
+    if (!p) return p;
+    if (p.indexOf("help-glossary-link") !== -1) return p;
+    return '<a href="' + href + '" target="_blank">' + p + "</a>";
+  }).join("");
+}
 var glossaryBuilt = false;
 function buildGlossary() {
   if (glossaryBuilt) return;
