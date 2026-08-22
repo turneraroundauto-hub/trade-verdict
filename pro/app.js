@@ -2768,7 +2768,7 @@ function filterGlossary(query) {
 }
 document.getElementById("glossary-search").addEventListener("input", (e) => filterGlossary(e.target.value));
 var HELP_CONTENT = {
-  gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against \u2014 feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read \u2014 tap the docked bar to jump back to top.',
+  gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against \u2014 feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read \u2014 tap the docked bar to jump back to top. Pre/post-market prices are IEX-only and may vary from the full consolidated tape; built for regular-session (9:30am\u20134pm ET) analysis.',
   pulse: 'A quick AI-written read on today\u2019s overall market mood and <a class="help-glossary-link" href="#" data-term="sector rotation">sector rotation</a> \u2014 informational only, doesn\u2019t change any gate.',
   context: "Type in real news or catalysts you already know. Matched against headlines as corroboration for Gate 2 \u2014 when it lines up with 2 of 3 real signals, it\u2019s marked CONTEXT-CORROBORATED.",
   io: 'Paste or type <a class="help-glossary-link" href="#" data-term="ticker">tickers</a>, one per line or comma-separated, to add them to your watchlist \u2014 unlimited on Pro.',
