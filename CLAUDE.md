@@ -5571,3 +5571,85 @@ session where the week has genuinely been flat and check whether the
 model actually applies full weight instead of the usual skepticism
 discount, and confirm a real UP verdict with exactly one RED among
 Gates 2/3/4 renders QUARTER sizing rather than NONE.
+
+## Backend: Pre-Gate loses its blanket forceDown authority — joins the corroboration pool (Aug 22, 2026)
+
+Direct instruction: "add pre-gate among those that one red gate can't
+bring a force down unless 3 yellow gates are also in the breakdown."
+Given how consequential Pre-Gate's forceDown behavior is — it was a
+deliberate, repeatedly-reaffirmed design choice through the entire Aug 18
+Pre-Gate saga above ("any negative filing = hard down, no negotiation")
+— this was scoped via `AskUserQuestion` before touching any code, not
+guessed at:
+
+1. **Confirmed: Pre-Gate RED alone should stop being an unconditional
+   override.** It joins Gates 2/3/4 in needing backup to force DOWN,
+   replacing its previous blanket "always forces DOWN alone" behavior
+   (previously equivalent in authority to Gate 0 RED).
+2. **Confirmed: "3 yellow gates" means specifically Gates 2, 3, and 4
+   all independently YELLOW** — not any 3 of the 6 gates.
+3. **Confirmed: a RED Pre-Gate still counts toward the existing "2+ RED
+   gates" corroboration path** that Gates 1/2/4/5 already use — it's a
+   normal member of the pool now, not gated by the 3-yellow rule alone.
+
+**Implementation, both repos:**
+- The old unconditional Pre-Gate forceDown block (`parsed.verdict =
+  "DOWN"; parsed.sizing = "NONE"; parsed.confidence = ...; parsed.wait_for
+  = ...`) is gone. A RED Pre-Gate now only sets `parsed.verdict = "DOWN"`
+  as a **candidate** and updates `parsed.reason` — the same "assert a
+  direction, let the congruency check decide if it holds" treatment every
+  other RED gate already gets. `preGateResult.hardTrigger` was removed
+  from `downForceAuthorized` entirely.
+- The `CONGRUENCY` block's `redCount` tally now includes
+  `preGateResult.status` alongside `g1Status`/`g2Status`/`g4Status`/
+  `gate5Result.status` — Pre-Gate RED is one more countable RED, exactly
+  as confirmed.
+- New `g3Status` (`parsed.gates?.g3_openbar?.status`) read for the first
+  time in this block — Gate 3 (opening bar) was never part of the
+  corroboration pool before this change, and still isn't for the RED
+  tally; it's only read for the new escape hatch below.
+- New `threeYellowBreakdown` check (`g2Status === "YELLOW" && g3Status
+  === "YELLOW" && g4Status === "YELLOW"`) — when true, a single RED gate
+  (Pre-Gate included) is treated as sufficiently corroborated even
+  without a second RED. This is implemented generically in the shared
+  congruency block rather than special-cased to "only when Pre-Gate is
+  the RED one" — the simpler, smaller diff, and it can't misfire for a
+  case where the sole RED gate *is* one of Gates 2/3/4 itself (that gate
+  can't simultaneously be RED and count toward the all-YELLOW check, so
+  no extra guard was needed there).
+- `SYSTEM_PROMPT`'s Pre-Gate section rewritten to describe the new
+  behavior explicitly (no longer "forceDown override authority EQUIVALENT
+  TO GATE 0 RED... exempt from the corroboration rule") — the model still
+  copies Pre-Gate's `status`/`note` exactly (unchanged), only the
+  authority claim changed.
+
+**Verified by simulation** — 8 synthetic cases run through the exact
+congruency logic: Pre-Gate RED alone (→ FLAT, correctly no longer
+automatic), Pre-Gate RED + Gate 1 RED (→ DOWN, 2-red path holds),
+Pre-Gate RED + Gates 2/3/4 all YELLOW (→ DOWN, new escape hatch fires),
+Pre-Gate RED + only 2 of the 3 yellow (→ FLAT, escape hatch correctly
+does NOT fire on a partial match), Gate 2 RED alone (→ FLAT, pre-existing
+behavior unchanged), Gate 2 RED + Gate 4 RED (→ DOWN, pre-existing 2-red
+path unchanged), a sanity check with zero RED gates (→ FLAT), and the
+Gate 0 RED exempt path (→ DOWN, entirely untouched by this change) — all
+8 behaved as intended. `node --check` clean, `npm test` (75 cases,
+unaffected — this logic lives in `server.js`, not `gates-extended.ts`/
+`analyze-helpers.ts`) passes clean in both repos.
+
+**A real, deliberate trade-off worth being explicit about:** this
+directly reopens the exact scenario the Aug 18 Pre-Gate saga was
+originally built to close — a real, confirmed SEC solvency filing can
+now render as FLAT instead of DOWN if it's the only red flag and Gates
+2/3/4 aren't all showing caution. That's the intended effect of this
+change, not a regression: Pre-Gate joining the corroboration pool is a
+deliberate loosening, confirmed directly, not an accident. If a live
+case surfaces where a genuinely distressed ticker gets FLAT'd this way
+and that reads as wrong in practice, that's a real signal to revisit —
+same evidence-driven posture as everything else in the Pre-Gate saga
+above.
+
+**Not yet verified against a live deploy** — same standing posture as
+every backend change in this file. To confirm: watch for a real ticker
+with a confirmed Pre-Gate RED and check whether the verdict now renders
+FLAT (not DOWN) when Gates 2/3/4 aren't all YELLOW and no second gate is
+RED, and DOWN when either condition is met.
