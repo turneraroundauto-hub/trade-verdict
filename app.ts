@@ -770,7 +770,7 @@ document.getElementById('glossary-search')!.addEventListener('input', (e) => fil
 // data-help id in index.html). Heavy terminology inside links straight
 // to the matching Glossary entry via jumpToGlossaryTerm() above.
 const HELP_CONTENT: Record<string, string> = {
-  gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against — feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read — tap the docked bar to jump back to top.',
+  gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against — feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read — tap the docked bar to jump back to top. Pre/post-market prices are IEX-only and may vary from the full consolidated tape; built for regular-session (9:30am–4pm ET) analysis.',
   pulse: 'A live AI-written read on today’s market mood and <a class="help-glossary-link" href="#" data-term="sector rotation">sector rotation</a> — Starter and up unlocks the real, per-session version.',
   context: 'Type in real news or catalysts you already know. Matched against headlines as corroboration for Gate 2 — when it lines up with 2 of 3 real signals, it’s marked CONTEXT-CORROBORATED.',
   io: 'Paste or type <a class="help-glossary-link" href="#" data-term="ticker">tickers</a>, one per line or comma-separated, to add them to your watchlist.',
