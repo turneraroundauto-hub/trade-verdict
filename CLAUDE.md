@@ -5480,3 +5480,94 @@ every backend change in this file. To confirm: analyze a ticker known to
 sit deep in its 52-week range (>70%) and confirm Gate 4 renders RED with
 the new note text, and that the model's own `g4_phase` guess (if it makes
 one) never survives past the parse step.
+
+## Backend: Gate 3 Friday full-weight exception + a real UP-with-one-RED sizing rule (Aug 22, 2026)
+
+Two more edits from the same "How a Verdict Gets Decided" review that
+prompted the Gate 4 change above. Both were genuinely ambiguous as
+written in the reviewed doc, so each was confirmed via `AskUserQuestion`
+before touching any code — worth recording exactly what was confirmed,
+since both are real behavior changes to the verdict pipeline.
+
+**Gate 5's fixed-proxy regime check — confirmed as no code change.** The
+reviewed doc's "if it's judged broken by 30 days of consistent
+decoupling" was flagged as a mismatch: the real mechanism
+(`regimeValidation()`, Proposal 3) is a weekly rolling-20-day-vs-full-
+history correlation check, not a day-count. Confirmed directly: that
+phrase was intended as plain-English framing of the existing check, not
+a request for a new day-counting mechanism. No code touched.
+
+**Gate 3 — a new Friday full-weight exception, real feature.** Friday
+has always carried a flat skepticism discount ("add skepticism, 67%
+reversal frequency") regardless of how the week itself actually traded.
+Confirmed via `AskUserQuestion`: Friday should get full weight instead of
+that discount specifically when this week's own Monday-through-Thursday
+move has been flat AND Friday's own 3-bar sequence is itself bullish/
+convicted — both conditions, not either alone.
+
+Implemented as a new `fetchWeekOwnRange(symbol)` (`Tra` + mirror), same
+dated-bars-fetch shape as the existing `fetchWeeklyCarryover()` just above
+it — needs its own fetch rather than reusing Gate 1's `dailyCloses` array,
+which is deliberately not date-anchored (see that array's own comment).
+Locates the current week's own Monday close and the most recent completed
+session's close (normally Thursday), classifies FLAT using the same
+±0.3% tolerance `fetchWeeklyCarryover`'s own CONFIRMED_UP/DOWN/FLAT split
+already uses. **Called directly from `/analyze`, gated behind
+`etWeekday() === 5`, not relayed through `/ticker/:symbol` or any tier's
+client** — same shape as Proposal 4's `fetchNewsBodiesForCorroboration`/
+`fetchEarningsCalendarFlag` (a conditional, day-gated fetch inside
+`/analyze` itself). This was a deliberate choice over threading a new
+field through every tier's `analyzeTicker()` POST body the way
+`weeklyCarryoverData`/`regimeData` are: since nothing about this signal
+needs computing ahead of time in `/ticker/:symbol`, fetching it on-demand
+inside `/analyze` (only on the one day of the week it matters) avoids
+touching any frontend file, any `?v=` cache-busting cascade, or any
+esbuild rebuild — a much smaller, lower-risk footprint for the same
+outcome. `SYSTEM_PROMPT`'s Mon/Fri overlay section now has an explicit
+"Friday full-weight exception" clause telling the model to use the new
+server-computed `Gate 3 Friday full-weight check` context line exactly,
+not to guess flatness from the bar data itself.
+
+**A real, deliberate trade-off, same posture as the weekly-carryover
+feature's own calibration note elsewhere in this file:** the ±0.3% flat
+threshold is reused from an existing, differently-tuned check (the
+Friday→Monday weekend-reaction classification), not independently
+calibrated for "this week's own Monday-Thursday range" — reasonable as a
+starting point, not yet verified against real data. Revisit once enough
+real Friday verdicts have accumulated.
+
+**Sizing — a new single-RED exception for UP, not previously
+representable at all.** The reviewed doc's edit loosened UP's
+requirement from "no RED gates" to "no more than one of Gates 2/3/4 RED."
+Confirmed the sizing consequence via `AskUserQuestion`: when that one
+RED gate is present, sizing caps at QUARTER rather than dropping to NONE
+the way any other RED gate would otherwise force. Implemented as a pure
+`SYSTEM_PROMPT` rule change (`VERDICT RULES`' UP section, `SIZING RULES`)
+— sizing has never been server-enforced for the general case (only the
+explicit forceDown branches hard-set `sizing = "NONE"`, and those are
+untouched, DOWN-only paths this change doesn't reach), so a prompt-level
+rule is the correct, consistent implementation here, not a gap. Two or
+more RED among Gates 2/3/4 is explicitly carved out as NOT this exception
+— that's still DOWN/FLAT territory under the existing rules.
+
+**The reviewed doc's "LOOK FOR" edit needed no code change either** —
+confirmed directly: the real app already populates a LOOK FOR line on
+every verdict regardless of confidence; the edit was correcting this
+file's own documentation claim (which had incorrectly scoped it to
+LOW-confidence only), not requesting new behavior.
+
+**Verified by simulation** — `fetchWeekOwnRange`'s pure classification
+logic run against 5 synthetic bar sequences (a flat week, a clearly
+directional +2.5% week, the exact 0.30% boundary, just past it at 0.31%,
+and a window with no Monday bar at all) all produced the expected
+FLAT/NOT-flat classification and the expected `null` fail-safe when no
+Monday bar is found. `node --check` clean, `npm test` (75 cases,
+unaffected — neither change touches `gates-extended.ts`/
+`analyze-helpers.ts`) passes clean in both repos.
+
+**Not yet verified against a live deploy** — same standing posture as
+every backend change in this file. To confirm: watch a real Friday
+session where the week has genuinely been flat and check whether the
+model actually applies full weight instead of the usual skepticism
+discount, and confirm a real UP verdict with exactly one RED among
+Gates 2/3/4 renders QUARTER sizing rather than NONE.
