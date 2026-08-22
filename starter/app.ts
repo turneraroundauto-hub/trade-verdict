@@ -555,7 +555,7 @@ function handleNoCredits(sym: string): void {
     const card = roloStage.querySelector(`.rolo-card[data-sym="${sym}"]`);
     if (card) {
       const n = document.createElement('div');
-      n.style.cssText = 'font-family:var(--mono);font-size:8px;color:var(--amber);text-align:center;margin-top:4px';
+      n.style.cssText = 'font-family:var(--mono);font-size:10px;color:var(--amber);text-align:center;margin-top:4px';
       n.textContent = 'Cached — no credits remaining';
       card.appendChild(n);
     }
