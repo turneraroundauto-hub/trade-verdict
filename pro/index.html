@@ -264,12 +264,12 @@
   .log-recorded{ font-family:var(--mono); font-size:11px; padding:3px 8px; border-radius:4px; font-weight:700; }
 
   .gate-list{ display:flex; flex-direction:column; gap:6px; margin-top:10px; }
-  .gate-row{ display:flex; flex-direction:column; gap:2px; }
-  .gate-row-head{ display:flex; align-items:center; gap:8px; }
-  .gate-dot{ width:8px; height:8px; border-radius:50%; flex:none; }
+  .gate-row{ display:flex; align-items:flex-start; gap:8px; }
+  .gate-dot{ width:8px; height:8px; border-radius:50%; flex:none; margin-top:6px; }
   .gate-row .gl{ font-size:13px; letter-spacing:.05em; color:var(--ink-dim); font-weight:700; }
-  .gate-row .gn{ font-size:13px; color:var(--ink); line-height:1.5; padding-left:16px; }
+  .gate-row .gn{ font-size:13px; color:var(--ink); line-height:1.5; flex:1; min-width:0; }
   .gate-clear{ display:flex; align-items:center; gap:6px; opacity:.55; }
+  .gate-clear .gate-dot{ margin-top:0; }
   .gate-clear span{ font-size:13px; color:var(--ink-dim); }
   .conf-row{ display:flex; align-items:center; margin-top:2px; gap:6px; }
   .conf-lbl{ font-size:13px; color:var(--ink-dim); letter-spacing:.05em; }
@@ -703,6 +703,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=13"></script>
+<script type="module" src="./app.js?v=14"></script>
 </body>
 </html>
