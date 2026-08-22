@@ -74,13 +74,13 @@
      back out. Plain flow element, not sticky/fixed. ────────────────── */
   .app-topbar{
     padding:12px 16px; flex:none;
-    display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px 6px;
+    display:flex; justify-content:space-between; align-items:center; flex-wrap:nowrap; gap:8px 6px;
     border-bottom:1px solid var(--border); background:var(--bg-raise);
   }
-  .header-brand{ display:flex; align-items:center; gap:10px; flex-shrink:0; min-width:0; }
+  .header-brand{ display:flex; align-items:center; gap:10px; flex-shrink:1; min-width:0; }
   .header-logo{ height:44px; width:44px; flex-shrink:0; align-self:flex-start; }
   .header-title-wrap{ min-width:0; }
-  .brand{ font-family:'Playfair Display',serif; font-size:clamp(14px,4.2vw,20px); font-weight:800; color:var(--ink); letter-spacing:.3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .brand{ font-family:'Playfair Display',serif; font-size:clamp(14px,4.2vw,20px); font-weight:800; color:var(--ink); letter-spacing:.3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:max-content; }
   .brand .t1{ color:var(--green); } .brand .t2{ color:var(--red); }
   .brand-meta{ font-size:13px; color:var(--ink-dim); margin-top:2px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-family:var(--mono); }
   .tier-chip{ font-size:11px; font-weight:700; color:var(--ink-dim); background:rgba(125,136,150,.1); border:1px solid rgba(125,136,150,.3); border-radius:3px; padding:1px 6px; letter-spacing:.08em; }
@@ -89,9 +89,9 @@
      logo/brand whenever .app-topbar ran out of width, instead of staying
      pinned to the right side (Aug 16, 2026, direct correction). Matches
      preview/rolodex/'s original column layout for this same element. */
-  .topbar-actions{ display:flex; flex-direction:column; gap:6px; align-items:flex-end; }
+  .topbar-actions{ display:flex; flex-direction:column; gap:6px; align-items:flex-end; min-width:0; }
   .credits-chip{ font-size:11px; font-weight:700; color:var(--amber); background:var(--amber-dim); border:1px solid rgba(255,182,45,.3); border-radius:4px; padding:4px 8px; white-space:nowrap; text-decoration:none; font-family:var(--mono); }
-  .auth-chip{ font-size:11px; font-weight:700; color:var(--blue); background:var(--blue-dim); border:1px solid rgba(74,168,255,.4); border-radius:4px; padding:4px 8px; white-space:nowrap; text-decoration:none; font-family:var(--mono); display:inline-flex; align-items:center; gap:4px; }
+  .auth-chip{ font-size:11px; font-weight:700; color:var(--blue); background:var(--blue-dim); border:1px solid rgba(74,168,255,.4); border-radius:4px; padding:4px 8px; text-align:right; text-decoration:none; font-family:var(--mono); display:inline-flex; align-items:center; gap:4px; }
   .auth-chip.signed-in{ color:var(--ink-dim); background:none; border-color:var(--border); }
 
   .app-scroll{ flex:1; overflow-y:auto; overflow-x:hidden; }
