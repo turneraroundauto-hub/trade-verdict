@@ -279,6 +279,10 @@ var saveHook = null;
 function onWatchlistSave(cb2) {
   saveHook = cb2;
 }
+var addedHook = null;
+function onTickersAdded(cb2) {
+  addedHook = cb2;
+}
 function initWatchlist(config) {
   maxTickers = config.maxTickers;
   upgradeMessage = config.upgradeMessage;
@@ -416,6 +420,7 @@ async function addTickers() {
     });
   });
   if (unresolved.length) alert("Couldn't find: " + unresolved.join(", "));
+  if (newOnes.length && addedHook) addedHook();
 }
 function removeTicker(ticker) {
   var idx = watchlist.indexOf(ticker);
@@ -2018,6 +2023,9 @@ async function boot() {
   onWatchlistSave(function() {
     schedulePushWatchlist();
     renderRolodexFromWatchlist();
+  });
+  onTickersAdded(function() {
+    goRolo(0);
   });
   initRolodex({
     scroller: document.getElementById("scroller"),

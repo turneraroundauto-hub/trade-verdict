@@ -50,7 +50,7 @@
 //   FOR:"), same reasoning as Free's own build: keep the shared Rolodex
 //   card language consistent across every tier that uses it.
 import { initTickerCache, fetchTickerData } from '../shared/ticker-cache';
-import { initWatchlist, watchlist, addTickers, removeTicker, setWatchlist, onWatchlistSave } from '../shared/watchlist';
+import { initWatchlist, watchlist, addTickers, removeTicker, setWatchlist, onWatchlistSave, onTickersAdded } from '../shared/watchlist';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache';
 import { renderTrackRecord, logResult, getAccuracyLog, clearLog } from '../shared/track-record';
 import { initTrackRecordSync, pullTrackRecordFromServer, schedulePushTrackRecord } from '../shared/track-record-sync';
@@ -1381,6 +1381,7 @@ async function checkTierAccess(session: any): Promise<boolean> {
   }
   initWatchlistSync({ API_URL: API_URL, authH: authH, addSecret: addSecret });
   onWatchlistSave(function () { schedulePushWatchlist(); renderRolodexFromWatchlist(); });
+  onTickersAdded(function () { rolodex.goRolo(0); });
   await pullWatchlistFromServer();
   initTrackRecordSync({ API_URL: API_URL, authH: authH, addSecret: addSecret });
   await pullTrackRecordFromServer();

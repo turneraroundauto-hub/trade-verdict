@@ -1,4 +1,4 @@
-import { watchlist, setWatchlist } from './watchlist.js?v=34';
+import { watchlist, setWatchlist } from './watchlist.js?v=35';
 let cfg = null;
 let pulling = false; // suppresses the push a pull's own setWatchlist() would otherwise trigger
 export function initWatchlistSync(config) { cfg = config; }

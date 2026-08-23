@@ -54,6 +54,17 @@ export function cardsReady(): Promise<void> { return cardsReadyPromise; }
 let saveHook: (() => void) | null = null;
 export function onWatchlistSave(cb: () => void): void { saveHook = cb; }
 
+// Fires once at the end of a SUCCESSFUL addTickers() call only -- not from
+// removeTicker()/setWatchlist(), which already have their own separate UI
+// treatment (the undo toast, a silent sync pull). New tickers always land
+// at watchlist[0] (see addTickers()'s own unshift), so a tier wiring this
+// to its Rolodex mechanics only ever needs to jump to index 0 -- no need
+// to pass which ticker was added. Fires after saveWL()/renderWatchlist()
+// have already run, so the DOM a Rolodex jump depends on is guaranteed to
+// exist by the time this callback runs.
+let addedHook: (() => void) | null = null;
+export function onTickersAdded(cb: () => void): void { addedHook = cb; }
+
 export function initWatchlist(config: WatchlistConfig): void {
   maxTickers = config.maxTickers;
   upgradeMessage = config.upgradeMessage;
@@ -254,6 +265,12 @@ export async function addTickers(): Promise<void> {
   saveWL(); renderWatchlist();
   tickers.forEach(function (t) { fetchTickerData(t).then(function (d) { if (d) updateCardMeta(t, d); }); });
   if (unresolved.length) alert("Couldn't find: " + unresolved.join(', '));
+  // Fired after the unresolved-entries alert (if any) so a Rolodex jump's
+  // scroll animation doesn't run underneath a blocking native dialog. A
+  // newly-typed ticker always survives at watchlist[0] regardless of any
+  // cap eviction above (unshift puts it first, slice keeps the front), so
+  // this is safe whenever anything new was actually added.
+  if (newOnes.length && addedHook) addedHook();
 }
 
 export function removeTicker(ticker: string): void {

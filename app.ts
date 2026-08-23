@@ -43,7 +43,7 @@
 // - Track Record is a teaser (TIER.tracker:false), matching Starter's own
 //   teaser card exactly (Pro is still the only tier with a real tracker).
 import { initTickerCache, fetchTickerData } from './shared/ticker-cache';
-import { initWatchlist, watchlist, addTickers, removeTicker, onWatchlistSave } from './shared/watchlist';
+import { initWatchlist, watchlist, addTickers, removeTicker, onWatchlistSave, onTickersAdded } from './shared/watchlist';
 import { cleanLS, cacheVerdict, getCachedVerdict } from './shared/analysis-cache';
 import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from './shared/watchlist-sync';
 import { getTzPref, getTzIana, forceDefaults } from './shared/prefs';
@@ -926,6 +926,7 @@ async function boot(): Promise<void> {
   initWatchlist({ defaultTickers: ['MU', 'IREN', 'ALAB'], maxTickers: 3, upgradeMessage: 'Free tier supports up to 3 tickers.\n\nUpgrade to Starter for more.' });
   initTickerCache({ API_URL, authH, addSecret });
   onWatchlistSave(function () { schedulePushWatchlist(); renderRolodexFromWatchlist(); });
+  onTickersAdded(function () { rolodex.goRolo(0); });
 
   rolodex.initRolodex({
     scroller: document.getElementById('scroller') as HTMLElement,

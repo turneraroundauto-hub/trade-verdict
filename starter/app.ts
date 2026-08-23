@@ -25,7 +25,7 @@
 // conversion, not assumed). The emitted, committed starter/app.js is the
 // real bundle -- browsers never load this .ts file directly.
 import { initTickerCache, fetchTickerData } from '../shared/ticker-cache';
-import { initWatchlist, watchlist, addTickers, removeTicker, onWatchlistSave } from '../shared/watchlist';
+import { initWatchlist, watchlist, addTickers, removeTicker, onWatchlistSave, onTickersAdded } from '../shared/watchlist';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache';
 import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync';
 import { getTzPref, getTzIana, onPrefsChange, tickerHref, newsHref, refreshTickerLinks } from '../shared/prefs';
@@ -927,6 +927,7 @@ async function checkTierAccess(session: any): Promise<boolean> {
   }
   initWatchlistSync({ API_URL: API_URL, authH: authH, addSecret: addSecret });
   onWatchlistSave(function () { schedulePushWatchlist(); renderRolodexFromWatchlist(); });
+  onTickersAdded(function () { rolodex.goRolo(0); });
   await pullWatchlistFromServer();
   showScreen('app-root'); initApp();
   return true;

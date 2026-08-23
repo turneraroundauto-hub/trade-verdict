@@ -406,6 +406,10 @@ var saveHook = null;
 function onWatchlistSave(cb2) {
   saveHook = cb2;
 }
+var addedHook = null;
+function onTickersAdded(cb2) {
+  addedHook = cb2;
+}
 function initWatchlist(config) {
   maxTickers = config.maxTickers;
   upgradeMessage = config.upgradeMessage;
@@ -543,6 +547,7 @@ async function addTickers() {
     });
   });
   if (unresolved.length) alert("Couldn't find: " + unresolved.join(", "));
+  if (newOnes.length && addedHook) addedHook();
 }
 function removeTicker(ticker) {
   var idx = watchlist.indexOf(ticker);
@@ -2998,6 +3003,9 @@ async function checkTierAccess(session) {
   onWatchlistSave(function() {
     schedulePushWatchlist();
     renderRolodexFromWatchlist();
+  });
+  onTickersAdded(function() {
+    goRolo(0);
   });
   await pullWatchlistFromServer();
   initTrackRecordSync({ API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
