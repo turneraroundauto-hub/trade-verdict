@@ -78,8 +78,8 @@
 
   /* ── HEADER — ported from the Rolodex design (matches real production
      header structure/typography), STARTER tier chip + real profile menu
-     (Settings/Upgrade/Log Results/Sign Out) instead of Free's plain
-     sign-in chip. ──────────────────────────────────────────────────── */
+     (Settings/Upgrade/Sign Out) instead of Free's plain sign-in chip.
+     ──────────────────────────────────────────────────────────────── */
   .app-topbar{
     padding:12px 16px; flex:none;
     display:flex; justify-content:space-between; align-items:center; flex-wrap:nowrap; gap:8px 6px;
@@ -402,7 +402,6 @@
             <span class="tier-chip">STARTER</span>
           </div>
           <a class="profile-menu-item" href="https://buy.stripe.com/6oU4gA98t57p4dh2x33VC02" target="_blank">UPGRADE &rarr; Pro</a>
-          <button type="button" class="profile-menu-item" onclick="promptLogResults()">LOG RESULTS</button>
           <button type="button" class="profile-menu-item" onclick="openSettingsModal()">SETTINGS</button>
           <button type="button" class="profile-menu-item" id="exportCsvBtn" onclick="exportWatchlistCSV(this)">EXPORT CSV</button>
           <button type="button" class="profile-menu-item" onclick="jumpToAbout()">ABOUT</button>
@@ -533,6 +532,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=76"></script>
+<script type="module" src="./app.js?v=77"></script>
 </body>
 </html>

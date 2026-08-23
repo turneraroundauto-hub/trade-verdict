@@ -1469,9 +1469,6 @@ function pregateStripHTML(result) {
   if (!waitText) return "";
   return `<div class="pregate-strip"><div class="pregate-dot" style="background:${confColor(result.confidence)}"></div><div class="pregate-note"><span class="wait-lbl">LOOK FOR: </span>${autoLinkGlossaryTerms(waitText)}</div></div>`;
 }
-function logSectionHTML() {
-  return `<div class="log-row"><span class="log-prompt">TRACK RECORD</span><a class="log-upgrade-btn" href="${TIER.stripeLink}" target="_blank">UPGRADE \u2192 Starter to log results</a></div>`;
-}
 function gateListHTML(result) {
   if (!result || !result.gates) {
     return '<div class="gate-list"><div class="gate-clear"><span class="gate-dot" style="background:var(--ink-faint)"></span><span>Tap ANALYZE to run the gates</span></div></div>';
@@ -1492,7 +1489,7 @@ function gateListHTML(result) {
     return `<div class="gate-row"><span class="gate-dot" style="background:${sigColor(gate.status)}"></span><div class="gn"><span class="gl">${label}</span>${gate.note ? " - " + autoLinkGlossaryTerms(gate.note) : ""}</div></div>`;
   }).join("");
   const conf = `<div class="conf-row"><span class="conf-lbl">CONFIDENCE</span><span class="conf-val" style="color:${confColor(result.confidence)}">${result.confidence || ""}</span></div>`;
-  return '<div class="gate-list">' + rows + logSectionHTML() + conf + "</div>";
+  return '<div class="gate-list">' + rows + conf + "</div>";
 }
 function verdictAreaHTML(sym, result) {
   const closed = isMarketClosed();

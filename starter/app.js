@@ -1469,20 +1469,6 @@ function initRolodex(elements, callbacks) {
 
 // starter/app.ts
 var API_URL2 = "https://tra-zacg.onrender.com";
-var TIER = {
-  name: "Starter",
-  maxTickers: 7,
-  pulse: true,
-  tracker: false,
-  alpaca: false,
-  credits: "45 credits/mo",
-  cache: "5 min cache",
-  nextTier: "Pro",
-  nextPrice: "$16.99/mo",
-  stripeLink: "https://buy.stripe.com/6oU4gA98t57p4dh2x33VC02",
-  creditsLink: "https://buy.stripe.com/3cI3cwacxarJ8txb3z3VC00",
-  badgeColor: "#40c4ff"
-};
 var market = null;
 function isMarketClosed() {
   var now = /* @__PURE__ */ new Date();
@@ -1547,13 +1533,6 @@ document.addEventListener("click", function(e) {
   if (!m || !m.classList.contains("open")) return;
   if (!e.target.closest(".profile-wrap")) m.classList.remove("open");
 });
-function promptLogResults() {
-  var m = document.getElementById("profile-menu");
-  if (m) m.classList.remove("open");
-  if (confirm("Log Results tracks your win/loss outcomes over time \u2014 available on Pro.\n\nUpgrade now?")) {
-    window.open(TIER.stripeLink, "_blank");
-  }
-}
 async function fetchCreditStatus() {
   try {
     var res = await fetch(addSecret2(API_URL2 + "/status"), { headers: authH2() });
@@ -2476,12 +2455,10 @@ initHelpBalloons(HELP_CONTENT, jumpToGlossaryTerm);
 checkAuth();
 window.authLogout = authLogout;
 window.toggleProfileMenu = toggleProfileMenu;
-window.promptLogResults = promptLogResults;
 window.exportWatchlistCSV = exportWatchlistCSV;
 window.jumpToAbout = jumpToAbout;
 export {
   authLogout,
   exportWatchlistCSV,
-  promptLogResults,
   toggleProfileMenu
 };
