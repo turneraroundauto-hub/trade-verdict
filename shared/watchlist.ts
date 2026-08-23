@@ -1,4 +1,4 @@
-import { fetchTickerData } from './ticker-cache.js?v=5';
+import { fetchTickerData, lookupSymbol } from './ticker-cache.js?v=6';
 import { tickerHref, newsHref } from './prefs.js?v=11';
 import { highlightContextMatches } from './context-highlight.js?v=2';
 import type { TickerData } from './types.js';
@@ -98,7 +98,33 @@ export function setWatchlist(tickers: string[]): string[] {
 }
 
 
-function parseTickers(raw: string): string[] { return raw.toUpperCase().replace(/[$#]/g, '').split(/[\s,;|\n]+/).map(t => t.trim()).filter(t => /^[A-Z]{1,6}$/.test(t)); }
+// Splits raw Import text into candidate entries on comma/semicolon/pipe/
+// newline only -- NOT bare whitespace, unlike the old parseTickers() this
+// replaced -- so a multi-word company name ("Apple Inc") survives as one
+// entry instead of being torn into separate word-tokens.
+function splitEntries(raw: string): string[] {
+  return raw.replace(/[$#]/g, '').split(/[,;|\n]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+}
+
+// A segment is treated as one or more LITERAL tickers -- no network lookup
+// needed -- only when every whitespace-separated word in it is typed
+// exactly the way this app's own placeholders show a real ticker: fully
+// UPPERCASE, 1-6 letters, nothing else. That's what makes "AAPL, MSFT" (or
+// a legacy space-separated run like "AAPL MSFT NVDA" on one line) resolve
+// instantly with zero backend round trip. Anything typed in any other
+// case -- "Tesla", "apple", "Nvidia Corp" -- comes back null here, telling
+// the caller to send the whole segment to /lookup as one company-name
+// candidate instead. This is a deliberate, simple rule, not a guess: type
+// the literal ticker in caps (as every example in this app already shows
+// them) to skip the lookup; type it any other way and it's resolved as a
+// name. A typo'd all-caps non-ticker ("TESLA") is treated as a literal
+// ticker attempt and will simply fail to find data downstream -- the same
+// degrade path a mistyped ticker already had before this feature existed.
+function literalTickersIn(segment: string): string[] | null {
+  var words = segment.split(/\s+/).filter(Boolean);
+  if (!words.length) return null;
+  return words.every(function (w) { return /^[A-Z]{1,6}$/.test(w); }) ? words : null;
+}
 
 
 // Re-renders every currently-rendered card's news line from already-
@@ -154,15 +180,54 @@ export function updateCardMeta(ticker: string, td: TickerData | null): void {
   }
 }
 
-export function addTickers(): void {
+export async function addTickers(): Promise<void> {
   if (watchlist.length >= maxTickers) {
     alert(upgradeMessage);
     return;
   }
   var input = document.getElementById('ticker-input') as HTMLInputElement;
   var raw = input.value;
-  var tickers = parseTickers(raw);
-  if (!tickers.length) return alert('No valid tickers. Try: AAPL or MU');
+  var entries = splitEntries(raw);
+  if (!entries.length) return alert('No valid tickers or company names. Try: AAPL or Tesla');
+
+  // Company-name entries need a real backend round trip (Tra's /lookup) to
+  // resolve, so this is genuinely async now -- reuse the same
+  // btn-running/runPulse "still working" treatment ANALYZE already uses,
+  // rather than leaving the button looking inert during a real network
+  // wait it never used to have.
+  var importBtn = document.getElementById('importBtn') as HTMLButtonElement | null;
+  var importBtnLabel = importBtn ? importBtn.textContent : null;
+  if (importBtn) { importBtn.disabled = true; importBtn.classList.add('btn-running'); importBtn.textContent = 'ADDING…'; }
+
+  var resolved: { entry: string; tickers: string[] }[];
+  try {
+    // Promise.all preserves input order in its result array regardless of
+    // which lookup resolves first -- required so newOnes below still lands
+    // in the order the user actually typed things, same guarantee this
+    // function has always made.
+    resolved = await Promise.all(entries.map(async function (entry) {
+      var literal = literalTickersIn(entry);
+      if (literal) return { entry: entry, tickers: literal };
+      var symbol = await lookupSymbol(entry);
+      return { entry: entry, tickers: symbol ? [symbol] : [] };
+    }));
+  } finally {
+    if (importBtn) { importBtn.disabled = false; importBtn.classList.remove('btn-running'); importBtn.textContent = importBtnLabel || 'Import Tickers'; }
+  }
+
+  var tickers: string[] = [];
+  var unresolved: string[] = [];
+  resolved.forEach(function (r) {
+    if (r.tickers.length) tickers.push.apply(tickers, r.tickers);
+    else unresolved.push(r.entry);
+  });
+  // A ticker and its own company name typed together ("AAPL, Apple") can
+  // both resolve to the same symbol -- collapse to first occurrence before
+  // treating anything as "new".
+  tickers = tickers.filter(function (t, i) { return tickers.indexOf(t) === i; });
+
+  if (!tickers.length) return alert(unresolved.length ? ("Couldn't find: " + unresolved.join(', ')) : 'No valid tickers or company names. Try: AAPL or Tesla');
+
   // New tickers land at the top, in the order typed -- unshift-per-item
   // would reverse that order (last processed ends up first), so collect
   // the actually-new ones first and prepend them as a block.
@@ -171,6 +236,7 @@ export function addTickers(): void {
   input.value = '';
   saveWL(); renderWatchlist();
   tickers.forEach(function (t) { fetchTickerData(t).then(function (d) { if (d) updateCardMeta(t, d); }); });
+  if (unresolved.length) alert("Couldn't find: " + unresolved.join(', '));
 }
 
 export function removeTicker(ticker: string): void {

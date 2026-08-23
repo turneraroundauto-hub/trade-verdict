@@ -10,7 +10,7 @@
 // so this preview can never drift shared/watchlist.js's behavior for a
 // real tier, and a real tier's changes can never silently break this
 // preview either.
-import { initTickerCache, fetchTickerData } from '../../shared/ticker-cache.js?v=5';
+import { initTickerCache, fetchTickerData } from '../../shared/ticker-cache.js?v=6';
 
 const API_URL = 'https://tra-zacg.onrender.com';
 const APP_SECRET = 'Holysmoke42!';

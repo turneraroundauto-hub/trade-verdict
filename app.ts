@@ -904,7 +904,7 @@ const HELP_CONTENT: Record<string, string> = {
   gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against — feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read — tap the docked bar to jump back to top. Pre/post-market prices are IEX-only and may vary from the full consolidated tape; built for regular-session (9:30am–4pm ET) analysis.',
   pulse: 'A live AI-written read on today’s market mood and <a class="help-glossary-link" href="#" data-term="sector rotation">sector rotation</a> — Starter and up unlocks the real, per-session version.',
   context: 'Real news or catalysts you already know — auto-included in every analysis and checked against headlines. 2 of 3 matching signals marks it CONTEXT-CORROBORATED for Gate 2.',
-  io: 'Paste or type <a class="help-glossary-link" href="#" data-term="ticker">tickers</a>, one per line or comma-separated, to add them to your watchlist.',
+  io: 'Paste or type <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names, one per line or comma-separated, to add them to your watchlist. Type a ticker in caps (AAPL) or a name any other way (Tesla) — either resolves to the right symbol.',
 };
 
 // ── init ────────────────────────────────────────────────────────────
