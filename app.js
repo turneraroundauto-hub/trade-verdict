@@ -358,10 +358,6 @@ function updateCardMeta(ticker, td) {
   }
 }
 async function addTickers() {
-  if (watchlist.length >= maxTickers) {
-    alert(upgradeMessage);
-    return;
-  }
   var input = document.getElementById("ticker-input");
   var raw = input.value;
   var entries = splitEntries(raw);
@@ -401,7 +397,16 @@ async function addTickers() {
   var newOnes = tickers.filter(function(t) {
     return !watchlist.includes(t);
   });
+  if (newOnes.length && watchlist.length + newOnes.length > maxTickers) {
+    var evictCount = watchlist.length + newOnes.length - maxTickers;
+    var proceed = confirm(upgradeMessage + "\n\nAdding " + (newOnes.length === 1 ? "this ticker" : "these tickers") + " will remove your oldest " + evictCount + " ticker" + (evictCount === 1 ? "" : "s") + " to make room. Continue?");
+    if (!proceed) {
+      if (unresolved.length) alert("Couldn't find: " + unresolved.join(", "));
+      return;
+    }
+  }
   watchlist.unshift.apply(watchlist, newOnes);
+  if (watchlist.length > maxTickers) watchlist = watchlist.slice(0, maxTickers);
   input.value = "";
   saveWL();
   renderWatchlist();

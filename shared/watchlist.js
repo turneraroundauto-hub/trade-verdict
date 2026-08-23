@@ -178,10 +178,6 @@ export function updateCardMeta(ticker, td) {
     }
 }
 export async function addTickers() {
-    if (watchlist.length >= maxTickers) {
-        alert(upgradeMessage);
-        return;
-    }
     var input = document.getElementById('ticker-input');
     var raw = input.value;
     var entries = splitEntries(raw);
@@ -238,7 +234,28 @@ export async function addTickers() {
     // would reverse that order (last processed ends up first), so collect
     // the actually-new ones first and prepend them as a block.
     var newOnes = tickers.filter(function (t) { return !watchlist.includes(t); });
+    // Over a tier's hard cap (Free/Starter -- Pro's maxTickers is 999, so
+    // this never fires there; its own overflow already renders in the
+    // Watchlist accordion via cardWindow()/getOverflow(), untouched by this
+    // block), new tickers still win -- they replace the OLDEST pills
+    // (watchlist's own tail) instead of being silently refused the way this
+    // used to hard-block on cap alone. The cap warning survives as a real
+    // confirm/cancel prompt rather than a dead-end alert, so a user who
+    // didn't mean to lose their oldest tickers can back out before anything
+    // changes.
+    if (newOnes.length && watchlist.length + newOnes.length > maxTickers) {
+        var evictCount = watchlist.length + newOnes.length - maxTickers;
+        var proceed = confirm(upgradeMessage + '\n\nAdding ' + (newOnes.length === 1 ? 'this ticker' : 'these tickers')
+            + ' will remove your oldest ' + evictCount + ' ticker' + (evictCount === 1 ? '' : 's') + ' to make room. Continue?');
+        if (!proceed) {
+            if (unresolved.length)
+                alert("Couldn't find: " + unresolved.join(', '));
+            return;
+        }
+    }
     watchlist.unshift.apply(watchlist, newOnes);
+    if (watchlist.length > maxTickers)
+        watchlist = watchlist.slice(0, maxTickers);
     input.value = '';
     saveWL();
     renderWatchlist();
