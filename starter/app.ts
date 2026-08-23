@@ -86,13 +86,6 @@ document.addEventListener('click', function (e) {
   if (!m || !m.classList.contains('open')) return;
   if (!(e.target as HTMLElement).closest('.profile-wrap')) m.classList.remove('open');
 });
-export function promptLogResults(): void {
-  var m = document.getElementById('profile-menu'); if (m) m.classList.remove('open');
-  if (confirm('Log Results tracks your win/loss outcomes over time — available on Pro.\n\nUpgrade now?')) {
-    window.open(TIER.stripeLink, '_blank');
-  }
-}
-
 // ── CREDIT DISPLAY ────────────────────────────────────────────────
 async function fetchCreditStatus(): Promise<void> { try { var res = await fetch(addSecret(API_URL + '/status'), { headers: authH() }); var data = await res.json(); var el = document.getElementById('credits-btn'); if (el && data.totalCredits !== undefined) { el.textContent = (data.totalCredits > 0 ? data.totalCredits : '+') + ' CREDITS'; } } catch (e) { } }
 
@@ -983,13 +976,11 @@ declare global {
   interface Window {
     authLogout: typeof authLogout;
     toggleProfileMenu: typeof toggleProfileMenu;
-    promptLogResults: typeof promptLogResults;
     exportWatchlistCSV: typeof exportWatchlistCSV;
     jumpToAbout: typeof jumpToAbout;
   }
 }
 window.authLogout = authLogout;
 window.toggleProfileMenu = toggleProfileMenu;
-window.promptLogResults = promptLogResults;
 window.exportWatchlistCSV = exportWatchlistCSV;
 window.jumpToAbout = jumpToAbout;

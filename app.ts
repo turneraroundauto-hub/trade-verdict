@@ -40,8 +40,9 @@
 //   functionality (unlike Starter, where the same markup was dead code
 //   and dropped) -- carried over as a full-screen overlay, independent
 //   of the Rolodex card stack underneath it.
-// - Track Record is a teaser (TIER.tracker:false), matching Starter's own
-//   teaser card exactly (Pro is still the only tier with a real tracker).
+// - Track Record has no presence on Free at all (TIER.tracker:false) --
+//   no ticker-card upgrade prompt, no bottom-of-page teaser card. Pro is
+//   still the only tier with a real tracker.
 import { initTickerCache, fetchTickerData } from './shared/ticker-cache';
 import { initWatchlist, watchlist, addTickers, removeTicker, onWatchlistSave, onTickersAdded } from './shared/watchlist';
 import { cleanLS, cacheVerdict, getCachedVerdict } from './shared/analysis-cache';
@@ -310,10 +311,6 @@ function pregateStripHTML(result: AnalyzeResponse | null): string {
     + '</div>';
 }
 
-function logSectionHTML(): string {
-  return `<div class="log-row"><span class="log-prompt">TRACK RECORD</span><a class="log-upgrade-btn" href="${TIER.stripeLink}" target="_blank">UPGRADE → Starter to log results</a></div>`;
-}
-
 function gateListHTML(result: AnalyzeResponse | null): string {
   if (!result || !result.gates) {
     return '<div class="gate-list"><div class="gate-clear"><span class="gate-dot" style="background:var(--ink-faint)"></span><span>Tap ANALYZE to run the gates</span></div></div>';
@@ -331,7 +328,7 @@ function gateListHTML(result: AnalyzeResponse | null): string {
       + `<div class="gn"><span class="gl">${label}</span>${gate.note ? ' - ' + autoLinkGlossaryTerms(gate.note) : ''}</div></div>`;
   }).join('');
   const conf = `<div class="conf-row"><span class="conf-lbl">CONFIDENCE</span><span class="conf-val" style="color:${confColor(result.confidence)}">${result.confidence || ''}</span></div>`;
-  return '<div class="gate-list">' + rows + logSectionHTML() + conf + '</div>';
+  return '<div class="gate-list">' + rows + conf + '</div>';
 }
 
 function verdictAreaHTML(sym: string, result: AnalyzeResponse): string {

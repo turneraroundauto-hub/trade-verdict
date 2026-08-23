@@ -246,9 +246,6 @@
   .verdict-lbl-down{ font-size:11px; font-family:var(--mono); color:var(--red); font-weight:700; letter-spacing:.1em; }
   .verdict-lbl-hold{ font-size:11px; font-family:var(--mono); color:var(--amber); font-weight:700; letter-spacing:.1em; }
 
-  .log-row{ display:flex; align-items:center; gap:6px; margin-top:8px; padding-top:8px; border-top:1px solid var(--border); }
-  .log-prompt{ font-size:13px; color:var(--ink-dim); letter-spacing:.05em; flex-shrink:0; }
-  .log-upgrade-btn{ font-size:11px; font-weight:700; color:var(--blue); background:var(--blue-dim); border:1px solid rgba(74,168,255,.4); border-radius:4px; padding:5px 10px; text-decoration:none; }
 
   .gate-list{ display:flex; flex-direction:column; gap:6px; margin-top:10px; }
   .gate-row{ display:flex; align-items:flex-start; gap:8px; }
@@ -328,10 +325,6 @@
   .glossary-term-example{ font-size:13px; color:var(--ink-dim); margin-top:3px; font-style:italic; line-height:1.4; }
   .glossary-no-results{ padding:20px 0; font-size:13px; color:var(--ink-dim); text-align:center; display:none; }
 
-  .track-teaser{ padding:12px 14px; background:var(--blue-dim); border:1px solid rgba(74,168,255,.18); border-radius:10px; display:flex; justify-content:space-between; align-items:center; gap:10px; }
-  .track-teaser-title{ font-size:13px; font-weight:700; color:var(--blue); letter-spacing:.08em; margin-bottom:3px; }
-  .track-teaser-sub{ font-size:13px; color:var(--ink-dim); }
-  .track-teaser-upgrade{ font-size:13px; font-weight:700; color:var(--blue); background:rgba(74,168,255,.1); border:1px solid rgba(74,168,255,.3); border-radius:4px; padding:6px 10px; text-decoration:none; white-space:nowrap; flex:none; }
 
   .disclaimer{ margin:4px 0 0; padding:12px; background:var(--red-dim); border:1px solid rgba(255,59,92,.25); border-radius:10px; }
   .disclaimer-title{ font-size:13px; font-weight:700; color:var(--red); letter-spacing:.06em; margin-bottom:6px; }
@@ -440,7 +433,7 @@
           <span class="card-icon">⬇</span>
           <div class="card-title-wrap">
             <div class="card-label">Import</div>
-            <div class="card-sub">Paste or type tickers to add</div>
+            <div class="card-sub">Company Name or Symbol</div>
           </div>
           <button type="button" class="help-btn" data-help="io" aria-label="What is this?">?</button>
           <svg class="chevron" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -481,14 +474,6 @@
         </div></div></div>
       </div>
 
-      <div class="track-teaser">
-        <div>
-          <div class="track-teaser-title">📈 TRACK RECORD</div>
-          <div class="track-teaser-sub">Log verdicts and track your accuracy</div>
-        </div>
-        <a class="track-teaser-upgrade" href="https://buy.stripe.com/eVq3cw84pczR6lp0oV3VC03" target="_blank">UPGRADE → Starter</a>
-      </div>
-
       <div class="disclaimer">
         <div class="disclaimer-title">⚠ NOT FINANCIAL OR MARKET ADVICE</div>
         <p>This app is a <strong>pattern and catalyst analysis tool</strong> for <strong>trading support</strong> during the <strong>first 90 minutes (9:30–11:00am ET)</strong> and <strong>last 90 minutes (2:30–4:00pm ET)</strong> of the regular US session only.</p>
@@ -506,7 +491,7 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=71"></script>
+<script type="module" src="./app.js?v=72"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
