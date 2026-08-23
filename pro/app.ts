@@ -448,7 +448,7 @@ function roloCardHTML(sym: string, state: TickerState): string {
     + '<div class="ticker-swipe-hint">← Swipe to delete</div></div>'
     + '<div class="ticker-action">'
     + (result ? verdictAreaHTML(sym, result)
-      : `<button class="btn btn-blue btn-compact" data-analyze="${sym}" ${analyzing ? 'disabled' : ''}>${analyzing ? 'RUNNING…' : 'ANALYZE'}</button>`)
+      : `<button class="btn btn-blue btn-compact${analyzing ? ' btn-running' : ''}" data-analyze="${sym}" ${analyzing ? 'disabled' : ''}>${analyzing ? 'RUNNING…' : 'ANALYZE'}</button>`)
     + '</div>'
     + `</div>`
     + pregateStripHTML(result)
@@ -644,7 +644,11 @@ async function analyzeOne(sym: string): Promise<void> {
   }
 }
 
-function analyzeAll(): void { cardWindow().forEach((sym) => analyzeOne(sym)); }
+function analyzeAll(): void {
+  const list = cardWindow();
+  if (list.length) rolodex.goRolo(0);
+  list.forEach((sym) => analyzeOne(sym));
+}
 
 function handleNoCredits(sym: string): void {
   const state = tickerState.get(sym)!;
@@ -1317,7 +1321,7 @@ document.getElementById('glossary-search')!.addEventListener('input', (e) => fil
 const HELP_CONTENT: Record<string, string> = {
   gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against — feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read — tap the docked bar to jump back to top. Pre/post-market prices are IEX-only and may vary from the full consolidated tape; built for regular-session (9:30am–4pm ET) analysis.',
   pulse: 'A quick AI-written read on today’s overall market mood and <a class="help-glossary-link" href="#" data-term="sector rotation">sector rotation</a> — informational only, doesn’t change any gate.',
-  context: 'Type in real news or catalysts you already know. Matched against headlines as corroboration for Gate 2 — when it lines up with 2 of 3 real signals, it’s marked CONTEXT-CORROBORATED.',
+  context: 'Real news or catalysts you already know — auto-included in every analysis and checked against headlines. 2 of 3 matching signals marks it CONTEXT-CORROBORATED for Gate 2. Analyze All runs the top 15 cards, up to 5 credits.',
   io: 'Paste or type <a class="help-glossary-link" href="#" data-term="ticker">tickers</a>, one per line or comma-separated, to add them to your watchlist — unlimited on Pro.',
   watchlist: 'Every <a class="help-glossary-link" href="#" data-term="ticker">ticker</a> beyond your top 15 pill cards. Tap + on any row to promote it into the main card window.',
   proxy: 'Which sector proxy each ticker is being checked against for <a class="help-glossary-link" href="#" data-term="gate 5">Gate 5</a>, and whether the two are still moving together right now.',
