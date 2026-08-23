@@ -9,6 +9,15 @@ function initTickerCache(config) {
   authH = config.authH;
   addSecret = config.addSecret;
 }
+async function lookupSymbol(query) {
+  try {
+    const res = await fetch(addSecret(API_URL + "/lookup?q=" + encodeURIComponent(query)), { headers: authH() });
+    const data = await res.json();
+    return typeof data.symbol === "string" ? data.symbol : null;
+  } catch (e) {
+    return null;
+  }
+}
 async function fetchTickerData(symbol, force) {
   if (tickerCache[symbol] && !force) return tickerCache[symbol];
   if (inFlight[symbol] && !force) return inFlight[symbol];
@@ -397,6 +406,10 @@ var saveHook = null;
 function onWatchlistSave(cb2) {
   saveHook = cb2;
 }
+var addedHook = null;
+function onTickersAdded(cb2) {
+  addedHook = cb2;
+}
 function initWatchlist(config) {
   maxTickers = config.maxTickers;
   upgradeMessage = config.upgradeMessage;
@@ -432,8 +445,17 @@ function setWatchlist(tickers) {
   renderWatchlist();
   return dropped;
 }
-function parseTickers(raw) {
-  return raw.toUpperCase().replace(/[$#]/g, "").split(/[\s,;|\n]+/).map((t) => t.trim()).filter((t) => /^[A-Z]{1,6}$/.test(t));
+function splitEntries(raw) {
+  return raw.replace(/[$#]/g, "").split(/[,;|\n]+/).map(function(s) {
+    return s.trim();
+  }).filter(Boolean);
+}
+function literalTickersIn(segment) {
+  var words = segment.split(/\s+/).filter(Boolean);
+  if (!words.length) return null;
+  return words.every(function(w) {
+    return /^[A-Z]{1,6}$/.test(w);
+  }) ? words : null;
 }
 function updateCardMeta(ticker, td) {
   var card = document.getElementById("card-" + ticker);
@@ -466,19 +488,56 @@ function updateCardMeta(ticker, td) {
     } else newsEl.style.display = "none";
   }
 }
-function addTickers() {
-  if (watchlist.length >= maxTickers) {
-    alert(upgradeMessage);
-    return;
-  }
+async function addTickers() {
   var input = document.getElementById("ticker-input");
   var raw = input.value;
-  var tickers = parseTickers(raw);
-  if (!tickers.length) return alert("No valid tickers. Try: AAPL or MU");
+  var entries = splitEntries(raw);
+  if (!entries.length) return alert("No valid tickers or company names. Try: AAPL or Tesla");
+  var importBtn = document.getElementById("importBtn");
+  var importBtnLabel = importBtn ? importBtn.textContent : null;
+  if (importBtn) {
+    importBtn.disabled = true;
+    importBtn.classList.add("btn-running");
+    importBtn.textContent = "ADDING\u2026";
+  }
+  var resolved;
+  try {
+    resolved = await Promise.all(entries.map(async function(entry) {
+      var literal = literalTickersIn(entry);
+      if (literal) return { entry, tickers: literal };
+      var symbol = await lookupSymbol(entry);
+      return { entry, tickers: symbol ? [symbol] : [] };
+    }));
+  } finally {
+    if (importBtn) {
+      importBtn.disabled = false;
+      importBtn.classList.remove("btn-running");
+      importBtn.textContent = importBtnLabel || "Import Tickers";
+    }
+  }
+  var tickers = [];
+  var unresolved = [];
+  resolved.forEach(function(r) {
+    if (r.tickers.length) tickers.push.apply(tickers, r.tickers);
+    else unresolved.push(r.entry);
+  });
+  tickers = tickers.filter(function(t, i) {
+    return tickers.indexOf(t) === i;
+  });
+  if (!tickers.length) return alert(unresolved.length ? "Couldn't find: " + unresolved.join(", ") : "No valid tickers or company names. Try: AAPL or Tesla");
   var newOnes = tickers.filter(function(t) {
     return !watchlist.includes(t);
   });
+  if (newOnes.length && watchlist.length + newOnes.length > maxTickers) {
+    var evictCount = watchlist.length + newOnes.length - maxTickers;
+    var proceed = confirm(upgradeMessage + "\n\nAdding " + (newOnes.length === 1 ? "this ticker" : "these tickers") + " will remove your oldest " + evictCount + " ticker" + (evictCount === 1 ? "" : "s") + " to make room. Continue?");
+    if (!proceed) {
+      if (unresolved.length) alert("Couldn't find: " + unresolved.join(", "));
+      return;
+    }
+  }
   watchlist.unshift.apply(watchlist, newOnes);
+  if (watchlist.length > maxTickers) watchlist = watchlist.slice(0, maxTickers);
   input.value = "";
   saveWL();
   renderWatchlist();
@@ -487,6 +546,8 @@ function addTickers() {
       if (d) updateCardMeta(t, d);
     });
   });
+  if (unresolved.length) alert("Couldn't find: " + unresolved.join(", "));
+  if (newOnes.length && addedHook) addedHook();
 }
 function removeTicker(ticker) {
   var idx = watchlist.indexOf(ticker);
@@ -2304,7 +2365,7 @@ var HELP_CONTENT = {
   gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against \u2014 feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read \u2014 tap the docked bar to jump back to top. Pre/post-market prices are IEX-only and may vary from the full consolidated tape; built for regular-session (9:30am\u20134pm ET) analysis.',
   pulse: 'A quick AI-written read on today\u2019s overall market mood and <a class="help-glossary-link" href="#" data-term="sector rotation">sector rotation</a> \u2014 informational only, doesn\u2019t change any gate.',
   context: "Real news or catalysts you already know \u2014 auto-included in every analysis and checked against headlines. 2 of 3 matching signals marks it CONTEXT-CORROBORATED for Gate 2.",
-  io: 'Paste or type <a class="help-glossary-link" href="#" data-term="ticker">tickers</a>, one per line or comma-separated, to add them to your watchlist.'
+  io: 'Paste or type <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names, one per line or comma-separated, to add them to your watchlist. Type a ticker in caps (AAPL) or a name any other way (Tesla) \u2014 either resolves to the right symbol.'
 };
 function initApp() {
   cleanLS();
@@ -2357,6 +2418,9 @@ async function checkTierAccess(session) {
   onWatchlistSave(function() {
     schedulePushWatchlist();
     renderRolodexFromWatchlist();
+  });
+  onTickersAdded(function() {
+    goRolo(0);
   });
   await pullWatchlistFromServer();
   showScreen("app-root");

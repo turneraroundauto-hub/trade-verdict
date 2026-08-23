@@ -25,7 +25,7 @@
 // conversion, not assumed). The emitted, committed starter/app.js is the
 // real bundle -- browsers never load this .ts file directly.
 import { initTickerCache, fetchTickerData } from '../shared/ticker-cache';
-import { initWatchlist, watchlist, addTickers, removeTicker, onWatchlistSave } from '../shared/watchlist';
+import { initWatchlist, watchlist, addTickers, removeTicker, onWatchlistSave, onTickersAdded } from '../shared/watchlist';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache';
 import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync';
 import { getTzPref, getTzIana, onPrefsChange, tickerHref, newsHref, refreshTickerLinks } from '../shared/prefs';
@@ -879,7 +879,7 @@ const HELP_CONTENT: Record<string, string> = {
   gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against — feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read — tap the docked bar to jump back to top. Pre/post-market prices are IEX-only and may vary from the full consolidated tape; built for regular-session (9:30am–4pm ET) analysis.',
   pulse: 'A quick AI-written read on today’s overall market mood and <a class="help-glossary-link" href="#" data-term="sector rotation">sector rotation</a> — informational only, doesn’t change any gate.',
   context: 'Real news or catalysts you already know — auto-included in every analysis and checked against headlines. 2 of 3 matching signals marks it CONTEXT-CORROBORATED for Gate 2.',
-  io: 'Paste or type <a class="help-glossary-link" href="#" data-term="ticker">tickers</a>, one per line or comma-separated, to add them to your watchlist.',
+  io: 'Paste or type <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names, one per line or comma-separated, to add them to your watchlist. Type a ticker in caps (AAPL) or a name any other way (Tesla) — either resolves to the right symbol.',
 };
 
 // ── init ────────────────────────────────────────────────────────────
@@ -927,6 +927,7 @@ async function checkTierAccess(session: any): Promise<boolean> {
   }
   initWatchlistSync({ API_URL: API_URL, authH: authH, addSecret: addSecret });
   onWatchlistSave(function () { schedulePushWatchlist(); renderRolodexFromWatchlist(); });
+  onTickersAdded(function () { rolodex.goRolo(0); });
   await pullWatchlistFromServer();
   showScreen('app-root'); initApp();
   return true;

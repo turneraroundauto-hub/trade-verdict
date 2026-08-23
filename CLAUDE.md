@@ -4360,6 +4360,28 @@ There's no test suite. What's actually been useful:
     against a substring (`url.includes('/analyze')`) instead of an exact
     suffix, or the intercept quietly no-ops and looks like "no requests
     fired" (a false-positive bug report, not a real one).
+  - **Free tier's Service Worker (`sw.js`) breaks `page.route()` mocking for
+    it specifically, in a way that looks exactly like "the feature is
+    broken," not "the test harness is."** Discovered chasing what looked
+    like a real bug in Import's company-name lookup (Aug 23, 2026, see
+    below): a `page.route()` mock for a real backend endpoint worked
+    reliably on Starter/Pro but silently failed on Free — the request left
+    the page, Playwright's route handler never fired, and it failed with
+    `net::ERR_FAILED` before ever reaching the mock. Root cause: only Free
+    registers `sw.js` (see the PWA groundwork section above); its
+    network-first fetch handler intercepts the page's fetches at a layer
+    Playwright's page-level routing doesn't reliably see through in this
+    sandbox, and once one real (unmocked-by-the-SW) request to an origin
+    fails this way, every *later* request to that same origin fails the
+    same way too — including ones with a working mock, making the failure
+    look much bigger than "one endpoint." A `page.route('**/sw.js', ...)`
+    404 is NOT sufficient — the registration call itself still needs
+    blocking: `page.addInitScript(() => { navigator.serviceWorker.register
+    = () => Promise.reject(new Error('blocked for test')); })` before
+    `page.goto()`. Once that's in place, Free tier mocks exactly like
+    Starter/Pro. If a Free-tier-only test shows a real backend URL
+    escaping every mock while the identical test passes on another tier,
+    check this before assuming the app code itself is broken.
 - None of the above substitutes for a real login against the live backend —
   flag that as unverified rather than implying it was checked.
 - The same applies, harder, to any new third-party API integration in `Tra`
@@ -5850,3 +5872,137 @@ end-to-end and flashing the correct Glossary entry — not a mocked
 version of `jumpToGlossaryTerm`, the real one. Pro's auto-linker block
 confirmed byte-identical to Free/Starter's via `diff` before shipping,
 to rule out copy-paste drift across the three hand-duplicated copies.
+
+## Frontend/Backend: Import recognizes company names, not just tickers (Aug 23, 2026)
+
+Direct request, prompted by a screenshot of Free tier's Import card: "can
+this input recognize company names to turn to symbols?" Import's
+`addTickers()` (`shared/watchlist.ts`) previously ran raw text through
+`parseTickers()` — a pure regex, `^[A-Z]{1,6}$` after uppercasing, with no
+concept of a company name at all. Typing "Tesla" or "Apple" silently
+either got dropped (if it failed the shape check) or, worse, got added
+as a literal-but-bogus ticker symbol (since "Tesla"/"Apple" both
+happen to fit the same 1-6-letter shape as a real ticker).
+
+**Scoped via `AskUserQuestion` before writing code, since the two viable
+approaches have a real, structural trade-off:** a live backend lookup
+(real coverage for any public company, but needs a new endpoint in `Tra`
+and this session's repo scope widened to include it) vs. a static
+client-side name→ticker map (zero backend dependency, ships in this repo
+alone, but only covers whatever's hand-listed). **Chose live backend
+lookup.** `Tra` was added to this session's repo scope and cloned per the
+two-repo rule's own documented process.
+
+**Backend (`Tra` PR pending / `trade-verdict` PR pending, mirrored per the
+two-repo rule — same pattern, same function names, confirmed byte-
+identical via diff before shipping).** New `GET /lookup?q=<query>`,
+gated by the same auth middleware as every other route (no special
+exemption — it's a plain data lookup like `/ticker/:symbol`, not an AI
+call like `/analyze`, so no credit cost). `searchSymbolByName(query)`
+routes through the existing `finnhubGet()`/`finnhubThrottle()` queue
+(Finnhub's own `/search?q=` symbol-search endpoint) and picks the first
+hit that's both a bare US-listed symbol shape (`^[A-Z]{1,5}$`, no
+exchange suffix like `.DE`/`.MX`) and an actual tradable type (`Common
+Stock`/`ETP`) — Finnhub's search already ranks by relevance, so no
+extra scoring logic was needed. Results (including misses) are cached in
+a new `symbolSearchCache` Map for a week — a name↔ticker mapping doesn't
+change day to day the way price/news does, so this isn't treated like a
+live-market fetch.
+
+**Frontend (`shared/ticker-cache.ts`, `shared/watchlist.ts`).** New
+`lookupSymbol(query)` in `ticker-cache.ts`, reusing the same
+`API_URL`/`authH`/`addSecret` config every other call there already
+uses. `addTickers()` rewritten around a deliberately simple, explainable
+rule rather than a shape-based guess (a real ticker and a real company
+name can both be 1-6 letters — "AAPL" and "Tesla" are structurally
+identical to a regex): **a whitespace-separated token is a free, zero-
+network literal ticker only when it's typed exactly the way every
+placeholder in this app already shows a ticker — fully UPPERCASE.**
+Anything typed any other way (`Tesla`, `apple`, `Nvidia Corp`) is sent to
+`/lookup` as one company-name candidate instead. This means pasting
+tickers the way this app has always modeled them ("AAPL, MSFT, NVDA",
+including a bare space-separated run with no commas) costs zero backend
+calls, exactly as before; typing a name in any other case resolves it.
+Raw text is split into entries on comma/semicolon/pipe/newline only —
+NOT bare whitespace — so a multi-word name ("Apple Inc") survives as one
+lookup candidate instead of being torn into two separate word-tokens.
+
+**Order preservation was the one real correctness risk, and it's handled
+structurally, not by luck.** `entries.map(async entry => ...)` run
+through a single `Promise.all` — JS guarantees `Promise.all`'s result
+array matches the input array's order regardless of which promise
+actually resolves first, so a name that takes longer to resolve than a
+ticker typed after it still lands in the position it was typed in, not
+the position it finished resolving in. Verified directly: typed "Tesla,
+AAPL" with Tesla's mocked lookup artificially delayed 300ms past AAPL's
+literal zero-cost path, and confirmed TSLA still lands first in the
+saved watchlist.
+
+**A real, direct consequence of the feature, handled defensively:** a
+ticker and its own company name typed together ("AAPL, Apple") now both
+resolve to the same symbol — `tickers` is deduped (first occurrence
+wins) before the existing `newOnes`-against-`watchlist` check, so this
+doesn't silently double-count toward a tier's ticker cap.
+
+**Import button reuses the ANALYZE button's RUNNING…/pulse treatment
+verbatim (`.btn-running`/`runPulse`, shipped earlier this same day for
+Analyze All)** — Import is genuinely async now (a real backend round
+trip for any name), where it used to be synchronous, so the button shows
+`ADDING…`, disables, and pulses blue for the duration, reverting to
+`Import Tickers` in a `finally` block regardless of success/failure. A
+single alert reports any entries that couldn't be resolved
+(`"Couldn't find: X, Y"`), only when at least one entry actually failed
+— a fully-successful import stays silent, matching this app's existing
+low-noise posture.
+
+Both the Import placeholder (`"e.g. AAPL, Tesla, NVDA..."`) and the `(?)`
+help balloon text were updated on all three tiers to reflect the new
+capability and state the caps-vs-any-other-case rule explicitly, so a
+user doesn't have to discover it by trial and error.
+
+**Verified thoroughly, and a genuine testing trap found and fixed along
+the way — see the new "Verifying changes" bullet above (Free tier's
+Service Worker breaks `page.route()` mocking) for the full writeup.**
+Once that fix was in place: `npx tsc -p tsconfig.json` and each tier's
+own `app.ts` typechecked directly — same known 7-error `?v=N` baseline,
+zero new errors; `node esbuild.config.mjs` rebuilt all three bundles,
+chunk-header grep confirmed every shared module still appears exactly
+once (no duplicate-module regression); `npm test` (75 cases) unaffected;
+and a real headless-Chromium pass against realistic mocked backend
+responses on **all three tiers** confirmed: literal all-caps tickers
+resolve with zero `/lookup` calls; a lowercase/mixed-case name fires
+exactly one `/lookup` call and resolves correctly; order is preserved
+even when the earlier-typed entry resolves slower than a later one; "AAPL,
+Apple" collapses to one ticker; a legacy bare space-separated run
+("AAPL MSFT NVDA", no commas) still adds all three with zero lookup
+calls (backward compatible); an unresolvable name produces the correct
+single alert; and the ADDING…/`btn-running`/`runPulse` state is visible
+mid-flight and correctly reverts afterward. Zero page errors on any
+tier.
+
+**Not yet verified against a live Finnhub response** — same standing
+sandbox limitation as every other Finnhub/Alpaca/SEC integration in this
+file (the sandbox can't reach either the real Finnhub API or
+`tra-zacg.onrender.com`). `searchSymbolByName()` fails safe to `null` on
+any error, matching this file's established posture for every other
+unverified-from-sandbox integration. To confirm live: type a real
+company name (e.g. "Tesla") into Import after `Tra` redeploys and
+confirm it resolves to the correct ticker; check Render logs for
+`searchSymbolByName` errors.
+
+`shared/ticker-cache.ts`'s content change (`lookupSymbol`) and
+`shared/watchlist.ts`'s content change (the `addTickers()` rewrite,
+plus its own bumped import of `ticker-cache.js`) cascaded through the
+full cache-busting chain: `ticker-cache.js` `?v=5→6` in `watchlist.ts`
+and `preview/rolodex/app.js` (the one other raw, unbundled consumer) →
+`preview/rolodex/index.html`'s own `<script>` bumped (`?v=24→25`) since
+its `app.js` content changed as a result → `watchlist.js` `?v=32→33` in
+`shared/watchlist-sync.ts`'s own relative import (both the `.ts` source
+and, after recompiling, its `.js` sibling — per the Aug 16
+`track-record.ts`-conversion lesson about a `.ts` source needing the
+bump too, not just its emitted `.js`) → every tier's own bundled
+`app.js` changed as a result (each tier imports `watchlist`/`watchlist-
+sync`/`ticker-cache` via the bundler's clean extensionless paths, so no
+separate `?v=` bump was needed at that layer — only each tier's own
+`<script src="./app.js?v=N">` tag, since its bundled *content* changed):
+`index.html` 68→69, `starter/index.html` 73→74, `pro/index.html` 18→19.

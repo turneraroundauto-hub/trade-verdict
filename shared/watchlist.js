@@ -1,4 +1,4 @@
-import { fetchTickerData } from './ticker-cache.js?v=5';
+import { fetchTickerData, lookupSymbol } from './ticker-cache.js?v=6';
 import { tickerHref, newsHref } from './prefs.js?v=11';
 import { highlightContextMatches } from './context-highlight.js?v=2';
 export let watchlist = [];
@@ -42,6 +42,16 @@ export function cardsReady() { return cardsReadyPromise; }
 // shared/watchlist-sync.js). Tiers that never register one pay nothing.
 let saveHook = null;
 export function onWatchlistSave(cb) { saveHook = cb; }
+// Fires once at the end of a SUCCESSFUL addTickers() call only -- not from
+// removeTicker()/setWatchlist(), which already have their own separate UI
+// treatment (the undo toast, a silent sync pull). New tickers always land
+// at watchlist[0] (see addTickers()'s own unshift), so a tier wiring this
+// to its Rolodex mechanics only ever needs to jump to index 0 -- no need
+// to pass which ticker was added. Fires after saveWL()/renderWatchlist()
+// have already run, so the DOM a Rolodex jump depends on is guaranteed to
+// exist by the time this callback runs.
+let addedHook = null;
+export function onTickersAdded(cb) { addedHook = cb; }
 export function initWatchlist(config) {
     maxTickers = config.maxTickers;
     upgradeMessage = config.upgradeMessage;
@@ -93,7 +103,33 @@ export function setWatchlist(tickers) {
     renderWatchlist();
     return dropped;
 }
-function parseTickers(raw) { return raw.toUpperCase().replace(/[$#]/g, '').split(/[\s,;|\n]+/).map(t => t.trim()).filter(t => /^[A-Z]{1,6}$/.test(t)); }
+// Splits raw Import text into candidate entries on comma/semicolon/pipe/
+// newline only -- NOT bare whitespace, unlike the old parseTickers() this
+// replaced -- so a multi-word company name ("Apple Inc") survives as one
+// entry instead of being torn into separate word-tokens.
+function splitEntries(raw) {
+    return raw.replace(/[$#]/g, '').split(/[,;|\n]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+}
+// A segment is treated as one or more LITERAL tickers -- no network lookup
+// needed -- only when every whitespace-separated word in it is typed
+// exactly the way this app's own placeholders show a real ticker: fully
+// UPPERCASE, 1-6 letters, nothing else. That's what makes "AAPL, MSFT" (or
+// a legacy space-separated run like "AAPL MSFT NVDA" on one line) resolve
+// instantly with zero backend round trip. Anything typed in any other
+// case -- "Tesla", "apple", "Nvidia Corp" -- comes back null here, telling
+// the caller to send the whole segment to /lookup as one company-name
+// candidate instead. This is a deliberate, simple rule, not a guess: type
+// the literal ticker in caps (as every example in this app already shows
+// them) to skip the lookup; type it any other way and it's resolved as a
+// name. A typo'd all-caps non-ticker ("TESLA") is treated as a literal
+// ticker attempt and will simply fail to find data downstream -- the same
+// degrade path a mistyped ticker already had before this feature existed.
+function literalTickersIn(segment) {
+    var words = segment.split(/\s+/).filter(Boolean);
+    if (!words.length)
+        return null;
+    return words.every(function (w) { return /^[A-Z]{1,6}$/.test(w); }) ? words : null;
+}
 // Re-renders every currently-rendered card's news line from already-
 // cached ticker data — no new network calls. Used when Session Context
 // changes: the news data itself hasn't changed, only which words in it
@@ -151,26 +187,99 @@ export function updateCardMeta(ticker, td) {
             newsEl.style.display = 'none';
     }
 }
-export function addTickers() {
-    if (watchlist.length >= maxTickers) {
-        alert(upgradeMessage);
-        return;
-    }
+export async function addTickers() {
     var input = document.getElementById('ticker-input');
     var raw = input.value;
-    var tickers = parseTickers(raw);
+    var entries = splitEntries(raw);
+    if (!entries.length)
+        return alert('No valid tickers or company names. Try: AAPL or Tesla');
+    // Company-name entries need a real backend round trip (Tra's /lookup) to
+    // resolve, so this is genuinely async now -- reuse the same
+    // btn-running/runPulse "still working" treatment ANALYZE already uses,
+    // rather than leaving the button looking inert during a real network
+    // wait it never used to have.
+    var importBtn = document.getElementById('importBtn');
+    var importBtnLabel = importBtn ? importBtn.textContent : null;
+    if (importBtn) {
+        importBtn.disabled = true;
+        importBtn.classList.add('btn-running');
+        importBtn.textContent = 'ADDING…';
+    }
+    var resolved;
+    try {
+        // Promise.all preserves input order in its result array regardless of
+        // which lookup resolves first -- required so newOnes below still lands
+        // in the order the user actually typed things, same guarantee this
+        // function has always made.
+        resolved = await Promise.all(entries.map(async function (entry) {
+            var literal = literalTickersIn(entry);
+            if (literal)
+                return { entry: entry, tickers: literal };
+            var symbol = await lookupSymbol(entry);
+            return { entry: entry, tickers: symbol ? [symbol] : [] };
+        }));
+    }
+    finally {
+        if (importBtn) {
+            importBtn.disabled = false;
+            importBtn.classList.remove('btn-running');
+            importBtn.textContent = importBtnLabel || 'Import Tickers';
+        }
+    }
+    var tickers = [];
+    var unresolved = [];
+    resolved.forEach(function (r) {
+        if (r.tickers.length)
+            tickers.push.apply(tickers, r.tickers);
+        else
+            unresolved.push(r.entry);
+    });
+    // A ticker and its own company name typed together ("AAPL, Apple") can
+    // both resolve to the same symbol -- collapse to first occurrence before
+    // treating anything as "new".
+    tickers = tickers.filter(function (t, i) { return tickers.indexOf(t) === i; });
     if (!tickers.length)
-        return alert('No valid tickers. Try: AAPL or MU');
+        return alert(unresolved.length ? ("Couldn't find: " + unresolved.join(', ')) : 'No valid tickers or company names. Try: AAPL or Tesla');
     // New tickers land at the top, in the order typed -- unshift-per-item
     // would reverse that order (last processed ends up first), so collect
     // the actually-new ones first and prepend them as a block.
     var newOnes = tickers.filter(function (t) { return !watchlist.includes(t); });
+    // Over a tier's hard cap (Free/Starter -- Pro's maxTickers is 999, so
+    // this never fires there; its own overflow already renders in the
+    // Watchlist accordion via cardWindow()/getOverflow(), untouched by this
+    // block), new tickers still win -- they replace the OLDEST pills
+    // (watchlist's own tail) instead of being silently refused the way this
+    // used to hard-block on cap alone. The cap warning survives as a real
+    // confirm/cancel prompt rather than a dead-end alert, so a user who
+    // didn't mean to lose their oldest tickers can back out before anything
+    // changes.
+    if (newOnes.length && watchlist.length + newOnes.length > maxTickers) {
+        var evictCount = watchlist.length + newOnes.length - maxTickers;
+        var proceed = confirm(upgradeMessage + '\n\nAdding ' + (newOnes.length === 1 ? 'this ticker' : 'these tickers')
+            + ' will remove your oldest ' + evictCount + ' ticker' + (evictCount === 1 ? '' : 's') + ' to make room. Continue?');
+        if (!proceed) {
+            if (unresolved.length)
+                alert("Couldn't find: " + unresolved.join(', '));
+            return;
+        }
+    }
     watchlist.unshift.apply(watchlist, newOnes);
+    if (watchlist.length > maxTickers)
+        watchlist = watchlist.slice(0, maxTickers);
     input.value = '';
     saveWL();
     renderWatchlist();
     tickers.forEach(function (t) { fetchTickerData(t).then(function (d) { if (d)
         updateCardMeta(t, d); }); });
+    if (unresolved.length)
+        alert("Couldn't find: " + unresolved.join(', '));
+    // Fired after the unresolved-entries alert (if any) so a Rolodex jump's
+    // scroll animation doesn't run underneath a blocking native dialog. A
+    // newly-typed ticker always survives at watchlist[0] regardless of any
+    // cap eviction above (unshift puts it first, slice keeps the front), so
+    // this is safe whenever anything new was actually added.
+    if (newOnes.length && addedHook)
+        addedHook();
 }
 export function removeTicker(ticker) {
     var idx = watchlist.indexOf(ticker);
