@@ -1818,7 +1818,7 @@ function roloCardHTML(sym, state) {
   const analyzing = state.analyzing;
   const result = state.result;
   const dir = priceDirClass(td);
-  return `<div class="ticker-row"><div class="ticker-left"><span class="ticker-sym ${dir}"><a href="${tickerHref(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}">${price}</span><div class="ticker-swipe-hint">\u2190 Swipe to delete</div></div><div class="ticker-action">` + (result ? verdictAreaHTML(sym, result) : `<button class="btn btn-blue btn-compact" data-analyze="${sym}" ${analyzing ? "disabled" : ""}>${analyzing ? "RUNNING\u2026" : "ANALYZE"}</button>`) + `</div></div>` + pregateStripHTML(result) + `<div class="headline">${wrapHeadlineLinks(sym, headline)} <span class="age">${age}</span></div><div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>\u03B2 <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span></div>` + badgesHTML(result) + gateListHTML(result) + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : "");
+  return `<div class="ticker-row"><div class="ticker-left"><span class="ticker-sym ${dir}"><a href="${tickerHref(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}">${price}</span><div class="ticker-swipe-hint">\u2190 Swipe to delete</div></div><div class="ticker-action">` + (result ? verdictAreaHTML(sym, result) : `<button class="btn btn-blue btn-compact${analyzing ? " btn-running" : ""}" data-analyze="${sym}" ${analyzing ? "disabled" : ""}>${analyzing ? "RUNNING\u2026" : "ANALYZE"}</button>`) + `</div></div>` + pregateStripHTML(result) + `<div class="headline">${wrapHeadlineLinks(sym, headline)} <span class="age">${age}</span></div><div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>\u03B2 <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span></div>` + badgesHTML(result) + gateListHTML(result) + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : "");
 }
 function renderRoloCard(sym) {
   const card = roloStage.querySelector(`.rolo-card[data-sym="${sym}"]`);
@@ -1978,6 +1978,7 @@ async function analyzeOne(sym) {
   }
 }
 function analyzeAll() {
+  if (watchlist.length) goRolo(0);
   watchlist.forEach((sym) => analyzeOne(sym));
 }
 document.getElementById("analyzeAllBtn").addEventListener("click", analyzeAll);
@@ -2302,7 +2303,7 @@ document.getElementById("glossary-search").addEventListener("input", (e) => filt
 var HELP_CONTENT = {
   gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against \u2014 feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read \u2014 tap the docked bar to jump back to top. Pre/post-market prices are IEX-only and may vary from the full consolidated tape; built for regular-session (9:30am\u20134pm ET) analysis.',
   pulse: 'A quick AI-written read on today\u2019s overall market mood and <a class="help-glossary-link" href="#" data-term="sector rotation">sector rotation</a> \u2014 informational only, doesn\u2019t change any gate.',
-  context: "Type in real news or catalysts you already know. Matched against headlines as corroboration for Gate 2 \u2014 when it lines up with 2 of 3 real signals, it\u2019s marked CONTEXT-CORROBORATED.",
+  context: "Real news or catalysts you already know \u2014 auto-included in every analysis and checked against headlines. 2 of 3 matching signals marks it CONTEXT-CORROBORATED for Gate 2.",
   io: 'Paste or type <a class="help-glossary-link" href="#" data-term="ticker">tickers</a>, one per line or comma-separated, to add them to your watchlist.'
 };
 function initApp() {

@@ -202,13 +202,14 @@
 
   .ctx-box{ width:100%; background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:10px; font-family:var(--mono); color:var(--ink); font-size:13.5px; line-height:1.5; resize:none; margin-bottom:9px; }
   .ctx-box::placeholder{ color:var(--ink-dim); }
-  .ctx-hint{ font-size:13px; color:var(--ink-dim); display:block; margin-top:8px; }
   .btn{ font-family:var(--mono); font-size:13px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; border-radius:8px; padding:9px 12px; border:1px solid; cursor:pointer; text-align:center; width:100%; background:transparent; }
   .btn-amber{ color:var(--amber); border-color:rgba(255,182,45,.4); background:var(--amber-dim); }
   .btn-blue{ color:var(--blue); border-color:rgba(74,168,255,.4); background:var(--blue-dim); }
   .btn-purple{ color:var(--purple); border-color:rgba(206,147,216,.4); background:var(--purple-dim); }
   .btn:disabled{ opacity:.5; cursor:default; }
   .btn-compact{ width:auto; padding:8px 14px; }
+  @keyframes runPulse{0%{box-shadow:0 0 0 0 rgba(74,168,255,.55)}70%{box-shadow:0 0 0 8px rgba(74,168,255,0)}100%{box-shadow:0 0 0 0 rgba(74,168,255,0)}}
+  .btn-blue.btn-running:disabled{ opacity:1; animation:runPulse 1.2s ease-in-out infinite; }
 
   .list-head{ display:flex; align-items:center; justify-content:space-between; padding:6px 4px 2px; font-size:13px; color:var(--ink-dim); letter-spacing:.08em; text-transform:uppercase; }
   .list-head-badge{ font-size:11px; font-weight:700; color:var(--ink); background:rgba(255,255,255,.06); border-radius:3px; padding:1px 7px; text-transform:none; letter-spacing:0; }
@@ -552,7 +553,6 @@
         <div class="card-body"><div class="card-body-inner"><div class="card-body-pad">
           <textarea class="ctx-box" id="context-input" rows="2" placeholder="e.g. KOSPI down 4%, circuit breaker. NVDA earnings tomorrow..."></textarea>
           <button class="btn btn-amber" id="analyzeAllBtn">Analyze All</button>
-          <span class="ctx-hint">Context auto-included in every analysis · Analyze All runs the top 15 cards only, up to 5 credits</span>
         </div></div></div>
       </div>
 
@@ -702,6 +702,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=17"></script>
+<script type="module" src="./app.js?v=18"></script>
 </body>
 </html>
