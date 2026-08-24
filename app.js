@@ -1312,8 +1312,12 @@ var redirectingToPaidTier = false;
 try {
   storedForRedirect = getStoredSession();
   if (storedForRedirect && storedForRedirect.tier && storedForRedirect.tier !== "free" && storedForRedirect.redirectUrl) {
-    redirectingToPaidTier = true;
-    window.location.href = storedForRedirect.redirectUrl;
+    if (isSessionValid(storedForRedirect)) {
+      redirectingToPaidTier = true;
+      window.location.href = storedForRedirect.redirectUrl;
+    } else {
+      localStorage.removeItem("tv_session");
+    }
   }
 } catch (e) {
 }

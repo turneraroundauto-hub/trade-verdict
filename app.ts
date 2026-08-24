@@ -136,8 +136,22 @@ var redirectingToPaidTier = false;
 try {
   var storedForRedirect = getStoredSession();
   if (storedForRedirect && storedForRedirect.tier && storedForRedirect.tier !== 'free' && storedForRedirect.redirectUrl) {
-    redirectingToPaidTier = true;
-    window.location.href = storedForRedirect.redirectUrl;
+    if (isSessionValid(storedForRedirect)) {
+      redirectingToPaidTier = true;
+      window.location.href = storedForRedirect.redirectUrl;
+    } else {
+      // A LAPSED paid session's own tier/redirectUrl fields are stale --
+      // don't bounce Free away on data that's no longer true. This is
+      // also what makes a lapsed tier's own "Back to Free tier" login
+      // link actually work: without this check, an expired Starter/Pro
+      // session sent the user right back to the very tier that just
+      // rejected them (its own checkAuth() finds the same expired token
+      // invalid and shows the login screen again) -- a redirect loop
+      // that looked like "clicking Back to Free tier keeps kicking me
+      // back to login." Clearing the stale session here also means Free
+      // insists on being Free going forward, not just this one load.
+      localStorage.removeItem('tv_session');
+    }
   }
 } catch (e) { }
 
