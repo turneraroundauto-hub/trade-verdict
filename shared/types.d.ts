@@ -102,6 +102,10 @@ export interface TickerData {
   iv?: number | null;
   weeklyCarryover: Record<string, unknown> | null;
   regime: RegimeState | null;
+  // Proposal 7 (Aug 26, 2026) -- null unless the caller's tier has the
+  // scorecard flag AND this ticker has a corroboration_log hit on record
+  // (i.e. Session Context has actually been used on it at least once).
+  corroborationDecay?: { freshnessPct: number; label: "FRESH" | "STALE"; hitAt: string } | null;
   timestamp: string;
 }
 
