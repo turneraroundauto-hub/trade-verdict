@@ -2496,14 +2496,15 @@ app.get("/agitator", async (req, res) => {
     res.json({
       resolved: true, symbol,
       headlineUsed: effectiveHeadline,
-      factors: {
+      // Phase 0 fix (Aug 26, 2026) -- mirror-only, see Tra's server.js.
+      factors: isFull ? {
         surprise:    aiFactors?.surprise    ?? null,
         uncertainty: aiFactors?.uncertainty ?? null,
         positioning: aiFactors?.positioning ?? null,
         crossAsset:  aiFactors?.crossAsset  ?? null,
         liquidity, ivEnvironment,
         historicalReaction: null, // deliberately omitted -- no data source exists for this yet
-      },
+      } : undefined,
       composite, comps, news: newsOut,
     });
   } catch (e) {

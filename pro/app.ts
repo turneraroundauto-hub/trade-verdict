@@ -1033,15 +1033,20 @@ async function runAgitatorCheck(): Promise<void> {
       + '<span class="trigger-val" style="color:' + gaugeColor + '">' + (comp ? comp.level : 'N/A') + '</span>'
       + '<span class="trigger-sub">' + (comp ? comp.score + '/100 · ' + comp.factorCount + '/6 factors' : 'no data') + '</span></div>';
 
+    // data.factors is only present for "full" tiers (server-side isFull
+    // gate, Aug 26 2026 Phase 0 fix) -- a simple-gauge tier gets the
+    // composite level/score above with no breakdown at all, by design.
     var f = data.factors;
-    var factorsHTML = '<div class="track-log-title" style="margin-top:10px">SUB-FACTORS</div>'
-      + agitatorFactorRow('Surprise', f.surprise)
-      + agitatorFactorRow('Uncertainty', f.uncertainty)
-      + agitatorFactorRow('Positioning (fresh vs priced-in)', f.positioning)
-      + agitatorFactorRow('Cross-Asset Exposure', f.crossAsset)
-      + agitatorFactorRow('Liquidity Sensitivity', f.liquidity)
-      + agitatorFactorRow('Options/IV Environment', f.ivEnvironment)
-      + '<div class="trigger-row"><span class="trigger-lbl">Historical Reaction</span><span class="trigger-sub">not tracked yet</span></div>';
+    var factorsHTML = f
+      ? '<div class="track-log-title" style="margin-top:10px">SUB-FACTORS</div>'
+        + agitatorFactorRow('Surprise', f.surprise)
+        + agitatorFactorRow('Uncertainty', f.uncertainty)
+        + agitatorFactorRow('Positioning (fresh vs priced-in)', f.positioning)
+        + agitatorFactorRow('Cross-Asset Exposure', f.crossAsset)
+        + agitatorFactorRow('Liquidity Sensitivity', f.liquidity)
+        + agitatorFactorRow('Options/IV Environment', f.ivEnvironment)
+        + '<div class="trigger-row"><span class="trigger-lbl">Historical Reaction</span><span class="trigger-sub">not tracked yet</span></div>'
+      : '';
 
     var headlineHTML = data.headlineUsed
       ? '<div class="headline" style="margin-top:8px">' + data.headlineUsed + '</div>' : '';
