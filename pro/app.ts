@@ -250,6 +250,7 @@ function expandCard(card: HTMLElement): void {
   if (kind === 'watchlist') renderOverflowList();
   else if (kind === 'proxy') renderProxyExplorer();
   else if (kind === 'heatmap') renderHeatMap();
+  else if (kind === 'scorecard') renderScorecardCard();
 }
 function wireAccordionHead(head: Element): void {
   function toggle(): void {
@@ -440,6 +441,13 @@ function roloCardHTML(sym: string, state: TickerState): string {
   const proxyHTML = proxySymbols.length === 1
     ? `<a href="${tickerHref(proxySymbols[0])}" target="_blank">${proxyName}</a>`
     : proxyName;
+  // Proposal 7 -- Corroboration Decay Indicator. Only ever present when
+  // Session Context has actually corroborated something for this ticker
+  // before; most cards will never show this, by design (see CLAUDE.md).
+  const decay = td && td.corroborationDecay;
+  const decayHTML = decay
+    ? `<span>CONTEXT <b style="color:${decay.label === 'FRESH' ? 'var(--green)' : 'var(--red)'}">${decay.label} ${decay.freshnessPct}%</b></span>`
+    : '';
   const analyzing = state.analyzing;
   const result = state.result;
   const dir = priceDirClass(td);
@@ -453,7 +461,7 @@ function roloCardHTML(sym: string, state: TickerState): string {
     + `</div>`
     + pregateStripHTML(result)
     + `<div class="headline">${wrapHeadlineLinks(sym, headline)} <span class="age">${age}</span></div>`
-    + `<div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>β <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span></div>`
+    + `<div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>β <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span>${decayHTML}</div>`
     + badgesHTML(result)
     + gateListHTML(sym, result)
     + analystViewHTML(sym, result, td)
@@ -944,6 +952,49 @@ function renderTickerAccuracy(): void {
 }
 function refreshTrackRecordCard(): void { renderTrackRecord(); renderGateAttribution(); renderTickerAccuracy(); }
 
+// ── PROPOSAL 7 — Verdict Accuracy Scorecard (Aug 26, 2026) ──────────
+// Real, server-graded accuracy (verdict_log, graded automatically ~3
+// trading days after each verdict) -- distinct from Track Record above,
+// which is the user's own manually-logged ✓/✗ record. Gated server-side
+// on credits.TIERS.pro.scorecard (Pro-first rollout, per direct
+// instruction) -- the endpoint itself returns 403 on any tier that
+// doesn't have the flag yet, so this card degrades to a plain message
+// rather than assuming access.
+async function renderScorecardCard(): Promise<void> {
+  var el = document.getElementById('scorecard-body'); if (!el) return;
+  el.innerHTML = '<div class="track-empty">Loading...</div>';
+  try {
+    var res = await fetch(addSecret(API_URL + '/scorecard'), { headers: authH() });
+    if (res.status === 403) { el.innerHTML = '<div class="track-empty">Scorecard not available on this tier yet.</div>'; return; }
+    if (res.status === 401) { el.innerHTML = '<div class="track-empty">Sign in to see your personal scorecard.</div>'; return; }
+    var data = await res.json();
+    if (data.insufficientData) {
+      el.innerHTML = '<div class="track-empty">Accumulating — ' + (data.gradedCount || 0) + '/20 graded verdicts so far. Check back once more verdicts have been scored.</div>';
+      return;
+    }
+    var strictRow = data.strictPct != null
+      ? '<div class="trigger-row"><span class="trigger-lbl">Strict accuracy</span><span class="trigger-val">' + data.strictPct + '%</span></div>'
+      : '';
+    var html = '<div class="track-log-title">VERDICT ACCURACY (' + data.gradedCount + ' graded)</div>'
+      + strictRow
+      + '<div class="trigger-row"><span class="trigger-lbl">Directional accuracy</span><span class="trigger-val">' + data.directionalPct + '%</span></div>';
+    if (data.breakdown) {
+      var section = function (title: string, key: string): string {
+        var groups = data.breakdown[key] || {};
+        var rows = Object.keys(groups).map(function (k) {
+          var g = groups[k];
+          return '<div class="trigger-row"><span class="trigger-lbl">' + k + '</span><span class="trigger-val">' + (g.directionalPct != null ? g.directionalPct + '%' : '—') + '</span><span class="trigger-sub">' + g.gradedCount + '</span></div>';
+        }).join('');
+        return rows ? '<div class="track-log-title" style="margin-top:12px">' + title + '</div>' + rows : '';
+      };
+      html += section('BY GATE 1 BRANCH', 'gate1Branch') + section('BY PRE-GATE STATE', 'preGateState') + section('BY GATE 0 READ', 'gate0Read');
+    }
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = '<div class="track-empty">Scorecard unavailable right now.</div>';
+  }
+}
+
 // ── PRO — Sector Heat Map ───────────────────────────────────────────
 var HEATMAP_SECTORS: [string, string][] = [['spy', 'SPY'], ['qqq', 'QQQ'], ['iwm', 'IWM'], ['xbi', 'XBI'], ['soxx', 'SOXX'], ['tsm', 'TSM'], ['msft', 'MSFT'], ['btc', 'BTC'], ['gld', 'GLD'], ['uso', 'USO']];
 var HEATMAP_MAX_PCT = 3;
@@ -1327,6 +1378,7 @@ const HELP_CONTENT: Record<string, string> = {
   proxy: 'Which sector proxy each ticker is being checked against for <a class="help-glossary-link" href="#" data-term="gate 5">Gate 5</a>, and whether the two are still moving together right now.',
   heatmap: 'A color-coded snapshot of fixed sectors plus every ticker in your watchlist, sorted by % change.',
   track: 'Your logged verdict history — hit rate by gate trigger and by ticker. Log ✓ RIGHT / ✗ WRONG after the session closes to build a real accuracy record.',
+  scorecard: 'Real, server-graded accuracy — every verdict is automatically checked against the actual price move ~3 trading days later, no manual logging needed. Suppressed until at least 20 verdicts have been graded.',
 };
 
 // ── init ────────────────────────────────────────────────────────────

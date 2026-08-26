@@ -28,6 +28,31 @@ const supabase = process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY
     })
   : null;
 
+// ── CRF VERSION (Proposal 7 — Verdict Accuracy Scorecard, Aug 26, 2026) ──
+// Mirror-only per the two-repo rule -- Tra is the real deploy target. See
+// Tra's server.js for the full comment. Bump by hand on every change that
+// can alter what verdict/sizing/confidence a given input produces. Last
+// bumped: Aug 22, 2026 (Pre-Gate joined the corroboration pool; Gate 4
+// moved server-side; Gate 3 Friday full-weight exception; single-RED-
+// among-2/3/4 sizing exception).
+const CRF_VERSION = "2026-08-22";
+
+// Fixed default until Proposal 6 (Aggression Dial) ships its own dial
+// position -- 3 trading days is this app's own de facto holding-period
+// assumption today.
+const DEFAULT_GRADING_WINDOW_TRADING_DAYS = 3;
+
+function addTradingDays(date, n) {
+  const d = new Date(date.getTime());
+  let added = 0;
+  while (added < n) {
+    d.setUTCDate(d.getUTCDate() + 1);
+    const day = d.getUTCDay(); // 0 = Sun, 6 = Sat
+    if (day !== 0 && day !== 6) added++;
+  }
+  return d;
+}
+
 // Pass supabase client to credit system
 credits.setSupabase(supabase);
 
@@ -1975,6 +2000,114 @@ async function saveProxyResolution(symbol, resolved, trigger) {
   }
 }
 
+// ─── PROPOSAL 7 — VERDICT ACCURACY SCORECARD (Aug 26, 2026) ───────────
+// Mirror-only per the two-repo rule -- Tra is the real deploy target.
+async function logVerdict(fields) {
+  if (!supabase) return;
+  try {
+    const issuedAt = new Date();
+    const dueAt = addTradingDays(issuedAt, fields.gradingWindowDays);
+    await supabase.from("verdict_log").insert({
+      ticker:                    fields.ticker,
+      issued_at:                 issuedAt.toISOString(),
+      issued_price:              fields.issuedPrice ?? null,
+      verdict:                   fields.verdict,
+      size_action:               fields.sizeAction || null,
+      crf_version:               CRF_VERSION,
+      pre_gate_state:            fields.preGateState || null,
+      gate1_branch:              fields.gate1Branch || null,
+      gate0_read:                fields.gate0Read || null,
+      gate2_corroboration_state: fields.gate2CorroborationState || null,
+      dial_position:             null, // Proposal 6 (Aggression Dial) not yet built
+      grading_window_days:       fields.gradingWindowDays,
+      grade_due_at:              dueAt.toISOString(),
+      user_email:                fields.userEmail || null,
+      tier:                      fields.tier,
+    });
+  } catch (e) {
+    console.error(`logVerdict ${fields.ticker}:`, e.message);
+  }
+}
+
+const CORROBORATION_SOURCE_MAP = {
+  news_content_match:    "news_match",
+  gate3_buildup_pattern:  "gate3_buildup",
+  earnings_calendar_event: "earnings_calendar",
+};
+async function logCorroborationHits(ticker, corroboration) {
+  if (!supabase || !corroboration) return;
+  const rows = (corroboration.matchedLabels || [])
+    .map(label => CORROBORATION_SOURCE_MAP[label])
+    .filter(Boolean)
+    .map(source => ({ ticker, source }));
+  if (!rows.length) return;
+  try {
+    await supabase.from("corroboration_log").insert(rows);
+  } catch (e) {
+    console.error(`logCorroborationHits ${ticker}:`, e.message);
+  }
+}
+
+function classifyVerdictReturn(verdict, r) {
+  let zone;
+  if (r >= 2.5) zone = "STRONG_UP";
+  else if (r > 0.75) zone = "WEAK_UP";
+  else if (r >= -0.75) zone = "FLAT";
+  else if (r > -2.5) zone = "WEAK_DOWN";
+  else zone = "STRONG_DOWN";
+
+  if (verdict === "UP") {
+    if (zone === "STRONG_UP") return "TRUE";
+    if (zone === "WEAK_UP") return "MARGINAL";
+    return "FALSE";
+  }
+  if (verdict === "DOWN") {
+    if (zone === "STRONG_DOWN") return "TRUE";
+    if (zone === "WEAK_DOWN") return "MARGINAL";
+    return "FALSE";
+  }
+  if (zone === "FLAT") return "TRUE";
+  if (zone === "WEAK_UP" || zone === "WEAK_DOWN") return "MARGINAL";
+  return "FALSE";
+}
+
+const GRADING_BATCH_SIZE = 50;
+async function runVerdictGradingSweep() {
+  if (!supabase) return;
+  try {
+    const nowIso = new Date().toISOString();
+    const { data: due, error } = await supabase
+      .from("verdict_log")
+      .select("id, ticker, verdict, issued_price")
+      .is("graded_at", null)
+      .lte("grade_due_at", nowIso)
+      .limit(GRADING_BATCH_SIZE);
+    if (error) { console.error("runVerdictGradingSweep query:", error.message); return; }
+    if (!due || !due.length) return;
+
+    for (const row of due) {
+      if (row.issued_price == null) {
+        await supabase.from("verdict_log").update({ graded_at: new Date().toISOString() }).eq("id", row.id);
+        continue;
+      }
+      const quote = await fetchQuote(row.ticker);
+      if (!quote) continue;
+      const actualPrice = parseFloat(quote.price);
+      const r = (actualPrice - row.issued_price) / row.issued_price * 100;
+      const grade = classifyVerdictReturn(row.verdict, r);
+      await supabase.from("verdict_log").update({
+        actual_return_pct: r,
+        grade,
+        graded_at: new Date().toISOString(),
+      }).eq("id", row.id);
+    }
+    console.log(`Verdict grading sweep: ${due.length} row(s) processed.`);
+  } catch (e) {
+    console.error("runVerdictGradingSweep:", e.message);
+  }
+}
+setInterval(() => { runVerdictGradingSweep().catch(e => console.error("runVerdictGradingSweep:", e.message)); }, 30 * 60 * 1000);
+
 // ─── PROPOSAL 3 — FIXED-PROXY REGIME VALIDATION (Aug 13, 2026) ────────
 // gates-extended.js's regimeValidation()/resolveFixedProxyBreak() have
 // existed since Patch 4 but were never wired up -- they need a place to
@@ -2311,6 +2444,70 @@ app.get("/track", async (req, res) => {
   } catch(e) { console.error("GET /track:", e.message); res.json({ entries: [] }); }
 });
 
+// ─── PROPOSAL 7 — /scorecard (Aug 26, 2026) ───────────────────────────
+// Mirror-only per the two-repo rule -- Tra is the real deploy target.
+const SCORECARD_MIN_GRADED = 20;
+function computeAccuracyStats(rows) {
+  const total = rows.length;
+  if (!total) return { gradedCount: 0, strictPct: null, directionalPct: null };
+  const trueCount     = rows.filter(r => r.grade === "TRUE").length;
+  const marginalCount = rows.filter(r => r.grade === "MARGINAL").length;
+  return {
+    gradedCount:    total,
+    strictPct:      +(trueCount / total * 100).toFixed(1),
+    directionalPct: +((trueCount + marginalCount) / total * 100).toFixed(1),
+  };
+}
+app.get("/scorecard", async (req, res) => {
+  if (!req.tierConfig?.scorecard) {
+    return res.status(403).json({ error: "Scorecard not available on this tier yet" });
+  }
+  if (!supabase) return res.json({ insufficientData: true, gradedCount: 0 });
+
+  try {
+    if (req.userTier === "free") {
+      const { data, error } = await supabase
+        .from("verdict_log").select("grade")
+        .eq("tier", "free").not("graded_at", "is", null);
+      if (error) { console.error("GET /scorecard (free):", error.message); return res.json({ insufficientData: true, gradedCount: 0 }); }
+      const stats = computeAccuracyStats(data || []);
+      if (stats.gradedCount < SCORECARD_MIN_GRADED) return res.json({ insufficientData: true, gradedCount: stats.gradedCount });
+      return res.json({ scope: "aggregate", directionalPct: stats.directionalPct, gradedCount: stats.gradedCount });
+    }
+
+    if (!req.userEmail) return res.status(401).json({ error: "Sign in required" });
+    const email = req.userEmail.trim().toLowerCase();
+    const { data, error } = await supabase
+      .from("verdict_log")
+      .select("grade, pre_gate_state, gate1_branch, gate0_read")
+      .eq("user_email", email).not("graded_at", "is", null);
+    if (error) { console.error("GET /scorecard:", error.message); return res.json({ insufficientData: true, gradedCount: 0 }); }
+    const rows  = data || [];
+    const stats = computeAccuracyStats(rows);
+    if (stats.gradedCount < SCORECARD_MIN_GRADED) {
+      return res.json({ insufficientData: true, gradedCount: stats.gradedCount });
+    }
+    const result = { scope: "personal", strictPct: stats.strictPct, directionalPct: stats.directionalPct, gradedCount: stats.gradedCount };
+
+    if (req.tierConfig?.tracker) {
+      const breakdownBy = key => {
+        const groups = {};
+        rows.forEach(r => { const k = r[key] || "(none)"; (groups[k] = groups[k] || []).push(r); });
+        return Object.fromEntries(Object.entries(groups).map(([k, rs]) => [k, computeAccuracyStats(rs)]));
+      };
+      result.breakdown = {
+        gate1Branch:  breakdownBy("gate1_branch"),
+        preGateState: breakdownBy("pre_gate_state"),
+        gate0Read:    breakdownBy("gate0_read"),
+      };
+    }
+    res.json(result);
+  } catch (e) {
+    console.error("GET /scorecard:", e.message);
+    res.json({ insufficientData: true, gradedCount: 0 });
+  }
+});
+
 const TRACK_VERDICTS = new Set(["UP", "DOWN", "FLAT"]);
 app.post("/track", async (req, res) => {
   if (!req.userEmail) return res.status(401).json({ error: "Sign in required" });
@@ -2596,6 +2793,29 @@ async function refreshMarketEntry(symbol, hardTrigger = false) {
   return marketEntry;
 }
 
+// ─── PROPOSAL 7 — CORROBORATION DECAY (Aug 26, 2026) ──────────────────
+// Mirror-only per the two-repo rule -- Tra is the real deploy target.
+const DECAY_HALF_LIFE_HOURS = 24;
+async function computeCorroborationDecay(symbol) {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from("corroboration_log")
+      .select("hit_at")
+      .eq("ticker", symbol)
+      .order("hit_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data) return null;
+    const hoursSince = (Date.now() - new Date(data.hit_at).getTime()) / 3600000;
+    const freshnessPct = Math.max(0, Math.round(100 - (hoursSince / DECAY_HALF_LIFE_HOURS) * 100));
+    return { freshnessPct, label: freshnessPct >= 50 ? "FRESH" : "STALE", hitAt: data.hit_at };
+  } catch (e) {
+    console.error(`computeCorroborationDecay ${symbol}:`, e.message);
+    return null;
+  }
+}
+
 app.get("/ticker/:symbol", async (req, res) => {
   const symbol = req.params.symbol.toUpperCase();
   try {
@@ -2660,7 +2880,9 @@ app.get("/ticker/:symbol", async (req, res) => {
     // doesn't need to ride on the same invalidation rule as the rest.
     const iv = req.tierConfig?.iv ? await fetchImpliedVolatility(symbol, metrics?.price) : null;
 
-    res.json({ symbol, metrics, news, openingBar, proxyRule, gate1, preGate, iv, weeklyCarryover, regime, timestamp: new Date().toISOString() });
+    const corroborationDecay = req.tierConfig?.scorecard ? await computeCorroborationDecay(symbol) : null;
+
+    res.json({ symbol, metrics, news, openingBar, proxyRule, gate1, preGate, iv, weeklyCarryover, regime, corroborationDecay, timestamp: new Date().toISOString() });
   } catch(err) {
     res.status(500).json({ error: err.message });
   }
@@ -2872,6 +3094,7 @@ Current price: $${metricsData.price || "?"}
     });
 
     contextCorroboration = gx.corroborateSessionContext({ newsMatch, buildup, hasEarningsEvent });
+    await logCorroborationHits(ticker, contextCorroboration);
   }
 
   const userMessage = `
@@ -3176,6 +3399,17 @@ Return only JSON.
 
       const result = { ...parsed, marketOpen: isMarketOpen() };
       setCache(cacheKey, result);
+      await logVerdict({
+        ticker, verdict: parsed.verdict, sizeAction: parsed.sizing,
+        issuedPrice: typeof metricsData?.price === "number" ? metricsData.price : null,
+        preGateState: preGateResult.status, gate1Branch: gate1Result.branch,
+        gate0Read: gate0Status,
+        gate2CorroborationState: contextCorroboration
+          ? `${contextCorroboration.corroborated ? "CONTEXT-CORROBORATED" : "UNCORROBORATED"} (${contextCorroboration.matchCount}/3)`
+          : null,
+        gradingWindowDays: DEFAULT_GRADING_WINDOW_TRADING_DAYS,
+        userEmail: req.userEmail, tier: req.userTier,
+      });
       res.json(result);
     } catch {
       res.status(500).json({ error: "Failed to parse AI response", raw: text });
