@@ -2626,6 +2626,65 @@ async function renderScorecardCard() {
     el.innerHTML = '<div class="track-empty">Scorecard unavailable right now.</div>';
   }
 }
+function agitatorFactorRow(label, val) {
+  if (val == null) return '<div class="trigger-row"><span class="trigger-lbl">' + label + '</span><span class="trigger-sub">n/a</span></div>';
+  var color = val >= 66 ? "var(--red)" : val >= 34 ? "var(--amber)" : "var(--green)";
+  return '<div class="trigger-row"><span class="trigger-lbl">' + label + '</span><span class="trigger-val" style="color:' + color + '">' + val + "</span></div>";
+}
+async function runAgitatorCheck() {
+  var qEl = document.getElementById("agitator-query");
+  var hEl = document.getElementById("agitator-headline");
+  var btn = document.getElementById("agitatorCheckBtn");
+  var out = document.getElementById("agitator-body");
+  if (!out) return;
+  var q = qEl.value.trim();
+  if (!q) {
+    out.innerHTML = '<div class="track-empty">Type a ticker or company name first.</div>';
+    return;
+  }
+  var headline = hEl.value.trim();
+  btn.disabled = true;
+  btn.classList.add("btn-running");
+  btn.textContent = "CHECKING\u2026";
+  out.innerHTML = '<div class="track-empty">Loading...</div>';
+  try {
+    var url = API_URL2 + "/agitator?q=" + encodeURIComponent(q) + (headline ? "&headline=" + encodeURIComponent(headline) : "");
+    var res = await fetch(addSecret2(url), { headers: authH2() });
+    if (res.status === 403) {
+      out.innerHTML = '<div class="track-empty">Agitator Gauge not available on this tier yet.</div>';
+      return;
+    }
+    if (res.status === 429) {
+      out.innerHTML = '<div class="track-empty">Too many checks this hour \u2014 try again later.</div>';
+      return;
+    }
+    var data = await res.json();
+    if (!data.resolved) {
+      out.innerHTML = '<div class="track-empty">Couldn\u2019t find a symbol for "' + q + '".</div>';
+      return;
+    }
+    var comp = data.composite;
+    var gaugeColor = !comp ? "var(--ink-dim)" : comp.level === "HIGH" ? "var(--red)" : comp.level === "MEDIUM" ? "var(--amber)" : "var(--green)";
+    var gaugeHTML = '<div class="trigger-row"><span class="trigger-lbl"><a href="' + tickerHref(data.symbol) + '" target="_blank">' + data.symbol + '</a></span><span class="trigger-val" style="color:' + gaugeColor + '">' + (comp ? comp.level : "N/A") + '</span><span class="trigger-sub">' + (comp ? comp.score + "/100 \xB7 " + comp.factorCount + "/6 factors" : "no data") + "</span></div>";
+    var f = data.factors;
+    var factorsHTML = f ? '<div class="track-log-title" style="margin-top:10px">SUB-FACTORS</div>' + agitatorFactorRow("Surprise", f.surprise) + agitatorFactorRow("Uncertainty", f.uncertainty) + agitatorFactorRow("Positioning (fresh vs priced-in)", f.positioning) + agitatorFactorRow("Cross-Asset Exposure", f.crossAsset) + agitatorFactorRow("Liquidity Sensitivity", f.liquidity) + agitatorFactorRow("Options/IV Environment", f.ivEnvironment) + '<div class="trigger-row"><span class="trigger-lbl">Historical Reaction</span><span class="trigger-sub">not tracked yet</span></div>' : "";
+    var headlineHTML = data.headlineUsed ? '<div class="headline" style="margin-top:8px">' + data.headlineUsed + "</div>" : "";
+    var compsHTML = data.comps && data.comps.length ? '<div class="track-log-title" style="margin-top:10px">CORRELATED (comps)</div>' + data.comps.map(function(c) {
+      return '<div class="trigger-row"><span class="trigger-lbl"><a href="' + tickerHref(c.symbol) + '" target="_blank">' + c.symbol + '</a></span><span class="trigger-val">' + c.correlation + "</span></div>";
+    }).join("") : "";
+    var newsHTML = data.news && data.news.length ? '<div class="track-log-title" style="margin-top:10px">CORROBORATING NEWS</div>' + data.news.map(function(n) {
+      return n.source === "primary" ? '<div class="gate-note">' + n.headline + ' <span class="age">' + n.ageLabel + "</span></div>" : '<div class="gate-note">' + n.excerpt + "\u2026</div>";
+    }).join("") : "";
+    out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML + newsHTML;
+    snapCardUnderDock(document.getElementById("card-agitator"));
+  } catch (e) {
+    out.innerHTML = '<div class="track-empty">Agitator Gauge unavailable right now.</div>';
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove("btn-running");
+    btn.textContent = "Check Aggression";
+  }
+}
 var HEATMAP_SECTORS = [["spy", "SPY"], ["qqq", "QQQ"], ["iwm", "IWM"], ["xbi", "XBI"], ["soxx", "SOXX"], ["tsm", "TSM"], ["msft", "MSFT"], ["btc", "BTC"], ["gld", "GLD"], ["uso", "USO"]];
 var HEATMAP_MAX_PCT = 3;
 function heatTileHtml(label, pct, ticker) {
@@ -2986,7 +3045,8 @@ var HELP_CONTENT = {
   proxy: 'Which sector proxy each ticker is being checked against for <a class="help-glossary-link" href="#" data-term="gate 5">Gate 5</a>, and whether the two are still moving together right now.',
   heatmap: "A color-coded snapshot of fixed sectors plus every ticker in your watchlist, sorted by % change.",
   track: "Your logged verdict history \u2014 hit rate by gate trigger and by ticker. Log \u2713 RIGHT / \u2717 WRONG after the session closes to build a real accuracy record.",
-  scorecard: "Real, server-graded accuracy \u2014 every verdict is automatically checked against the actual price move ~3 trading days later, no manual logging needed. Suppressed until at least 20 verdicts have been graded."
+  scorecard: "Real, server-graded accuracy \u2014 every verdict is automatically checked against the actual price move ~3 trading days later, no manual logging needed. Suppressed until at least 20 verdicts have been graded.",
+  agitator: "A standalone discovery tool for proofing a new stock interest or a media rumor BEFORE it enters your watchlist \u2014 free, no credit cost. Type a ticker or company name (or paste a specific headline to check) and get a LOW/MEDIUM/HIGH read across 6 real factors, plus correlated comps. Historical Reaction isn\u2019t tracked yet, so it\u2019s shown but never scored."
 };
 function initApp() {
   cleanLS();
@@ -3109,6 +3169,7 @@ document.getElementById("clearTrackBtn").addEventListener("click", () => {
   clearLog();
   refreshTrackRecordCard();
 });
+document.getElementById("agitatorCheckBtn").addEventListener("click", runAgitatorCheck);
 document.getElementById("compact-sort-btn").addEventListener("click", toggleCompactSort);
 document.getElementById("proxy-sort-level").addEventListener("click", () => setProxySort("level"));
 document.getElementById("proxy-sort-coherence").addEventListener("click", () => setProxySort("coherence"));
