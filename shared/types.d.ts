@@ -148,4 +148,9 @@ export interface AnalyzeResponse {
   riskFlags?: { elevatedCapCeiling: boolean; autoExecuteStop: boolean };
   marketOpen: boolean;
   fromCache?: boolean;
+  // Proposal 6 (Aug 26, 2026) -- true only when the pre-earnings exit
+  // rule actually fired for this call (tierConfig.dial-gated, no
+  // exceptions across all 5 dial positions unless holdThroughEarnings
+  // was sent). Absent/false on every other tier and every other call.
+  earningsBlocked?: boolean;
 }

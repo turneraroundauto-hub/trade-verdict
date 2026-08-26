@@ -1891,6 +1891,40 @@ async function fetchNewsBodiesForCorroboration(symbol) {
 // -- true if the ticker has an earnings date within a window around today,
 // false if the call succeeds with none, null on any fetch error (treated as
 // "not corroborated", never as a false positive).
+// ─── PROPOSAL 6 — AGGRESSION DIAL (Aug 26, 2026) ──────────────────────
+// Mirror-only per the two-repo rule -- Tra is the real deploy target. See
+// Tra's server.js for the full comment on scope/design decisions.
+async function checkUpcomingEarnings(symbol) {
+  try {
+    const now  = new Date();
+    const from = now.toISOString().split("T")[0];
+    const to   = new Date(now.getTime() + 2 * 86400000).toISOString().split("T")[0];
+    const data = await finnhubGet(`/calendar/earnings?symbol=${symbol}&from=${from}&to=${to}`);
+    const items = data?.earningsCalendar;
+    if (!Array.isArray(items) || !items.length) return null;
+    return items[0]?.date || true;
+  } catch (e) {
+    console.error(`checkUpcomingEarnings ${symbol}:`, e.message);
+    return null;
+  }
+}
+
+const SIZING_ORDER = ["NONE", "QUARTER", "HALF", "FULL"];
+const DIAL_POSITIONS = {
+  ACTIVE_SWING:  { sizingCeiling: "HALF" },
+  ACTIVE_LEAN:   { sizingCeiling: "FULL" },
+  NEUTRAL:       { sizingCeiling: "FULL" },
+  POSITION_LEAN: { sizingCeiling: "FULL" },
+  POSITION_LONG: { sizingCeiling: "FULL" },
+};
+function applySizingCeiling(sizing, dialPosition) {
+  const ceiling = DIAL_POSITIONS[dialPosition]?.sizingCeiling || "FULL";
+  const cur = SIZING_ORDER.indexOf(sizing);
+  const cap = SIZING_ORDER.indexOf(ceiling);
+  if (cur === -1 || cap === -1 || cur <= cap) return sizing;
+  return ceiling;
+}
+
 async function fetchEarningsCalendarFlag(symbol) {
   try {
     const now  = new Date();
@@ -2120,7 +2154,7 @@ async function logVerdict(fields) {
       gate1_branch:              fields.gate1Branch || null,
       gate0_read:                fields.gate0Read || null,
       gate2_corroboration_state: fields.gate2CorroborationState || null,
-      dial_position:             null, // Proposal 6 (Aggression Dial) not yet built
+      dial_position:             fields.dialPosition || null,
       grading_window_days:       fields.gradingWindowDays,
       grade_due_at:              dueAt.toISOString(),
       user_email:                fields.userEmail || null,
@@ -3087,10 +3121,12 @@ function setCache(key, data) {
 
 // ─── ANALYZE ──────────────────────────────────────────────────────
 app.post("/analyze", async (req, res) => {
-  const { ticker, sectorContext, marketContext, metricsData, newsData, openingBarData, proxyRule, gate1Data, preGateData, weeklyCarryoverData, regimeData } = req.body;
+  const { ticker, sectorContext, marketContext, metricsData, newsData, openingBarData, proxyRule, gate1Data, preGateData, weeklyCarryoverData, regimeData, dialPosition, holdThroughEarnings } = req.body;
   if (!ticker) return res.status(400).json({ error: "ticker is required" });
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "ANTHROPIC_API_KEY not set" });
+
+  const effectiveDialPosition = (req.tierConfig?.dial && DIAL_POSITIONS[dialPosition]) ? dialPosition : "NEUTRAL";
 
   // ── CREDIT CHECK ──────────────────────────────────────────────
   const userStatus = await credits.getUserStatus(req.userKey, req.userTier);
@@ -3123,6 +3159,9 @@ app.post("/analyze", async (req, res) => {
 
   // Deduct 1 credit (only if not cached)
   await credits.deductCredit(req.userKey, 1, req.userTier);
+
+  const upcomingEarnings = (req.tierConfig?.dial && !holdThroughEarnings)
+    ? await checkUpcomingEarnings(ticker) : null;
 
   // ── PRE-GATE — THESIS INTEGRITY, PRE-DETERMINED (Patch 3) ──────────
   // Computed server-side once in /ticker/:symbol and passed through here
@@ -3572,7 +3611,15 @@ Return only JSON.
         parsed.wait_for = "Additional confirmation needed before directional entry.";
       }
 
-      const result = { ...parsed, marketOpen: isMarketOpen() };
+      parsed.sizing = applySizingCeiling(parsed.sizing, effectiveDialPosition);
+      let earningsBlocked = false;
+      if (upcomingEarnings) {
+        earningsBlocked = true;
+        parsed.sizing   = "NONE";
+        parsed.wait_for = `Earnings imminent${typeof upcomingEarnings === "string" ? ` (${upcomingEarnings})` : ""} — no new entries until it's reported, unless you explicitly hold through it.`;
+      }
+
+      const result = { ...parsed, marketOpen: isMarketOpen(), earningsBlocked };
       setCache(cacheKey, result);
       await logVerdict({
         ticker, verdict: parsed.verdict, sizeAction: parsed.sizing,
@@ -3582,6 +3629,7 @@ Return only JSON.
         gate2CorroborationState: contextCorroboration
           ? `${contextCorroboration.corroborated ? "CONTEXT-CORROBORATED" : "UNCORROBORATED"} (${contextCorroboration.matchCount}/3)`
           : null,
+        dialPosition: req.tierConfig?.dial ? effectiveDialPosition : null,
         gradingWindowDays: DEFAULT_GRADING_WINDOW_TRADING_DAYS,
         userEmail: req.userEmail, tier: req.userTier,
       });
