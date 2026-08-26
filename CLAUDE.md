@@ -6098,3 +6098,35 @@ grants/RLS toggle: `function_search_path_mutable` on all five
 `add_purchased_credits`, `upgrade_user_tier`, `set_user_tier`,
 `deduct_user_credit`), and Auth's leaked-password-protection setting
 being off. Worth a future pass, not folded into this one.
+
+**Follow-up, same day: the `function_search_path_mutable` warnings
+fixed too.** Pulled the real `pg_get_functiondef()` output for all five
+`credits` RPC functions before touching anything, rather than assume
+the fix was safe — confirmed every table/function/type reference in
+every body is already schema-qualified (`public.credits`,
+`public.get_or_create_user_credits`, `public.credits%rowtype`), so
+nothing depends on an implicit search-path lookup at runtime. That made
+the strictest fix safe to apply directly: `alter function
+public.<fn>(...) set search_path = '';` on all five
+(`get_or_create_user_credits`, `add_purchased_credits`,
+`upgrade_user_tier`, `set_user_tier`, `deduct_user_credit`) — built-ins
+(`now()`, `floor()`, `to_char()`, etc.) still resolve fine under an empty
+search_path since `pg_catalog` is always implicitly searched regardless.
+
+**Verified two ways before calling it done, given this is the exact
+function class that broke production once already (Aug 4, 2026 — the
+Supabase session-leak incident):** (1) a fresh advisor scan — all five
+`function_search_path_mutable` findings are gone; (2) a real functional
+smoke test chaining all five functions together against a throwaway
+test key (`get_or_create_user_credits` → `deduct_user_credit` →
+`add_purchased_credits` → `upgrade_user_tier` → `set_user_tier`) inside
+a transaction that was rolled back afterward — every call succeeded and
+chained correctly (free → 1 pending analysis deducted → 5 purchased
+credits added → tier bumped to pro → tier bumped to starter), with zero
+permanent side effects on real data.
+
+**All database-level Security Advisor findings for this project are now
+clear.** The one remaining item is Auth-level, not a database object:
+leaked-password-protection is still off — that's a Supabase Auth
+setting (Dashboard → Authentication → Policies), not a SQL fix, and
+wasn't changed this pass.
