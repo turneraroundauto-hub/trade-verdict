@@ -304,6 +304,19 @@ function confColor(conf?: string): string {
   return conf === 'HIGH' ? 'var(--green)' : conf === 'MEDIUM' ? 'var(--amber)' : 'var(--red)';
 }
 
+// Proposal 6 -- shown only when the pre-earnings exit rule actually
+// fired (dial-proof at all 5 positions, no exceptions). The "one-time
+// opt-in toggle" from the Notion log is this button: it re-runs analyze
+// for THIS ticker only with holdThroughEarnings:true, never a persistent
+// setting -- tapping it again on a future, unrelated earnings event
+// requires tapping it again.
+function earningsBlockedRetryHTML(sym: string, result: AnalyzeResponse | null): string {
+  if (!result || !result.earningsBlocked) return '';
+  return `<div class="pregate-strip"><div class="pregate-dot" style="background:var(--red)"></div>`
+    + `<div class="pregate-note"><button type="button" class="btn btn-purple btn-compact" onclick="retryWithEarningsHoldThrough('${sym}')" style="margin-top:4px">Hold through earnings anyway</button></div>`
+    + '</div>';
+}
+
 function pregateStripHTML(result: AnalyzeResponse | null): string {
   if (!result || !result.gates) return '';
   const waitText = (result.wait_for && result.wait_for !== 'null') ? result.wait_for : '';
@@ -460,6 +473,7 @@ function roloCardHTML(sym: string, state: TickerState): string {
     + '</div>'
     + `</div>`
     + pregateStripHTML(result)
+    + earningsBlockedRetryHTML(sym, result)
     + `<div class="headline">${wrapHeadlineLinks(sym, headline)} <span class="age">${age}</span></div>`
     + `<div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>β <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span>${decayHTML}</div>`
     + badgesHTML(result)
@@ -587,8 +601,50 @@ function refreshRoloCards(): void {
   renderOverflowListIfOpen();
 }
 
+// ── PROPOSAL 6 — Aggression Dial (Aug 26, 2026) ─────────────────────
+// Client-only display metadata -- only sizingCeiling is actually
+// server-enforced (see Tra/server.js's DIAL_POSITIONS); monitoring
+// cadence/entry guidance/stop guidance/recheck interval are informational
+// text, disclosed as such in the card itself, since this app has no real
+// per-ticker scheduling, stop-order tracking, or gamma-exposure data to
+// back them with live enforcement yet.
+var DIAL_POSITIONS: Record<string, { label: string; cadence: string; entries: string; stops: string; recheck: string; sizing: string }> = {
+  ACTIVE_SWING:  { label: 'Active/Swing', cadence: 'Session-by-session', entries: 'Opening Drive, Pre-Catalyst Buildup, post-flush', stops: 'Tight (+4% / -1%)', recheck: 'Every session', sizing: 'Smaller, capped at HALF' },
+  ACTIVE_LEAN:   { label: 'Active-Lean', cadence: 'Daily', entries: 'Pre-Catalyst Buildup, post-flush (no Opening Drive)', stops: 'Standard (+4% / -3%)', recheck: 'Daily', sizing: 'Standard' },
+  NEUTRAL:       { label: 'Neutral (default)', cadence: 'Same as current analysis', entries: 'Same as current analysis', stops: 'Same as current analysis', recheck: 'Same as current analysis', sizing: 'Same as current analysis' },
+  POSITION_LEAN: { label: 'Position-Lean', cadence: '2–3x per week', entries: 'Post-flush only', stops: 'Wider (-5%)', recheck: '2–3x per week', sizing: 'Larger, fewer concurrent' },
+  POSITION_LONG: { label: 'Position/Long', cadence: 'Weekly', entries: 'Post-flush, full confirmation only', stops: 'Widest (-8%)', recheck: 'Weekly', sizing: 'Largest, fewest concurrent' },
+};
+var DIAL_ORDER = ['ACTIVE_SWING', 'ACTIVE_LEAN', 'NEUTRAL', 'POSITION_LEAN', 'POSITION_LONG'];
+function getDialPosition(): string {
+  var v = localStorage.getItem('tv_dial_position');
+  return (v && DIAL_POSITIONS[v]) ? v : 'NEUTRAL';
+}
+function setDialPosition(pos: string): void {
+  if (!DIAL_POSITIONS[pos]) return;
+  localStorage.setItem('tv_dial_position', pos);
+  renderDialCard();
+}
+function renderDialCard(): void {
+  var pos = getDialPosition();
+  var d = DIAL_POSITIONS[pos];
+  var buttons = DIAL_ORDER.map(function (p) {
+    var active = p === pos;
+    return '<button type="button" class="btn' + (active ? ' btn-purple' : '') + ' btn-compact" style="margin:2px" data-dial-pos="' + p + '"' + (active ? '' : ' onclick="setDialPosition(\'' + p + '\')"') + '>' + DIAL_POSITIONS[p].label.replace(' (default)', '') + '</button>';
+  }).join('');
+  var el = document.getElementById('dial-body');
+  if (el) {
+    el.innerHTML = '<div style="display:flex;flex-wrap:wrap">' + buttons + '</div>'
+      + '<div class="track-log-title" style="margin-top:10px">' + d.label + '</div>'
+      + '<div class="trigger-row"><span class="trigger-lbl">Monitoring cadence</span><span class="trigger-sub">' + d.cadence + '</span></div>'
+      + '<div class="trigger-row"><span class="trigger-lbl">Entry guidance</span><span class="trigger-sub">' + d.entries + '</span></div>'
+      + '<div class="trigger-row"><span class="trigger-lbl">Stop guidance</span><span class="trigger-sub">' + d.stops + '</span></div>'
+      + '<div class="trigger-row"><span class="trigger-lbl">Recheck interval</span><span class="trigger-sub">' + d.recheck + '</span></div>'
+      + '<div class="trigger-row"><span class="trigger-lbl">Position size</span><span class="trigger-sub">' + d.sizing + '</span></div>';
+  }
+}
 // ── ANALYZE — real, credit-consuming /analyze call ────────────────────
-async function analyzeOne(sym: string): Promise<void> {
+async function analyzeOne(sym: string, holdThroughEarnings?: boolean): Promise<void> {
   const state = tickerState.get(sym);
   if (!state || state.analyzing) return;
   state.analyzing = true; state.error = null;
@@ -629,6 +685,8 @@ async function analyzeOne(sym: string): Promise<void> {
         preGateData: td && td.preGate ? td.preGate : null,
         weeklyCarryoverData: td && td.weeklyCarryover ? td.weeklyCarryover : null,
         regimeData: td && td.regime ? td.regime : null,
+        dialPosition: getDialPosition(),
+        holdThroughEarnings: !!holdThroughEarnings,
       }),
     });
     if (!res.ok) {
@@ -650,6 +708,16 @@ async function analyzeOne(sym: string): Promise<void> {
     state.analyzing = false; state.error = e.message;
     renderRoloCard(sym); renderPill(sym);
   }
+}
+
+// Proposal 6 -- the "one-time opt-in toggle" itself. Re-runs analysis for
+// this one ticker with holdThroughEarnings:true; the flag is never
+// persisted, so a later, unrelated earnings event on the same or a
+// different ticker still gets blocked and needs its own explicit tap.
+function retryWithEarningsHoldThrough(sym: string): void {
+  const state = tickerState.get(sym);
+  if (state) state.result = null;
+  analyzeOne(sym, true);
 }
 
 function analyzeAll(): void {
@@ -1456,6 +1524,7 @@ const HELP_CONTENT: Record<string, string> = {
   track: 'Your logged verdict history — hit rate by gate trigger and by ticker. Log ✓ RIGHT / ✗ WRONG after the session closes to build a real accuracy record.',
   scorecard: 'Real, server-graded accuracy — every verdict is automatically checked against the actual price move ~3 trading days later, no manual logging needed. Suppressed until at least 20 verdicts have been graded.',
   agitator: 'A standalone discovery tool for proofing a new stock interest or a media rumor BEFORE it enters your watchlist — free, no credit cost. Type a ticker or company name (or paste a specific headline to check) and get a LOW/MEDIUM/HIGH read across 6 real factors, plus correlated comps. Historical Reaction isn’t tracked yet, so it’s shown but never scored.',
+  dial: 'Sets your monitoring cadence and holding-period posture — Active/Swing (watching the tape) through Position/Long (check in occasionally). Neutral (default) behaves exactly like every other tier. Active/Swing caps position sizing at HALF; nothing on this dial ever inflates a sizing your gates didn’t already earn. A real earnings print always blocks new entries first, at every position, unless you explicitly hold through it for that one check. Monitoring cadence, entry guidance, stop guidance, and recheck interval are informational — this app doesn’t place real stop orders or send reminders yet.',
 };
 
 // ── init ────────────────────────────────────────────────────────────
@@ -1472,6 +1541,7 @@ function initApp(): void {
   rolodex.sizeGateSpacer();
   renderRolodexFromWatchlist();
   refreshTrackRecordCard();
+  renderDialCard();
   setTimeout(fetchCreditStatus, 2000);
   setInterval(function () {
     fetchMarket();
@@ -1580,8 +1650,12 @@ declare global {
     authLogout: typeof authLogout;
     toggleProfileMenu: typeof toggleProfileMenu;
     jumpToAbout: typeof jumpToAbout;
+    setDialPosition: typeof setDialPosition;
+    retryWithEarningsHoldThrough: typeof retryWithEarningsHoldThrough;
   }
 }
 window.authLogout = authLogout;
 window.toggleProfileMenu = toggleProfileMenu;
 window.jumpToAbout = jumpToAbout;
+window.setDialPosition = setDialPosition;
+window.retryWithEarningsHoldThrough = retryWithEarningsHoldThrough;

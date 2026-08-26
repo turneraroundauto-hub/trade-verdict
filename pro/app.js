@@ -1955,6 +1955,10 @@ function badgesHTML(result) {
 function confColor(conf) {
   return conf === "HIGH" ? "var(--green)" : conf === "MEDIUM" ? "var(--amber)" : "var(--red)";
 }
+function earningsBlockedRetryHTML(sym, result) {
+  if (!result || !result.earningsBlocked) return "";
+  return `<div class="pregate-strip"><div class="pregate-dot" style="background:var(--red)"></div><div class="pregate-note"><button type="button" class="btn btn-purple btn-compact" onclick="retryWithEarningsHoldThrough('${sym}')" style="margin-top:4px">Hold through earnings anyway</button></div></div>`;
+}
 function pregateStripHTML(result) {
   if (!result || !result.gates) return "";
   const waitText = result.wait_for && result.wait_for !== "null" ? result.wait_for : "";
@@ -2075,7 +2079,7 @@ function roloCardHTML(sym, state) {
   const analyzing = state.analyzing;
   const result = state.result;
   const dir = priceDirClass(td);
-  return `<div class="ticker-row"><div class="ticker-left"><span class="ticker-sym ${dir}"><a href="${tickerHref(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}">${price}</span><div class="ticker-swipe-hint">\u2190 Swipe to delete</div></div><div class="ticker-action">` + (result ? verdictAreaHTML(sym, result) : `<button class="btn btn-blue btn-compact${analyzing ? " btn-running" : ""}" data-analyze="${sym}" ${analyzing ? "disabled" : ""}>${analyzing ? "RUNNING\u2026" : "ANALYZE"}</button>`) + `</div></div>` + pregateStripHTML(result) + `<div class="headline">${wrapHeadlineLinks(sym, headline)} <span class="age">${age}</span></div><div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>\u03B2 <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span>${decayHTML}</div>` + badgesHTML(result) + gateListHTML(sym, result) + analystViewHTML(sym, result, td) + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : "");
+  return `<div class="ticker-row"><div class="ticker-left"><span class="ticker-sym ${dir}"><a href="${tickerHref(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}">${price}</span><div class="ticker-swipe-hint">\u2190 Swipe to delete</div></div><div class="ticker-action">` + (result ? verdictAreaHTML(sym, result) : `<button class="btn btn-blue btn-compact${analyzing ? " btn-running" : ""}" data-analyze="${sym}" ${analyzing ? "disabled" : ""}>${analyzing ? "RUNNING\u2026" : "ANALYZE"}</button>`) + `</div></div>` + pregateStripHTML(result) + earningsBlockedRetryHTML(sym, result) + `<div class="headline">${wrapHeadlineLinks(sym, headline)} <span class="age">${age}</span></div><div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>\u03B2 <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span>${decayHTML}</div>` + badgesHTML(result) + gateListHTML(sym, result) + analystViewHTML(sym, result, td) + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : "");
 }
 function wireCardButtons(card, sym) {
   const btn = card.querySelector("[data-analyze]");
@@ -2197,7 +2201,36 @@ function refreshRoloCards() {
   });
   renderOverflowListIfOpen();
 }
-async function analyzeOne(sym) {
+var DIAL_POSITIONS = {
+  ACTIVE_SWING: { label: "Active/Swing", cadence: "Session-by-session", entries: "Opening Drive, Pre-Catalyst Buildup, post-flush", stops: "Tight (+4% / -1%)", recheck: "Every session", sizing: "Smaller, capped at HALF" },
+  ACTIVE_LEAN: { label: "Active-Lean", cadence: "Daily", entries: "Pre-Catalyst Buildup, post-flush (no Opening Drive)", stops: "Standard (+4% / -3%)", recheck: "Daily", sizing: "Standard" },
+  NEUTRAL: { label: "Neutral (default)", cadence: "Same as current analysis", entries: "Same as current analysis", stops: "Same as current analysis", recheck: "Same as current analysis", sizing: "Same as current analysis" },
+  POSITION_LEAN: { label: "Position-Lean", cadence: "2\u20133x per week", entries: "Post-flush only", stops: "Wider (-5%)", recheck: "2\u20133x per week", sizing: "Larger, fewer concurrent" },
+  POSITION_LONG: { label: "Position/Long", cadence: "Weekly", entries: "Post-flush, full confirmation only", stops: "Widest (-8%)", recheck: "Weekly", sizing: "Largest, fewest concurrent" }
+};
+var DIAL_ORDER = ["ACTIVE_SWING", "ACTIVE_LEAN", "NEUTRAL", "POSITION_LEAN", "POSITION_LONG"];
+function getDialPosition() {
+  var v = localStorage.getItem("tv_dial_position");
+  return v && DIAL_POSITIONS[v] ? v : "NEUTRAL";
+}
+function setDialPosition(pos) {
+  if (!DIAL_POSITIONS[pos]) return;
+  localStorage.setItem("tv_dial_position", pos);
+  renderDialCard();
+}
+function renderDialCard() {
+  var pos = getDialPosition();
+  var d = DIAL_POSITIONS[pos];
+  var buttons = DIAL_ORDER.map(function(p) {
+    var active = p === pos;
+    return '<button type="button" class="btn' + (active ? " btn-purple" : "") + ' btn-compact" style="margin:2px" data-dial-pos="' + p + '"' + (active ? "" : ` onclick="setDialPosition('` + p + `')"`) + ">" + DIAL_POSITIONS[p].label.replace(" (default)", "") + "</button>";
+  }).join("");
+  var el = document.getElementById("dial-body");
+  if (el) {
+    el.innerHTML = '<div style="display:flex;flex-wrap:wrap">' + buttons + '</div><div class="track-log-title" style="margin-top:10px">' + d.label + '</div><div class="trigger-row"><span class="trigger-lbl">Monitoring cadence</span><span class="trigger-sub">' + d.cadence + '</span></div><div class="trigger-row"><span class="trigger-lbl">Entry guidance</span><span class="trigger-sub">' + d.entries + '</span></div><div class="trigger-row"><span class="trigger-lbl">Stop guidance</span><span class="trigger-sub">' + d.stops + '</span></div><div class="trigger-row"><span class="trigger-lbl">Recheck interval</span><span class="trigger-sub">' + d.recheck + '</span></div><div class="trigger-row"><span class="trigger-lbl">Position size</span><span class="trigger-sub">' + d.sizing + "</span></div>";
+  }
+}
+async function analyzeOne(sym, holdThroughEarnings) {
   const state = tickerState.get(sym);
   if (!state || state.analyzing) return;
   state.analyzing = true;
@@ -2238,7 +2271,9 @@ async function analyzeOne(sym) {
         gate1Data: td && td.gate1 ? td.gate1 : null,
         preGateData: td && td.preGate ? td.preGate : null,
         weeklyCarryoverData: td && td.weeklyCarryover ? td.weeklyCarryover : null,
-        regimeData: td && td.regime ? td.regime : null
+        regimeData: td && td.regime ? td.regime : null,
+        dialPosition: getDialPosition(),
+        holdThroughEarnings: !!holdThroughEarnings
       })
     });
     if (!res.ok) {
@@ -2269,6 +2304,11 @@ async function analyzeOne(sym) {
     renderRoloCard(sym);
     renderPill(sym);
   }
+}
+function retryWithEarningsHoldThrough(sym) {
+  const state = tickerState.get(sym);
+  if (state) state.result = null;
+  analyzeOne(sym, true);
 }
 function analyzeAll() {
   const list = cardWindow();
@@ -3046,7 +3086,8 @@ var HELP_CONTENT = {
   heatmap: "A color-coded snapshot of fixed sectors plus every ticker in your watchlist, sorted by % change.",
   track: "Your logged verdict history \u2014 hit rate by gate trigger and by ticker. Log \u2713 RIGHT / \u2717 WRONG after the session closes to build a real accuracy record.",
   scorecard: "Real, server-graded accuracy \u2014 every verdict is automatically checked against the actual price move ~3 trading days later, no manual logging needed. Suppressed until at least 20 verdicts have been graded.",
-  agitator: "A standalone discovery tool for proofing a new stock interest or a media rumor BEFORE it enters your watchlist \u2014 free, no credit cost. Type a ticker or company name (or paste a specific headline to check) and get a LOW/MEDIUM/HIGH read across 6 real factors, plus correlated comps. Historical Reaction isn\u2019t tracked yet, so it\u2019s shown but never scored."
+  agitator: "A standalone discovery tool for proofing a new stock interest or a media rumor BEFORE it enters your watchlist \u2014 free, no credit cost. Type a ticker or company name (or paste a specific headline to check) and get a LOW/MEDIUM/HIGH read across 6 real factors, plus correlated comps. Historical Reaction isn\u2019t tracked yet, so it\u2019s shown but never scored.",
+  dial: "Sets your monitoring cadence and holding-period posture \u2014 Active/Swing (watching the tape) through Position/Long (check in occasionally). Neutral (default) behaves exactly like every other tier. Active/Swing caps position sizing at HALF; nothing on this dial ever inflates a sizing your gates didn\u2019t already earn. A real earnings print always blocks new entries first, at every position, unless you explicitly hold through it for that one check. Monitoring cadence, entry guidance, stop guidance, and recheck interval are informational \u2014 this app doesn\u2019t place real stop orders or send reminders yet."
 };
 function initApp() {
   cleanLS();
@@ -3062,6 +3103,7 @@ function initApp() {
   sizeGateSpacer();
   renderRolodexFromWatchlist();
   refreshTrackRecordCard();
+  renderDialCard();
   setTimeout(fetchCreditStatus, 2e3);
   setInterval(function() {
     fetchMarket();
@@ -3184,6 +3226,8 @@ document.getElementById("heatmap-refresh-btn").addEventListener("click", (e) => 
 window.authLogout = authLogout;
 window.toggleProfileMenu = toggleProfileMenu;
 window.jumpToAbout = jumpToAbout;
+window.setDialPosition = setDialPosition;
+window.retryWithEarningsHoldThrough = retryWithEarningsHoldThrough;
 export {
   authLogout,
   exportWatchlistCSV,
