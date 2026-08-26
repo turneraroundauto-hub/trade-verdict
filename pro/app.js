@@ -2221,13 +2221,20 @@ function setDialPosition(pos) {
 function renderDialCard() {
   var pos = getDialPosition();
   var d = DIAL_POSITIONS[pos];
-  var buttons = DIAL_ORDER.map(function(p) {
+  var n = DIAL_ORDER.length;
+  var ticks = DIAL_ORDER.map(function(p, i) {
+    var pct = n > 1 ? i / (n - 1) * 100 : 50;
     var active = p === pos;
-    return '<button type="button" class="btn' + (active ? " btn-purple" : "") + ' btn-compact" style="margin:2px" data-dial-pos="' + p + '"' + (active ? "" : ` onclick="setDialPosition('` + p + `')"`) + ">" + DIAL_POSITIONS[p].label.replace(" (default)", "") + "</button>";
+    return '<button type="button" class="dial-tick' + (active ? " active" : "") + '" style="left:' + pct + '%" data-dial-pos="' + p + `" onclick="setDialPosition('` + p + `')" aria-label="` + DIAL_POSITIONS[p].label.replace(" (default)", "") + '"></button>';
+  }).join("");
+  var activePct = n > 1 ? DIAL_ORDER.indexOf(pos) / (n - 1) * 100 : 50;
+  var labels = DIAL_ORDER.map(function(p) {
+    var active = p === pos;
+    return '<span class="dial-label-item' + (active ? " active" : "") + `" onclick="setDialPosition('` + p + `')">` + DIAL_POSITIONS[p].label.replace(" (default)", "") + "</span>";
   }).join("");
   var el = document.getElementById("dial-body");
   if (el) {
-    el.innerHTML = '<div style="display:flex;flex-wrap:wrap">' + buttons + '</div><div class="track-log-title" style="margin-top:10px">' + d.label + '</div><div class="trigger-row"><span class="trigger-lbl">Monitoring cadence</span><span class="trigger-sub">' + d.cadence + '</span></div><div class="trigger-row"><span class="trigger-lbl">Entry guidance</span><span class="trigger-sub">' + d.entries + '</span></div><div class="trigger-row"><span class="trigger-lbl">Stop guidance</span><span class="trigger-sub">' + d.stops + '</span></div><div class="trigger-row"><span class="trigger-lbl">Recheck interval</span><span class="trigger-sub">' + d.recheck + '</span></div><div class="trigger-row"><span class="trigger-lbl">Position size</span><span class="trigger-sub">' + d.sizing + "</span></div>";
+    el.innerHTML = '<div class="dial-track"><div class="dial-thumb" style="left:' + activePct + '%"></div>' + ticks + '</div><div class="dial-labels">' + labels + '</div><div class="track-log-title" style="margin-top:10px">' + d.label + '</div><div class="trigger-row"><span class="trigger-lbl">Monitoring cadence</span><span class="trigger-sub">' + d.cadence + '</span></div><div class="trigger-row"><span class="trigger-lbl">Entry guidance</span><span class="trigger-sub">' + d.entries + '</span></div><div class="trigger-row"><span class="trigger-lbl">Stop guidance</span><span class="trigger-sub">' + d.stops + '</span></div><div class="trigger-row"><span class="trigger-lbl">Recheck interval</span><span class="trigger-sub">' + d.recheck + '</span></div><div class="trigger-row"><span class="trigger-lbl">Position size</span><span class="trigger-sub">' + d.sizing + "</span></div>";
   }
 }
 async function analyzeOne(sym, holdThroughEarnings) {
@@ -2671,24 +2678,26 @@ function agitatorFactorRow(label, val) {
   var color = val >= 66 ? "var(--red)" : val >= 34 ? "var(--amber)" : "var(--green)";
   return '<div class="trigger-row"><span class="trigger-lbl">' + label + '</span><span class="trigger-val" style="color:' + color + '">' + val + "</span></div>";
 }
+function compChipHTML(c) {
+  var color = c.direction === "green" ? "var(--green)" : c.direction === "red" ? "var(--red)" : "var(--ink-dim)";
+  return '<a class="comp-chip" href="' + tickerHref(c.symbol) + '" target="_blank"><span class="cc-sym">' + c.symbol + "</span>" + (c.price ? '<span class="cc-price">$' + c.price + "</span>" : "") + (c.change ? '<span class="cc-chg" style="color:' + color + '">' + c.change + "</span>" : "") + "</a>";
+}
 async function runAgitatorCheck() {
   var qEl = document.getElementById("agitator-query");
-  var hEl = document.getElementById("agitator-headline");
   var btn = document.getElementById("agitatorCheckBtn");
   var out = document.getElementById("agitator-body");
   if (!out) return;
   var q = qEl.value.trim();
   if (!q) {
-    out.innerHTML = '<div class="track-empty">Type a ticker or company name first.</div>';
+    out.innerHTML = '<div class="track-empty">Type a ticker, company name, or paste a headline first.</div>';
     return;
   }
-  var headline = hEl.value.trim();
   btn.disabled = true;
   btn.classList.add("btn-running");
   btn.textContent = "CHECKING\u2026";
   out.innerHTML = '<div class="track-empty">Loading...</div>';
   try {
-    var url = API_URL2 + "/agitator?q=" + encodeURIComponent(q) + (headline ? "&headline=" + encodeURIComponent(headline) : "");
+    var url = API_URL2 + "/agitator?q=" + encodeURIComponent(q);
     var res = await fetch(addSecret2(url), { headers: authH2() });
     if (res.status === 403) {
       out.innerHTML = '<div class="track-empty">Agitator Gauge not available on this tier yet.</div>';
@@ -2700,7 +2709,7 @@ async function runAgitatorCheck() {
     }
     var data = await res.json();
     if (!data.resolved) {
-      out.innerHTML = '<div class="track-empty">Couldn\u2019t find a symbol for "' + q + '".</div>';
+      out.innerHTML = '<div class="track-empty">Couldn\u2019t find a company for "' + q + '".</div>';
       return;
     }
     var comp = data.composite;
@@ -2708,14 +2717,9 @@ async function runAgitatorCheck() {
     var gaugeHTML = '<div class="trigger-row"><span class="trigger-lbl"><a href="' + tickerHref(data.symbol) + '" target="_blank">' + data.symbol + '</a></span><span class="trigger-val" style="color:' + gaugeColor + '">' + (comp ? comp.level : "N/A") + '</span><span class="trigger-sub">' + (comp ? comp.score + "/100 \xB7 " + comp.factorCount + "/6 factors" : "no data") + "</span></div>";
     var f = data.factors;
     var factorsHTML = f ? '<div class="track-log-title" style="margin-top:10px">SUB-FACTORS</div>' + agitatorFactorRow("Surprise", f.surprise) + agitatorFactorRow("Uncertainty", f.uncertainty) + agitatorFactorRow("Positioning (fresh vs priced-in)", f.positioning) + agitatorFactorRow("Cross-Asset Exposure", f.crossAsset) + agitatorFactorRow("Liquidity Sensitivity", f.liquidity) + agitatorFactorRow("Options/IV Environment", f.ivEnvironment) + '<div class="trigger-row"><span class="trigger-lbl">Historical Reaction</span><span class="trigger-sub">not tracked yet</span></div>' : "";
-    var headlineHTML = data.headlineUsed ? '<div class="headline" style="margin-top:8px">' + data.headlineUsed + "</div>" : "";
-    var compsHTML = data.comps && data.comps.length ? '<div class="track-log-title" style="margin-top:10px">CORRELATED (comps)</div>' + data.comps.map(function(c) {
-      return '<div class="trigger-row"><span class="trigger-lbl"><a href="' + tickerHref(c.symbol) + '" target="_blank">' + c.symbol + '</a></span><span class="trigger-val">' + c.correlation + "</span></div>";
-    }).join("") : "";
-    var newsHTML = data.news && data.news.length ? '<div class="track-log-title" style="margin-top:10px">CORROBORATING NEWS</div>' + data.news.map(function(n) {
-      return n.source === "primary" ? '<div class="gate-note">' + n.headline + ' <span class="age">' + n.ageLabel + "</span></div>" : '<div class="gate-note">' + n.excerpt + "\u2026</div>";
-    }).join("") : "";
-    out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML + newsHTML;
+    var headlineHTML = data.headlineUsed ? '<div class="headline" style="margin-top:8px">' + (data.headlineUsedUrl ? '<a href="' + data.headlineUsedUrl + '" target="_blank">' + data.headlineUsed + "</a>" : data.headlineUsed) + "</div>" : "";
+    var compsHTML = data.comps && data.comps.length ? '<div class="track-log-title" style="margin-top:10px">RELATED</div><div class="comp-chips">' + data.comps.map(compChipHTML).join("") + "</div>" : "";
+    out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML;
     snapCardUnderDock(document.getElementById("card-agitator"));
   } catch (e) {
     out.innerHTML = '<div class="track-empty">Agitator Gauge unavailable right now.</div>';
@@ -3086,7 +3090,7 @@ var HELP_CONTENT = {
   heatmap: "A color-coded snapshot of fixed sectors plus every ticker in your watchlist, sorted by % change.",
   track: "Your logged verdict history \u2014 hit rate by gate trigger and by ticker. Log \u2713 RIGHT / \u2717 WRONG after the session closes to build a real accuracy record.",
   scorecard: "Real, server-graded accuracy \u2014 every verdict is automatically checked against the actual price move ~3 trading days later, no manual logging needed. Suppressed until at least 20 verdicts have been graded.",
-  agitator: "A standalone discovery tool for proofing a new stock interest or a media rumor BEFORE it enters your watchlist \u2014 free, no credit cost. Type a ticker or company name (or paste a specific headline to check) and get a LOW/MEDIUM/HIGH read across 6 real factors, plus correlated comps. Historical Reaction isn\u2019t tracked yet, so it\u2019s shown but never scored.",
+  agitator: "A standalone discovery tool for proofing a new stock interest or a media rumor BEFORE it enters your watchlist \u2014 free, no credit cost. Type a ticker, a company name, or paste a full headline/rumor \u2014 one box handles all three \u2014 and get a LOW/MEDIUM/HIGH read across 6 real factors, plus a few real related companies to also check. Historical Reaction isn\u2019t tracked yet, so it\u2019s shown but never scored.",
   dial: "Sets your monitoring cadence and holding-period posture \u2014 Active/Swing (watching the tape) through Position/Long (check in occasionally). Neutral (default) behaves exactly like every other tier. Active/Swing caps position sizing at HALF; nothing on this dial ever inflates a sizing your gates didn\u2019t already earn. A real earnings print always blocks new entries first, at every position, unless you explicitly hold through it for that one check. Monitoring cadence, entry guidance, stop guidance, and recheck interval are informational \u2014 this app doesn\u2019t place real stop orders or send reminders yet."
 };
 function initApp() {

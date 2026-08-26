@@ -494,16 +494,29 @@ function setDialPosition(pos: string): void {
   localStorage.setItem('tv_dial_position', pos);
   renderDialCard();
 }
+// Real slider (Aug 26, 2026 rework, same day) -- a track with a moving
+// thumb, not a row of freestanding buttons, so "Dial" reads as an actual
+// tuning control. Every tick is its own click target, plus its own label
+// underneath (a bigger, easier tap target on mobile) -- both call
+// setDialPosition(), so tapping either the tick or its label works.
 function renderDialCard(): void {
   var pos = getDialPosition();
   var d = DIAL_POSITIONS[pos];
-  var buttons = DIAL_ORDER.map(function (p) {
+  var n = DIAL_ORDER.length;
+  var ticks = DIAL_ORDER.map(function (p, i) {
+    var pct = n > 1 ? (i / (n - 1) * 100) : 50;
     var active = p === pos;
-    return '<button type="button" class="btn' + (active ? ' btn-purple' : '') + ' btn-compact" style="margin:2px" data-dial-pos="' + p + '"' + (active ? '' : ' onclick="setDialPosition(\'' + p + '\')"') + '>' + DIAL_POSITIONS[p].label.replace(' (default)', '') + '</button>';
+    return '<button type="button" class="dial-tick' + (active ? ' active' : '') + '" style="left:' + pct + '%" data-dial-pos="' + p + '" onclick="setDialPosition(\'' + p + '\')" aria-label="' + DIAL_POSITIONS[p].label.replace(' (default)', '') + '"></button>';
+  }).join('');
+  var activePct = n > 1 ? (DIAL_ORDER.indexOf(pos) / (n - 1) * 100) : 50;
+  var labels = DIAL_ORDER.map(function (p) {
+    var active = p === pos;
+    return '<span class="dial-label-item' + (active ? ' active' : '') + '" onclick="setDialPosition(\'' + p + '\')">' + DIAL_POSITIONS[p].label.replace(' (default)', '') + '</span>';
   }).join('');
   var el = document.getElementById('dial-body');
   if (el) {
-    el.innerHTML = '<div style="display:flex;flex-wrap:wrap">' + buttons + '</div>'
+    el.innerHTML = '<div class="dial-track"><div class="dial-thumb" style="left:' + activePct + '%"></div>' + ticks + '</div>'
+      + '<div class="dial-labels">' + labels + '</div>'
       + '<div class="track-log-title" style="margin-top:10px">' + d.label + '</div>'
       + '<div class="trigger-row"><span class="trigger-lbl">Monitoring cadence</span><span class="trigger-sub">' + d.cadence + '</span></div>'
       + '<div class="trigger-row"><span class="trigger-lbl">Entry guidance</span><span class="trigger-sub">' + d.entries + '</span></div>'
@@ -993,15 +1006,14 @@ async function renderScorecardCard(): Promise<void> {
   }
 }
 
-// ── PROPOSAL 5 — Agitator Gauge (Aug 26, 2026) ──────────────────────
+// ── PROPOSAL 5 — Agitator Gauge (Aug 26, 2026; reworked same day) ────
 // Standalone discovery/validation tool -- deliberately NOT wired into
 // tickerHref()/the Rolodex card stack. Free (no credit cost, matches
 // /ticker/:symbol), gated server-side on credits.TIERS.starter.agitator.
-// A single "Ticker or company name" input auto-resolves through the same
-// searchSymbolByName() lookup Import already uses; the optional headline
-// box lets a specific rumor/story override whatever the server would
-// otherwise pull as the ticker's own latest headline. Ported verbatim
-// from Pro's own agitatorFactorRow()/runAgitatorCheck() -- Starter
+// One input box now covers both a bare ticker/company name AND a pasted
+// headline/rumor -- the server (searchSymbolByName + extractCompanyCandidates)
+// figures out which company a longer pasted text is about, so the client
+// never needs to separately declare "this is a headline." Starter
 // automatically gets the "composite score + comps only, no factor
 // breakdown" view since data.factors is only populated server-side for
 // isFull tiers (tierConfig.tracker), same as Pro's own Aug 26 Phase 0 fix.
@@ -1010,24 +1022,34 @@ function agitatorFactorRow(label: string, val: number | null): string {
   var color = val >= 66 ? 'var(--red)' : val >= 34 ? 'var(--amber)' : 'var(--green)';
   return '<div class="trigger-row"><span class="trigger-lbl">' + label + '</span><span class="trigger-val" style="color:' + color + '">' + val + '</span></div>';
 }
+// A comp is a real Finnhub industry peer with a live price/% change now
+// (not a correlation float against an unrelated macro proxy) -- rendered
+// as a small chip, not a list row, so "a few related names" reads as a
+// short, tangible recommendation rather than another data table.
+function compChipHTML(c: { symbol: string; price: string | null; change: string | null; direction: string }): string {
+  var color = c.direction === 'green' ? 'var(--green)' : c.direction === 'red' ? 'var(--red)' : 'var(--ink-dim)';
+  return '<a class="comp-chip" href="' + tickerHref(c.symbol) + '" target="_blank">'
+    + '<span class="cc-sym">' + c.symbol + '</span>'
+    + (c.price ? '<span class="cc-price">$' + c.price + '</span>' : '')
+    + (c.change ? '<span class="cc-chg" style="color:' + color + '">' + c.change + '</span>' : '')
+    + '</a>';
+}
 async function runAgitatorCheck(): Promise<void> {
   var qEl = document.getElementById('agitator-query') as HTMLInputElement;
-  var hEl = document.getElementById('agitator-headline') as HTMLTextAreaElement;
   var btn = document.getElementById('agitatorCheckBtn') as HTMLButtonElement;
   var out = document.getElementById('agitator-body'); if (!out) return;
   var q = qEl.value.trim();
-  if (!q) { out.innerHTML = '<div class="track-empty">Type a ticker or company name first.</div>'; return; }
-  var headline = hEl.value.trim();
+  if (!q) { out.innerHTML = '<div class="track-empty">Type a ticker, company name, or paste a headline first.</div>'; return; }
 
   btn.disabled = true; btn.classList.add('btn-running'); btn.textContent = 'CHECKING…';
   out.innerHTML = '<div class="track-empty">Loading...</div>';
   try {
-    var url = API_URL + '/agitator?q=' + encodeURIComponent(q) + (headline ? '&headline=' + encodeURIComponent(headline) : '');
+    var url = API_URL + '/agitator?q=' + encodeURIComponent(q);
     var res = await fetch(addSecret(url), { headers: authH() });
     if (res.status === 403) { out.innerHTML = '<div class="track-empty">Agitator Gauge not available on this tier yet.</div>'; return; }
     if (res.status === 429) { out.innerHTML = '<div class="track-empty">Too many checks this hour — try again later.</div>'; return; }
     var data = await res.json();
-    if (!data.resolved) { out.innerHTML = '<div class="track-empty">Couldn’t find a symbol for "' + q + '".</div>'; return; }
+    if (!data.resolved) { out.innerHTML = '<div class="track-empty">Couldn’t find a company for "' + q + '".</div>'; return; }
 
     var comp = data.composite;
     var gaugeColor = !comp ? 'var(--ink-dim)' : comp.level === 'HIGH' ? 'var(--red)' : comp.level === 'MEDIUM' ? 'var(--amber)' : 'var(--green)';
@@ -1050,26 +1072,20 @@ async function runAgitatorCheck(): Promise<void> {
         + '<div class="trigger-row"><span class="trigger-lbl">Historical Reaction</span><span class="trigger-sub">not tracked yet</span></div>'
       : '';
 
+    // Hyperlinked whenever it's a real, fetched article (headlineUsedUrl
+    // present); a user-pasted headline/rumor has no source URL to link.
     var headlineHTML = data.headlineUsed
-      ? '<div class="headline" style="margin-top:8px">' + data.headlineUsed + '</div>' : '';
+      ? '<div class="headline" style="margin-top:8px">' + (data.headlineUsedUrl
+          ? '<a href="' + data.headlineUsedUrl + '" target="_blank">' + data.headlineUsed + '</a>'
+          : data.headlineUsed) + '</div>'
+      : '';
 
     var compsHTML = (data.comps && data.comps.length)
-      ? '<div class="track-log-title" style="margin-top:10px">CORRELATED (comps)</div>'
-        + data.comps.map(function (c: any) {
-            return '<div class="trigger-row"><span class="trigger-lbl"><a href="' + tickerHref(c.symbol) + '" target="_blank">' + c.symbol + '</a></span><span class="trigger-val">' + c.correlation + '</span></div>';
-          }).join('')
+      ? '<div class="track-log-title" style="margin-top:10px">RELATED</div>'
+        + '<div class="comp-chips">' + data.comps.map(compChipHTML).join('') + '</div>'
       : '';
 
-    var newsHTML = (data.news && data.news.length)
-      ? '<div class="track-log-title" style="margin-top:10px">CORROBORATING NEWS</div>'
-        + data.news.map(function (n: any) {
-            return n.source === 'primary'
-              ? '<div class="gate-note">' + n.headline + ' <span class="age">' + n.ageLabel + '</span></div>'
-              : '<div class="gate-note">' + n.excerpt + '…</div>';
-          }).join('')
-      : '';
-
-    out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML + newsHTML;
+    out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML;
     rolodex.snapCardUnderDock(document.getElementById('card-agitator') as HTMLElement);
   } catch (e) {
     out.innerHTML = '<div class="track-empty">Agitator Gauge unavailable right now.</div>';
@@ -1088,7 +1104,7 @@ const HELP_CONTENT: Record<string, string> = {
   context: 'Real news or catalysts you already know — auto-included in every analysis and checked against headlines. 2 of 3 matching signals marks it CONTEXT-CORROBORATED for Gate 2.',
   io: 'Paste or type <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names, one per line or comma-separated, to add them to your watchlist. Type a ticker in caps (AAPL) or a name any other way (Tesla) — either resolves to the right symbol.',
   scorecard: 'Real, server-graded accuracy — every verdict is automatically checked against the actual price move ~3 trading days later, no manual logging needed. Suppressed until at least 20 verdicts have been graded.',
-  agitator: 'A standalone discovery tool for proofing a new stock interest or a media rumor BEFORE it enters your watchlist — free, no credit cost. Type a ticker or company name (or paste a specific headline to check) and get a LOW/MEDIUM/HIGH read across 6 real factors, plus correlated comps. Historical Reaction isn’t tracked yet, so it’s shown but never scored.',
+  agitator: 'A standalone discovery tool for proofing a new stock interest or a media rumor BEFORE it enters your watchlist — free, no credit cost. Type a ticker, a company name, or paste a full headline/rumor — one box handles all three — and get a LOW/MEDIUM/HIGH read across 6 real factors, plus a few real related companies to also check. Historical Reaction isn’t tracked yet, so it’s shown but never scored.',
   dial: 'Sets your monitoring cadence and holding-period posture — Starter offers Active-Lean, Neutral (default), and Position-Lean; Pro adds the more aggressive Active/Swing and more patient Position/Long positions. Neutral behaves exactly like every other tier. Active-Lean never inflates sizing beyond what your gates already earned. A real earnings print always blocks new entries first, at every position, unless you explicitly hold through it for that one check. Monitoring cadence, entry guidance, stop guidance, and recheck interval are informational — this app doesn’t place real stop orders or send reminders yet.',
 };
 
