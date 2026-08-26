@@ -2061,16 +2061,49 @@ function computeAgitatorComposite(factors) {
   };
 }
 
-async function computeAgitatorComps(symbol, tickerCloses, limit) {
-  if (!tickerCloses) return [];
-  const tr = gx.dailyReturns(tickerCloses);
-  const entries = await Promise.all(GATE5_CANDIDATE_SYMBOLS.filter(s => s !== symbol).map(async sym => {
-    const closes = await fetchDailyCloses(sym, 130);
-    if (!closes) return null;
-    const r = gx.pearson(tr, gx.dailyReturns(closes));
-    return r == null ? null : { symbol: sym, correlation: +r.toFixed(3) };
-  }));
-  return entries.filter(Boolean).sort((a, b) => Math.abs(b.correlation) - Math.abs(a.correlation)).slice(0, limit);
+// "Comps" -- reworked Aug 26, 2026 (same day) after direct feedback that
+// the original approach (rank the Gate 5 candidate-proxy basket --
+// SPY/QQQ/TSM/GLD/etc. -- by correlation) wasn't "related companies" at
+// all, just the same macro/sector ETF list this app already uses
+// everywhere else for Gate 5, dumped as a list of up to 8. Real fix:
+// Finnhub's own /stock/peers endpoint (free-tier, returns genuine
+// same-industry competitor tickers for a symbol) -- an actual "related
+// companies" answer instead of a repurposed proxy basket. Cached
+// alongside the existing symbol-search cache pattern since a company's
+// peer set doesn't change day to day.
+const peersCache = new Map(); // symbol -> { peers, time }
+const PEERS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+async function fetchTickerPeers(symbol) {
+  const cached = peersCache.get(symbol);
+  if (cached && Date.now() - cached.time < PEERS_MAX_AGE_MS) return cached.peers;
+  let peers = [];
+  try {
+    const data = await finnhubGet(`/stock/peers?symbol=${symbol}`);
+    peers = Array.isArray(data) ? data.filter(s => typeof s === "string" && /^[A-Z]{1,5}$/.test(s) && s !== symbol) : [];
+  } catch (e) {
+    console.error(`fetchTickerPeers ${symbol}:`, e.message);
+  }
+  peersCache.set(symbol, { peers, time: Date.now() });
+  return peers;
+}
+
+// A short, genuinely useful list -- "a few related companies as a
+// positive recommendation," not an exhaustive correlation dump. Each
+// comp carries a real live price/% change (fetchQuote, already used for
+// the primary symbol) rather than a correlation float -- a tangible,
+// at-a-glance read instead of an abstract number next to an unrelated
+// macro ticker. Flat limit for every tier now that this is a real,
+// curated peer list rather than a repurposed proxy basket -- the old
+// isFull-scaled 3-vs-8 split existed to ration a bigger data dump, which
+// no longer applies once the list itself is short by design.
+const AGITATOR_COMPS_LIMIT = 3;
+async function computeAgitatorComps(symbol) {
+  const peers = (await fetchTickerPeers(symbol)).slice(0, AGITATOR_COMPS_LIMIT);
+  const quotes = await Promise.all(peers.map(sym => fetchQuote(sym)));
+  return peers.map((sym, i) => {
+    const q = quotes[i];
+    return q ? { symbol: sym, price: q.price, change: q.change, direction: q.direction } : { symbol: sym, price: null, change: null, direction: "flat" };
+  });
 }
 
 const agitatorRateLimit = new Map(); // userKey -> { count, windowStart }
@@ -2490,6 +2523,40 @@ app.get("/lookup", async (req, res) => {
 
 // ─── PROPOSAL 5 — GET /agitator (Aug 26, 2026) ────────────────────────
 // Mirror-only per the two-repo rule -- Tra is the real deploy target.
+// Reworked Aug 26, 2026 (same day) -- mirror-only, see Tra's server.js for
+// the full write-up. One box now recognizes both a short name/ticker and a
+// pasted headline/rumor, extracting a likely company name from the latter.
+const CANDIDATE_STOPWORDS = new Set(["The","This","That","These","Those","A","An","Is","Are","Was","Were","Why","How","What","When","Where","Who","Will","Could","Should","Would","New","Real","Big","Not","And","But","For","With","After","Before","Amid","Says","Said","It","Its","There","Here"]);
+function extractCompanyCandidates(text) {
+  const words = String(text).split(/\s+/);
+  const runs = [];
+  let current = [];
+  for (const w of words) {
+    let clean = w.replace(/['’]s$/i, "");
+    clean = clean.replace(/^[^A-Za-z]+|[^A-Za-z]+$/g, "");
+    if (clean && /^[A-Z][a-zA-Z]*$/.test(clean) && !CANDIDATE_STOPWORDS.has(clean)) {
+      current.push(clean);
+    } else {
+      if (current.length) runs.push(current.join(" "));
+      current = [];
+    }
+  }
+  if (current.length) runs.push(current.join(" "));
+  const candidates = [];
+  for (const run of runs) {
+    candidates.push(run);
+    const parts = run.split(" ");
+    if (parts.length > 1) candidates.push(...parts);
+  }
+  const seen = new Set();
+  return candidates.sort((a, b) => b.split(" ").length - a.split(" ").length).filter(r => {
+    const k = r.toLowerCase();
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
 app.get("/agitator", async (req, res) => {
   if (!req.tierConfig?.agitator) {
     return res.status(403).json({ error: "Agitator Gauge not available on this tier yet" });
@@ -2497,19 +2564,31 @@ app.get("/agitator", async (req, res) => {
   if (!checkAgitatorRateLimit(req.userKey)) {
     return res.status(429).json({ error: "Too many Agitator checks this hour — try again later." });
   }
-  const query = String(req.query.q || "").trim();
-  if (!query) return res.status(400).json({ error: "q is required" });
-  const headlineOverride = req.query.headline ? String(req.query.headline).trim() : null;
+  const raw = String(req.query.q || "").trim();
+  if (!raw) return res.status(400).json({ error: "q is required" });
+  let headlineOverride = req.query.headline ? String(req.query.headline).trim() : null;
+  const looksLikeName = raw.split(/\s+/).length <= 4 && !/[.!?]$/.test(raw);
 
   try {
-    let symbol = /^[A-Z]{1,6}$/.test(query) ? query : await searchSymbolByName(query);
-    if (!symbol) return res.json({ resolved: false, query });
+    let symbol = null;
+    if (looksLikeName) {
+      symbol = /^[A-Z]{1,6}$/.test(raw) ? raw : await searchSymbolByName(raw);
+    } else {
+      symbol = await searchSymbolByName(raw);
+      if (!symbol) {
+        for (const candidate of extractCompanyCandidates(raw)) {
+          symbol = await searchSymbolByName(candidate);
+          if (symbol) break;
+        }
+      }
+      if (symbol && !headlineOverride) headlineOverride = raw;
+    }
+    if (!symbol) return res.json({ resolved: false, query: raw });
     symbol = symbol.toUpperCase();
 
     const isFull = !!req.tierConfig?.tracker;
-    const [fundamentals, dailyCloses, quote, news] = await Promise.all([
+    const [fundamentals, quote, news] = await Promise.all([
       fetchTickerFundamentals(symbol),
-      fetchDailyCloses(symbol, 130),
       fetchQuote(symbol),
       headlineOverride ? Promise.resolve(null) : fetchNews(symbol).catch(() => null),
     ]);
@@ -2530,20 +2609,12 @@ app.get("/agitator", async (req, res) => {
     if (ivEnvironment != null) factorsForComposite.ivEnvironment = ivEnvironment;
     const composite = computeAgitatorComposite(factorsForComposite);
 
-    const comps = await computeAgitatorComps(symbol, dailyCloses, isFull ? 8 : 3);
-
-    const newsOut = [];
-    if (news) newsOut.push({ source: "primary", headline: news.headline, ageLabel: news.ageLabel });
-    if (isFull && !headlineOverride) {
-      try {
-        const bodies = await fetchNewsBodiesForCorroboration(symbol);
-        if (bodies.length > 1) newsOut.push({ source: "secondary", excerpt: bodies[1].slice(0, 200) });
-      } catch { /* fail-safe: primary headline alone is still a valid response */ }
-    }
+    const comps = await computeAgitatorComps(symbol);
 
     res.json({
       resolved: true, symbol,
       headlineUsed: effectiveHeadline,
+      headlineUsedUrl: (!headlineOverride && news) ? news.url || null : null,
       // Phase 0 fix (Aug 26, 2026) -- mirror-only, see Tra's server.js.
       factors: isFull ? {
         surprise:    aiFactors?.surprise    ?? null,
@@ -2553,10 +2624,10 @@ app.get("/agitator", async (req, res) => {
         liquidity, ivEnvironment,
         historicalReaction: null, // deliberately omitted -- no data source exists for this yet
       } : undefined,
-      composite, comps, news: newsOut,
+      composite, comps,
     });
   } catch (e) {
-    console.error(`GET /agitator "${query}":`, e.message);
+    console.error(`GET /agitator "${raw}":`, e.message);
     res.status(500).json({ error: e.message });
   }
 });
