@@ -210,6 +210,7 @@
   .btn-compact{ width:auto; padding:8px 14px; }
   @keyframes runPulse{0%{box-shadow:0 0 0 0 rgba(74,168,255,.55)}70%{box-shadow:0 0 0 8px rgba(74,168,255,0)}100%{box-shadow:0 0 0 0 rgba(74,168,255,0)}}
   .btn-blue.btn-running:disabled{ opacity:1; animation:runPulse 1.2s ease-in-out infinite; }
+  .btn-purple.btn-running:disabled{ opacity:1; animation:runPulse 1.2s ease-in-out infinite; }
 
   .list-head{ display:flex; align-items:center; justify-content:space-between; padding:6px 4px 2px; font-size:13px; color:var(--ink-dim); letter-spacing:.08em; text-transform:uppercase; }
   .list-head-badge{ font-size:11px; font-weight:700; color:var(--ink); background:rgba(255,255,255,.06); border-radius:3px; padding:1px 7px; text-transform:none; letter-spacing:0; }
@@ -682,6 +683,24 @@
         </div></div></div>
       </div>
 
+      <div class="card" data-card="agitator" id="card-agitator">
+        <div class="card-head" tabindex="0" role="button" aria-expanded="false">
+          <span class="card-icon">📡</span>
+          <div class="card-title-wrap">
+            <div class="card-label">Agitator Gauge</div>
+            <div class="card-sub">Validate a new interest before adding it</div>
+          </div>
+          <button type="button" class="help-btn" data-help="agitator" aria-label="What is this?">?</button>
+          <svg class="chevron" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="card-body"><div class="card-body-inner"><div class="card-body-pad">
+          <input class="ctx-box" id="agitator-query" style="margin-bottom:9px" placeholder="Ticker or company name (e.g. AAPL or Tesla)">
+          <textarea class="ctx-box" id="agitator-headline" rows="2" placeholder="Optional: paste a specific headline or rumor to check"></textarea>
+          <button class="btn btn-purple" id="agitatorCheckBtn">Check Aggression</button>
+          <div id="agitator-body" style="margin-top:10px"></div>
+        </div></div></div>
+      </div>
+
       <div class="card" data-card="glossary" id="card-glossary">
         <div class="card-head" tabindex="0" role="button" aria-expanded="false" id="glossary-header">
           <span class="card-icon">📚</span>
@@ -717,6 +736,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=22"></script>
+<script type="module" src="./app.js?v=23"></script>
 </body>
 </html>
