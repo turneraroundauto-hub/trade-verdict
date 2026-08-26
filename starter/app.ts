@@ -208,6 +208,7 @@ function expandCard(card: HTMLElement): void {
   // the real, capped content height instead of the still-empty panel.
   if (card.dataset.card === 'glossary') buildGlossary();
   rolodex.snapCardUnderDock(card);
+  if (card.dataset.card === 'scorecard') renderScorecardCard();
 }
 function wireAccordionHead(head: Element): void {
   function toggle(): void {
@@ -333,6 +334,13 @@ function roloCardHTML(sym: string, state: TickerState): string {
   const proxyHTML = proxySymbols.length === 1
     ? `<a href="${tickerHref(proxySymbols[0])}" target="_blank">${proxyName}</a>`
     : proxyName;
+  // Proposal 7 -- Corroboration Decay Indicator. Only ever present when
+  // Session Context has actually corroborated something for this ticker
+  // before; most cards will never show this, by design (see CLAUDE.md).
+  const decay = td && td.corroborationDecay;
+  const decayHTML = decay
+    ? `<span>CONTEXT <b style="color:${decay.label === 'FRESH' ? 'var(--green)' : 'var(--red)'}">${decay.label} ${decay.freshnessPct}%</b></span>`
+    : '';
   const analyzing = state.analyzing;
   const result = state.result;
   const dir = priceDirClass(td);
@@ -346,7 +354,7 @@ function roloCardHTML(sym: string, state: TickerState): string {
     + `</div>`
     + pregateStripHTML(result)
     + `<div class="headline">${wrapHeadlineLinks(sym, headline)} <span class="age">${age}</span></div>`
-    + `<div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>β <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span></div>`
+    + `<div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>β <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span>${decayHTML}</div>`
     + badgesHTML(result)
     + gateListHTML(result)
     + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : '');
@@ -864,6 +872,137 @@ function filterGlossary(query: string): void {
 }
 document.getElementById('glossary-search')!.addEventListener('input', (e) => filterGlossary((e.target as HTMLInputElement).value));
 
+// ── PROPOSAL 7 — Verdict Accuracy Scorecard (Aug 26, 2026) ──────────
+// Real, server-graded accuracy (verdict_log, graded automatically ~3
+// trading days after each verdict) -- distinct from a manually-logged
+// track record, which Starter doesn't have (tierConfig.tracker:false).
+// Gated server-side on credits.TIERS.starter.scorecard -- the endpoint
+// itself returns 403 on any tier that doesn't have the flag yet, so this
+// card degrades to a plain message rather than assuming access. Ported
+// verbatim from Pro's own renderScorecardCard() -- Starter automatically
+// gets the "personal accuracy %, no breakdown" view since its own
+// tierConfig.tracker is false (same reuse-an-existing-flag split
+// /scorecard's own server-side code already applies).
+async function renderScorecardCard(): Promise<void> {
+  var el = document.getElementById('scorecard-body'); if (!el) return;
+  el.innerHTML = '<div class="track-empty">Loading...</div>';
+  try {
+    var res = await fetch(addSecret(API_URL + '/scorecard'), { headers: authH() });
+    if (res.status === 403) { el.innerHTML = '<div class="track-empty">Scorecard not available on this tier yet.</div>'; return; }
+    if (res.status === 401) { el.innerHTML = '<div class="track-empty">Sign in to see your personal scorecard.</div>'; return; }
+    var data = await res.json();
+    if (data.insufficientData) {
+      el.innerHTML = '<div class="track-empty">Accumulating — ' + (data.gradedCount || 0) + '/20 graded verdicts so far. Check back once more verdicts have been scored.</div>';
+      return;
+    }
+    var strictRow = data.strictPct != null
+      ? '<div class="trigger-row"><span class="trigger-lbl">Strict accuracy</span><span class="trigger-val">' + data.strictPct + '%</span></div>'
+      : '';
+    var html = '<div class="track-log-title">VERDICT ACCURACY (' + data.gradedCount + ' graded)</div>'
+      + strictRow
+      + '<div class="trigger-row"><span class="trigger-lbl">Directional accuracy</span><span class="trigger-val">' + data.directionalPct + '%</span></div>';
+    if (data.breakdown) {
+      var section = function (title: string, key: string): string {
+        var groups = data.breakdown[key] || {};
+        var rows = Object.keys(groups).map(function (k) {
+          var g = groups[k];
+          return '<div class="trigger-row"><span class="trigger-lbl">' + k + '</span><span class="trigger-val">' + (g.directionalPct != null ? g.directionalPct + '%' : '—') + '</span><span class="trigger-sub">' + g.gradedCount + '</span></div>';
+        }).join('');
+        return rows ? '<div class="track-log-title" style="margin-top:12px">' + title + '</div>' + rows : '';
+      };
+      html += section('BY GATE 1 BRANCH', 'gate1Branch') + section('BY PRE-GATE STATE', 'preGateState') + section('BY GATE 0 READ', 'gate0Read');
+    }
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = '<div class="track-empty">Scorecard unavailable right now.</div>';
+  }
+}
+
+// ── PROPOSAL 5 — Agitator Gauge (Aug 26, 2026) ──────────────────────
+// Standalone discovery/validation tool -- deliberately NOT wired into
+// tickerHref()/the Rolodex card stack. Free (no credit cost, matches
+// /ticker/:symbol), gated server-side on credits.TIERS.starter.agitator.
+// A single "Ticker or company name" input auto-resolves through the same
+// searchSymbolByName() lookup Import already uses; the optional headline
+// box lets a specific rumor/story override whatever the server would
+// otherwise pull as the ticker's own latest headline. Ported verbatim
+// from Pro's own agitatorFactorRow()/runAgitatorCheck() -- Starter
+// automatically gets the "composite score + comps only, no factor
+// breakdown" view since data.factors is only populated server-side for
+// isFull tiers (tierConfig.tracker), same as Pro's own Aug 26 Phase 0 fix.
+function agitatorFactorRow(label: string, val: number | null): string {
+  if (val == null) return '<div class="trigger-row"><span class="trigger-lbl">' + label + '</span><span class="trigger-sub">n/a</span></div>';
+  var color = val >= 66 ? 'var(--red)' : val >= 34 ? 'var(--amber)' : 'var(--green)';
+  return '<div class="trigger-row"><span class="trigger-lbl">' + label + '</span><span class="trigger-val" style="color:' + color + '">' + val + '</span></div>';
+}
+async function runAgitatorCheck(): Promise<void> {
+  var qEl = document.getElementById('agitator-query') as HTMLInputElement;
+  var hEl = document.getElementById('agitator-headline') as HTMLTextAreaElement;
+  var btn = document.getElementById('agitatorCheckBtn') as HTMLButtonElement;
+  var out = document.getElementById('agitator-body'); if (!out) return;
+  var q = qEl.value.trim();
+  if (!q) { out.innerHTML = '<div class="track-empty">Type a ticker or company name first.</div>'; return; }
+  var headline = hEl.value.trim();
+
+  btn.disabled = true; btn.classList.add('btn-running'); btn.textContent = 'CHECKING…';
+  out.innerHTML = '<div class="track-empty">Loading...</div>';
+  try {
+    var url = API_URL + '/agitator?q=' + encodeURIComponent(q) + (headline ? '&headline=' + encodeURIComponent(headline) : '');
+    var res = await fetch(addSecret(url), { headers: authH() });
+    if (res.status === 403) { out.innerHTML = '<div class="track-empty">Agitator Gauge not available on this tier yet.</div>'; return; }
+    if (res.status === 429) { out.innerHTML = '<div class="track-empty">Too many checks this hour — try again later.</div>'; return; }
+    var data = await res.json();
+    if (!data.resolved) { out.innerHTML = '<div class="track-empty">Couldn’t find a symbol for "' + q + '".</div>'; return; }
+
+    var comp = data.composite;
+    var gaugeColor = !comp ? 'var(--ink-dim)' : comp.level === 'HIGH' ? 'var(--red)' : comp.level === 'MEDIUM' ? 'var(--amber)' : 'var(--green)';
+    var gaugeHTML = '<div class="trigger-row"><span class="trigger-lbl"><a href="' + tickerHref(data.symbol) + '" target="_blank">' + data.symbol + '</a></span>'
+      + '<span class="trigger-val" style="color:' + gaugeColor + '">' + (comp ? comp.level : 'N/A') + '</span>'
+      + '<span class="trigger-sub">' + (comp ? comp.score + '/100 · ' + comp.factorCount + '/6 factors' : 'no data') + '</span></div>';
+
+    // data.factors is only present for "full" tiers (server-side isFull
+    // gate) -- a simple-gauge tier gets the composite level/score above
+    // with no breakdown at all, by design.
+    var f = data.factors;
+    var factorsHTML = f
+      ? '<div class="track-log-title" style="margin-top:10px">SUB-FACTORS</div>'
+        + agitatorFactorRow('Surprise', f.surprise)
+        + agitatorFactorRow('Uncertainty', f.uncertainty)
+        + agitatorFactorRow('Positioning (fresh vs priced-in)', f.positioning)
+        + agitatorFactorRow('Cross-Asset Exposure', f.crossAsset)
+        + agitatorFactorRow('Liquidity Sensitivity', f.liquidity)
+        + agitatorFactorRow('Options/IV Environment', f.ivEnvironment)
+        + '<div class="trigger-row"><span class="trigger-lbl">Historical Reaction</span><span class="trigger-sub">not tracked yet</span></div>'
+      : '';
+
+    var headlineHTML = data.headlineUsed
+      ? '<div class="headline" style="margin-top:8px">' + data.headlineUsed + '</div>' : '';
+
+    var compsHTML = (data.comps && data.comps.length)
+      ? '<div class="track-log-title" style="margin-top:10px">CORRELATED (comps)</div>'
+        + data.comps.map(function (c: any) {
+            return '<div class="trigger-row"><span class="trigger-lbl"><a href="' + tickerHref(c.symbol) + '" target="_blank">' + c.symbol + '</a></span><span class="trigger-val">' + c.correlation + '</span></div>';
+          }).join('')
+      : '';
+
+    var newsHTML = (data.news && data.news.length)
+      ? '<div class="track-log-title" style="margin-top:10px">CORROBORATING NEWS</div>'
+        + data.news.map(function (n: any) {
+            return n.source === 'primary'
+              ? '<div class="gate-note">' + n.headline + ' <span class="age">' + n.ageLabel + '</span></div>'
+              : '<div class="gate-note">' + n.excerpt + '…</div>';
+          }).join('')
+      : '';
+
+    out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML + newsHTML;
+    rolodex.snapCardUnderDock(document.getElementById('card-agitator') as HTMLElement);
+  } catch (e) {
+    out.innerHTML = '<div class="track-empty">Agitator Gauge unavailable right now.</div>';
+  } finally {
+    btn.disabled = false; btn.classList.remove('btn-running'); btn.textContent = 'Check Aggression';
+  }
+}
+
 // ── Card-header help balloons ──────────────────────────────────────────
 // Short, keep-it-to-a-glance copy per "(?)" button (keyed by its
 // data-help id in starter/index.html). Heavy terminology inside links
@@ -873,6 +1012,8 @@ const HELP_CONTENT: Record<string, string> = {
   pulse: 'A quick AI-written read on today’s overall market mood and <a class="help-glossary-link" href="#" data-term="sector rotation">sector rotation</a> — informational only, doesn’t change any gate.',
   context: 'Real news or catalysts you already know — auto-included in every analysis and checked against headlines. 2 of 3 matching signals marks it CONTEXT-CORROBORATED for Gate 2.',
   io: 'Paste or type <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names, one per line or comma-separated, to add them to your watchlist. Type a ticker in caps (AAPL) or a name any other way (Tesla) — either resolves to the right symbol.',
+  scorecard: 'Real, server-graded accuracy — every verdict is automatically checked against the actual price move ~3 trading days later, no manual logging needed. Suppressed until at least 20 verdicts have been graded.',
+  agitator: 'A standalone discovery tool for proofing a new stock interest or a media rumor BEFORE it enters your watchlist — free, no credit cost. Type a ticker or company name (or paste a specific headline to check) and get a LOW/MEDIUM/HIGH read across 6 real factors, plus correlated comps. Historical Reaction isn’t tracked yet, so it’s shown but never scored.',
 };
 
 // ── init ────────────────────────────────────────────────────────────
@@ -969,6 +1110,7 @@ rolodex.initRolodex({
   onDeleteConfirmed: deleteActiveTicker,
 });
 rolodex.initHelpBalloons(HELP_CONTENT, jumpToGlossaryTerm);
+document.getElementById('agitatorCheckBtn')!.addEventListener('click', runAgitatorCheck);
 
 checkAuth();
 
