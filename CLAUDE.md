@@ -6079,3 +6079,22 @@ recommendation from the Aug 13, 2026 regression entry above: periodically
 re-run the full grants-check query against every service-role table
 (now including `pre_gate_solvency_state`), not just after a reported
 incident.
+
+**Follow-up, same day: the `subscribers` dead-policy lint closed out
+too.** Ran `alter table public.subscribers enable row level security;`
+directly via Supabase MCP — safe and inert for real traffic since
+`subscribers` already had zero `anon`/`authenticated` grants (confirmed
+again immediately before and after), so the only thing this changes is
+activating the pre-existing `"service_role full access"` policy; the
+backend's own service-role client bypasses RLS entirely regardless, so
+nothing about `Tra`'s actual read/write path changes. Re-ran the
+advisor scan afterward: the `policy_exists_rls_disabled` finding for
+`subscribers` is gone. All ERROR-level security findings for this
+project are now clear. Two pre-existing, unrelated WARN-level items
+remain untouched, deliberately out of scope for this pass since fixing
+them means editing the actual credit-RPC function bodies rather than a
+grants/RLS toggle: `function_search_path_mutable` on all five
+`credits`-related RPC functions (`get_or_create_user_credits`,
+`add_purchased_credits`, `upgrade_user_tier`, `set_user_tier`,
+`deduct_user_credit`), and Auth's leaked-password-protection setting
+being off. Worth a future pass, not folded into this one.
