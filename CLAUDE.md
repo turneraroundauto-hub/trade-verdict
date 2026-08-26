@@ -6130,3 +6130,35 @@ clear.** The one remaining item is Auth-level, not a database object:
 leaked-password-protection is still off — that's a Supabase Auth
 setting (Dashboard → Authentication → Policies), not a SQL fix, and
 wasn't changed this pass.
+
+**Closing note on the leaked-password-protection WARN: deliberately
+deferred, not forgotten.** Two independent blockers, checked directly
+rather than assumed: (1) the org (`turneraroundauto-hub's Org`) is on
+Supabase's **Free plan**, and this feature is Pro-plan-and-above only
+per Supabase's own docs — it can't be toggled at all without a plan
+upgrade first, regardless of dashboard access; (2) even with a paid
+plan, this isn't something the Supabase MCP connection could flip —
+`execute_sql`/`apply_migration` only reach the Postgres database itself
+(RLS, grants, functions), while Auth settings like this one live in
+Supabase's platform-level config, which this MCP server has no write
+tool for. Would need either a manual dashboard toggle (post-upgrade) or
+the Management API directly.
+
+**Judged low priority on its own merits, not just blocked — worth
+recording the reasoning, not just the blocker:** this WARN is a
+different kind of risk than the two ERROR-level findings fixed the same
+day (the wide-open `pre_gate_solvency_state` table, the mutable
+`search_path` RPCs) — those were unconditionally exploitable by anyone
+holding the public anon key, no preconditions. Leaked-password
+protection only matters if an attacker already has a specific user's
+password from an unrelated breach AND that user reused it here — a real
+attack class (credential stuffing) but conditional on user behavior,
+not a standing hole in this app. What a compromised Trade Tribunal
+account actually exposes is also modest — no stored payment info
+(Stripe handles that separately), no brokerage access, nothing beyond
+credits/watchlist/session notes for that one user — and passwords are
+already bcrypt-hashed regardless of this setting. **Revisit if either
+of those change:** the app starts storing something more sensitive
+per-account, real credential-stuffing attempts show up in the auth
+logs, or the org upgrades to Pro for unrelated reasons (at which point
+this becomes a free toggle, not a purchase).
