@@ -1747,6 +1747,7 @@ function expandCard(card) {
   if (head) head.setAttribute("aria-expanded", "true");
   if (card.dataset.card === "glossary") buildGlossary();
   snapCardUnderDock(card);
+  if (card.dataset.card === "scorecard") renderScorecardCard();
 }
 function wireAccordionHead(head) {
   function toggle() {
@@ -1855,10 +1856,12 @@ function roloCardHTML(sym, state) {
   const proxyName = td && td.proxyRule && td.proxyRule.proxy ? td.proxyRule.proxy.name.split("(")[0].trim() : "?";
   const proxySymbols = td && td.proxyRule && td.proxyRule.proxy && Array.isArray(td.proxyRule.proxy.symbols) ? td.proxyRule.proxy.symbols : [];
   const proxyHTML = proxySymbols.length === 1 ? `<a href="${tickerHref(proxySymbols[0])}" target="_blank">${proxyName}</a>` : proxyName;
+  const decay = td && td.corroborationDecay;
+  const decayHTML = decay ? `<span>CONTEXT <b style="color:${decay.label === "FRESH" ? "var(--green)" : "var(--red)"}">${decay.label} ${decay.freshnessPct}%</b></span>` : "";
   const analyzing = state.analyzing;
   const result = state.result;
   const dir = priceDirClass(td);
-  return `<div class="ticker-row"><div class="ticker-left"><span class="ticker-sym ${dir}"><a href="${tickerHref(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}">${price}</span><div class="ticker-swipe-hint">\u2190 Swipe to delete</div></div><div class="ticker-action">` + (result ? verdictAreaHTML(sym, result) : `<button class="btn btn-blue btn-compact${analyzing ? " btn-running" : ""}" data-analyze="${sym}" ${analyzing ? "disabled" : ""}>${analyzing ? "RUNNING\u2026" : "ANALYZE"}</button>`) + `</div></div>` + pregateStripHTML(result) + `<div class="headline">${wrapHeadlineLinks(sym, headline)} <span class="age">${age}</span></div><div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>\u03B2 <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span></div>` + badgesHTML(result) + gateListHTML(result) + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : "");
+  return `<div class="ticker-row"><div class="ticker-left"><span class="ticker-sym ${dir}"><a href="${tickerHref(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}">${price}</span><div class="ticker-swipe-hint">\u2190 Swipe to delete</div></div><div class="ticker-action">` + (result ? verdictAreaHTML(sym, result) : `<button class="btn btn-blue btn-compact${analyzing ? " btn-running" : ""}" data-analyze="${sym}" ${analyzing ? "disabled" : ""}>${analyzing ? "RUNNING\u2026" : "ANALYZE"}</button>`) + `</div></div>` + pregateStripHTML(result) + `<div class="headline">${wrapHeadlineLinks(sym, headline)} <span class="age">${age}</span></div><div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>\u03B2 <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span>${decayHTML}</div>` + badgesHTML(result) + gateListHTML(result) + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : "");
 }
 function renderRoloCard(sym) {
   const card = roloStage.querySelector(`.rolo-card[data-sym="${sym}"]`);
@@ -2340,11 +2343,109 @@ function filterGlossary(query) {
   if (nr) nr.style.display = !anyVisible && q ? "block" : "none";
 }
 document.getElementById("glossary-search").addEventListener("input", (e) => filterGlossary(e.target.value));
+async function renderScorecardCard() {
+  var el = document.getElementById("scorecard-body");
+  if (!el) return;
+  el.innerHTML = '<div class="track-empty">Loading...</div>';
+  try {
+    var res = await fetch(addSecret2(API_URL2 + "/scorecard"), { headers: authH2() });
+    if (res.status === 403) {
+      el.innerHTML = '<div class="track-empty">Scorecard not available on this tier yet.</div>';
+      return;
+    }
+    if (res.status === 401) {
+      el.innerHTML = '<div class="track-empty">Sign in to see your personal scorecard.</div>';
+      return;
+    }
+    var data = await res.json();
+    if (data.insufficientData) {
+      el.innerHTML = '<div class="track-empty">Accumulating \u2014 ' + (data.gradedCount || 0) + "/20 graded verdicts so far. Check back once more verdicts have been scored.</div>";
+      return;
+    }
+    var strictRow = data.strictPct != null ? '<div class="trigger-row"><span class="trigger-lbl">Strict accuracy</span><span class="trigger-val">' + data.strictPct + "%</span></div>" : "";
+    var html = '<div class="track-log-title">VERDICT ACCURACY (' + data.gradedCount + " graded)</div>" + strictRow + '<div class="trigger-row"><span class="trigger-lbl">Directional accuracy</span><span class="trigger-val">' + data.directionalPct + "%</span></div>";
+    if (data.breakdown) {
+      var section = function(title, key) {
+        var groups = data.breakdown[key] || {};
+        var rows = Object.keys(groups).map(function(k) {
+          var g = groups[k];
+          return '<div class="trigger-row"><span class="trigger-lbl">' + k + '</span><span class="trigger-val">' + (g.directionalPct != null ? g.directionalPct + "%" : "\u2014") + '</span><span class="trigger-sub">' + g.gradedCount + "</span></div>";
+        }).join("");
+        return rows ? '<div class="track-log-title" style="margin-top:12px">' + title + "</div>" + rows : "";
+      };
+      html += section("BY GATE 1 BRANCH", "gate1Branch") + section("BY PRE-GATE STATE", "preGateState") + section("BY GATE 0 READ", "gate0Read");
+    }
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = '<div class="track-empty">Scorecard unavailable right now.</div>';
+  }
+}
+function agitatorFactorRow(label, val) {
+  if (val == null) return '<div class="trigger-row"><span class="trigger-lbl">' + label + '</span><span class="trigger-sub">n/a</span></div>';
+  var color = val >= 66 ? "var(--red)" : val >= 34 ? "var(--amber)" : "var(--green)";
+  return '<div class="trigger-row"><span class="trigger-lbl">' + label + '</span><span class="trigger-val" style="color:' + color + '">' + val + "</span></div>";
+}
+async function runAgitatorCheck() {
+  var qEl = document.getElementById("agitator-query");
+  var hEl = document.getElementById("agitator-headline");
+  var btn = document.getElementById("agitatorCheckBtn");
+  var out = document.getElementById("agitator-body");
+  if (!out) return;
+  var q = qEl.value.trim();
+  if (!q) {
+    out.innerHTML = '<div class="track-empty">Type a ticker or company name first.</div>';
+    return;
+  }
+  var headline = hEl.value.trim();
+  btn.disabled = true;
+  btn.classList.add("btn-running");
+  btn.textContent = "CHECKING\u2026";
+  out.innerHTML = '<div class="track-empty">Loading...</div>';
+  try {
+    var url = API_URL2 + "/agitator?q=" + encodeURIComponent(q) + (headline ? "&headline=" + encodeURIComponent(headline) : "");
+    var res = await fetch(addSecret2(url), { headers: authH2() });
+    if (res.status === 403) {
+      out.innerHTML = '<div class="track-empty">Agitator Gauge not available on this tier yet.</div>';
+      return;
+    }
+    if (res.status === 429) {
+      out.innerHTML = '<div class="track-empty">Too many checks this hour \u2014 try again later.</div>';
+      return;
+    }
+    var data = await res.json();
+    if (!data.resolved) {
+      out.innerHTML = '<div class="track-empty">Couldn\u2019t find a symbol for "' + q + '".</div>';
+      return;
+    }
+    var comp = data.composite;
+    var gaugeColor = !comp ? "var(--ink-dim)" : comp.level === "HIGH" ? "var(--red)" : comp.level === "MEDIUM" ? "var(--amber)" : "var(--green)";
+    var gaugeHTML = '<div class="trigger-row"><span class="trigger-lbl"><a href="' + tickerHref(data.symbol) + '" target="_blank">' + data.symbol + '</a></span><span class="trigger-val" style="color:' + gaugeColor + '">' + (comp ? comp.level : "N/A") + '</span><span class="trigger-sub">' + (comp ? comp.score + "/100 \xB7 " + comp.factorCount + "/6 factors" : "no data") + "</span></div>";
+    var f = data.factors;
+    var factorsHTML = f ? '<div class="track-log-title" style="margin-top:10px">SUB-FACTORS</div>' + agitatorFactorRow("Surprise", f.surprise) + agitatorFactorRow("Uncertainty", f.uncertainty) + agitatorFactorRow("Positioning (fresh vs priced-in)", f.positioning) + agitatorFactorRow("Cross-Asset Exposure", f.crossAsset) + agitatorFactorRow("Liquidity Sensitivity", f.liquidity) + agitatorFactorRow("Options/IV Environment", f.ivEnvironment) + '<div class="trigger-row"><span class="trigger-lbl">Historical Reaction</span><span class="trigger-sub">not tracked yet</span></div>' : "";
+    var headlineHTML = data.headlineUsed ? '<div class="headline" style="margin-top:8px">' + data.headlineUsed + "</div>" : "";
+    var compsHTML = data.comps && data.comps.length ? '<div class="track-log-title" style="margin-top:10px">CORRELATED (comps)</div>' + data.comps.map(function(c) {
+      return '<div class="trigger-row"><span class="trigger-lbl"><a href="' + tickerHref(c.symbol) + '" target="_blank">' + c.symbol + '</a></span><span class="trigger-val">' + c.correlation + "</span></div>";
+    }).join("") : "";
+    var newsHTML = data.news && data.news.length ? '<div class="track-log-title" style="margin-top:10px">CORROBORATING NEWS</div>' + data.news.map(function(n) {
+      return n.source === "primary" ? '<div class="gate-note">' + n.headline + ' <span class="age">' + n.ageLabel + "</span></div>" : '<div class="gate-note">' + n.excerpt + "\u2026</div>";
+    }).join("") : "";
+    out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML + newsHTML;
+    snapCardUnderDock(document.getElementById("card-agitator"));
+  } catch (e) {
+    out.innerHTML = '<div class="track-empty">Agitator Gauge unavailable right now.</div>';
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove("btn-running");
+    btn.textContent = "Check Aggression";
+  }
+}
 var HELP_CONTENT = {
   gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against \u2014 feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read \u2014 tap the docked bar to jump back to top. Pre/post-market prices are IEX-only and may vary from the full consolidated tape; built for regular-session (9:30am\u20134pm ET) analysis.',
   pulse: 'A quick AI-written read on today\u2019s overall market mood and <a class="help-glossary-link" href="#" data-term="sector rotation">sector rotation</a> \u2014 informational only, doesn\u2019t change any gate.',
   context: "Real news or catalysts you already know \u2014 auto-included in every analysis and checked against headlines. 2 of 3 matching signals marks it CONTEXT-CORROBORATED for Gate 2.",
-  io: 'Paste or type <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names, one per line or comma-separated, to add them to your watchlist. Type a ticker in caps (AAPL) or a name any other way (Tesla) \u2014 either resolves to the right symbol.'
+  io: 'Paste or type <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names, one per line or comma-separated, to add them to your watchlist. Type a ticker in caps (AAPL) or a name any other way (Tesla) \u2014 either resolves to the right symbol.',
+  scorecard: "Real, server-graded accuracy \u2014 every verdict is automatically checked against the actual price move ~3 trading days later, no manual logging needed. Suppressed until at least 20 verdicts have been graded.",
+  agitator: "A standalone discovery tool for proofing a new stock interest or a media rumor BEFORE it enters your watchlist \u2014 free, no credit cost. Type a ticker or company name (or paste a specific headline to check) and get a LOW/MEDIUM/HIGH read across 6 real factors, plus correlated comps. Historical Reaction isn\u2019t tracked yet, so it\u2019s shown but never scored."
 };
 function initApp() {
   cleanLS();
@@ -2452,6 +2553,7 @@ initRolodex({
   onDeleteConfirmed: deleteActiveTicker
 });
 initHelpBalloons(HELP_CONTENT, jumpToGlossaryTerm);
+document.getElementById("agitatorCheckBtn").addEventListener("click", runAgitatorCheck);
 checkAuth();
 window.authLogout = authLogout;
 window.toggleProfileMenu = toggleProfileMenu;
