@@ -6006,3 +6006,95 @@ sync`/`ticker-cache` via the bundler's clean extensionless paths, so no
 separate `?v=` bump was needed at that layer — only each tier's own
 `<script src="./app.js?v=N">` tag, since its bundled *content* changed):
 `index.html` 68→69, `starter/index.html` 73→74, `pro/index.html` 18→19.
+
+## Supabase: `pre_gate_solvency_state` left wide open for 8 days — a reverted feature's table never got the RLS/revoke treatment (Aug 26, 2026)
+
+A Supabase Security Advisor email ("Table publicly accessible" / CRITICAL
+`rls_disabled_in_public`) prompted a live check — same wording as the
+Aug 4/Aug 13, 2026 incidents documented above, so worth confirming
+whether this was a third recurrence on the same six tables or something
+new. Connected this session directly to Supabase (project
+`oinomcikdyisrbfeeirp`) via the Supabase MCP connector to check, rather
+than reason from the repo's DDL files alone.
+
+**Not a recurrence of the Aug 4/13 issue — the six previously-fixed
+tables (`credits`, `accuracy_log`, `proxy_resolution`, `pre_gate_triggers`,
+`watchlists`, `proxy_regime_state`) all confirmed zero `anon`/
+`authenticated` grants, still holding.** The actual flagged table was
+`pre_gate_solvency_state` — the table created during the Aug 18, 2026
+Pre-Gate solvency saga (see that section above) that got fully reverted
+the same day. The revert removed the *code* that read/wrote it, exactly
+as that entry already noted ("the revert only removes the code that
+reads/writes it... dropping the table is a separate, deliberate cleanup
+step"), but nobody had gone back to apply this file's own standard
+`disable row level security` + explicit `revoke all ... from anon,
+authenticated` pattern to the table itself — it was RLS-disabled with
+full `anon`/`authenticated` INSERT/SELECT/UPDATE/DELETE grants, live and
+reachable via the public anon key, for the full 8 days since.
+
+**Fix, applied directly via the Supabase MCP connection:** `revoke all
+on public.pre_gate_solvency_state from anon, authenticated;` — confirmed
+via a fresh grants query (zero rows) and a re-run security advisor scan
+(the `rls_disabled_in_public` finding for this table is gone). RLS
+stays disabled, same as every other service-role-only table in this
+project — the revoke alone is what actually closes API access, per this
+file's own established rule.
+
+**Checked for actual exploitation, not just the exposure window.** All
+11 rows in the table were pulled and inspected directly: every one is
+legitimate app data, timestamped within a single 58-minute window on
+Aug 18, 2026 (14:41–15:39 UTC), matching the exact tickers/SEC-filing
+accession numbers from that day's saga — including the MU false-positive
+row that's the specific reason the feature got reverted. Nothing looks
+tampered with or injected, and there has been **zero activity in the 8
+days since**, despite the table being open the whole time. Not proof
+no one ever read it, but a real, positive signal against actual
+exploitation — no unexpected rows, no unexpected values, no access
+pattern inconsistent with "the feature ran once on Aug 18 and never
+again."
+
+**One unrelated, pre-existing, lower-severity finding surfaced in the
+same scan and was left alone:** `subscribers` has a leftover RLS policy
+(`"service_role full access"`) defined while RLS itself is disabled —
+flagged by Supabase as `policy_exists_rls_disabled`. Confirmed this is a
+dead policy, not a live exposure: `subscribers` has zero `anon`/
+`authenticated` grants (same as documented Aug 4, 2026 — "happened to
+already have no such grants... that was luck, not design"), so nothing
+is actually reachable either way. Not fixed in this pass since it's
+cosmetic, not a security hole — a future pass could just run `alter
+table public.subscribers enable row level security;` to make the
+existing policy live and clear the lint.
+
+**The real, permanent lesson, worth generalizing beyond this one
+table:** this file's rule for service-role-only tables ("always pair
+`disable row level security` with an explicit revoke") only gets applied
+when a table's own DDL patch file is written and run — it doesn't
+retroactively cover a table created and then abandoned mid-session, the
+way `pre_gate_solvency_state` was during the Aug 18 revert. **Any future
+revert of a feature that created its own table must include either
+dropping the table or explicitly running the disable-RLS/revoke pattern
+on it** — "the revert only removes the code" is not sufficient by
+itself if the table stays behind. This also reinforces the standing
+recommendation from the Aug 13, 2026 regression entry above: periodically
+re-run the full grants-check query against every service-role table
+(now including `pre_gate_solvency_state`), not just after a reported
+incident.
+
+**Follow-up, same day: the `subscribers` dead-policy lint closed out
+too.** Ran `alter table public.subscribers enable row level security;`
+directly via Supabase MCP — safe and inert for real traffic since
+`subscribers` already had zero `anon`/`authenticated` grants (confirmed
+again immediately before and after), so the only thing this changes is
+activating the pre-existing `"service_role full access"` policy; the
+backend's own service-role client bypasses RLS entirely regardless, so
+nothing about `Tra`'s actual read/write path changes. Re-ran the
+advisor scan afterward: the `policy_exists_rls_disabled` finding for
+`subscribers` is gone. All ERROR-level security findings for this
+project are now clear. Two pre-existing, unrelated WARN-level items
+remain untouched, deliberately out of scope for this pass since fixing
+them means editing the actual credit-RPC function bodies rather than a
+grants/RLS toggle: `function_search_path_mutable` on all five
+`credits`-related RPC functions (`get_or_create_user_credits`,
+`add_purchased_credits`, `upgrade_user_tier`, `set_user_tier`,
+`deduct_user_credit`), and Auth's leaked-password-protection setting
+being off. Worth a future pass, not folded into this one.
