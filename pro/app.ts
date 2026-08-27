@@ -1131,8 +1131,8 @@ function agitatorFactorRow(label: string, helpKey: string, val: number | null): 
 // "+" so it's clear at a glance which ones are already on the list.
 function addTickerBtnHTML(symbol: string): string {
   var already = watchlist.includes(symbol);
-  return '<button type="button" class="comp-chip-add" data-add-ticker="' + symbol + '"'
-    + (already ? ' disabled aria-label="Already on your watchlist">✓' : ' aria-label="Add ' + symbol + ' to watchlist">+')
+  return '<button type="button" class="compact-plus-btn" data-add-ticker="' + symbol + '"'
+    + (already ? ' disabled title="Already on your watchlist">✓' : ' title="Add ' + symbol + ' to watchlist">+')
     + '</button>';
 }
 function wireAgitatorAddButtons(scope: HTMLElement): void {
@@ -1146,25 +1146,32 @@ function wireAgitatorAddButtons(scope: HTMLElement): void {
     });
   });
 }
-// A comp is a real Finnhub industry peer with a live price/% change now
-// (not a correlation float against an unrelated macro proxy) -- rendered
-// as a small chip, not a list row, so "a few related names" reads as a
-// short, tangible recommendation rather than another data table. Each
-// chip is its own bordered segment inside one continuous strip (not a
-// separately-bordered pill) -- the faint divider between segments is
-// what makes it clear which ticker's own "+" is which, once several
-// sit side by side (direct feedback: "faint vertical divider between
-// the tickers so it's clear which one is being added").
-function compChipHTML(c: { symbol: string; price: string | null; change: string | null; direction: string }): string {
+// A related company now renders as the exact same row this same file's
+// own Watchlist-overflow list already uses (ticker/price/%chg + a real
+// news headline, linked the same way, via the same wrapHeadlineLinks/
+// autoLinkGlossaryTerms/highlightContextMatches chain as
+// renderOverflowList()'s own row builder) -- direct instruction: "do the
+// recommendations exactly like they are in the overflow watchlist in
+// Pro, with news links all the same," after an earlier from-scratch chip
+// redesign read as confusing. No swipe-to-delete here (nothing to
+// delete, only to add) -- the "+" instead calls addKnownTicker() via
+// wireAgitatorAddButtons() below.
+function relatedRowHTML(c: { symbol: string; price: string | null; change: string | null; direction: string; news?: { headline: string; url: string | null; ageHours: number } | null }): string {
+  var t = c.symbol;
   var color = c.direction === 'green' ? 'var(--green)' : c.direction === 'red' ? 'var(--red)' : 'var(--ink-dim)';
-  return '<span class="comp-chip">'
-    + '<a class="comp-chip-link" href="' + tickerHref(c.symbol) + '" target="_blank">'
-      + '<span class="cc-sym">' + c.symbol + '</span>'
-      + (c.price ? '<span class="cc-price">$' + c.price + '</span>' : '')
-      + (c.change ? '<span class="cc-chg" style="color:' + color + '">' + c.change + '</span>' : '')
-    + '</a>'
-    + addTickerBtnHTML(c.symbol)
-    + '</span>';
+  var hasNews = !!(c.news && c.news.ageHours <= 300);
+  var ctxEl = document.getElementById('context-input') as HTMLTextAreaElement | null;
+  var ctxVal = ctxEl ? ctxEl.value : '';
+  return '<div class="compact-row-wrap" data-ticker="' + t + '">'
+    + '<div class="compact-row">'
+    + '<div class="compact-row-main">'
+    + '<div class="compact-row-top"><span class="compact-ticker" style="color:' + color + '"><a class="ticker-a" href="' + tickerHref(t) + '" target="_blank">' + t + '</a></span>'
+    + '<span class="compact-price" style="color:' + color + '">' + (c.price ? '$' + c.price : '&mdash;') + '</span>'
+    + '<span class="compact-pct" style="color:' + color + '">' + (c.change || '&mdash;') + '</span></div>'
+    + '<div class="compact-news"' + (hasNews ? '' : ' style="display:none"') + '>' + (hasNews ? wrapHeadlineLinks(t, autoLinkGlossaryTerms(highlightContextMatches(c.news!.headline, ctxVal))) : '') + '</div>'
+    + '</div>'
+    + addTickerBtnHTML(t)
+    + '</div></div>';
 }
 async function runAgitatorCheck(): Promise<void> {
   var qEl = document.getElementById('agitator-query') as HTMLInputElement;
@@ -1225,7 +1232,7 @@ async function runAgitatorCheck(): Promise<void> {
 
     var compsHTML = (data.comps && data.comps.length)
       ? '<div class="track-log-title" style="margin-top:10px">RELATED</div>'
-        + '<div class="comp-chips">' + data.comps.map(compChipHTML).join('') + '</div>'
+        + '<div class="compact-list">' + data.comps.map(relatedRowHTML).join('') + '</div>'
       : '';
 
     out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML;
