@@ -1029,17 +1029,27 @@ async function renderScorecardCard(): Promise<void> {
 // use -- it's a document-wide delegated listener on any [data-help], not
 // scoped to card headers, so no new plumbing was needed) for anyone who
 // wants the deeper definition without cluttering the row itself.
-// Displayed 0-10 instead of the real underlying 0-100 -- "a barometer,
-// not a spreadsheet" was the explicit framing. The real 0-100 value
-// still drives the red/amber/green threshold coloring so a rounding
-// quirk at the display layer can never flip which color a value shows.
+// Reworked again same day: the 0-10 number itself was still "a number
+// next to each rating" -- direct follow-up asked for a visual gauge
+// instead (three colored bands + a pointer showing where the value
+// falls), not a smaller number. factorGaugeHTML() below builds that;
+// this function no longer prints any digit for a real value at all. The
+// real 0-100 value still drives both the pointer's position and which
+// band it's rendered against -- there's no separate rounding step to
+// ever disagree with the color coding.
+function factorGaugeHTML(val: number): string {
+  var pct = Math.max(0, Math.min(100, val));
+  var label = val >= 66 ? 'High' : val >= 34 ? 'Medium' : 'Low';
+  return '<div class="factor-gauge" role="img" aria-label="' + label + '">'
+    + '<div class="factor-gauge-bar"><span class="fg-seg fg-green"></span><span class="fg-seg fg-amber"></span><span class="fg-seg fg-red"></span></div>'
+    + '<div class="factor-gauge-arrow" style="left:' + pct + '%"></div>'
+    + '</div>';
+}
 function agitatorFactorRow(label: string, helpKey: string, val: number | null): string {
   var helpBtn = '<button type="button" class="help-btn" data-help="' + helpKey + '" aria-label="What is this?">?</button>';
   var lblHTML = '<span class="trigger-lbl-wrap"><span class="trigger-lbl">' + label + '</span>' + helpBtn + '</span>';
   if (val == null) return '<div class="trigger-row">' + lblHTML + '<span class="trigger-sub">n/a</span></div>';
-  var color = val >= 66 ? 'var(--red)' : val >= 34 ? 'var(--amber)' : 'var(--green)';
-  var displayVal = Math.round(val / 10);
-  return '<div class="trigger-row">' + lblHTML + '<span class="trigger-val" style="color:' + color + '">' + displayVal + '/10</span></div>';
+  return '<div class="trigger-row">' + lblHTML + factorGaugeHTML(val) + '</div>';
 }
 // A comp is a real Finnhub industry peer with a live price/% change now
 // (not a correlation float against an unrelated macro proxy) -- rendered
