@@ -601,12 +601,18 @@ export function markRoloMarqueeDataReady(): void {
 // the actual short-copy strings (keyed by whatever id a given "(?)"
 // button carries) are tier-owned, passed in once via initHelpBalloons().
 //
-// Dismissal-by-timeout is deliberately short (5s) per the balloon's own
-// design brief -- keep it short enough to read in one glance, not a
-// persistent tooltip. A click on the SAME button toggles it closed early;
-// a click on a DIFFERENT help button, a glossary link inside the balloon,
-// an outside click, Escape, or a scroll/resize all close it too.
-const HELP_BALLOON_MS = 5000;
+// Dismissal-by-timeout scales with how much there actually is to read --
+// 5s per 4 lines of the balloon's own rendered content, not a flat 5s
+// regardless of length (a flat timeout read as "too quick" on the
+// longer entries, since it was tuned for a one-line balloon). Measured
+// against the balloon's REAL rendered height once its content is set,
+// not guessed from character count -- same "measure the real thing"
+// discipline this app's own scroll/dock math has already learned the
+// hard way applies here too. A click on the SAME button toggles it
+// closed early; a click on a DIFFERENT help button, a glossary link
+// inside the balloon, an outside click, Escape, or a scroll/resize all
+// close it too, regardless of how long the computed duration is.
+const HELP_BALLOON_MS_PER_4_LINES = 5000;
 // A tap that brings an off-screen "(?)" button into view (browsers/test
 // automation both do this for a click on a non-visible element) fires a
 // real #scroller 'scroll' event essentially simultaneously with the click
@@ -664,7 +670,15 @@ function openHelpBalloon(btn: HTMLElement, key: string): void {
   helpOpenKey = key;
   helpOpenedAt = Date.now();
   if (helpTimer) clearTimeout(helpTimer);
-  helpTimer = setTimeout(closeHelpBalloon, HELP_BALLOON_MS);
+  // Real rendered line count, not a character-count guess: total content
+  // height (scrollHeight minus the box's own vertical padding, which
+  // isn't part of any line) divided by the actual computed line-height.
+  const cs = getComputedStyle(el);
+  const lineHeightPx = parseFloat(cs.lineHeight) || 19.5;
+  const vPad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+  const lines = Math.max(1, Math.round((el.scrollHeight - vPad) / lineHeightPx));
+  const duration = Math.ceil(lines / 4) * HELP_BALLOON_MS_PER_4_LINES;
+  helpTimer = setTimeout(closeHelpBalloon, duration);
 }
 
 // Delegated at the document level, in the CAPTURE phase, so a "(?)"

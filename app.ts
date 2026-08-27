@@ -44,7 +44,7 @@
 //   no ticker-card upgrade prompt, no bottom-of-page teaser card. Pro is
 //   still the only tier with a real tracker.
 import { initTickerCache, fetchTickerData } from './shared/ticker-cache';
-import { initWatchlist, watchlist, addTickers, removeTicker, onWatchlistSave, onTickersAdded } from './shared/watchlist';
+import { initWatchlist, watchlist, addTickers, addKnownTicker, removeTicker, onWatchlistSave, onTickersAdded } from './shared/watchlist';
 import { cleanLS, cacheVerdict, getCachedVerdict } from './shared/analysis-cache';
 import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from './shared/watchlist-sync';
 import { getTzPref, getTzIana, forceDefaults } from './shared/prefs';
@@ -505,7 +505,12 @@ async function analyzeOne(sym: string): Promise<void> {
   state.td = td;
   if (td) renderRoloCard(sym);
 
-  var ctx = (document.getElementById('context-input') as HTMLTextAreaElement).value;
+  // Session Context card retired (replaced by the Agitator Gauge) --
+  // marketContext is now always empty, the same server-side state as any
+  // user who simply never typed into it (Proposal 4's own corroboration
+  // check already treats a blank context as informational-only, a
+  // fully-supported normal case, not an error).
+  var ctx = '';
   var sc: any = {
     spy: market && market.spy ? market.spy.change : '?',
     qqq: market && market.qqq ? market.qqq.change : '?',
@@ -615,15 +620,129 @@ function closeComebackScreen(): void {
   if (screen) (screen as HTMLElement).style.display = 'none';
 }
 
-// ── Session Context highlighting ───────────────────────────────────
-var ctxDebounce: ReturnType<typeof setTimeout> | null = null;
-function wireContextHighlight(): void {
-  var ctxInputEl = document.getElementById('context-input');
-  if (!ctxInputEl) return;
-  ctxInputEl.addEventListener('input', function () {
-    if (ctxDebounce) clearTimeout(ctxDebounce);
-    ctxDebounce = setTimeout(refreshRoloCards, 250);
+// ── Agitator Gauge (Proposal 5) ─────────────────────────────────────
+// Free tier's own "simple gauge" variant (server-side isFull gate is
+// tracker-tied, and Free has no tracker, same as Starter) -- replaces
+// the Session Context card, which this session's own direct feedback
+// called out as obsolete. Ported from starter/app.ts; kept byte-
+// identical where the two tiers' surrounding code allows.
+function factorGaugeHTML(val: number): string {
+  var pct = Math.max(0, Math.min(100, val));
+  var label = val >= 66 ? 'High' : val >= 34 ? 'Medium' : 'Low';
+  return '<div class="factor-gauge" role="img" aria-label="' + label + '">'
+    + '<div class="factor-gauge-bar"><span class="fg-seg fg-green"></span><span class="fg-seg fg-amber"></span><span class="fg-seg fg-red"></span></div>'
+    + '<div class="factor-gauge-arrow" style="left:' + pct + '%"></div>'
+    + '</div>';
+}
+function agitatorFactorRow(label: string, helpKey: string, val: number | null): string {
+  var helpBtn = '<button type="button" class="help-btn" data-help="' + helpKey + '" aria-label="What is this?">?</button>';
+  var lblHTML = '<span class="trigger-lbl-wrap"><span class="trigger-lbl">' + label + '</span>' + helpBtn + '</span>';
+  if (val == null) return '<div class="trigger-row">' + lblHTML + '<span class="trigger-sub">n/a</span></div>';
+  return '<div class="trigger-row">' + lblHTML + factorGaugeHTML(val) + '</div>';
+}
+// A "+" that adds an already-resolved, real ticker (the Agitator's own
+// primary result or one of its related companies -- both always carry a
+// live quote by the time they're rendered) straight to the watchlist,
+// skipping addTickers()'s text-parsing/lookup path entirely. Already-
+// present tickers render as a disabled checkmark rather than a dead
+// "+" so it's clear at a glance which ones are already on the list.
+function addTickerBtnHTML(symbol: string): string {
+  var already = watchlist.includes(symbol);
+  return '<button type="button" class="comp-chip-add" data-add-ticker="' + symbol + '"'
+    + (already ? ' disabled aria-label="Already on your watchlist">✓' : ' aria-label="Add ' + symbol + ' to watchlist">+')
+    + '</button>';
+}
+function wireAgitatorAddButtons(scope: HTMLElement): void {
+  scope.querySelectorAll<HTMLButtonElement>('[data-add-ticker]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var sym = b.dataset.addTicker as string;
+      addKnownTicker(sym);
+      if (watchlist.includes(sym)) {
+        b.disabled = true; b.textContent = '✓'; b.setAttribute('aria-label', 'Already on your watchlist');
+      }
+    });
   });
+}
+// A comp is a real Finnhub industry peer with a live price/% change now
+// (not a correlation float against an unrelated macro proxy) -- rendered
+// as a small chip, not a list row, so "a few related names" reads as a
+// short, tangible recommendation rather than another data table. Each
+// chip is its own bordered segment inside one continuous strip (not a
+// separately-bordered pill) -- the faint divider between segments is
+// what makes it clear which ticker's own "+" is which, once several
+// sit side by side.
+function compChipHTML(c: { symbol: string; price: string | null; change: string | null; direction: string }): string {
+  var color = c.direction === 'green' ? 'var(--green)' : c.direction === 'red' ? 'var(--red)' : 'var(--ink-dim)';
+  return '<span class="comp-chip">'
+    + '<a class="comp-chip-link" href="' + tickerHref(c.symbol) + '" target="_blank">'
+      + '<span class="cc-sym">' + c.symbol + '</span>'
+      + (c.price ? '<span class="cc-price">$' + c.price + '</span>' : '')
+      + (c.change ? '<span class="cc-chg" style="color:' + color + '">' + c.change + '</span>' : '')
+    + '</a>'
+    + addTickerBtnHTML(c.symbol)
+    + '</span>';
+}
+async function runAgitatorCheck(): Promise<void> {
+  var qEl = document.getElementById('agitator-query') as HTMLInputElement;
+  var btn = document.getElementById('agitatorCheckBtn') as HTMLButtonElement;
+  var out = document.getElementById('agitator-body'); if (!out) return;
+  var q = qEl.value.trim();
+  if (!q) { out.innerHTML = '<div class="track-empty">Type a ticker, company name, or paste a headline first.</div>'; return; }
+
+  btn.disabled = true; btn.classList.add('btn-running'); btn.textContent = 'CHECKING…';
+  out.innerHTML = '<div class="track-empty">Loading...</div>';
+  try {
+    var url = API_URL + '/agitator?q=' + encodeURIComponent(q);
+    var res = await fetch(addSecret(url), { headers: authH() });
+    if (res.status === 403) { out.innerHTML = '<div class="track-empty">Agitator Gauge not available on this tier yet.</div>'; return; }
+    if (res.status === 429) { out.innerHTML = '<div class="track-empty">Too many checks this hour — try again later.</div>'; return; }
+    var data = await res.json();
+    if (!data.resolved) { out.innerHTML = '<div class="track-empty">Couldn’t find a company for "' + q + '".</div>'; return; }
+
+    var comp = data.composite;
+    var gaugeColor = !comp ? 'var(--ink-dim)' : comp.level === 'HIGH' ? 'var(--red)' : comp.level === 'MEDIUM' ? 'var(--amber)' : 'var(--green)';
+    var tq = data.tickerQuote;
+    var tqColor = !tq ? '' : tq.direction === 'green' ? 'var(--green)' : tq.direction === 'red' ? 'var(--red)' : 'var(--ink-dim)';
+    var tqHTML = tq ? '<span class="tq-price">$' + tq.price + '</span><span class="tq-chg" style="color:' + tqColor + '">' + tq.change + '</span>' : '';
+    var gaugeHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl"><a href="' + tickerHref(data.symbol) + '" target="_blank">' + data.symbol + '</a></span>' + tqHTML + addTickerBtnHTML(data.symbol) + '</span>'
+      + '<span class="trigger-val-wrap"><span class="trigger-val" style="color:' + gaugeColor + '">' + (comp ? comp.level : 'N/A') + '</span>'
+      + '<button type="button" class="help-btn" data-help="agitator-score" aria-label="What is this?">?</button></span>'
+      + '<span class="trigger-sub">' + (comp ? Math.round(comp.score / 10) + '/10 avg. of 6 signals' : 'no data') + '</span></div>';
+
+    // data.factors is only present for "full" tiers (server-side isFull
+    // gate) -- Free's simple-gauge variant gets the composite level/score
+    // above with no breakdown at all, by design.
+    var f = data.factors;
+    var factorsHTML = f
+      ? '<div class="track-log-title" style="margin-top:10px">SIGNALS</div>'
+        + agitatorFactorRow('Surprise', 'agitator-surprise', f.surprise)
+        + agitatorFactorRow('Uncertainty', 'agitator-uncertainty', f.uncertainty)
+        + agitatorFactorRow('Freshness', 'agitator-freshness', f.positioning)
+        + agitatorFactorRow('Ripple Effect', 'agitator-ripple', f.crossAsset)
+        + agitatorFactorRow('Swing Risk', 'agitator-swing', f.liquidity)
+        + agitatorFactorRow('Expected Move', 'agitator-expected-move', f.ivEnvironment)
+        + '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl">Past Reactions</span><button type="button" class="help-btn" data-help="agitator-past" aria-label="What is this?">?</button></span><span class="trigger-sub">not tracked yet</span></div>'
+      : '';
+
+    var headlineHTML = data.headlineUsed
+      ? '<div class="headline" style="margin-top:8px">' + (data.headlineUsedUrl
+          ? '<a href="' + data.headlineUsedUrl + '" target="_blank">' + data.headlineUsed + '</a>'
+          : data.headlineUsed) + '</div>'
+      : '';
+
+    var compsHTML = (data.comps && data.comps.length)
+      ? '<div class="track-log-title" style="margin-top:10px">RELATED</div>'
+        + '<div class="comp-chips">' + data.comps.map(compChipHTML).join('') + '</div>'
+      : '';
+
+    out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML;
+    wireAgitatorAddButtons(out);
+    rolodex.snapCardUnderDock(document.getElementById('card-agitator') as HTMLElement);
+  } catch (e) {
+    out.innerHTML = '<div class="track-empty">Agitator Gauge unavailable right now.</div>';
+  } finally {
+    btn.disabled = false; btn.classList.remove('btn-running'); btn.textContent = 'Check Aggression';
+  }
 }
 
 // ── Market-closed enforcement ──────────────────────────────────────
@@ -914,15 +1033,22 @@ document.getElementById('glossary-search')!.addEventListener('input', (e) => fil
 const HELP_CONTENT: Record<string, string> = {
   gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against — feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read — tap the docked bar to jump back to top. Pre/post-market prices are IEX-only and may vary from the full consolidated tape; built for regular-session (9:30am–4pm ET) analysis.',
   pulse: 'A live AI-written read on today’s market mood and <a class="help-glossary-link" href="#" data-term="sector rotation">sector rotation</a> — Starter and up unlocks the real, per-session version.',
-  context: 'Real news or catalysts you already know — auto-included in every analysis and checked against headlines. 2 of 3 matching signals marks it CONTEXT-CORROBORATED for Gate 2.',
   io: 'Paste or type <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names, one per line or comma-separated, to add them to your watchlist. Type a ticker in caps (AAPL) or a name any other way (Tesla) — either resolves to the right symbol.',
+  agitator: 'A standalone discovery tool for proofing a new stock interest or a media rumor BEFORE it enters your watchlist — free, no credit cost. Type a ticker, a company name, or paste a full headline/rumor — one box handles all three — and get a LOW/MEDIUM/HIGH read across 6 real signals, plus a few real related companies to also check. Past Reactions isn’t tracked yet, so it’s shown but never scored.',
+  'agitator-score': 'One overall number, 0-10, averaging the 6 signals below it — a quick read on how big a deal this news might be for the stock, not a precise measurement.',
+  'agitator-surprise': 'How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.',
+  'agitator-uncertainty': 'How unclear it still is to everyone how big a deal this actually is. High means the market hasn’t figured out how to react yet.',
+  'agitator-freshness': 'Is this brand-new information nobody has reacted to yet (high), or something already known and priced in days ago (low)?',
+  'agitator-ripple': 'How likely this is to also move other related stocks, the sector, or the broader market — not just this one company.',
+  'agitator-swing': 'How easily this stock’s price can be pushed around. Smaller, thinly-traded stocks swing more on the same amount of buying or selling.',
+  'agitator-expected-move': 'How much price movement the options market is already betting on for this stock, right now.',
+  'agitator-past': 'How this stock has reacted to similar news before. Not tracked yet in this app, so it always shows as unavailable.',
 };
 
 // ── init ────────────────────────────────────────────────────────────
 function initApp(): void {
   cleanLS();
   document.getElementById('ticker-count')!.textContent = 'CRF · ' + watchlist.length + ' TICKERS';
-  wireContextHighlight();
   fetchMarket();
   rolodex.sizeGateSpacer();
   renderRolodexFromWatchlist();
@@ -970,6 +1096,15 @@ async function boot(): Promise<void> {
 
   document.getElementById('analyzeAllBtn')!.addEventListener('click', analyzeAll);
   document.getElementById('importBtn')!.addEventListener('click', addTickers);
+  document.getElementById('agitatorCheckBtn')!.addEventListener('click', runAgitatorCheck);
+  document.getElementById('agitator-clear')!.addEventListener('click', () => {
+    var qEl = document.getElementById('agitator-query') as HTMLInputElement;
+    qEl.value = '';
+    qEl.focus();
+  });
+  document.getElementById('agitator-query')!.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key === 'Enter') { e.preventDefault(); runAgitatorCheck(); }
+  });
   const comebackClose = document.getElementById('comeback-close-btn');
   if (comebackClose) comebackClose.addEventListener('click', closeComebackScreen);
 

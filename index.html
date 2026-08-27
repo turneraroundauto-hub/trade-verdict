@@ -35,6 +35,7 @@
     --blue:      #4aa8ff;
     --blue-dim:  rgba(74,168,255,.14);
     --purple:    #ce93d8;
+    --purple-dim:rgba(206,147,216,.14);
     --mono: 'Martian Mono', ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
     --gate-docked-h: 44px;
     /* Legacy variable names the ported comeback-screen's inline styles
@@ -196,14 +197,48 @@
   }
 
   .ctx-box{ width:100%; background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:10px; font-family:var(--mono); color:var(--ink); font-size:13.5px; line-height:1.5; resize:none; margin-bottom:9px; }
+  .agitator-input-wrap{ position:relative; margin-bottom:9px; }
+  .agitator-input-wrap .ctx-box{ margin-bottom:0; padding-right:34px; }
+  .agitator-clear-btn{ position:absolute; right:6px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--ink-dim); font-size:15px; line-height:1; cursor:pointer; padding:6px; }
+  .agitator-clear-btn:hover{ color:var(--ink); }
+  .track-log-title{ font-size:11px; color:var(--ink-dim); letter-spacing:.08em; margin-bottom:6px; }
+  .trigger-row{ display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid var(--border); font-size:13px; }
+  .trigger-row:last-child{ border-bottom:none; }
+  .trigger-lbl{ font-size:13px; color:var(--ink); flex:1; }
+  .trigger-lbl-wrap{ display:flex; align-items:center; gap:4px; flex:1; }
+  .trigger-lbl-wrap .trigger-lbl{ flex:none; }
+  .trigger-val-wrap{ display:flex; align-items:center; gap:4px; }
+  .tq-price{ font-family:var(--mono); font-size:11px; color:var(--ink-dim); margin-left:6px; }
+  .tq-chg{ font-family:var(--mono); font-size:11px; font-weight:700; }
+  .factor-gauge{ position:relative; width:104px; height:14px; flex:none; }
+  .factor-gauge-bar{ position:absolute; left:0; right:0; bottom:1px; height:6px; border-radius:3px; overflow:hidden; display:flex; }
+  .factor-gauge-bar .fg-seg{ flex:1; }
+  .fg-seg.fg-green{ background:var(--green); opacity:.5; }
+  .fg-seg.fg-amber{ background:var(--amber); opacity:.5; }
+  .fg-seg.fg-red{ background:var(--red); opacity:.5; }
+  .factor-gauge-arrow{ position:absolute; top:0; width:0; height:0; border-left:4px solid transparent; border-right:4px solid transparent; border-top:6px solid var(--ink); transform:translateX(-50%); }
+  .trigger-val{ font-family:var(--mono); font-size:13px; font-weight:700; }
+  .trigger-sub{ font-size:11px; color:var(--ink-dim); }
+  .comp-chips{ display:flex; flex-wrap:wrap; align-items:stretch; border:1px solid var(--border); border-radius:8px; background:var(--surface-2); overflow:hidden; }
+  .comp-chip{ display:inline-flex; align-items:center; border-left:1px solid var(--border); }
+  .comp-chip:first-child{ border-left:none; }
+  .comp-chip-link{ display:inline-flex; align-items:center; gap:6px; text-decoration:none; padding:6px 4px 6px 10px; }
+  .comp-chip .cc-sym{ font-family:var(--mono); font-size:13px; font-weight:700; color:var(--ink); }
+  .comp-chip .cc-price{ font-family:var(--mono); font-size:11px; color:var(--ink-dim); }
+  .comp-chip .cc-chg{ font-family:var(--mono); font-size:11px; font-weight:700; }
+  .comp-chip-add{ background:none; border:none; color:var(--ink-dim); font-size:15px; line-height:1; cursor:pointer; padding:6px 10px 6px 4px; }
+  .comp-chip-add:hover{ color:var(--green); }
+  .comp-chip-add:disabled{ color:var(--green); cursor:default; }
   .ctx-box::placeholder{ color:var(--ink-dim); }
   .btn{ font-family:var(--mono); font-size:13px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; border-radius:8px; padding:9px 12px; border:1px solid; cursor:pointer; text-align:center; width:100%; background:transparent; }
   .btn-amber{ color:var(--amber); border-color:rgba(255,182,45,.4); background:var(--amber-dim); }
   .btn-blue{ color:var(--blue); border-color:rgba(74,168,255,.4); background:var(--blue-dim); }
+  .btn-purple{ color:var(--purple); border-color:rgba(206,147,216,.4); background:var(--purple-dim); }
   .btn:disabled{ opacity:.5; cursor:default; }
   .btn-compact{ width:auto; padding:8px 14px; }
   @keyframes runPulse{0%{box-shadow:0 0 0 0 rgba(74,168,255,.55)}70%{box-shadow:0 0 0 8px rgba(74,168,255,0)}100%{box-shadow:0 0 0 0 rgba(74,168,255,0)}}
   .btn-blue.btn-running:disabled{ opacity:1; animation:runPulse 1.2s ease-in-out infinite; }
+  .btn-purple.btn-running:disabled{ opacity:1; animation:runPulse 1.2s ease-in-out infinite; }
 
   .list-head{ display:flex; align-items:center; justify-content:space-between; padding:6px 4px 2px; font-size:13px; color:var(--ink-dim); letter-spacing:.08em; text-transform:uppercase; }
 
@@ -218,6 +253,7 @@
   .headline{ font-size:13px; color:var(--ink); margin-top:3px; line-height:1.45; }
   .headline a{ color:inherit; text-decoration:none; border-bottom:1px dotted currentColor; }
   .headline .age{ color:var(--ink-dim); }
+  .track-empty{ font-size:13px; color:var(--ink-dim); text-align:center; padding:16px 0; font-style:italic; }
   .ctx-match{ background:rgba(255,182,45,.22); color:var(--amber); border-radius:3px; padding:0 2px; font-weight:700; }
   .meta-row{ display:flex; gap:12px; font-size:13px; color:var(--ink-dim); margin-top:4px; flex-wrap:wrap; }
   .meta-row b{ color:var(--ink); font-weight:700; }
@@ -412,19 +448,23 @@
         </div></div></div>
       </div>
 
-      <div class="card" data-card="context" id="card-context">
+      <div class="card" data-card="agitator" id="card-agitator">
         <div class="card-head" tabindex="0" role="button" aria-expanded="false">
-          <span class="card-icon">✎</span>
+          <span class="card-icon">📡</span>
           <div class="card-title-wrap">
-            <div class="card-label">Session Context</div>
-            <div class="card-sub">Include Known Context</div>
+            <div class="card-label">Agitator Gauge</div>
+            <div class="card-sub">Validate a new interest</div>
           </div>
-          <button type="button" class="help-btn" data-help="context" aria-label="What is this?">?</button>
+          <button type="button" class="help-btn" data-help="agitator" aria-label="What is this?">?</button>
           <svg class="chevron" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
         <div class="card-body"><div class="card-body-inner"><div class="card-body-pad">
-          <textarea class="ctx-box" id="context-input" rows="2" placeholder="e.g. KOSPI down 4%, circuit breaker. NVDA earnings tomorrow..."></textarea>
-          <button class="btn btn-amber" id="analyzeAllBtn">Analyze All</button>
+          <div class="agitator-input-wrap">
+            <input class="ctx-box" id="agitator-query" placeholder="Ticker, company, or paste a headline/rumor...">
+            <button type="button" class="agitator-clear-btn" id="agitator-clear" aria-label="Clear">✕</button>
+          </div>
+          <button class="btn btn-purple" id="agitatorCheckBtn">Check Aggression</button>
+          <div id="agitator-body" style="margin-top:10px"></div>
         </div></div></div>
       </div>
 
@@ -441,6 +481,7 @@
         <div class="card-body"><div class="card-body-inner"><div class="card-body-pad">
           <textarea class="ctx-box" id="ticker-input" rows="2" placeholder="e.g. AAPL, Tesla, NVDA..."></textarea>
           <button class="btn btn-blue" id="importBtn">Import Tickers</button>
+          <button class="btn btn-amber" id="analyzeAllBtn" style="margin-top:8px">Analyze All</button>
         </div></div></div>
       </div>
 
@@ -491,7 +532,7 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=73"></script>
+<script type="module" src="./app.js?v=74"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
