@@ -6320,3 +6320,141 @@ something, build toward the metaphor and toward independently-checkable
 evidence first — don't stop at the first technically-correct
 implementation and wait for a correction round to find out it wasn't
 what was meant.**
+
+## Backend/Frontend: Agitator Gauge — comp validation, then replaces Session Context entirely (Aug 27, 2026)
+
+Two more direct-feedback rounds on the Agitator Gauge, after the saga above.
+
+**Round 6 — a resolved-but-junk symbol is worse than showing nothing
+(`trade-verdict` PR #232, `Tra` PR #66).** Live report: "I don't know what
+GDVM is, it doesn't return as a good symbol" — a Title-Case headline
+("Apple Is One of the Most Profitable Businesses in the World...") has
+almost every word capitalized, so the mention-scan's candidate extraction
+was treating common English words ("World", "Share", "One", ...) as
+company-name candidates; Finnhub's fuzzy search then matched them to
+real-but-irrelevant tickers, one with no live quote at all (GDVM) and one
+at a real $0.00 quote (PRDL). Fixed the same way the "Nvidia earnings
+beat" resolution bug was fixed earlier in this saga: validate against the
+real condition that matters (does the candidate have a real, positive
+live price) instead of trying to out-guess which capitalized words are
+"real" names with more stopwords. `computeAgitatorComps` now pulls a
+wider candidate pool (6) than the display limit (3) and only keeps
+candidates with a real positive quote; the `/agitator` mention-scan loop
+no longer stops early once N candidates are *found*, only once N are
+*scanned*, so a junk match doesn't consume a display slot a later real
+candidate could have filled. Same round also added a clear (X) button to
+the query input, Enter-to-submit, shortened the card subtitle, and
+changed the rating's caption from "X/10 · N/6 signals" to "X/10 avg. of
+6 signals" — all direct, itemized asks from the same message.
+
+**Round 7 — Session Context retired, Agitator takes its slot, ships to
+Free, results get "+" buttons (`trade-verdict` PR #233, `Tra` PR #67).**
+Direct instruction: "I want the agitator to replace the session context
+card, as I see it's obsolete. The simplified version can go to free as
+well. Add + buttons that add the tickers to the watchlist and faint
+vertical divider between the tickers so it's clear witch one is being
+added." Landed as one pass across all three tiers since it's the same
+card stack everywhere:
+
+- The Session Context card (`data-card="context"`) is gone from Free,
+  Starter, and Pro. Its "Analyze All" button — which had shared that
+  card's body with the context textarea the whole time, easy to miss
+  since removing the card would have silently taken the button with it
+  — moved into the Import card, right after "Import Tickers." Confirmed
+  by grep before touching anything, not assumed.
+- **Deliberately NOT a backend change.** `marketContext` is now always
+  sent as `''` from `analyzeOne()`, the same server-side state as any
+  user who simply never typed into the card — Proposal 4's own
+  corroboration check already treats a blank context as
+  informational-only, a normal supported case. Gate 2's corroboration
+  machinery, `highlightContextMatches()`, `refreshNewsHighlights()`, and
+  every backend Session-Context code path are untouched; only the UI
+  entry point is retired. `wireContextHighlight()` and its call site
+  were deleted outright (dead code once the element it reacted to can
+  never exist), not left behind as a defensively-guarded no-op.
+- The Agitator Gauge card now sits in Session Context's old slot (right
+  after Sector Pulse, before Import) on all three tiers — not just left
+  wherever it happened to already be. On Pro this was a real DOM move
+  across the sticky pill strip boundary (Agitator used to sit after
+  `#roloIndex`, grouped with Watchlist/Proxy/Heat Map/Track); its
+  dock-snap behavior adapts automatically since `shared/rolodex.ts`'s
+  `snapCardUnderDock()` already determines the correct dock offset via
+  `compareDocumentPosition()` against `#roloIndex`, not a hardcoded
+  per-tier list.
+- **Free gets the Agitator Gauge for the first time.** Backend:
+  `TIERS.free.agitator` flipped to `true`; Free's `tracker` flag is
+  already `false` (same as Starter), so the existing
+  `isFull = !!req.tierConfig?.tracker` gate in `/agitator` automatically
+  gives Free the simple LOW/MEDIUM/HIGH gauge with no sub-factor
+  breakdown — no new backend logic needed. Frontend: the whole feature
+  (`runAgitatorCheck`, `compChipHTML`, `factorGaugeHTML`,
+  `agitatorFactorRow`, the CSS) ported byte-for-byte from Starter's
+  implementation, since Free never had any of it — including CSS classes
+  (`.trigger-row`, `.factor-gauge`, `.agitator-input-wrap`, `--purple`/
+  `--purple-dim`, `.btn-purple`) that simply didn't exist on Free before.
+- **New `addKnownTicker(symbol)` in `shared/watchlist.ts`** — adds an
+  already-resolved, real ticker (the Agitator's own primary result or a
+  RELATED company, both of which always carry a live quote by the time
+  they're rendered) straight to the watchlist, skipping `addTickers()`'s
+  text-parsing/company-lookup path entirely. Same cap-eviction-confirm
+  behavior as a normal add (on Free's 3-ticker cap, already full with
+  the defaults, this means every add legitimately prompts the same
+  "remove your oldest ticker?" confirm `addTickers()` already uses).
+- **RELATED comps redesigned from separately-bordered pills into one
+  continuous strip.** Each ticker is now its own segment
+  (`.comp-chip`) inside a single bordered/backgrounded container
+  (`.comp-chips`), separated by a faint `border-left` on every segment
+  but the first — this, not a bigger visual overhaul, is what actually
+  answers "faint vertical divider between the tickers so it's clear
+  which one is being added": once every chip also carries its own "+"
+  button, the divider is what keeps adjacent tickers' controls from
+  reading as one ambiguous cluster. The primary ticker's row got the
+  same "+" treatment (via the same `addTickerBtnHTML()` helper), no
+  divider needed there since it's the only ticker on that row. An
+  already-present ticker renders as a disabled checkmark instead of a
+  dead "+", so it's clear at a glance which ones are already on the
+  list.
+
+**Also in this pass, from an earlier live report the same day: help
+balloons dismiss too fast.** "(?) balloons are too quick change time to
+5seconds per 4 lines." `shared/rolodex.ts`'s `initHelpBalloons` used a
+flat `HELP_BALLOON_MS = 5000` regardless of content length — tuned for a
+short balloon, reads as too quick on a long one. Fixed by measuring the
+balloon's own real rendered height once its content is set (`scrollHeight`
+minus the box's own vertical padding, divided by the actual computed
+`line-height`) and scaling the close timer to `Math.ceil(lines / 4) * 5000`
+— same "measure the real thing, don't guess from character count"
+discipline this file's own scroll/dock math has already learned the hard
+way applies here too.
+
+**Verified via real headless Chromium across all three tiers, not
+simulated:** confirmed Session Context is absent from the DOM everywhere;
+confirmed Agitator sits directly after Pulse and before Import on all
+three; confirmed Analyze All still works from inside Import; confirmed a
+primary-ticker "+" and a RELATED comp-chip "+" both correctly add to the
+watchlist, including exercising Free's real eviction-confirm dialog (a
+genuine `window.confirm()`, accepted via Playwright's `dialog` handler,
+not skipped); confirmed the divider CSS is real (`getComputedStyle`
+showed a nonzero `border-left-width` on the second chip, `none` on the
+first — not just present in the markup); confirmed Free's simple-gauge
+variant correctly omits the SIGNALS breakdown while Pro's full variant
+renders it; confirmed the help balloon's scheduled close duration
+(captured by wrapping `window.setTimeout` before navigation, not waited
+out in real wall-clock time) is a clean 5000ms-multiple that scales up
+for a longer entry. A real, self-inflicted testing bug caught along the
+way, worth remembering alongside this file's other testing-methodology
+lessons: the first attempt at the watchlist-add checks failed on Free
+specifically with no thrown error and no localStorage write at all —
+traced to Free's 3-ticker cap already being full with its own defaults,
+so the add correctly triggered the same eviction-`confirm()` dialog
+`addTickers()` already uses, which Playwright silently dismisses by
+default when nothing handles it. Not a bug in the feature; the test
+needed a `page.on('dialog', d => d.accept())` handler, the same as a real
+user clicking "OK."
+
+`shared/rolodex.ts`/`shared/watchlist.ts` changes cascaded through the
+full cache-busting chain on `?v=N` for every tier's own bundled
+`<script>` tag (each tier's `app.ts` content changed as a result); tsc
+(matching `tsconfig.json`'s compiler options) and the chunk-header grep
+both confirmed clean, no duplicate shared modules, across all three
+rebuilt bundles.
