@@ -2673,13 +2673,16 @@ async function renderScorecardCard() {
     el.innerHTML = '<div class="track-empty">Scorecard unavailable right now.</div>';
   }
 }
+function factorGaugeHTML(val) {
+  var pct = Math.max(0, Math.min(100, val));
+  var label = val >= 66 ? "High" : val >= 34 ? "Medium" : "Low";
+  return '<div class="factor-gauge" role="img" aria-label="' + label + '"><div class="factor-gauge-bar"><span class="fg-seg fg-green"></span><span class="fg-seg fg-amber"></span><span class="fg-seg fg-red"></span></div><div class="factor-gauge-arrow" style="left:' + pct + '%"></div></div>';
+}
 function agitatorFactorRow(label, helpKey, val) {
   var helpBtn = '<button type="button" class="help-btn" data-help="' + helpKey + '" aria-label="What is this?">?</button>';
   var lblHTML = '<span class="trigger-lbl-wrap"><span class="trigger-lbl">' + label + "</span>" + helpBtn + "</span>";
   if (val == null) return '<div class="trigger-row">' + lblHTML + '<span class="trigger-sub">n/a</span></div>';
-  var color = val >= 66 ? "var(--red)" : val >= 34 ? "var(--amber)" : "var(--green)";
-  var displayVal = Math.round(val / 10);
-  return '<div class="trigger-row">' + lblHTML + '<span class="trigger-val" style="color:' + color + '">' + displayVal + "/10</span></div>";
+  return '<div class="trigger-row">' + lblHTML + factorGaugeHTML(val) + "</div>";
 }
 function compChipHTML(c) {
   var color = c.direction === "green" ? "var(--green)" : c.direction === "red" ? "var(--red)" : "var(--ink-dim)";

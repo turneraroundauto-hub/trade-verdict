@@ -227,6 +227,13 @@
   .trigger-lbl{ font-size:13px; color:var(--ink); flex:1; }
   .trigger-lbl-wrap{ display:flex; align-items:center; gap:4px; flex:1; }
   .trigger-lbl-wrap .trigger-lbl{ flex:none; }
+  .factor-gauge{ position:relative; width:104px; height:14px; flex:none; }
+  .factor-gauge-bar{ position:absolute; left:0; right:0; bottom:1px; height:6px; border-radius:3px; overflow:hidden; display:flex; }
+  .factor-gauge-bar .fg-seg{ flex:1; }
+  .fg-seg.fg-green{ background:var(--green); opacity:.5; }
+  .fg-seg.fg-amber{ background:var(--amber); opacity:.5; }
+  .fg-seg.fg-red{ background:var(--red); opacity:.5; }
+  .factor-gauge-arrow{ position:absolute; top:0; width:0; height:0; border-left:4px solid transparent; border-right:4px solid transparent; border-top:6px solid var(--ink); transform:translateX(-50%); }
   .trigger-val{ font-family:var(--mono); font-size:13px; font-weight:700; }
   .trigger-sub{ font-size:11px; color:var(--ink-dim); }
   .comp-chips{ display:flex; flex-wrap:wrap; gap:6px; }
@@ -605,6 +612,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=81"></script>
+<script type="module" src="./app.js?v=82"></script>
 </body>
 </html>
