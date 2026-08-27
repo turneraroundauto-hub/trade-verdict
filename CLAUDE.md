@@ -6534,3 +6534,44 @@ shape (a generic roundup ranked first, a real Apple story ranked second
 behavior is unchanged. **Not verified against a live Finnhub/Alpaca
 response** — same standing sandbox limitation as every other integration
 in this file.
+
+## Backend: Agitator/Import company lookup couldn't find "Google" — consumer brand names vs. legal names (Aug 27, 2026, `trade-verdict` PR #237, `Tra` PR #69)
+
+Live report right after Round 8 above shipped: typing "Google" into the
+Agitator Gauge returned "Couldn't find a company for 'Google'." Root
+cause: `searchSymbolByName()` (shared by both `/lookup`, Import's
+company-name entry, and `/agitator`'s free-text query) routes through
+Finnhub's `/search`, which matches against a company's *registered
+legal name* — "ALPHABET INC-CL A" — not the consumer brand it trades
+under in everyday speech. Neither "Google" nor "Facebook" appears
+anywhere in "Alphabet Inc"/"Meta Platforms Inc", so a plain-text search
+for either finds nothing, even though GOOGL/GOOG and META obviously
+exist. This is a well-known, structural gap in name-search over a
+legal-entity database, not a Finnhub bug or a resolution-logic bug —
+the same underlying limitation that made the earlier "Nvidia earnings
+beat"/GDVM-PRDL rounds messy, just a different failure shape.
+
+**Fixed the same way the DRAM SEC-CIK gap was fixed** (see the Pre-Gate
+fund-ticker section above): a small, explicit, hand-confirmed
+`KNOWN_BRAND_TICKER_OVERRIDES` map, checked first inside
+`searchSymbolByName()` before any Finnhub call at all — guaranteed
+correct regardless of whatever Finnhub's fuzzy search actually does
+with the term, zero added latency or risk for every query that already
+resolves fine. Deliberately narrow: covers the reported case
+(`google`/`alphabet`/`youtube` → `GOOGL`) plus the one other
+universally-known instance of this exact bug class
+(`facebook`/`instagram`/`whatsapp` → `META`), not a speculative general
+brand-name database — same "pair the speculative mechanism with a
+small guaranteed override for the actually-reported case" lesson the
+Pre-Gate saga already taught.
+
+Since `searchSymbolByName()` is the shared resolver behind both
+surfaces, this one change fixes Import's company-name entry and the
+Agitator's free-text query identically.
+
+**Verified:** `node --check`/`npm test` (75/75) in both repos. **Not
+verified against a live Finnhub response** — same standing sandbox
+limitation as every other integration in this file; the override map
+itself is a static lookup with nothing live to verify for the reported
+case. To confirm live: type "Google" into the Agitator or Import on any
+tier and confirm it resolves to GOOGL.
