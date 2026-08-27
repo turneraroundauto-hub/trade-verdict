@@ -6734,3 +6734,19 @@ drag rewrite didn't disturb the original click-to-select path). `tsc`
 clean (known 7-error `?v=N` baseline only, zero new errors), `esbuild`
 rebuild + chunk-header grep confirmed no duplicate-module regression,
 `npm test` (75/75) unaffected.
+
+**Follow-up, same day (`trade-verdict` PR #245): "Neutral"/"Same as
+current analysis" replaced with "CRF Default."** Direct instruction.
+`DIAL_POSITIONS.NEUTRAL`'s label changed from `Neutral (default)` to
+`CRF Default`, and its five cadence/entries/stops/recheck/sizing values
+(each previously `Same as current analysis`) changed to `CRF default` —
+display text only, the underlying `NEUTRAL` key is untouched, so no
+backend change or risk to an already-stored `tv_dial_position` value.
+Also caught and fixed the same pass: the dial's own `(?)` help-balloon
+text on both tiers still referenced the pre-relabel jargon (Active/Swing,
+Position/Long, Neutral) predating even this section's own Aggressive/
+Passive relabel — updated to describe the dial using the same language
+actually shown on screen. Verified via real headless Chromium on both
+tiers: the tick label, the larger heading, and all five detail rows all
+render "CRF Default"/"CRF default" with zero remaining stale text
+anywhere in the card.
