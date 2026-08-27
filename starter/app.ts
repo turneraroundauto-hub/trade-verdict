@@ -480,7 +480,7 @@ function refreshRoloCards(): void {
 var DIAL_POSITIONS: Record<string, { label: string; cadence: string; entries: string; stops: string; recheck: string; sizing: string }> = {
   ACTIVE_SWING:  { label: 'Aggressive', cadence: 'Session-by-session', entries: 'Opening Drive, Pre-Catalyst Buildup, post-flush', stops: 'Tight (+4% / -1%)', recheck: 'Every session', sizing: 'Smaller, capped at HALF' },
   ACTIVE_LEAN:   { label: 'Light Aggressive', cadence: 'Daily', entries: 'Pre-Catalyst Buildup, post-flush (no Opening Drive)', stops: 'Standard (+4% / -3%)', recheck: 'Daily', sizing: 'Standard' },
-  NEUTRAL:       { label: 'Neutral (default)', cadence: 'Same as current analysis', entries: 'Same as current analysis', stops: 'Same as current analysis', recheck: 'Same as current analysis', sizing: 'Same as current analysis' },
+  NEUTRAL:       { label: 'CRF Default', cadence: 'CRF default', entries: 'CRF default', stops: 'CRF default', recheck: 'CRF default', sizing: 'CRF default' },
   POSITION_LEAN: { label: 'Light Passive', cadence: '2–3x per week', entries: 'Post-flush only', stops: 'Wider (-5%)', recheck: '2–3x per week', sizing: 'Larger, fewer concurrent' },
   POSITION_LONG: { label: 'Passive', cadence: 'Weekly', entries: 'Post-flush, full confirmation only', stops: 'Widest (-8%)', recheck: 'Weekly', sizing: 'Largest, fewest concurrent' },
 };
@@ -1231,7 +1231,7 @@ const HELP_CONTENT: Record<string, string> = {
   'agitator-swing': 'How easily this stock’s price can be pushed around. Smaller, thinly-traded stocks swing more on the same amount of buying or selling.',
   'agitator-expected-move': 'How much price movement the options market is already betting on for this stock, right now.',
   'agitator-past': 'How this stock has reacted to similar news before. Not tracked yet in this app, so it always shows as unavailable.',
-  dial: 'Sets your monitoring cadence and holding-period posture — Starter offers Active-Lean, Neutral (default), and Position-Lean; Pro adds the more aggressive Active/Swing and more patient Position/Long positions. Neutral behaves exactly like every other tier. Active-Lean never inflates sizing beyond what your gates already earned. A real earnings print always blocks new entries first, at every position, unless you explicitly hold through it for that one check. Monitoring cadence, entry guidance, stop guidance, and recheck interval are informational — this app doesn’t place real stop orders or send reminders yet.',
+  dial: 'Sets your monitoring cadence and holding-period posture — Starter offers Light Aggressive, CRF Default, and Light Passive; Pro adds the full-strength Aggressive position above and the full-strength Passive position below. CRF Default behaves exactly like every other tier. Light Aggressive never inflates sizing beyond what your gates already earned. A real earnings print always blocks new entries first, at every position, unless you explicitly hold through it for that one check. Monitoring cadence, entry guidance, stop guidance, and recheck interval are informational — this app doesn’t place real stop orders or send reminders yet.',
 };
 
 // ── init ────────────────────────────────────────────────────────────
