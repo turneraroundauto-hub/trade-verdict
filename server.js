@@ -2567,24 +2567,28 @@ app.get("/agitator", async (req, res) => {
   const raw = String(req.query.q || "").trim();
   if (!raw) return res.status(400).json({ error: "q is required" });
   let headlineOverride = req.query.headline ? String(req.query.headline).trim() : null;
-  const looksLikeName = raw.split(/\s+/).length <= 4 && !/[.!?]$/.test(raw);
 
   try {
+    // No word-count/punctuation heuristic -- mirror-only, see Tra's
+    // server.js for the full write-up of the same-day bug this replaces.
     let symbol = null;
-    if (looksLikeName) {
-      symbol = /^[A-Z]{1,6}$/.test(raw) ? raw : await searchSymbolByName(raw);
+    let directMatch = false;
+    if (/^[A-Z]{1,6}$/.test(raw)) {
+      symbol = raw;
+      directMatch = true;
     } else {
       symbol = await searchSymbolByName(raw);
-      if (!symbol) {
+      if (symbol) directMatch = true;
+      else {
         for (const candidate of extractCompanyCandidates(raw)) {
           symbol = await searchSymbolByName(candidate);
           if (symbol) break;
         }
       }
-      if (symbol && !headlineOverride) headlineOverride = raw;
     }
     if (!symbol) return res.json({ resolved: false, query: raw });
     symbol = symbol.toUpperCase();
+    if (!directMatch && !headlineOverride) headlineOverride = raw;
 
     const isFull = !!req.tierConfig?.tracker;
     const [fundamentals, quote, news] = await Promise.all([
