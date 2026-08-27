@@ -6458,3 +6458,79 @@ full cache-busting chain on `?v=N` for every tier's own bundled
 (matching `tsconfig.json`'s compiler options) and the chunk-header grep
 both confirmed clean, no duplicate shared modules, across all three
 rebuilt bundles.
+
+**Round 8 — real news, and a correction of this session's own
+mid-flight redesign (`trade-verdict` PR #235, `Tra` PR #68).** Two
+issues from the same live round, one a real backend bug, one a direct
+course-correction on UI still being built.
+
+**"we still have an issue with the news link when a ticker is searched,
+I'm not getting related news at all."** A screenshot showed a bare
+"Apple" search surfacing "Explore the top gainers and losers within the
+dow jones index in today's session." as its headline — a real,
+technically-associated article (AAPL is a Dow constituent) with zero
+substantive connection to Apple itself. Root cause: `fetchFinnhubNews`/
+`fetchAlpacaNews` have always just picked the single most-recent article
+in the freshness window for a symbol — the exact same behavior the
+regular ticker-card news strip already relies on, so this wasn't a new
+bug, just one the Agitator's own "type a company, get real evidence"
+framing (Round 5's own lesson) made much more visible than a card's
+passive news line ever would.
+
+**Fix: prefer relevance, never require it.** New `isHeadlineRelevant
+(headline, symbol, companyName)` — true if the headline mentions the
+ticker itself, or the company's own name (stripped of legal suffixes
+like Inc/Corp/Ltd via regex, first remaining word used as the match
+term) sourced from `fetchTickerFundamentals`'s existing profile data.
+Both fetch functions now do `articles.find(relevant) || articles[0]` —
+a relevant match wins when one exists, but the prior most-recent-article
+behavior is always the fallback, so this can only improve or exactly
+match existing behavior everywhere else `fetchNews` is called (the
+plain `/ticker/:symbol` card-news path passes no `companyName` and is
+completely untouched). `computeAgitatorComps` now fetches each RELATED
+company's own fundamentals + relevance-filtered news the same way, so
+comps can show real per-company news instead of none at all.
+
+**"the recommendation tickers are in neat chips. the new way with the +
+buttons is confusing..." then, mid-implementation of that feedback:
+"actually do the recommendations exactly like they are in the overflow
+watchlist in Pro. with news links all the same."** Round 7's
+"faint-divider chip strip" redesign (previous entry above) was itself
+the thing being corrected here — a half-built second redesign attempt
+(a bigger "+" to the left of each chip) was abandoned mid-flight the
+moment this message landed, in favor of a concrete, unambiguous
+instruction: stop inventing a bespoke component and reuse one that
+already exists and is already approved. **Lesson, worth keeping next to
+Round 1-5's own "build toward the metaphor, not the literal reading"
+takeaway: when a user names a specific, already-shipped UI element as
+the reference ("exactly like X"), that ends the design exploration —
+don't keep iterating on an original approach hoping a variant of it will
+land, reuse the named thing.**
+
+`compChipHTML` renamed to `relatedRowHTML` and rewritten to emit Pro's
+existing `.compact-row-wrap`/`.compact-row` markup verbatim (ticker/
+price/%chg on top, a real news headline below, a `.compact-plus-btn` —
+the exact same structure/classes as Pro's Watchlist-overflow accordion
+list), on all three tiers, not just Pro. `addTickerBtnHTML()` switched
+from the retired `.comp-chip-add` class to `.compact-plus-btn` to match.
+The now-dead `.comp-chips`/`.comp-chip`/`.comp-chip-add` CSS (Round 7's
+own redesign) was removed outright from all three tiers' `index.html`,
+not left behind unused.
+
+**Verified:** `node --check`/`npm test` (75/75) in both repos; `tsc`
+against each tier's own `app.ts` (known `?v=N` baseline only); a 39-check
+real headless-Chromium pass across Free/Starter/Pro confirming zero
+leftover `.comp-chip` classes anywhere in the DOM, correct
+`.compact-row-wrap` structure for both the primary ticker and every
+RELATED comp, real news rendering for a comp with news (and the news
+line correctly absent for one without), news links using `newsHref()` —
+matching the overflow list's own established convention exactly, not
+the raw fetched article URL — and `+` clicks on both the primary ticker
+and a RELATED comp correctly adding to the watchlist and flipping to a
+disabled checkmark. A standalone Node simulation (5 cases) independently
+confirmed the relevance-filter logic, including the exact reported bug
+shape (a generic roundup ranked first, a real Apple story ranked second
+→ the real one wins) and confirmed the `/ticker/:symbol` call site's
+behavior is unchanged. **Not verified against a live Finnhub/Alpaca
+response** — same standing sandbox limitation as every other integration
+in this file.
