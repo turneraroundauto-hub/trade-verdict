@@ -1975,11 +1975,11 @@ function refreshRoloCards() {
   });
 }
 var DIAL_POSITIONS = {
-  ACTIVE_SWING: { label: "Active/Swing", cadence: "Session-by-session", entries: "Opening Drive, Pre-Catalyst Buildup, post-flush", stops: "Tight (+4% / -1%)", recheck: "Every session", sizing: "Smaller, capped at HALF" },
-  ACTIVE_LEAN: { label: "Active-Lean", cadence: "Daily", entries: "Pre-Catalyst Buildup, post-flush (no Opening Drive)", stops: "Standard (+4% / -3%)", recheck: "Daily", sizing: "Standard" },
+  ACTIVE_SWING: { label: "Aggressive", cadence: "Session-by-session", entries: "Opening Drive, Pre-Catalyst Buildup, post-flush", stops: "Tight (+4% / -1%)", recheck: "Every session", sizing: "Smaller, capped at HALF" },
+  ACTIVE_LEAN: { label: "Light Aggressive", cadence: "Daily", entries: "Pre-Catalyst Buildup, post-flush (no Opening Drive)", stops: "Standard (+4% / -3%)", recheck: "Daily", sizing: "Standard" },
   NEUTRAL: { label: "Neutral (default)", cadence: "Same as current analysis", entries: "Same as current analysis", stops: "Same as current analysis", recheck: "Same as current analysis", sizing: "Same as current analysis" },
-  POSITION_LEAN: { label: "Position-Lean", cadence: "2\u20133x per week", entries: "Post-flush only", stops: "Wider (-5%)", recheck: "2\u20133x per week", sizing: "Larger, fewer concurrent" },
-  POSITION_LONG: { label: "Position/Long", cadence: "Weekly", entries: "Post-flush, full confirmation only", stops: "Widest (-8%)", recheck: "Weekly", sizing: "Largest, fewest concurrent" }
+  POSITION_LEAN: { label: "Light Passive", cadence: "2\u20133x per week", entries: "Post-flush only", stops: "Wider (-5%)", recheck: "2\u20133x per week", sizing: "Larger, fewer concurrent" },
+  POSITION_LONG: { label: "Passive", cadence: "Weekly", entries: "Post-flush, full confirmation only", stops: "Widest (-8%)", recheck: "Weekly", sizing: "Largest, fewest concurrent" }
 };
 var DIAL_ORDER = ["ACTIVE_LEAN", "NEUTRAL", "POSITION_LEAN"];
 function getDialPosition() {
@@ -2007,8 +2007,47 @@ function renderDialCard() {
   }).join("");
   var el = document.getElementById("dial-body");
   if (el) {
-    el.innerHTML = '<div class="dial-track"><div class="dial-thumb" style="left:' + activePct + '%"></div>' + ticks + '</div><div class="dial-labels">' + labels + '</div><div class="track-log-title" style="margin-top:10px">' + d.label + '</div><div class="trigger-row"><span class="trigger-lbl">Monitoring cadence</span><span class="trigger-sub">' + d.cadence + '</span></div><div class="trigger-row"><span class="trigger-lbl">Entry guidance</span><span class="trigger-sub">' + d.entries + '</span></div><div class="trigger-row"><span class="trigger-lbl">Stop guidance</span><span class="trigger-sub">' + d.stops + '</span></div><div class="trigger-row"><span class="trigger-lbl">Recheck interval</span><span class="trigger-sub">' + d.recheck + '</span></div><div class="trigger-row"><span class="trigger-lbl">Position size</span><span class="trigger-sub">' + d.sizing + "</span></div>";
+    el.innerHTML = '<div class="dial-track" id="dial-track"><div class="dial-thumb" id="dial-thumb" style="left:' + activePct + '%"></div>' + ticks + '</div><div class="dial-labels">' + labels + '</div><div class="track-log-title" style="margin-top:10px">' + d.label + '</div><div class="trigger-row"><span class="trigger-lbl">Monitoring cadence</span><span class="trigger-sub">' + d.cadence + '</span></div><div class="trigger-row"><span class="trigger-lbl">Entry guidance</span><span class="trigger-sub">' + d.entries + '</span></div><div class="trigger-row"><span class="trigger-lbl">Stop guidance</span><span class="trigger-sub">' + d.stops + '</span></div><div class="trigger-row"><span class="trigger-lbl">Recheck interval</span><span class="trigger-sub">' + d.recheck + '</span></div><div class="trigger-row"><span class="trigger-lbl">Position size</span><span class="trigger-sub">' + d.sizing + "</span></div>";
+    wireDialDrag();
   }
+}
+var dialDragging = false;
+function dialPosFromClientX(clientX) {
+  var track = document.getElementById("dial-track");
+  var n = DIAL_ORDER.length;
+  if (!track || n < 2) return getDialPosition();
+  var rect = track.getBoundingClientRect();
+  var frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  var idx = Math.round(frac * (n - 1));
+  return DIAL_ORDER[idx];
+}
+function wireDialDrag() {
+  var track = document.getElementById("dial-track");
+  var thumb = document.getElementById("dial-thumb");
+  if (!track || !thumb) return;
+  function onMove(e) {
+    if (!dialDragging) return;
+    var p = dialPosFromClientX(e.clientX);
+    if (p !== getDialPosition()) setDialPosition(p);
+  }
+  function onUp() {
+    dialDragging = false;
+    document.removeEventListener("pointermove", onMove);
+    document.removeEventListener("pointerup", onUp);
+  }
+  function onDown(e) {
+    dialDragging = true;
+    var p = dialPosFromClientX(e.clientX);
+    if (p !== getDialPosition()) setDialPosition(p);
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    e.preventDefault();
+  }
+  thumb.addEventListener("pointerdown", onDown);
+  track.addEventListener("pointerdown", function(e) {
+    if (e.target === thumb) return;
+    onDown(e);
+  });
 }
 async function analyzeOne(sym, holdThroughEarnings) {
   const state = tickerState.get(sym);

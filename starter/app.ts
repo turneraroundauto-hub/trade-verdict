@@ -478,11 +478,11 @@ function refreshRoloCards(): void {
 // -- this is the client half of the same defense-in-depth pattern the
 // app already uses elsewhere (e.g. MAX_TICKERS).
 var DIAL_POSITIONS: Record<string, { label: string; cadence: string; entries: string; stops: string; recheck: string; sizing: string }> = {
-  ACTIVE_SWING:  { label: 'Active/Swing', cadence: 'Session-by-session', entries: 'Opening Drive, Pre-Catalyst Buildup, post-flush', stops: 'Tight (+4% / -1%)', recheck: 'Every session', sizing: 'Smaller, capped at HALF' },
-  ACTIVE_LEAN:   { label: 'Active-Lean', cadence: 'Daily', entries: 'Pre-Catalyst Buildup, post-flush (no Opening Drive)', stops: 'Standard (+4% / -3%)', recheck: 'Daily', sizing: 'Standard' },
+  ACTIVE_SWING:  { label: 'Aggressive', cadence: 'Session-by-session', entries: 'Opening Drive, Pre-Catalyst Buildup, post-flush', stops: 'Tight (+4% / -1%)', recheck: 'Every session', sizing: 'Smaller, capped at HALF' },
+  ACTIVE_LEAN:   { label: 'Light Aggressive', cadence: 'Daily', entries: 'Pre-Catalyst Buildup, post-flush (no Opening Drive)', stops: 'Standard (+4% / -3%)', recheck: 'Daily', sizing: 'Standard' },
   NEUTRAL:       { label: 'Neutral (default)', cadence: 'Same as current analysis', entries: 'Same as current analysis', stops: 'Same as current analysis', recheck: 'Same as current analysis', sizing: 'Same as current analysis' },
-  POSITION_LEAN: { label: 'Position-Lean', cadence: '2–3x per week', entries: 'Post-flush only', stops: 'Wider (-5%)', recheck: '2–3x per week', sizing: 'Larger, fewer concurrent' },
-  POSITION_LONG: { label: 'Position/Long', cadence: 'Weekly', entries: 'Post-flush, full confirmation only', stops: 'Widest (-8%)', recheck: 'Weekly', sizing: 'Largest, fewest concurrent' },
+  POSITION_LEAN: { label: 'Light Passive', cadence: '2–3x per week', entries: 'Post-flush only', stops: 'Wider (-5%)', recheck: '2–3x per week', sizing: 'Larger, fewer concurrent' },
+  POSITION_LONG: { label: 'Passive', cadence: 'Weekly', entries: 'Post-flush, full confirmation only', stops: 'Widest (-8%)', recheck: 'Weekly', sizing: 'Largest, fewest concurrent' },
 };
 var DIAL_ORDER = ['ACTIVE_LEAN', 'NEUTRAL', 'POSITION_LEAN'];
 function getDialPosition(): string {
@@ -494,11 +494,12 @@ function setDialPosition(pos: string): void {
   localStorage.setItem('tv_dial_position', pos);
   renderDialCard();
 }
-// Real slider (Aug 26, 2026 rework, same day) -- a track with a moving
-// thumb, not a row of freestanding buttons, so "Dial" reads as an actual
-// tuning control. Every tick is its own click target, plus its own label
-// underneath (a bigger, easier tap target on mobile) -- both call
-// setDialPosition(), so tapping either the tick or its label works.
+// Real slider (Aug 26, 2026 rework; drag support added Aug 27, 2026 --
+// direct report: "the aggressive slider bar doesn't slide"). Tapping a
+// tick or its label still works (setDialPosition() directly), but the
+// track/thumb are now genuinely draggable too -- wireDialDrag() re-runs
+// after every render since dial-body's innerHTML (and so the track/thumb
+// elements themselves) is fully replaced on every position change.
 function renderDialCard(): void {
   var pos = getDialPosition();
   var d = DIAL_POSITIONS[pos];
@@ -515,7 +516,7 @@ function renderDialCard(): void {
   }).join('');
   var el = document.getElementById('dial-body');
   if (el) {
-    el.innerHTML = '<div class="dial-track"><div class="dial-thumb" style="left:' + activePct + '%"></div>' + ticks + '</div>'
+    el.innerHTML = '<div class="dial-track" id="dial-track"><div class="dial-thumb" id="dial-thumb" style="left:' + activePct + '%"></div>' + ticks + '</div>'
       + '<div class="dial-labels">' + labels + '</div>'
       + '<div class="track-log-title" style="margin-top:10px">' + d.label + '</div>'
       + '<div class="trigger-row"><span class="trigger-lbl">Monitoring cadence</span><span class="trigger-sub">' + d.cadence + '</span></div>'
@@ -523,7 +524,52 @@ function renderDialCard(): void {
       + '<div class="trigger-row"><span class="trigger-lbl">Stop guidance</span><span class="trigger-sub">' + d.stops + '</span></div>'
       + '<div class="trigger-row"><span class="trigger-lbl">Recheck interval</span><span class="trigger-sub">' + d.recheck + '</span></div>'
       + '<div class="trigger-row"><span class="trigger-lbl">Position size</span><span class="trigger-sub">' + d.sizing + '</span></div>';
+    wireDialDrag();
   }
+}
+var dialDragging = false;
+// Re-queries #dial-track on every call rather than closing over the
+// element captured at wireDialDrag()-call-time -- setDialPosition()
+// (called mid-drag, on every snap change) re-runs renderDialCard(),
+// which replaces dial-body's whole innerHTML, so a captured reference
+// would go stale (detached, zero-size getBoundingClientRect) the moment
+// the position changes once during a drag.
+function dialPosFromClientX(clientX: number): string {
+  var track = document.getElementById('dial-track');
+  var n = DIAL_ORDER.length;
+  if (!track || n < 2) return getDialPosition();
+  var rect = track.getBoundingClientRect();
+  var frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  var idx = Math.round(frac * (n - 1));
+  return DIAL_ORDER[idx];
+}
+function wireDialDrag(): void {
+  var track = document.getElementById('dial-track');
+  var thumb = document.getElementById('dial-thumb');
+  if (!track || !thumb) return;
+  function onMove(e: PointerEvent): void {
+    if (!dialDragging) return;
+    var p = dialPosFromClientX(e.clientX);
+    if (p !== getDialPosition()) setDialPosition(p);
+  }
+  function onUp(): void {
+    dialDragging = false;
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+  }
+  function onDown(e: PointerEvent): void {
+    dialDragging = true;
+    var p = dialPosFromClientX(e.clientX);
+    if (p !== getDialPosition()) setDialPosition(p);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    e.preventDefault();
+  }
+  thumb.addEventListener('pointerdown', onDown);
+  track.addEventListener('pointerdown', function (e: PointerEvent) {
+    if (e.target === thumb) return; // thumb's own listener already handles this
+    onDown(e);
+  });
 }
 // ── ANALYZE — real, credit-consuming /analyze call ────────────────────
 async function analyzeOne(sym: string, holdThroughEarnings?: boolean): Promise<void> {
