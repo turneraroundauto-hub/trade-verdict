@@ -6617,3 +6617,38 @@ every other Alpaca integration in this file. To confirm live: re-check
 a ticker with a known after-hours move during the 4-8pm ET window and
 confirm the Agitator's price/% change reflects it instead of the frozen
 regular-session close.
+
+## Frontend: Agitator flat price moves rendered the same grey as no-data (Aug 27, 2026, `trade-verdict` PR #241)
+
+Live report: a real, small positive move (BRAI `+0.37%`) in the
+Agitator's RELATED list rendered in the same dim grey as a genuinely
+missing price — reading as "no data available" instead of a real,
+if muted, signal.
+
+**Root cause.** `fetchQuote()`'s `direction` field uses a ±0.5% neutral
+band (`pct >= 0.5` green, `<= -0.5` red, otherwise "flat") — a real,
+distinct reading, not an absence of data. Both places that colored a
+comp row or the primary ticker's own live quote off `direction`
+(`relatedRowHTML`'s comp coloring and the primary ticker's `tqColor`,
+each duplicated across all three tiers — 6 call sites total) mapped
+`"flat"` to `var(--ink-dim)`, the exact same token this app already
+uses elsewhere for genuinely-missing values (e.g. `c.price ? ... :
+'&mdash;'`'s em-dash fallback) — so a real neutral reading and "no
+data" were visually indistinguishable.
+
+**Fix:** changed the fallback branch in all 6 places from
+`var(--ink-dim)` to `var(--amber)`, matching this app's existing
+traffic-light convention — amber already means caution/neutral
+everywhere else in the app (gate `YELLOW` status, `MEDIUM` confidence,
+`HALF`/`QUARTER` sizing) — rather than reusing the "no data" grey for a
+real, if unremarkable, price reading.
+
+**Verified via real headless Chromium** against a realistic mocked
+`/agitator` response: a real rally (TEAM `+8.79%`) still renders green
+for both the ticker symbol and its % change; a flat move (BRAI
+`+0.37%`, `direction:"flat"`) now renders amber for both; and the
+primary ticker's own `.tq-chg` quote badge renders amber under the same
+flat direction. `tsc` clean (known `?v=N` baseline only), `esbuild`
+rebuild + chunk-header grep confirmed no duplicate-module regression,
+`npm test` (75/75) unaffected — this is a pure frontend color fix, no
+backend/`Tra` change needed.
