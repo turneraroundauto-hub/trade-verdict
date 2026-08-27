@@ -1084,10 +1084,29 @@ async function renderScorecardCard(): Promise<void> {
 // through the same searchSymbolByName() lookup Import already uses; the
 // optional headline box lets a specific rumor/story override whatever
 // the server would otherwise pull as the ticker's own latest headline.
-function agitatorFactorRow(label: string, val: number | null): string {
-  if (val == null) return '<div class="trigger-row"><span class="trigger-lbl">' + label + '</span><span class="trigger-sub">n/a</span></div>';
+// Reworked Aug 27, 2026 (direct feedback, same day as the redesign):
+// plain-English 1-2 word labels instead of market jargon ("Positioning
+// (fresh vs priced-in)" -> "Freshness", "Cross-Asset Exposure" ->
+// "Ripple Effect", "Liquidity Sensitivity" -> "Swing Risk", "Options/IV
+// Environment" -> "Expected Move") -- "Positioning" and "Exposure" were
+// flagged specifically as terms that mean wildly different things
+// depending on context, so both were renamed to something that only
+// means one thing. Each row now carries its own (?) button (reusing the
+// same rolodex.initHelpBalloons() mechanism the card headers already
+// use -- it's a document-wide delegated listener on any [data-help], not
+// scoped to card headers, so no new plumbing was needed) for anyone who
+// wants the deeper definition without cluttering the row itself.
+// Displayed 0-10 instead of the real underlying 0-100 -- "a barometer,
+// not a spreadsheet" was the explicit framing. The real 0-100 value
+// still drives the red/amber/green threshold coloring so a rounding
+// quirk at the display layer can never flip which color a value shows.
+function agitatorFactorRow(label: string, helpKey: string, val: number | null): string {
+  var helpBtn = '<button type="button" class="help-btn" data-help="' + helpKey + '" aria-label="What is this?">?</button>';
+  var lblHTML = '<span class="trigger-lbl-wrap"><span class="trigger-lbl">' + label + '</span>' + helpBtn + '</span>';
+  if (val == null) return '<div class="trigger-row">' + lblHTML + '<span class="trigger-sub">n/a</span></div>';
   var color = val >= 66 ? 'var(--red)' : val >= 34 ? 'var(--amber)' : 'var(--green)';
-  return '<div class="trigger-row"><span class="trigger-lbl">' + label + '</span><span class="trigger-val" style="color:' + color + '">' + val + '</span></div>';
+  var displayVal = Math.round(val / 10);
+  return '<div class="trigger-row">' + lblHTML + '<span class="trigger-val" style="color:' + color + '">' + displayVal + '/10</span></div>';
 }
 // A comp is a real Finnhub industry peer with a live price/% change now
 // (not a correlation float against an unrelated macro proxy) -- rendered
@@ -1120,23 +1139,24 @@ async function runAgitatorCheck(): Promise<void> {
 
     var comp = data.composite;
     var gaugeColor = !comp ? 'var(--ink-dim)' : comp.level === 'HIGH' ? 'var(--red)' : comp.level === 'MEDIUM' ? 'var(--amber)' : 'var(--green)';
-    var gaugeHTML = '<div class="trigger-row"><span class="trigger-lbl"><a href="' + tickerHref(data.symbol) + '" target="_blank">' + data.symbol + '</a></span>'
+    var gaugeHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl"><a href="' + tickerHref(data.symbol) + '" target="_blank">' + data.symbol + '</a></span>'
+      + '<button type="button" class="help-btn" data-help="agitator-score" aria-label="What is this?">?</button></span>'
       + '<span class="trigger-val" style="color:' + gaugeColor + '">' + (comp ? comp.level : 'N/A') + '</span>'
-      + '<span class="trigger-sub">' + (comp ? comp.score + '/100 · ' + comp.factorCount + '/6 factors' : 'no data') + '</span></div>';
+      + '<span class="trigger-sub">' + (comp ? Math.round(comp.score / 10) + '/10 · ' + comp.factorCount + '/6 signals' : 'no data') + '</span></div>';
 
     // data.factors is only present for "full" tiers (server-side isFull
     // gate, Aug 26 2026 Phase 0 fix) -- a simple-gauge tier gets the
     // composite level/score above with no breakdown at all, by design.
     var f = data.factors;
     var factorsHTML = f
-      ? '<div class="track-log-title" style="margin-top:10px">SUB-FACTORS</div>'
-        + agitatorFactorRow('Surprise', f.surprise)
-        + agitatorFactorRow('Uncertainty', f.uncertainty)
-        + agitatorFactorRow('Positioning (fresh vs priced-in)', f.positioning)
-        + agitatorFactorRow('Cross-Asset Exposure', f.crossAsset)
-        + agitatorFactorRow('Liquidity Sensitivity', f.liquidity)
-        + agitatorFactorRow('Options/IV Environment', f.ivEnvironment)
-        + '<div class="trigger-row"><span class="trigger-lbl">Historical Reaction</span><span class="trigger-sub">not tracked yet</span></div>'
+      ? '<div class="track-log-title" style="margin-top:10px">SIGNALS</div>'
+        + agitatorFactorRow('Surprise', 'agitator-surprise', f.surprise)
+        + agitatorFactorRow('Uncertainty', 'agitator-uncertainty', f.uncertainty)
+        + agitatorFactorRow('Freshness', 'agitator-freshness', f.positioning)
+        + agitatorFactorRow('Ripple Effect', 'agitator-ripple', f.crossAsset)
+        + agitatorFactorRow('Swing Risk', 'agitator-swing', f.liquidity)
+        + agitatorFactorRow('Expected Move', 'agitator-expected-move', f.ivEnvironment)
+        + '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl">Past Reactions</span><button type="button" class="help-btn" data-help="agitator-past" aria-label="What is this?">?</button></span><span class="trigger-sub">not tracked yet</span></div>'
       : '';
 
     // Hyperlinked whenever it's a real, fetched article (headlineUsedUrl
@@ -1545,7 +1565,15 @@ const HELP_CONTENT: Record<string, string> = {
   heatmap: 'A color-coded snapshot of fixed sectors plus every ticker in your watchlist, sorted by % change.',
   track: 'Your logged verdict history — hit rate by gate trigger and by ticker. Log ✓ RIGHT / ✗ WRONG after the session closes to build a real accuracy record.',
   scorecard: 'Real, server-graded accuracy — every verdict is automatically checked against the actual price move ~3 trading days later, no manual logging needed. Suppressed until at least 20 verdicts have been graded.',
-  agitator: 'A standalone discovery tool for proofing a new stock interest or a media rumor BEFORE it enters your watchlist — free, no credit cost. Type a ticker, a company name, or paste a full headline/rumor — one box handles all three — and get a LOW/MEDIUM/HIGH read across 6 real factors, plus a few real related companies to also check. Historical Reaction isn’t tracked yet, so it’s shown but never scored.',
+  agitator: 'A standalone discovery tool for proofing a new stock interest or a media rumor BEFORE it enters your watchlist — free, no credit cost. Type a ticker, a company name, or paste a full headline/rumor — one box handles all three — and get a LOW/MEDIUM/HIGH read across 6 real signals, plus a few real related companies to also check. Past Reactions isn’t tracked yet, so it’s shown but never scored.',
+  'agitator-score': 'One overall number, 0-10, averaging the 6 signals below it — a quick read on how big a deal this news might be for the stock, not a precise measurement.',
+  'agitator-surprise': 'How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.',
+  'agitator-uncertainty': 'How unclear it still is to everyone how big a deal this actually is. High means the market hasn’t figured out how to react yet.',
+  'agitator-freshness': 'Is this brand-new information nobody has reacted to yet (high), or something already known and priced in days ago (low)?',
+  'agitator-ripple': 'How likely this is to also move other related stocks, the sector, or the broader market — not just this one company.',
+  'agitator-swing': 'How easily this stock’s price can be pushed around. Smaller, thinly-traded stocks swing more on the same amount of buying or selling.',
+  'agitator-expected-move': 'How much price movement the options market is already betting on for this stock, right now.',
+  'agitator-past': 'How this stock has reacted to similar news before. Not tracked yet in this app, so it always shows as unavailable.',
   dial: 'Sets your monitoring cadence and holding-period posture — Active/Swing (watching the tape) through Position/Long (check in occasionally). Neutral (default) behaves exactly like every other tier. Active/Swing caps position sizing at HALF; nothing on this dial ever inflates a sizing your gates didn’t already earn. A real earnings print always blocks new entries first, at every position, unless you explicitly hold through it for that one check. Monitoring cadence, entry guidance, stop guidance, and recheck interval are informational — this app doesn’t place real stop orders or send reminders yet.',
 };
 
