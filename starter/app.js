@@ -2453,7 +2453,7 @@ function agitatorFactorRow(label, helpKey, val) {
 }
 function addTickerBtnHTML(symbol) {
   var already = watchlist.includes(symbol);
-  return '<button type="button" class="comp-chip-add" data-add-ticker="' + symbol + '"' + (already ? ' disabled aria-label="Already on your watchlist">\u2713' : ' aria-label="Add ' + symbol + ' to watchlist">+') + "</button>";
+  return '<button type="button" class="compact-plus-btn" data-add-ticker="' + symbol + '"' + (already ? ' disabled title="Already on your watchlist">\u2713' : ' title="Add ' + symbol + ' to watchlist">+') + "</button>";
 }
 function wireAgitatorAddButtons(scope) {
   scope.querySelectorAll("[data-add-ticker]").forEach(function(b) {
@@ -2468,9 +2468,13 @@ function wireAgitatorAddButtons(scope) {
     });
   });
 }
-function compChipHTML(c) {
+function relatedRowHTML(c) {
+  var t = c.symbol;
   var color = c.direction === "green" ? "var(--green)" : c.direction === "red" ? "var(--red)" : "var(--ink-dim)";
-  return '<span class="comp-chip"><a class="comp-chip-link" href="' + tickerHref(c.symbol) + '" target="_blank"><span class="cc-sym">' + c.symbol + "</span>" + (c.price ? '<span class="cc-price">$' + c.price + "</span>" : "") + (c.change ? '<span class="cc-chg" style="color:' + color + '">' + c.change + "</span>" : "") + "</a>" + addTickerBtnHTML(c.symbol) + "</span>";
+  var hasNews = !!(c.news && c.news.ageHours <= 300);
+  var ctxEl = document.getElementById("context-input");
+  var ctxVal = ctxEl ? ctxEl.value : "";
+  return '<div class="compact-row-wrap" data-ticker="' + t + '"><div class="compact-row"><div class="compact-row-main"><div class="compact-row-top"><span class="compact-ticker" style="color:' + color + '"><a class="ticker-a" href="' + tickerHref(t) + '" target="_blank">' + t + '</a></span><span class="compact-price" style="color:' + color + '">' + (c.price ? "$" + c.price : "&mdash;") + '</span><span class="compact-pct" style="color:' + color + '">' + (c.change || "&mdash;") + '</span></div><div class="compact-news"' + (hasNews ? "" : ' style="display:none"') + ">" + (hasNews ? wrapHeadlineLinks(t, autoLinkGlossaryTerms(highlightContextMatches(c.news.headline, ctxVal))) : "") + "</div></div>" + addTickerBtnHTML(t) + "</div></div>";
 }
 async function runAgitatorCheck() {
   var qEl = document.getElementById("agitator-query");
@@ -2511,7 +2515,7 @@ async function runAgitatorCheck() {
     var f = data.factors;
     var factorsHTML = f ? '<div class="track-log-title" style="margin-top:10px">SIGNALS</div>' + agitatorFactorRow("Surprise", "agitator-surprise", f.surprise) + agitatorFactorRow("Uncertainty", "agitator-uncertainty", f.uncertainty) + agitatorFactorRow("Freshness", "agitator-freshness", f.positioning) + agitatorFactorRow("Ripple Effect", "agitator-ripple", f.crossAsset) + agitatorFactorRow("Swing Risk", "agitator-swing", f.liquidity) + agitatorFactorRow("Expected Move", "agitator-expected-move", f.ivEnvironment) + '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl">Past Reactions</span><button type="button" class="help-btn" data-help="agitator-past" aria-label="What is this?">?</button></span><span class="trigger-sub">not tracked yet</span></div>' : "";
     var headlineHTML = data.headlineUsed ? '<div class="headline" style="margin-top:8px">' + (data.headlineUsedUrl ? '<a href="' + data.headlineUsedUrl + '" target="_blank">' + data.headlineUsed + "</a>" : data.headlineUsed) + "</div>" : "";
-    var compsHTML = data.comps && data.comps.length ? '<div class="track-log-title" style="margin-top:10px">RELATED</div><div class="comp-chips">' + data.comps.map(compChipHTML).join("") + "</div>" : "";
+    var compsHTML = data.comps && data.comps.length ? '<div class="track-log-title" style="margin-top:10px">RELATED</div><div class="compact-list">' + data.comps.map(relatedRowHTML).join("") + "</div>" : "";
     out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML;
     wireAgitatorAddButtons(out);
     snapCardUnderDock(document.getElementById("card-agitator"));

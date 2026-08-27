@@ -243,16 +243,19 @@
   .factor-gauge-arrow{ position:absolute; top:0; width:0; height:0; border-left:4px solid transparent; border-right:4px solid transparent; border-top:6px solid var(--ink); transform:translateX(-50%); }
   .trigger-val{ font-family:var(--mono); font-size:13px; font-weight:700; }
   .trigger-sub{ font-size:11px; color:var(--ink-dim); }
-  .comp-chips{ display:flex; flex-wrap:wrap; align-items:stretch; border:1px solid var(--border); border-radius:8px; background:var(--surface-2); overflow:hidden; }
-  .comp-chip{ display:inline-flex; align-items:center; border-left:1px solid var(--border); }
-  .comp-chip:first-child{ border-left:none; }
-  .comp-chip-link{ display:inline-flex; align-items:center; gap:6px; text-decoration:none; padding:6px 4px 6px 10px; }
-  .comp-chip .cc-sym{ font-family:var(--mono); font-size:13px; font-weight:700; color:var(--ink); }
-  .comp-chip .cc-price{ font-family:var(--mono); font-size:11px; color:var(--ink-dim); }
-  .comp-chip .cc-chg{ font-family:var(--mono); font-size:11px; font-weight:700; }
-  .comp-chip-add{ background:none; border:none; color:var(--ink-dim); font-size:15px; line-height:1; cursor:pointer; padding:6px 10px 6px 4px; }
-  .comp-chip-add:hover{ color:var(--green); }
-  .comp-chip-add:disabled{ color:var(--green); cursor:default; }
+  .ticker-a{ color:inherit; text-decoration:none; border-bottom:1px dotted currentColor; }
+  .compact-list{ display:flex; flex-direction:column; gap:6px; }
+  .compact-row-wrap{ position:relative; }
+  .compact-row{ position:relative; background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:8px 10px; display:flex; align-items:center; gap:8px; }
+  .compact-row-main{ flex:1; min-width:0; }
+  .compact-row-top{ display:flex; align-items:baseline; gap:8px; }
+  .compact-ticker{ font-family:var(--mono); font-size:15px; font-weight:700; color:var(--ink); }
+  .compact-price{ font-family:var(--mono); font-size:15px; font-weight:700; color:var(--ink); }
+  .compact-pct{ font-family:var(--mono); font-size:13px; font-weight:700; margin-left:auto; }
+  .compact-news{ font-size:11px; line-height:1.4; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .compact-news a{ color:var(--ink-dim); text-decoration:none; border-bottom:1px solid var(--border); }
+  .compact-plus-btn{ width:26px; height:26px; flex-shrink:0; border:1px solid rgba(0,230,118,.4); border-radius:6px; background:var(--green-dim); color:var(--green); font-size:17px; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; }
+  .compact-plus-btn:disabled{ opacity:1; cursor:default; }
 
   /* ── Aggression Dial — a real slider, not a button row ─────────────── */
   .dial-track{ position:relative; height:4px; background:var(--surface-2); border-radius:2px; margin:20px 11px 12px; }
@@ -612,6 +615,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=85"></script>
+<script type="module" src="./app.js?v=86"></script>
 </body>
 </html>
