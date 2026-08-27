@@ -1095,7 +1095,7 @@ async function runAgitatorCheck(): Promise<void> {
     var gaugeHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl"><a href="' + tickerHref(data.symbol) + '" target="_blank">' + data.symbol + '</a></span>' + tqHTML + '</span>'
       + '<span class="trigger-val-wrap"><span class="trigger-val" style="color:' + gaugeColor + '">' + (comp ? comp.level : 'N/A') + '</span>'
       + '<button type="button" class="help-btn" data-help="agitator-score" aria-label="What is this?">?</button></span>'
-      + '<span class="trigger-sub">' + (comp ? Math.round(comp.score / 10) + '/10 · ' + comp.factorCount + '/6 signals' : 'no data') + '</span></div>';
+      + '<span class="trigger-sub">' + (comp ? Math.round(comp.score / 10) + '/10 avg. of 6 signals' : 'no data') + '</span></div>';
 
     // data.factors is only present for "full" tiers (server-side isFull
     // gate) -- a simple-gauge tier gets the composite level/score above
@@ -1252,6 +1252,14 @@ rolodex.initRolodex({
 });
 rolodex.initHelpBalloons(HELP_CONTENT, jumpToGlossaryTerm);
 document.getElementById('agitatorCheckBtn')!.addEventListener('click', runAgitatorCheck);
+document.getElementById('agitator-clear')!.addEventListener('click', () => {
+  var qEl = document.getElementById('agitator-query') as HTMLInputElement;
+  qEl.value = '';
+  qEl.focus();
+});
+document.getElementById('agitator-query')!.addEventListener('keydown', (e: KeyboardEvent) => {
+  if (e.key === 'Enter') { e.preventDefault(); runAgitatorCheck(); }
+});
 
 checkAuth();
 

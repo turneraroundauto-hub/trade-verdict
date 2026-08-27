@@ -1162,7 +1162,7 @@ async function runAgitatorCheck(): Promise<void> {
     var gaugeHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl"><a href="' + tickerHref(data.symbol) + '" target="_blank">' + data.symbol + '</a></span>' + tqHTML + '</span>'
       + '<span class="trigger-val-wrap"><span class="trigger-val" style="color:' + gaugeColor + '">' + (comp ? comp.level : 'N/A') + '</span>'
       + '<button type="button" class="help-btn" data-help="agitator-score" aria-label="What is this?">?</button></span>'
-      + '<span class="trigger-sub">' + (comp ? Math.round(comp.score / 10) + '/10 · ' + comp.factorCount + '/6 signals' : 'no data') + '</span></div>';
+      + '<span class="trigger-sub">' + (comp ? Math.round(comp.score / 10) + '/10 avg. of 6 signals' : 'no data') + '</span></div>';
 
     // data.factors is only present for "full" tiers (server-side isFull
     // gate, Aug 26 2026 Phase 0 fix) -- a simple-gauge tier gets the
@@ -1709,6 +1709,14 @@ document.getElementById('importBtn')!.addEventListener('click', addTickers);
 document.getElementById('exportCsvBtn')!.addEventListener('click', () => exportWatchlistCSV(document.getElementById('exportCsvBtn') as HTMLButtonElement));
 document.getElementById('clearTrackBtn')!.addEventListener('click', () => { clearLog(); refreshTrackRecordCard(); });
 document.getElementById('agitatorCheckBtn')!.addEventListener('click', runAgitatorCheck);
+document.getElementById('agitator-clear')!.addEventListener('click', () => {
+  var qEl = document.getElementById('agitator-query') as HTMLInputElement;
+  qEl.value = '';
+  qEl.focus();
+});
+document.getElementById('agitator-query')!.addEventListener('keydown', (e: KeyboardEvent) => {
+  if (e.key === 'Enter') { e.preventDefault(); runAgitatorCheck(); }
+});
 document.getElementById('compact-sort-btn')!.addEventListener('click', toggleCompactSort);
 document.getElementById('proxy-sort-level')!.addEventListener('click', () => setProxySort('level'));
 document.getElementById('proxy-sort-coherence')!.addEventListener('click', () => setProxySort('coherence'));

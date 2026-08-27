@@ -2477,7 +2477,7 @@ async function runAgitatorCheck() {
     var tq = data.tickerQuote;
     var tqColor = !tq ? "" : tq.direction === "green" ? "var(--green)" : tq.direction === "red" ? "var(--red)" : "var(--ink-dim)";
     var tqHTML = tq ? '<span class="tq-price">$' + tq.price + '</span><span class="tq-chg" style="color:' + tqColor + '">' + tq.change + "</span>" : "";
-    var gaugeHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl"><a href="' + tickerHref(data.symbol) + '" target="_blank">' + data.symbol + "</a></span>" + tqHTML + '</span><span class="trigger-val-wrap"><span class="trigger-val" style="color:' + gaugeColor + '">' + (comp ? comp.level : "N/A") + '</span><button type="button" class="help-btn" data-help="agitator-score" aria-label="What is this?">?</button></span><span class="trigger-sub">' + (comp ? Math.round(comp.score / 10) + "/10 \xB7 " + comp.factorCount + "/6 signals" : "no data") + "</span></div>";
+    var gaugeHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl"><a href="' + tickerHref(data.symbol) + '" target="_blank">' + data.symbol + "</a></span>" + tqHTML + '</span><span class="trigger-val-wrap"><span class="trigger-val" style="color:' + gaugeColor + '">' + (comp ? comp.level : "N/A") + '</span><button type="button" class="help-btn" data-help="agitator-score" aria-label="What is this?">?</button></span><span class="trigger-sub">' + (comp ? Math.round(comp.score / 10) + "/10 avg. of 6 signals" : "no data") + "</span></div>";
     var f = data.factors;
     var factorsHTML = f ? '<div class="track-log-title" style="margin-top:10px">SIGNALS</div>' + agitatorFactorRow("Surprise", "agitator-surprise", f.surprise) + agitatorFactorRow("Uncertainty", "agitator-uncertainty", f.uncertainty) + agitatorFactorRow("Freshness", "agitator-freshness", f.positioning) + agitatorFactorRow("Ripple Effect", "agitator-ripple", f.crossAsset) + agitatorFactorRow("Swing Risk", "agitator-swing", f.liquidity) + agitatorFactorRow("Expected Move", "agitator-expected-move", f.ivEnvironment) + '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl">Past Reactions</span><button type="button" class="help-btn" data-help="agitator-past" aria-label="What is this?">?</button></span><span class="trigger-sub">not tracked yet</span></div>' : "";
     var headlineHTML = data.headlineUsed ? '<div class="headline" style="margin-top:8px">' + (data.headlineUsedUrl ? '<a href="' + data.headlineUsedUrl + '" target="_blank">' + data.headlineUsed + "</a>" : data.headlineUsed) + "</div>" : "";
@@ -2617,6 +2617,17 @@ initRolodex({
 });
 initHelpBalloons(HELP_CONTENT, jumpToGlossaryTerm);
 document.getElementById("agitatorCheckBtn").addEventListener("click", runAgitatorCheck);
+document.getElementById("agitator-clear").addEventListener("click", () => {
+  var qEl = document.getElementById("agitator-query");
+  qEl.value = "";
+  qEl.focus();
+});
+document.getElementById("agitator-query").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    runAgitatorCheck();
+  }
+});
 checkAuth();
 window.authLogout = authLogout;
 window.toggleProfileMenu = toggleProfileMenu;

@@ -2104,15 +2104,23 @@ const AGITATOR_COMPS_LIMIT = 3;
 // guess from Finnhub's peer list, which can surface something genuinely
 // unrelated to the story being checked (confirmed live: APP/AppLovin as a
 // "related" company for a Salesforce enterprise-SaaS earnings beat).
+// A resolved-but-untradeable/junk symbol -- mirror-only, see Tra's
+// server.js for the full write-up (a Title-Case headline's common
+// capitalized words fuzzy-matched Finnhub's company-name search into
+// unrelated, effectively-worthless tickers shown as "related companies").
+const AGITATOR_COMPS_CANDIDATE_POOL = 6;
 async function computeAgitatorComps(symbol, mentionedSymbols) {
-  const peers = (mentionedSymbols && mentionedSymbols.length)
-    ? mentionedSymbols.slice(0, AGITATOR_COMPS_LIMIT)
-    : (await fetchTickerPeers(symbol)).slice(0, AGITATOR_COMPS_LIMIT);
-  const quotes = await Promise.all(peers.map(sym => fetchQuote(sym)));
-  return peers.map((sym, i) => {
+  const candidatePeers = (mentionedSymbols && mentionedSymbols.length)
+    ? mentionedSymbols.slice(0, AGITATOR_COMPS_CANDIDATE_POOL)
+    : (await fetchTickerPeers(symbol)).slice(0, AGITATOR_COMPS_CANDIDATE_POOL);
+  const quotes = await Promise.all(candidatePeers.map(sym => fetchQuote(sym)));
+  const valid = [];
+  candidatePeers.forEach((sym, i) => {
     const q = quotes[i];
-    return q ? { symbol: sym, price: q.price, change: q.change, direction: q.direction } : { symbol: sym, price: null, change: null, direction: "flat" };
+    const price = q ? parseFloat(q.price) : 0;
+    if (q && price > 0) valid.push({ symbol: sym, price: q.price, change: q.change, direction: q.direction });
   });
+  return valid.slice(0, AGITATOR_COMPS_LIMIT);
 }
 
 const agitatorRateLimit = new Map(); // userKey -> { count, windowStart }
@@ -2601,12 +2609,13 @@ app.get("/agitator", async (req, res) => {
 
     // Other real companies named alongside the primary one -- mirror-only,
     // see Tra's server.js for the full write-up.
+    // Not capped by how many are found -- mirror-only, see Tra's server.js.
     const mentionedSymbols = [];
     if (!/^[A-Z]{1,6}$/.test(raw)) {
       const MENTION_SCAN_CAP = 6;
       let scanned = 0;
       for (const candidate of extractCompanyCandidates(raw)) {
-        if (mentionedSymbols.length >= AGITATOR_COMPS_LIMIT || scanned >= MENTION_SCAN_CAP) break;
+        if (scanned >= MENTION_SCAN_CAP) break;
         scanned++;
         const candSym = await searchSymbolByName(candidate);
         if (candSym && candSym.toUpperCase() !== symbol && !mentionedSymbols.includes(candSym.toUpperCase())) {
