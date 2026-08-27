@@ -6575,3 +6575,45 @@ limitation as every other integration in this file; the override map
 itself is a static lookup with nothing live to verify for the reported
 case. To confirm live: type "Google" into the Agitator or Import on any
 tier and confirm it resolves to GOOGL.
+
+## Backend: fetchQuote() never applied extended-hours substitution — Agitator showed a real post-close rally as flat (Aug 27, 2026, `trade-verdict` PR #239, `Tra` PR #70)
+
+Live report: checking "CRM" (Salesforce) in the Agitator Gauge showed
+it flat (`-0.03%`) even though a real rally was reportedly "all over
+the news" at the time. Asked directly to check for a stale quote rather
+than assume the scoring logic was wrong — a useful discipline given
+this file's own "Round 3" lesson above about verifying a claimed
+anomaly before explaining it.
+
+**Root cause, found by comparing `fetchQuote()` against `fetchTickerMetrics()`
+side by side.** `fetchTickerMetrics()` (used by `/ticker/:symbol` for
+every tier's ticker cards) already substitutes a live Alpaca IEX print
+for Finnhub's frozen `/quote.c` during `isExtendedHoursWindow()` (8-9:30am
+and 4-8pm ET) — documented earlier in this file as the fix for Finnhub's
+free `/quote` holding the last regular-session price instead of tracking
+real pre/post-market trades. **`fetchQuote()` — a separate, older function
+used by the Agitator's primary ticker, its RELATED comps, tracked-symbol
+quotes, and the market-cache warm pass — never got the same treatment.**
+So a real post-close move (the common shape for a company reporting
+earnings after the bell, which is exactly the season CRM's own fiscal
+calendar puts it in) rendered as a flat, stale regular-session close
+everywhere `fetchQuote()` is used, even though the identical class of
+staleness had already been fixed once for ticker cards specifically.
+
+**Fix:** `fetchQuote()` now applies the same `isExtendedHoursWindow()`/
+`fetchExtendedHoursPrice()` substitution, falling back to Finnhub's own
+value on any miss — same fail-safe posture as the existing call site.
+Explicitly skipped for the BTC/crypto path: crypto trades 24/7 with no
+market-hours concept, and Alpaca has no listing for the Binance-mapped
+symbol `fetchQuote()` uses for BTC anyway.
+
+**Verified:** `node --check`/`npm test` (75/75) in both repos; a
+standalone Node simulation of the new branch logic covering 4 cases —
+regular hours (unchanged), post-market with a real Alpaca print
+(substitutes), post-market with no Alpaca data (falls back to Finnhub),
+and crypto (never touches the new path) — all pass. **Not verified
+against a live Alpaca response** — same standing sandbox limitation as
+every other Alpaca integration in this file. To confirm live: re-check
+a ticker with a known after-hours move during the 4-8pm ET window and
+confirm the Agitator's price/% change reflects it instead of the frozen
+regular-session close.
