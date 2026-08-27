@@ -6750,3 +6750,87 @@ actually shown on screen. Verified via real headless Chromium on both
 tiers: the tick label, the larger heading, and all five detail rows all
 render "CRF Default"/"CRF default" with zero remaining stale text
 anywhere in the card.
+
+## Backend: Pre-Gate soft-trigger escalation was over-counting since it shipped (Aug 27, 2026, `trade-verdict` PR #247, `Tra` PR #71)
+
+Live report: TWST's Pre-Gate escalated to a HARD trigger ("escalated
+from repeated soft triggers"), forcing DOWN, even though independent
+research turned up no real financial issue. This is a genuinely
+different mechanism from the Aug 18 solvency saga above — the "30-day
+soft-trigger escalation" via `pre_gate_triggers` predates that saga
+entirely and was never touched by its revert — so this needed its own
+fresh investigation, not a rehash.
+
+**Root-caused with real Supabase data, not another guess** (this
+session had live Supabase MCP access): queried `pre_gate_triggers`
+directly for TWST and found **68 logged rows tracing back to only 8
+real distinct SEC filings** — the same handful of documents re-appearing
+over and over, dated almost daily from Aug 19 through Aug 27.
+`logPreGateTrigger()` had no dedup at all: every time `evaluatePreGate()`
+re-ran (once per ticker per 24h, as its own cache expired) and the same
+still-in-window filing matched the dilution keyword search again, it
+got INSERTed as a "new" soft trigger — so a single filing that stays
+visible in EDGAR's 45-day search window for its full lifetime
+accumulates one row per day, trivially blowing past the
+`PRE_GATE_ESCALATION_COUNT = 2` threshold by day 2 regardless of
+whether anything new ever actually happened.
+
+**Confirmed systemic, not a TWST one-off**, by grouping the whole table
+by ticker: every ticker that had ever logged a soft trigger showed far
+more rows than distinct filings (IMVT: 15 rows for 1 real filing; KMI:
+29 rows for 4; SMMT: 20 for 3; ET: 15 for 4) — the mechanism has been
+silently over-counting for every affected ticker since the day it
+shipped, invisible until someone happened to check the raw data.
+
+**A second, independent issue surfaced by the same data, requiring a
+real design decision, not just a mechanical fix.** Even after
+collapsing to distinct `filing_accession` values, TWST still showed 4
+— but all 4 (one 8-K + its own exhibits, a preliminary and a final
+424B5 for the same offering, and a later 10-Q mention of it) were first
+detected in the exact same `evaluatePreGate()` sweep, with sequentially-
+numbered accession numbers from the same filing agent — the ordinary
+multi-document SEC paperwork trail for **one** registered offering, not
+4 separate dilution events. Scoped via `AskUserQuestion` rather than
+assumed: confirmed filings within a short window of each other should
+collapse into a single escalation-counted event, since that's what the
+mechanism's own stated intent ("2+ soft triggers within 30 days
+escalating") is actually trying to catch — a genuine pattern of
+separate, repeated capital raises over time, not the routine paperwork
+for one deal.
+
+**Fix, two parts:**
+- `logPreGateTrigger()` now skips the insert entirely when the exact
+  `(ticker, category, filing_accession)` is already logged — not
+  perfectly race-proof (no unique constraint/upsert; a no-migration fix
+  was preferred, and `evaluatePreGate()`'s own 24h cache already makes a
+  concurrent double-insert for the same ticker rare in practice), but
+  sufficient given the read-side fix below stays correct even against a
+  rare duplicate.
+- `getRecentSoftTriggerCount()` now clusters distinct filings by time
+  (`countTriggerClusters()`, new `PRE_GATE_CLUSTER_WINDOW_DAYS = 7`) —
+  any run of filings within 7 days of each other, chained (not each one
+  measured only against the cluster's first element), collapses into
+  one counted event. A real second filing landing more than 7 days after
+  the last one starts a new cluster and still escalates correctly.
+
+**One-time Supabase cleanup, same session, via direct MCP access:**
+deduped `pre_gate_triggers` from 222 rows down to 28 — exactly one row
+per real `(ticker, category, filing_accession)` combination across every
+affected ticker — so the fix takes effect immediately on the next check
+rather than waiting for the 30-day window to age the bad rows out on its
+own.
+
+**Verified against the real data, not synthetic guesses first:**
+extracted the actual `detected_at` timestamps Supabase held for all 4
+affected tickers (TWST, KMI, SMMT, ET) and ran them through the real
+`countTriggerClusters()` logic — every one collapses to exactly 1
+cluster (no escalation), matching the "one clustered real event" theory
+exactly. Separately confirmed the mechanism still works going forward:
+a synthetic 20-day-separated second event correctly escalates (2
+clusters), the exact 8-day boundary still escalates, and the exact
+6-day boundary correctly merges into one. `node --check`/`npm test`
+(75/75) in both repos, unaffected.
+
+**Not yet verified against a live re-deploy** — same standing posture as
+every backend change in this file. To confirm: re-check TWST after `Tra`
+redeploys and confirm Pre-Gate no longer reports a HARD trigger for it.
