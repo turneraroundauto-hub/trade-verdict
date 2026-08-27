@@ -1158,7 +1158,7 @@ function wireAgitatorAddButtons(scope: HTMLElement): void {
 // wireAgitatorAddButtons() below.
 function relatedRowHTML(c: { symbol: string; price: string | null; change: string | null; direction: string; news?: { headline: string; url: string | null; ageHours: number } | null }): string {
   var t = c.symbol;
-  var color = c.direction === 'green' ? 'var(--green)' : c.direction === 'red' ? 'var(--red)' : 'var(--ink-dim)';
+  var color = c.direction === 'green' ? 'var(--green)' : c.direction === 'red' ? 'var(--red)' : 'var(--amber)';
   var hasNews = !!(c.news && c.news.ageHours <= 300);
   var ctxEl = document.getElementById('context-input') as HTMLTextAreaElement | null;
   var ctxVal = ctxEl ? ctxEl.value : '';
@@ -1197,7 +1197,7 @@ async function runAgitatorCheck(): Promise<void> {
     // AI-scored signal reading (direct feedback: "it never pointed to the
     // rally today"). Sits next to the ticker symbol itself.
     var tq = data.tickerQuote;
-    var tqColor = !tq ? '' : tq.direction === 'green' ? 'var(--green)' : tq.direction === 'red' ? 'var(--red)' : 'var(--ink-dim)';
+    var tqColor = !tq ? '' : tq.direction === 'green' ? 'var(--green)' : tq.direction === 'red' ? 'var(--red)' : 'var(--amber)';
     var tqHTML = tq ? '<span class="tq-price">$' + tq.price + '</span><span class="tq-chg" style="color:' + tqColor + '">' + tq.change + '</span>' : '';
     // (?) moved off the ticker and onto the rating itself -- direct
     // feedback: "the (?) next to the ticker needs to move next to the

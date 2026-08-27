@@ -674,7 +674,7 @@ function wireAgitatorAddButtons(scope: HTMLElement): void {
 // addKnownTicker() via wireAgitatorAddButtons() below.
 function relatedRowHTML(c: { symbol: string; price: string | null; change: string | null; direction: string; news?: { headline: string; url: string | null; ageHours: number } | null }): string {
   var t = c.symbol;
-  var color = c.direction === 'green' ? 'var(--green)' : c.direction === 'red' ? 'var(--red)' : 'var(--ink-dim)';
+  var color = c.direction === 'green' ? 'var(--green)' : c.direction === 'red' ? 'var(--red)' : 'var(--amber)';
   var hasNews = !!(c.news && c.news.ageHours <= 300);
   var ctxEl = document.getElementById('context-input') as HTMLTextAreaElement | null;
   var ctxVal = ctxEl ? ctxEl.value : '';
@@ -709,7 +709,7 @@ async function runAgitatorCheck(): Promise<void> {
     var comp = data.composite;
     var gaugeColor = !comp ? 'var(--ink-dim)' : comp.level === 'HIGH' ? 'var(--red)' : comp.level === 'MEDIUM' ? 'var(--amber)' : 'var(--green)';
     var tq = data.tickerQuote;
-    var tqColor = !tq ? '' : tq.direction === 'green' ? 'var(--green)' : tq.direction === 'red' ? 'var(--red)' : 'var(--ink-dim)';
+    var tqColor = !tq ? '' : tq.direction === 'green' ? 'var(--green)' : tq.direction === 'red' ? 'var(--red)' : 'var(--amber)';
     var tqHTML = tq ? '<span class="tq-price">$' + tq.price + '</span><span class="tq-chg" style="color:' + tqColor + '">' + tq.change + '</span>' : '';
     var gaugeHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl"><a href="' + tickerHref(data.symbol) + '" target="_blank">' + data.symbol + '</a></span>' + tqHTML + addTickerBtnHTML(data.symbol) + '</span>'
       + '<span class="trigger-val-wrap"><span class="trigger-val" style="color:' + gaugeColor + '">' + (comp ? comp.level : 'N/A') + '</span>'
