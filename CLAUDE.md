@@ -6162,3 +6162,161 @@ of those change:** the app starts storing something more sensitive
 per-account, real credential-stuffing attempts show up in the auth
 logs, or the org upgrades to Pro for unrelated reasons (at which point
 this becomes a free toggle, not a purchase).
+
+## Frontend/Backend: Agitator Gauge (Proposal 5) + Aggression Dial (Proposal 6) — full saga and lessons (Aug 26-27, 2026)
+
+Two related features landed Pro-first then to Starter over roughly a day
+and a half of rapid, direct, real-device feedback rounds (`trade-verdict`
+PRs #221-#230, `Tra` PRs #59-#65) — the Aggression Dial (a pre-earnings-
+aware sizing-ceiling control) and the Agitator Gauge (a standalone,
+free/rate-limited "check how big a deal this headline/rumor is" discovery
+tool, no credit cost). Both are live on Pro and Starter as of this
+writing. Kept as one consolidated entry rather than eight separate ones
+— most of the individual rounds below share the same handful of root
+lessons, worth reading in full even if only one of the two features is
+being touched next.
+
+**Round 1 — a button row is not a dial, two text boxes is not "one search
+box."** Direct feedback on the first ship: "this is not a dial, the
+buttons suck... does the location make sense for a user that is looking
+for a tuning option? ... two text boxes is not what I asked for, it
+should only be one dialogue box that will recognize context... the news
+headline isn't hyperlinked... I also ask for a few related companies...
+not 12." Four real, distinct problems in one message:
+- **The Dial was a row of discrete buttons, not a slider** — technically
+  implements "pick one of N positions," but reads nothing like a dial to
+  a real user. **Lesson: when a feature has an obvious physical-object
+  metaphor in its own name (dial, slider, gauge), build the actual
+  interaction model that metaphor implies, not just a control that
+  happens to produce the same output.**
+- **The Dial was buried wherever it was structurally easiest to add**,
+  not where a user tuning it would look. **Lesson: placement for an
+  actively-adjusted control is part of the spec, not a styling
+  afterthought — put it somewhere prominent (moved to the top of the
+  page here), not wherever the accordion stack happened to have room.**
+- **"Recognize context like a search engine" was built as two separate
+  fields** (ticker box + headline box) instead of one smart box, pushing
+  classification work onto the user instead of the server. **Lesson:
+  when asked for something that "just figures it out," the complexity
+  belongs in server-side resolution logic, not in asking the user to
+  pre-sort their own input into the right box.**
+- **A "validate this claim" tool with an un-clickable headline validates
+  nothing** — showing a headline back to the user only helps if they can
+  confirm it's the real story, which requires a real link. **Lesson: a
+  discovery/validation feature's outputs need to be independently
+  checkable, not just displayed — a bare string is not evidence.**
+
+Fixed together: a real `<input type="range">` slider relocated to the top
+of the page (`trade-verdict` #226); backend resolution collapsed to a
+single `q` param with `extractCompanyCandidates()`-based fallback, real
+headline hyperlinking, comps cut from a 12-item dump to 3 real Finnhub
+peers with live price/%chg (`Tra` #63, mirrored in the same
+`trade-verdict` #226).
+
+**Round 2 — a length heuristic silently broke the exact case it was
+meant to catch.** Live report: "Nvidia earnings beat" returned "Couldn't
+find a company," even though headline resolution was the whole point of
+Round 1's redesign. Root cause: a word-count/punctuation heuristic
+decided whether the literal-name path or the extraction-fallback path
+ran, so a short, real headline (3 words, no terminal punctuation) took
+the bare-name path, failed to resolve, and never got a second attempt.
+Fixed (`trade-verdict` #227 / `Tra` #64) by testing the actual condition
+that matters — did the raw text resolve **as typed** — instead of a
+proxy for it (length/shape). **Lesson: don't gate a correctness-critical
+fallback path behind a heuristic proxy for the real condition (length,
+punctuation, word count) — test the real condition directly, even if it
+costs an extra lookup on the common case.**
+
+**Round 3 — don't explain an anomaly before confirming it's real.**
+Asked to explain "why would exposure, sensitivity and options change so
+widely" between two screenshotted runs — answered in the abstract
+(deterministic vs. AI-judged factors) before re-checking the two
+screenshots' actual numbers. On the follow-up, re-examined the real
+values and found two of the three factors named in the question
+(Liquidity Sensitivity, Options/IV Environment) were **identical**
+between runs — only one had actually changed. Corrected directly; user
+confirmed ("ok, I was wrong about those two"). **Lesson: before
+explaining why a claimed change happened, verify the change actually
+happened as described against the real data/screenshot — don't answer
+the premise as given without checking it first.**
+
+**Round 4 — jargon labels and raw numbers actively work against a "quick
+glance" tool.** Direct feedback: "the numbers are confusing... this
+should be a barometer for a company... Positioning and Exposure can mean
+wildly different things." The sub-factor rows used real, precise
+financial vocabulary (Positioning, Cross-Asset Exposure) at a 0-100
+scale — accurate, but exactly wrong for the tool's actual job, which is
+a fast human gut-check, not a quantitative readout. Fixed in two more
+rounds, not one:
+- `trade-verdict` #228: relabeled every factor to plain 1-2 word English
+  (Surprise, Uncertainty, Freshness, Ripple Effect, Swing Risk, Expected
+  Move), rescaled display to 0-10, added a `(?)` button per row (reusing
+  `initHelpBalloons()` with zero new plumbing — it already worked on any
+  `[data-help]` element, not just card headers) for anyone who wants the
+  precise definition.
+- `trade-verdict` #229: even the 0-10 number was still "a number" —
+  direct follow-up asked for a 3-band visual gauge + arrow pointer
+  instead (matching a reference image), with **zero digits** printed for
+  a real value.
+
+**Lesson: precise financial jargon is a liability, not a feature, in a
+UI meant for a fast glance rather than analysis — plain English by
+default, the real term behind a `(?)`. And a raw number is itself a form
+of jargon when the actual ask is "classify this low/medium/high at a
+glance" — a value a user only ever needs to glance-classify should be a
+visual position/band indicator, not a digit, even a "simplified" one.**
+
+**Round 5 — the tool's own supporting evidence has to sit next to the
+claim it's backing.** Final live report, with a screenshot: "the (?)
+next to the ticker needs to move next to the rating. I entered a
+headline about Salesforce and didn't realize they had a huge earnings
+beat and this is all the agitator showed. that a problem. it never
+pointed to the rally today and I never was pointed to any reason or
+another company that was seeing the same wave. in fact one of the
+recommendations Apploving is not in any condition to be put on the same
+shelf." Three fixes landed together (`trade-verdict` #230 / `Tra` #65):
+- `(?)` moved off the ticker symbol onto the LOW/MEDIUM/HIGH rating text
+  itself — a pure placement fix, no new data involved.
+- **The resolved ticker's own live price/% change was already being
+  fetched (`fetchQuote()` — its `price` field already fed the IV lookup)
+  but never returned in the response at all** — so a claimed rally had
+  nothing in the tool to confirm it against. Added `tickerQuote` to the
+  response, rendered next to the ticker symbol.
+- **"Related companies" always came from a generic Finnhub industry-peer
+  lookup, even when the user's own typed input already named the actual
+  related companies** ("Salesforce, Crowdstrike, Okta surge") — the
+  generic lookup surfaced AppLovin, unrelated to the real enterprise-SaaS
+  security peers already sitting in the input. Fixed by re-scanning the
+  same `extractCompanyCandidates()` list already used for primary
+  resolution for other real, resolvable companies, and using those ahead
+  of the generic peer fallback (cache-backed, so no meaningful added
+  cost on the common single-company case).
+
+**Lesson, tying this round back to Round 1's headline-hyperlink fix:
+every piece of "supporting evidence" a validation tool shows — a
+headline, a related company, a score — is either grounded in something
+the user can independently check (a real link, a real live price, a
+company the user themselves already named) or it's decoration. When the
+user has already told you the answer (naming other companies in their
+own input), a generic algorithm guessing at the same thing is strictly
+worse than just using what they said — check for and prefer explicit
+information already in hand before falling back to an inference.**
+
+**The one thread running through all five rounds, worth keeping as the
+actual takeaway rather than five separate ones.** Every round above,
+including the ones that look unrelated on the surface (dial-vs-buttons,
+one-box-vs-two, digits-vs-gauge, generic-peers-vs-named-companies), is
+the same mistake in a different spot: **defaulting to the most
+literally-correct technical implementation of a description instead of
+asking what real-world object, mental model, or already-available
+information the person actually means.** A button row does implement "a
+small set of discrete choices." Two text boxes do implement "a ticker
+and a headline." A 0-10 number does implement "simplify the 0-100
+scale." A generic peer lookup does implement "related companies." Every
+one of these was defensible as a literal reading and wrong as a product
+decision. **Next time a feature description uses a real-world metaphor
+(dial, gauge, barometer, search box) or claims to validate/confirm
+something, build toward the metaphor and toward independently-checkable
+evidence first — don't stop at the first technically-correct
+implementation and wait for a correction round to find out it wasn't
+what was meant.**
