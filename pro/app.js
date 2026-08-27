@@ -2673,10 +2673,13 @@ async function renderScorecardCard() {
     el.innerHTML = '<div class="track-empty">Scorecard unavailable right now.</div>';
   }
 }
-function agitatorFactorRow(label, val) {
-  if (val == null) return '<div class="trigger-row"><span class="trigger-lbl">' + label + '</span><span class="trigger-sub">n/a</span></div>';
+function agitatorFactorRow(label, helpKey, val) {
+  var helpBtn = '<button type="button" class="help-btn" data-help="' + helpKey + '" aria-label="What is this?">?</button>';
+  var lblHTML = '<span class="trigger-lbl-wrap"><span class="trigger-lbl">' + label + "</span>" + helpBtn + "</span>";
+  if (val == null) return '<div class="trigger-row">' + lblHTML + '<span class="trigger-sub">n/a</span></div>';
   var color = val >= 66 ? "var(--red)" : val >= 34 ? "var(--amber)" : "var(--green)";
-  return '<div class="trigger-row"><span class="trigger-lbl">' + label + '</span><span class="trigger-val" style="color:' + color + '">' + val + "</span></div>";
+  var displayVal = Math.round(val / 10);
+  return '<div class="trigger-row">' + lblHTML + '<span class="trigger-val" style="color:' + color + '">' + displayVal + "/10</span></div>";
 }
 function compChipHTML(c) {
   var color = c.direction === "green" ? "var(--green)" : c.direction === "red" ? "var(--red)" : "var(--ink-dim)";
@@ -2714,9 +2717,9 @@ async function runAgitatorCheck() {
     }
     var comp = data.composite;
     var gaugeColor = !comp ? "var(--ink-dim)" : comp.level === "HIGH" ? "var(--red)" : comp.level === "MEDIUM" ? "var(--amber)" : "var(--green)";
-    var gaugeHTML = '<div class="trigger-row"><span class="trigger-lbl"><a href="' + tickerHref(data.symbol) + '" target="_blank">' + data.symbol + '</a></span><span class="trigger-val" style="color:' + gaugeColor + '">' + (comp ? comp.level : "N/A") + '</span><span class="trigger-sub">' + (comp ? comp.score + "/100 \xB7 " + comp.factorCount + "/6 factors" : "no data") + "</span></div>";
+    var gaugeHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl"><a href="' + tickerHref(data.symbol) + '" target="_blank">' + data.symbol + '</a></span><button type="button" class="help-btn" data-help="agitator-score" aria-label="What is this?">?</button></span><span class="trigger-val" style="color:' + gaugeColor + '">' + (comp ? comp.level : "N/A") + '</span><span class="trigger-sub">' + (comp ? Math.round(comp.score / 10) + "/10 \xB7 " + comp.factorCount + "/6 signals" : "no data") + "</span></div>";
     var f = data.factors;
-    var factorsHTML = f ? '<div class="track-log-title" style="margin-top:10px">SUB-FACTORS</div>' + agitatorFactorRow("Surprise", f.surprise) + agitatorFactorRow("Uncertainty", f.uncertainty) + agitatorFactorRow("Positioning (fresh vs priced-in)", f.positioning) + agitatorFactorRow("Cross-Asset Exposure", f.crossAsset) + agitatorFactorRow("Liquidity Sensitivity", f.liquidity) + agitatorFactorRow("Options/IV Environment", f.ivEnvironment) + '<div class="trigger-row"><span class="trigger-lbl">Historical Reaction</span><span class="trigger-sub">not tracked yet</span></div>' : "";
+    var factorsHTML = f ? '<div class="track-log-title" style="margin-top:10px">SIGNALS</div>' + agitatorFactorRow("Surprise", "agitator-surprise", f.surprise) + agitatorFactorRow("Uncertainty", "agitator-uncertainty", f.uncertainty) + agitatorFactorRow("Freshness", "agitator-freshness", f.positioning) + agitatorFactorRow("Ripple Effect", "agitator-ripple", f.crossAsset) + agitatorFactorRow("Swing Risk", "agitator-swing", f.liquidity) + agitatorFactorRow("Expected Move", "agitator-expected-move", f.ivEnvironment) + '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl">Past Reactions</span><button type="button" class="help-btn" data-help="agitator-past" aria-label="What is this?">?</button></span><span class="trigger-sub">not tracked yet</span></div>' : "";
     var headlineHTML = data.headlineUsed ? '<div class="headline" style="margin-top:8px">' + (data.headlineUsedUrl ? '<a href="' + data.headlineUsedUrl + '" target="_blank">' + data.headlineUsed + "</a>" : data.headlineUsed) + "</div>" : "";
     var compsHTML = data.comps && data.comps.length ? '<div class="track-log-title" style="margin-top:10px">RELATED</div><div class="comp-chips">' + data.comps.map(compChipHTML).join("") + "</div>" : "";
     out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML;
@@ -3090,7 +3093,15 @@ var HELP_CONTENT = {
   heatmap: "A color-coded snapshot of fixed sectors plus every ticker in your watchlist, sorted by % change.",
   track: "Your logged verdict history \u2014 hit rate by gate trigger and by ticker. Log \u2713 RIGHT / \u2717 WRONG after the session closes to build a real accuracy record.",
   scorecard: "Real, server-graded accuracy \u2014 every verdict is automatically checked against the actual price move ~3 trading days later, no manual logging needed. Suppressed until at least 20 verdicts have been graded.",
-  agitator: "A standalone discovery tool for proofing a new stock interest or a media rumor BEFORE it enters your watchlist \u2014 free, no credit cost. Type a ticker, a company name, or paste a full headline/rumor \u2014 one box handles all three \u2014 and get a LOW/MEDIUM/HIGH read across 6 real factors, plus a few real related companies to also check. Historical Reaction isn\u2019t tracked yet, so it\u2019s shown but never scored.",
+  agitator: "A standalone discovery tool for proofing a new stock interest or a media rumor BEFORE it enters your watchlist \u2014 free, no credit cost. Type a ticker, a company name, or paste a full headline/rumor \u2014 one box handles all three \u2014 and get a LOW/MEDIUM/HIGH read across 6 real signals, plus a few real related companies to also check. Past Reactions isn\u2019t tracked yet, so it\u2019s shown but never scored.",
+  "agitator-score": "One overall number, 0-10, averaging the 6 signals below it \u2014 a quick read on how big a deal this news might be for the stock, not a precise measurement.",
+  "agitator-surprise": "How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.",
+  "agitator-uncertainty": "How unclear it still is to everyone how big a deal this actually is. High means the market hasn\u2019t figured out how to react yet.",
+  "agitator-freshness": "Is this brand-new information nobody has reacted to yet (high), or something already known and priced in days ago (low)?",
+  "agitator-ripple": "How likely this is to also move other related stocks, the sector, or the broader market \u2014 not just this one company.",
+  "agitator-swing": "How easily this stock\u2019s price can be pushed around. Smaller, thinly-traded stocks swing more on the same amount of buying or selling.",
+  "agitator-expected-move": "How much price movement the options market is already betting on for this stock, right now.",
+  "agitator-past": "How this stock has reacted to similar news before. Not tracked yet in this app, so it always shows as unavailable.",
   dial: "Sets your monitoring cadence and holding-period posture \u2014 Active/Swing (watching the tape) through Position/Long (check in occasionally). Neutral (default) behaves exactly like every other tier. Active/Swing caps position sizing at HALF; nothing on this dial ever inflates a sizing your gates didn\u2019t already earn. A real earnings print always blocks new entries first, at every position, unless you explicitly hold through it for that one check. Monitoring cadence, entry guidance, stop guidance, and recheck interval are informational \u2014 this app doesn\u2019t place real stop orders or send reminders yet."
 };
 function initApp() {
