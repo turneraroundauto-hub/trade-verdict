@@ -6652,3 +6652,85 @@ flat direction. `tsc` clean (known `?v=N` baseline only), `esbuild`
 rebuild + chunk-header grep confirmed no duplicate-module regression,
 `npm test` (75/75) unaffected — this is a pure frontend color fix, no
 backend/`Tra` change needed.
+
+## Frontend: Aggression Dial — real drag, glowing amber thumb, plain-language labels (Aug 27, 2026, `trade-verdict` PR #243)
+
+Three direct live reports on Pro/Starter's Aggression Dial (Proposal 6),
+landed together since all three touch the same `renderDialCard()`
+region:
+
+**1. "the aggressive slider bar doesn't slide."** The Aug 26, 2026
+rework (see the Agitator/Dial saga entries above) built a track with a
+moving thumb specifically to fix "this is not a dial, the buttons
+suck" — but the thumb itself was `pointer-events:none`, purely
+cosmetic; the only real interaction was still tapping a discrete tick
+button. **Fixed with real pointer-drag support**
+(`wireDialDrag()`/`dialPosFromClientX()`): dragging the thumb, or
+pressing anywhere on the track, snaps live to the nearest of the (5 on
+Pro, 3 on Starter's restricted range) discrete positions as the pointer
+moves, not just on release. A real, non-obvious bug caught before
+shipping: `setDialPosition()` re-renders `dial-body`'s entire
+`innerHTML` on every snap change mid-drag (needed so the label/detail
+rows below the track stay in sync) — so a drag handler that captured
+`#dial-track`'s element reference once, at wiring time, would go stale
+(detached from the DOM, `getBoundingClientRect()` returning a zero
+rect) the moment the position changed even once during a single drag
+gesture. Fixed by re-querying `#dial-track` fresh inside
+`dialPosFromClientX()` on every call instead of closing over a captured
+reference — same "the DOM node you wired listeners on may not be the
+DOM node you're now looking at" lesson this file's own Rolodex sagas
+already learned the hard way, just in a new spot. `touch-action:none`
+added to the track/thumb so a real touch drag isn't fought by native
+scroll.
+
+**2. "the purple Dot kind of blends in to the slider... it should glow
+and maybe be the amber color."** `.dial-thumb`'s `background`,
+`.dial-tick.active`'s `border-color`, and `.dial-label-item.active`'s
+`color` all switched from `var(--purple)`/`var(--purple-dim)` to
+`var(--amber)`/`var(--amber-dim)` — a full switch of the control's
+"active state" visual language, not just the thumb alone, so nothing is
+left half-purple/half-amber. The thumb's flat `box-shadow` ring became
+a real blurred glow (`0 0 14px 3px rgba(255,182,45,.7)`, plus the
+existing flat ring re-colored to match) instead of the low-contrast
+purple-on-dark-track look that prompted the report.
+
+**3. "the definitions of the aggression need to be simple common
+language... it should just be aggressive or passive and the variances
+between those two can be 'light'."** `DIAL_POSITIONS`' display `label`
+fields simplified: `Active/Swing` → `Aggressive`, `Active-Lean` →
+`Light Aggressive`, `Position-Lean` → `Light Passive`, `Position/Long`
+→ `Passive` (`Neutral (default)` left unchanged — never flagged as
+confusing, already plain language). **Only the display label changed —
+the underlying object keys (`ACTIVE_SWING`, `POSITION_LONG`, etc.),
+which are also the literal wire values sent to `/analyze` and matched
+against `Tra`'s own `DIAL_POSITIONS` map for `sizingCeiling`
+enforcement, are untouched.** This was a deliberate scoping choice, not
+an oversight: renaming the keys would have needed a synced `Tra` change
+and would have silently reset any already-stored `tv_dial_position`
+localStorage value back to the default the next time a real user's
+saved value stopped matching a known key. Confirmed via `Tra`'s own
+`DIAL_POSITIONS` object that it carries no display text at all (just
+`sizingCeiling` per key) — so this whole fix stayed `trade-verdict`-only,
+no backend PR needed.
+
+Applied identically to Pro (all 5 positions) and Starter (its own
+restricted 3-position "narrow" range, Phase 1.5) — both tiers share
+byte-identical `DIAL_POSITIONS`/`renderDialCard()` code, so both got
+the same three fixes in one pass.
+
+**Verified via real headless Chromium on both tiers, not simulated:**
+confirmed the rendered labels read `Aggressive / Light Aggressive /
+Neutral / Light Passive / Passive` on Pro and `Light Aggressive /
+Neutral / Light Passive` on Starter's narrow range; confirmed the
+thumb's computed `background-color`/`box-shadow`, the active tick's
+`border-color`, and the active label's `color` all resolve to the real
+amber value with a visible blur radius, not just present in the CSS
+source; confirmed a real synthetic mouse-drag (`page.mouse.down()` →
+`move` with intermediate steps → `up()`) from the track's center to its
+far right and far left correctly snaps to `POSITION_LONG`/`ACTIVE_SWING`
+respectively and persists to `localStorage` on both tiers; confirmed a
+plain tap on a tick still works afterward (regression check that the
+drag rewrite didn't disturb the original click-to-select path). `tsc`
+clean (known 7-error `?v=N` baseline only, zero new errors), `esbuild`
+rebuild + chunk-header grep confirmed no duplicate-module regression,
+`npm test` (75/75) unaffected.
