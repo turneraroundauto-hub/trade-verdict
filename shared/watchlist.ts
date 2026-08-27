@@ -273,6 +273,27 @@ export async function addTickers(): Promise<void> {
   if (newOnes.length && addedHook) addedHook();
 }
 
+// A ticker already known to be real (e.g. the Agitator Gauge's own
+// primary/related-company results, which only ever carry an already-
+// resolved symbol with a live quote) -- skips addTickers()'s whole text-
+// parsing/company-lookup path entirely, since there's nothing left to
+// resolve. Same eviction-at-cap treatment as addTickers(), just for one
+// already-known symbol instead of a batch of typed/pasted entries.
+export function addKnownTicker(symbol: string): boolean {
+  var t = symbol.toUpperCase();
+  if (watchlist.includes(t)) return false;
+  if (watchlist.length + 1 > maxTickers) {
+    var proceed = confirm(upgradeMessage + '\n\nAdding this ticker will remove your oldest ticker to make room. Continue?');
+    if (!proceed) return false;
+    watchlist.pop();
+  }
+  watchlist.unshift(t);
+  saveWL(); renderWatchlist();
+  fetchTickerData(t).then(function (d) { if (d) updateCardMeta(t, d); });
+  if (addedHook) addedHook();
+  return true;
+}
+
 export function removeTicker(ticker: string): void {
   var idx = watchlist.indexOf(ticker); if (idx === -1) return;
   watchlist = watchlist.filter(function (t) { return t !== ticker; });

@@ -423,11 +423,16 @@
   .factor-gauge-arrow{ position:absolute; top:0; width:0; height:0; border-left:4px solid transparent; border-right:4px solid transparent; border-top:6px solid var(--ink); transform:translateX(-50%); }
   .trigger-val{ font-family:var(--mono); font-size:13px; font-weight:700; }
   .trigger-sub{ font-size:11px; color:var(--ink-dim); }
-  .comp-chips{ display:flex; flex-wrap:wrap; gap:6px; }
-  .comp-chip{ display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:8px; border:1px solid var(--border); background:var(--surface-2); text-decoration:none; }
+  .comp-chips{ display:flex; flex-wrap:wrap; align-items:stretch; border:1px solid var(--border); border-radius:8px; background:var(--surface-2); overflow:hidden; }
+  .comp-chip{ display:inline-flex; align-items:center; border-left:1px solid var(--border); }
+  .comp-chip:first-child{ border-left:none; }
+  .comp-chip-link{ display:inline-flex; align-items:center; gap:6px; text-decoration:none; padding:6px 4px 6px 10px; }
   .comp-chip .cc-sym{ font-family:var(--mono); font-size:13px; font-weight:700; color:var(--ink); }
   .comp-chip .cc-price{ font-family:var(--mono); font-size:11px; color:var(--ink-dim); }
   .comp-chip .cc-chg{ font-family:var(--mono); font-size:11px; font-weight:700; }
+  .comp-chip-add{ background:none; border:none; color:var(--ink-dim); font-size:15px; line-height:1; cursor:pointer; padding:6px 10px 6px 4px; }
+  .comp-chip-add:hover{ color:var(--green); }
+  .comp-chip-add:disabled{ color:var(--green); cursor:default; }
 
   /* ── Aggression Dial — a real slider, not a button row ─────────────── */
   .dial-track{ position:relative; height:4px; background:var(--surface-2); border-radius:2px; margin:20px 11px 12px; }
@@ -586,19 +591,23 @@
         </div></div></div>
       </div>
 
-      <div class="card" data-card="context" id="card-context">
+      <div class="card" data-card="agitator" id="card-agitator">
         <div class="card-head" tabindex="0" role="button" aria-expanded="false">
-          <span class="card-icon">✎</span>
+          <span class="card-icon">📡</span>
           <div class="card-title-wrap">
-            <div class="card-label">Session Context</div>
-            <div class="card-sub">Include Known Context</div>
+            <div class="card-label">Agitator Gauge</div>
+            <div class="card-sub">Validate a new interest</div>
           </div>
-          <button type="button" class="help-btn" data-help="context" aria-label="What is this?">?</button>
+          <button type="button" class="help-btn" data-help="agitator" aria-label="What is this?">?</button>
           <svg class="chevron" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
         <div class="card-body"><div class="card-body-inner"><div class="card-body-pad">
-          <textarea class="ctx-box" id="context-input" rows="2" placeholder="e.g. KOSPI down 4%, circuit breaker. NVDA earnings tomorrow..."></textarea>
-          <button class="btn btn-amber" id="analyzeAllBtn">Analyze All</button>
+          <div class="agitator-input-wrap">
+            <input class="ctx-box" id="agitator-query" placeholder="Ticker, company, or paste a headline/rumor...">
+            <button type="button" class="agitator-clear-btn" id="agitator-clear" aria-label="Clear">✕</button>
+          </div>
+          <button class="btn btn-purple" id="agitatorCheckBtn">Check Aggression</button>
+          <div id="agitator-body" style="margin-top:10px"></div>
         </div></div></div>
       </div>
 
@@ -615,6 +624,7 @@
         <div class="card-body"><div class="card-body-inner"><div class="card-body-pad">
           <textarea class="ctx-box" id="ticker-input" rows="2" placeholder="e.g. AAPL, Tesla, NVDA..."></textarea>
           <button class="btn btn-blue" id="importBtn">Import Tickers</button>
+          <button class="btn btn-amber" id="analyzeAllBtn" style="margin-top:8px">Analyze All</button>
         </div></div></div>
       </div>
 
@@ -728,26 +738,6 @@
         </div></div></div>
       </div>
 
-      <div class="card" data-card="agitator" id="card-agitator">
-        <div class="card-head" tabindex="0" role="button" aria-expanded="false">
-          <span class="card-icon">📡</span>
-          <div class="card-title-wrap">
-            <div class="card-label">Agitator Gauge</div>
-            <div class="card-sub">Validate a new interest</div>
-          </div>
-          <button type="button" class="help-btn" data-help="agitator" aria-label="What is this?">?</button>
-          <svg class="chevron" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </div>
-        <div class="card-body"><div class="card-body-inner"><div class="card-body-pad">
-          <div class="agitator-input-wrap">
-            <input class="ctx-box" id="agitator-query" placeholder="Ticker, company, or paste a headline/rumor...">
-            <button type="button" class="agitator-clear-btn" id="agitator-clear" aria-label="Clear">✕</button>
-          </div>
-          <button class="btn btn-purple" id="agitatorCheckBtn">Check Aggression</button>
-          <div id="agitator-body" style="margin-top:10px"></div>
-        </div></div></div>
-      </div>
-
       <div class="card" data-card="glossary" id="card-glossary">
         <div class="card-head" tabindex="0" role="button" aria-expanded="false" id="glossary-header">
           <span class="card-icon">📚</span>
@@ -783,6 +773,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=30"></script>
+<script type="module" src="./app.js?v=31"></script>
 </body>
 </html>

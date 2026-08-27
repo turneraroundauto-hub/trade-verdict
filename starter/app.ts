@@ -25,7 +25,7 @@
 // conversion, not assumed). The emitted, committed starter/app.js is the
 // real bundle -- browsers never load this .ts file directly.
 import { initTickerCache, fetchTickerData } from '../shared/ticker-cache';
-import { initWatchlist, watchlist, addTickers, removeTicker, onWatchlistSave, onTickersAdded } from '../shared/watchlist';
+import { initWatchlist, watchlist, addTickers, addKnownTicker, removeTicker, onWatchlistSave, onTickersAdded } from '../shared/watchlist';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache';
 import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync';
 import { getTzPref, getTzIana, onPrefsChange, tickerHref, newsHref, refreshTickerLinks } from '../shared/prefs';
@@ -536,7 +536,12 @@ async function analyzeOne(sym: string, holdThroughEarnings?: boolean): Promise<v
   state.td = td;
   if (td) renderRoloCard(sym);
 
-  var ctx = (document.getElementById('context-input') as HTMLTextAreaElement).value;
+  // Session Context card retired (replaced by the Agitator Gauge) --
+  // marketContext is now always empty, the same server-side state as any
+  // user who simply never typed into it (Proposal 4's own corroboration
+  // check already treats a blank context as informational-only, a
+  // fully-supported normal case, not an error).
+  var ctx = '';
   var sc: any = {
     spy: market && market.spy ? market.spy.change : '?',
     qqq: market && market.qqq ? market.qqq.change : '?',
@@ -654,17 +659,6 @@ function handleNoCredits(sym: string): void {
     return;
   }
   state.error = 'No credits remaining — buy more or upgrade to Pro.';
-}
-
-// ── Session Context highlighting ───────────────────────────────────
-var ctxDebounce: ReturnType<typeof setTimeout> | null = null;
-function wireContextHighlight(): void {
-  var ctxInputEl = document.getElementById('context-input');
-  if (!ctxInputEl) return;
-  ctxInputEl.addEventListener('input', function () {
-    if (ctxDebounce) clearTimeout(ctxDebounce);
-    ctxDebounce = setTimeout(refreshRoloCards, 250);
-  });
 }
 
 // ── Market-closed enforcement ──────────────────────────────────────
@@ -1051,17 +1045,48 @@ function agitatorFactorRow(label: string, helpKey: string, val: number | null): 
   if (val == null) return '<div class="trigger-row">' + lblHTML + '<span class="trigger-sub">n/a</span></div>';
   return '<div class="trigger-row">' + lblHTML + factorGaugeHTML(val) + '</div>';
 }
+// A "+" that adds an already-resolved, real ticker (the Agitator's own
+// primary result or one of its related companies -- both always carry a
+// live quote by the time they're rendered) straight to the watchlist,
+// skipping addTickers()'s text-parsing/lookup path entirely. Already-
+// present tickers render as a disabled checkmark rather than a dead
+// "+" so it's clear at a glance which ones are already on the list.
+function addTickerBtnHTML(symbol: string): string {
+  var already = watchlist.includes(symbol);
+  return '<button type="button" class="comp-chip-add" data-add-ticker="' + symbol + '"'
+    + (already ? ' disabled aria-label="Already on your watchlist">✓' : ' aria-label="Add ' + symbol + ' to watchlist">+')
+    + '</button>';
+}
+function wireAgitatorAddButtons(scope: HTMLElement): void {
+  scope.querySelectorAll<HTMLButtonElement>('[data-add-ticker]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var sym = b.dataset.addTicker as string;
+      addKnownTicker(sym);
+      if (watchlist.includes(sym)) {
+        b.disabled = true; b.textContent = '✓'; b.setAttribute('aria-label', 'Already on your watchlist');
+      }
+    });
+  });
+}
 // A comp is a real Finnhub industry peer with a live price/% change now
 // (not a correlation float against an unrelated macro proxy) -- rendered
 // as a small chip, not a list row, so "a few related names" reads as a
-// short, tangible recommendation rather than another data table.
+// short, tangible recommendation rather than another data table. Each
+// chip is its own bordered segment inside one continuous strip (not a
+// separately-bordered pill) -- the faint divider between segments is
+// what makes it clear which ticker's own "+" is which, once several
+// sit side by side (direct feedback: "faint vertical divider between
+// the tickers so it's clear which one is being added").
 function compChipHTML(c: { symbol: string; price: string | null; change: string | null; direction: string }): string {
   var color = c.direction === 'green' ? 'var(--green)' : c.direction === 'red' ? 'var(--red)' : 'var(--ink-dim)';
-  return '<a class="comp-chip" href="' + tickerHref(c.symbol) + '" target="_blank">'
-    + '<span class="cc-sym">' + c.symbol + '</span>'
-    + (c.price ? '<span class="cc-price">$' + c.price + '</span>' : '')
-    + (c.change ? '<span class="cc-chg" style="color:' + color + '">' + c.change + '</span>' : '')
-    + '</a>';
+  return '<span class="comp-chip">'
+    + '<a class="comp-chip-link" href="' + tickerHref(c.symbol) + '" target="_blank">'
+      + '<span class="cc-sym">' + c.symbol + '</span>'
+      + (c.price ? '<span class="cc-price">$' + c.price + '</span>' : '')
+      + (c.change ? '<span class="cc-chg" style="color:' + color + '">' + c.change + '</span>' : '')
+    + '</a>'
+    + addTickerBtnHTML(c.symbol)
+    + '</span>';
 }
 async function runAgitatorCheck(): Promise<void> {
   var qEl = document.getElementById('agitator-query') as HTMLInputElement;
@@ -1092,7 +1117,7 @@ async function runAgitatorCheck(): Promise<void> {
     // (?) moved off the ticker and onto the rating itself -- direct
     // feedback: "the (?) next to the ticker needs to move next to the
     // rating."
-    var gaugeHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl"><a href="' + tickerHref(data.symbol) + '" target="_blank">' + data.symbol + '</a></span>' + tqHTML + '</span>'
+    var gaugeHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl"><a href="' + tickerHref(data.symbol) + '" target="_blank">' + data.symbol + '</a></span>' + tqHTML + addTickerBtnHTML(data.symbol) + '</span>'
       + '<span class="trigger-val-wrap"><span class="trigger-val" style="color:' + gaugeColor + '">' + (comp ? comp.level : 'N/A') + '</span>'
       + '<button type="button" class="help-btn" data-help="agitator-score" aria-label="What is this?">?</button></span>'
       + '<span class="trigger-sub">' + (comp ? Math.round(comp.score / 10) + '/10 avg. of 6 signals' : 'no data') + '</span></div>';
@@ -1126,6 +1151,7 @@ async function runAgitatorCheck(): Promise<void> {
       : '';
 
     out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML;
+    wireAgitatorAddButtons(out);
     rolodex.snapCardUnderDock(document.getElementById('card-agitator') as HTMLElement);
   } catch (e) {
     out.innerHTML = '<div class="track-empty">Agitator Gauge unavailable right now.</div>';
@@ -1160,7 +1186,6 @@ const HELP_CONTENT: Record<string, string> = {
 function initApp(): void {
   cleanLS();
   document.getElementById('ticker-count')!.textContent = 'CRF · ' + watchlist.length + ' TICKERS';
-  wireContextHighlight();
   onPrefsChange(function () {
     refreshRoloCards(); renderMarketTs();
     refreshTickerLinks(document.getElementById('gateGrid'));

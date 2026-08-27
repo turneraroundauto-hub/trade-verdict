@@ -422,6 +422,23 @@ async function addTickers() {
   if (unresolved.length) alert("Couldn't find: " + unresolved.join(", "));
   if (newOnes.length && addedHook) addedHook();
 }
+function addKnownTicker(symbol) {
+  var t = symbol.toUpperCase();
+  if (watchlist.includes(t)) return false;
+  if (watchlist.length + 1 > maxTickers) {
+    var proceed = confirm(upgradeMessage + "\n\nAdding this ticker will remove your oldest ticker to make room. Continue?");
+    if (!proceed) return false;
+    watchlist.pop();
+  }
+  watchlist.unshift(t);
+  saveWL();
+  renderWatchlist();
+  fetchTickerData(t).then(function(d) {
+    if (d) updateCardMeta(t, d);
+  });
+  if (addedHook) addedHook();
+  return true;
+}
 function removeTicker(ticker) {
   var idx = watchlist.indexOf(ticker);
   if (idx === -1) return;
@@ -1101,7 +1118,7 @@ function rebuildRoloIndex(watchlist2, buildChip, dividerText, buildExtraChip) {
 function markRoloMarqueeDataReady() {
   roloMarqueeDataReady = true;
 }
-var HELP_BALLOON_MS = 5e3;
+var HELP_BALLOON_MS_PER_4_LINES = 5e3;
 var HELP_SCROLL_GRACE_MS = 200;
 var helpEl = null;
 var helpTimer = null;
@@ -1150,7 +1167,12 @@ function openHelpBalloon(btn, key) {
   helpOpenKey = key;
   helpOpenedAt = Date.now();
   if (helpTimer) clearTimeout(helpTimer);
-  helpTimer = setTimeout(closeHelpBalloon, HELP_BALLOON_MS);
+  const cs = getComputedStyle(el);
+  const lineHeightPx = parseFloat(cs.lineHeight) || 19.5;
+  const vPad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+  const lines = Math.max(1, Math.round((el.scrollHeight - vPad) / lineHeightPx));
+  const duration = Math.ceil(lines / 4) * HELP_BALLOON_MS_PER_4_LINES;
+  helpTimer = setTimeout(closeHelpBalloon, duration);
 }
 function initHelpBalloons(content, onGlossaryJump) {
   helpContent = content;
@@ -1617,11 +1639,6 @@ async function renderRolodexFromWatchlist() {
     markRoloMarqueeDataReady();
   });
 }
-function refreshRoloCards() {
-  watchlist.forEach((sym) => {
-    if (tickerState.has(sym)) renderRoloCard(sym);
-  });
-}
 async function analyzeOne(sym) {
   const state = tickerState.get(sym);
   if (!state || state.analyzing) return;
@@ -1631,7 +1648,7 @@ async function analyzeOne(sym) {
   const td = state.td || await fetchTickerData(sym);
   state.td = td;
   if (td) renderRoloCard(sym);
-  var ctx = document.getElementById("context-input").value;
+  var ctx = "";
   var sc = {
     spy: market && market.spy ? market.spy.change : "?",
     qqq: market && market.qqq ? market.qqq.change : "?",
@@ -1741,14 +1758,88 @@ function closeComebackScreen() {
   var screen = document.getElementById("comeback-screen");
   if (screen) screen.style.display = "none";
 }
-var ctxDebounce = null;
-function wireContextHighlight() {
-  var ctxInputEl = document.getElementById("context-input");
-  if (!ctxInputEl) return;
-  ctxInputEl.addEventListener("input", function() {
-    if (ctxDebounce) clearTimeout(ctxDebounce);
-    ctxDebounce = setTimeout(refreshRoloCards, 250);
+function factorGaugeHTML(val) {
+  var pct = Math.max(0, Math.min(100, val));
+  var label = val >= 66 ? "High" : val >= 34 ? "Medium" : "Low";
+  return '<div class="factor-gauge" role="img" aria-label="' + label + '"><div class="factor-gauge-bar"><span class="fg-seg fg-green"></span><span class="fg-seg fg-amber"></span><span class="fg-seg fg-red"></span></div><div class="factor-gauge-arrow" style="left:' + pct + '%"></div></div>';
+}
+function agitatorFactorRow(label, helpKey, val) {
+  var helpBtn = '<button type="button" class="help-btn" data-help="' + helpKey + '" aria-label="What is this?">?</button>';
+  var lblHTML = '<span class="trigger-lbl-wrap"><span class="trigger-lbl">' + label + "</span>" + helpBtn + "</span>";
+  if (val == null) return '<div class="trigger-row">' + lblHTML + '<span class="trigger-sub">n/a</span></div>';
+  return '<div class="trigger-row">' + lblHTML + factorGaugeHTML(val) + "</div>";
+}
+function addTickerBtnHTML(symbol) {
+  var already = watchlist.includes(symbol);
+  return '<button type="button" class="comp-chip-add" data-add-ticker="' + symbol + '"' + (already ? ' disabled aria-label="Already on your watchlist">\u2713' : ' aria-label="Add ' + symbol + ' to watchlist">+') + "</button>";
+}
+function wireAgitatorAddButtons(scope) {
+  scope.querySelectorAll("[data-add-ticker]").forEach(function(b) {
+    b.addEventListener("click", function() {
+      var sym = b.dataset.addTicker;
+      addKnownTicker(sym);
+      if (watchlist.includes(sym)) {
+        b.disabled = true;
+        b.textContent = "\u2713";
+        b.setAttribute("aria-label", "Already on your watchlist");
+      }
+    });
   });
+}
+function compChipHTML(c) {
+  var color = c.direction === "green" ? "var(--green)" : c.direction === "red" ? "var(--red)" : "var(--ink-dim)";
+  return '<span class="comp-chip"><a class="comp-chip-link" href="' + tickerHref2(c.symbol) + '" target="_blank"><span class="cc-sym">' + c.symbol + "</span>" + (c.price ? '<span class="cc-price">$' + c.price + "</span>" : "") + (c.change ? '<span class="cc-chg" style="color:' + color + '">' + c.change + "</span>" : "") + "</a>" + addTickerBtnHTML(c.symbol) + "</span>";
+}
+async function runAgitatorCheck() {
+  var qEl = document.getElementById("agitator-query");
+  var btn = document.getElementById("agitatorCheckBtn");
+  var out = document.getElementById("agitator-body");
+  if (!out) return;
+  var q = qEl.value.trim();
+  if (!q) {
+    out.innerHTML = '<div class="track-empty">Type a ticker, company name, or paste a headline first.</div>';
+    return;
+  }
+  btn.disabled = true;
+  btn.classList.add("btn-running");
+  btn.textContent = "CHECKING\u2026";
+  out.innerHTML = '<div class="track-empty">Loading...</div>';
+  try {
+    var url = API_URL2 + "/agitator?q=" + encodeURIComponent(q);
+    var res = await fetch(addSecret2(url), { headers: authH2() });
+    if (res.status === 403) {
+      out.innerHTML = '<div class="track-empty">Agitator Gauge not available on this tier yet.</div>';
+      return;
+    }
+    if (res.status === 429) {
+      out.innerHTML = '<div class="track-empty">Too many checks this hour \u2014 try again later.</div>';
+      return;
+    }
+    var data = await res.json();
+    if (!data.resolved) {
+      out.innerHTML = '<div class="track-empty">Couldn\u2019t find a company for "' + q + '".</div>';
+      return;
+    }
+    var comp = data.composite;
+    var gaugeColor = !comp ? "var(--ink-dim)" : comp.level === "HIGH" ? "var(--red)" : comp.level === "MEDIUM" ? "var(--amber)" : "var(--green)";
+    var tq = data.tickerQuote;
+    var tqColor = !tq ? "" : tq.direction === "green" ? "var(--green)" : tq.direction === "red" ? "var(--red)" : "var(--ink-dim)";
+    var tqHTML = tq ? '<span class="tq-price">$' + tq.price + '</span><span class="tq-chg" style="color:' + tqColor + '">' + tq.change + "</span>" : "";
+    var gaugeHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl"><a href="' + tickerHref2(data.symbol) + '" target="_blank">' + data.symbol + "</a></span>" + tqHTML + addTickerBtnHTML(data.symbol) + '</span><span class="trigger-val-wrap"><span class="trigger-val" style="color:' + gaugeColor + '">' + (comp ? comp.level : "N/A") + '</span><button type="button" class="help-btn" data-help="agitator-score" aria-label="What is this?">?</button></span><span class="trigger-sub">' + (comp ? Math.round(comp.score / 10) + "/10 avg. of 6 signals" : "no data") + "</span></div>";
+    var f = data.factors;
+    var factorsHTML = f ? '<div class="track-log-title" style="margin-top:10px">SIGNALS</div>' + agitatorFactorRow("Surprise", "agitator-surprise", f.surprise) + agitatorFactorRow("Uncertainty", "agitator-uncertainty", f.uncertainty) + agitatorFactorRow("Freshness", "agitator-freshness", f.positioning) + agitatorFactorRow("Ripple Effect", "agitator-ripple", f.crossAsset) + agitatorFactorRow("Swing Risk", "agitator-swing", f.liquidity) + agitatorFactorRow("Expected Move", "agitator-expected-move", f.ivEnvironment) + '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl">Past Reactions</span><button type="button" class="help-btn" data-help="agitator-past" aria-label="What is this?">?</button></span><span class="trigger-sub">not tracked yet</span></div>' : "";
+    var headlineHTML = data.headlineUsed ? '<div class="headline" style="margin-top:8px">' + (data.headlineUsedUrl ? '<a href="' + data.headlineUsedUrl + '" target="_blank">' + data.headlineUsed + "</a>" : data.headlineUsed) + "</div>" : "";
+    var compsHTML = data.comps && data.comps.length ? '<div class="track-log-title" style="margin-top:10px">RELATED</div><div class="comp-chips">' + data.comps.map(compChipHTML).join("") + "</div>" : "";
+    out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML;
+    wireAgitatorAddButtons(out);
+    snapCardUnderDock(document.getElementById("card-agitator"));
+  } catch (e) {
+    out.innerHTML = '<div class="track-empty">Agitator Gauge unavailable right now.</div>';
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove("btn-running");
+    btn.textContent = "Check Aggression";
+  }
 }
 function enforceMarketState() {
   if (isMarketClosed()) {
@@ -2000,13 +2091,20 @@ document.getElementById("glossary-search").addEventListener("input", (e) => filt
 var HELP_CONTENT = {
   gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against \u2014 feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read \u2014 tap the docked bar to jump back to top. Pre/post-market prices are IEX-only and may vary from the full consolidated tape; built for regular-session (9:30am\u20134pm ET) analysis.',
   pulse: 'A live AI-written read on today\u2019s market mood and <a class="help-glossary-link" href="#" data-term="sector rotation">sector rotation</a> \u2014 Starter and up unlocks the real, per-session version.',
-  context: "Real news or catalysts you already know \u2014 auto-included in every analysis and checked against headlines. 2 of 3 matching signals marks it CONTEXT-CORROBORATED for Gate 2.",
-  io: 'Paste or type <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names, one per line or comma-separated, to add them to your watchlist. Type a ticker in caps (AAPL) or a name any other way (Tesla) \u2014 either resolves to the right symbol.'
+  io: 'Paste or type <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names, one per line or comma-separated, to add them to your watchlist. Type a ticker in caps (AAPL) or a name any other way (Tesla) \u2014 either resolves to the right symbol.',
+  agitator: "A standalone discovery tool for proofing a new stock interest or a media rumor BEFORE it enters your watchlist \u2014 free, no credit cost. Type a ticker, a company name, or paste a full headline/rumor \u2014 one box handles all three \u2014 and get a LOW/MEDIUM/HIGH read across 6 real signals, plus a few real related companies to also check. Past Reactions isn\u2019t tracked yet, so it\u2019s shown but never scored.",
+  "agitator-score": "One overall number, 0-10, averaging the 6 signals below it \u2014 a quick read on how big a deal this news might be for the stock, not a precise measurement.",
+  "agitator-surprise": "How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.",
+  "agitator-uncertainty": "How unclear it still is to everyone how big a deal this actually is. High means the market hasn\u2019t figured out how to react yet.",
+  "agitator-freshness": "Is this brand-new information nobody has reacted to yet (high), or something already known and priced in days ago (low)?",
+  "agitator-ripple": "How likely this is to also move other related stocks, the sector, or the broader market \u2014 not just this one company.",
+  "agitator-swing": "How easily this stock\u2019s price can be pushed around. Smaller, thinly-traded stocks swing more on the same amount of buying or selling.",
+  "agitator-expected-move": "How much price movement the options market is already betting on for this stock, right now.",
+  "agitator-past": "How this stock has reacted to similar news before. Not tracked yet in this app, so it always shows as unavailable."
 };
 function initApp() {
   cleanLS();
   document.getElementById("ticker-count").textContent = "CRF \xB7 " + watchlist.length + " TICKERS";
-  wireContextHighlight();
   fetchMarket();
   sizeGateSpacer();
   renderRolodexFromWatchlist();
@@ -2052,6 +2150,18 @@ async function boot() {
   }
   document.getElementById("analyzeAllBtn").addEventListener("click", analyzeAll);
   document.getElementById("importBtn").addEventListener("click", addTickers);
+  document.getElementById("agitatorCheckBtn").addEventListener("click", runAgitatorCheck);
+  document.getElementById("agitator-clear").addEventListener("click", () => {
+    var qEl = document.getElementById("agitator-query");
+    qEl.value = "";
+    qEl.focus();
+  });
+  document.getElementById("agitator-query").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      runAgitatorCheck();
+    }
+  });
   const comebackClose = document.getElementById("comeback-close-btn");
   if (comebackClose) comebackClose.addEventListener("click", closeComebackScreen);
   initApp();

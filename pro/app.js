@@ -549,6 +549,23 @@ async function addTickers() {
   if (unresolved.length) alert("Couldn't find: " + unresolved.join(", "));
   if (newOnes.length && addedHook) addedHook();
 }
+function addKnownTicker(symbol) {
+  var t = symbol.toUpperCase();
+  if (watchlist.includes(t)) return false;
+  if (watchlist.length + 1 > maxTickers) {
+    var proceed = confirm(upgradeMessage + "\n\nAdding this ticker will remove your oldest ticker to make room. Continue?");
+    if (!proceed) return false;
+    watchlist.pop();
+  }
+  watchlist.unshift(t);
+  saveWL();
+  renderWatchlist();
+  fetchTickerData(t).then(function(d) {
+    if (d) updateCardMeta(t, d);
+  });
+  if (addedHook) addedHook();
+  return true;
+}
 function removeTicker(ticker) {
   var idx = watchlist.indexOf(ticker);
   if (idx === -1) return;
@@ -1487,7 +1504,7 @@ function rebuildRoloIndex(watchlist2, buildChip, dividerText, buildExtraChip) {
 function markRoloMarqueeDataReady() {
   roloMarqueeDataReady = true;
 }
-var HELP_BALLOON_MS = 5e3;
+var HELP_BALLOON_MS_PER_4_LINES = 5e3;
 var HELP_SCROLL_GRACE_MS = 200;
 var helpEl = null;
 var helpTimer = null;
@@ -1536,7 +1553,12 @@ function openHelpBalloon(btn, key) {
   helpOpenKey = key;
   helpOpenedAt = Date.now();
   if (helpTimer) clearTimeout(helpTimer);
-  helpTimer = setTimeout(closeHelpBalloon, HELP_BALLOON_MS);
+  const cs = getComputedStyle(el);
+  const lineHeightPx = parseFloat(cs.lineHeight) || 19.5;
+  const vPad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+  const lines = Math.max(1, Math.round((el.scrollHeight - vPad) / lineHeightPx));
+  const duration = Math.ceil(lines / 4) * HELP_BALLOON_MS_PER_4_LINES;
+  helpTimer = setTimeout(closeHelpBalloon, duration);
 }
 function initHelpBalloons(content, onGlossaryJump) {
   helpContent = content;
@@ -2246,7 +2268,7 @@ async function analyzeOne(sym, holdThroughEarnings) {
   const td = state.td || await fetchTickerData(sym);
   state.td = td;
   if (td) renderRoloCard(sym);
-  var ctx = document.getElementById("context-input").value;
+  var ctx = "";
   var sc = {
     spy: market && market.spy ? market.spy.change : "?",
     qqq: market && market.qqq ? market.qqq.change : "?",
@@ -2684,9 +2706,26 @@ function agitatorFactorRow(label, helpKey, val) {
   if (val == null) return '<div class="trigger-row">' + lblHTML + '<span class="trigger-sub">n/a</span></div>';
   return '<div class="trigger-row">' + lblHTML + factorGaugeHTML(val) + "</div>";
 }
+function addTickerBtnHTML(symbol) {
+  var already = watchlist.includes(symbol);
+  return '<button type="button" class="comp-chip-add" data-add-ticker="' + symbol + '"' + (already ? ' disabled aria-label="Already on your watchlist">\u2713' : ' aria-label="Add ' + symbol + ' to watchlist">+') + "</button>";
+}
+function wireAgitatorAddButtons(scope) {
+  scope.querySelectorAll("[data-add-ticker]").forEach(function(b) {
+    b.addEventListener("click", function() {
+      var sym = b.dataset.addTicker;
+      addKnownTicker(sym);
+      if (watchlist.includes(sym)) {
+        b.disabled = true;
+        b.textContent = "\u2713";
+        b.setAttribute("aria-label", "Already on your watchlist");
+      }
+    });
+  });
+}
 function compChipHTML(c) {
   var color = c.direction === "green" ? "var(--green)" : c.direction === "red" ? "var(--red)" : "var(--ink-dim)";
-  return '<a class="comp-chip" href="' + tickerHref(c.symbol) + '" target="_blank"><span class="cc-sym">' + c.symbol + "</span>" + (c.price ? '<span class="cc-price">$' + c.price + "</span>" : "") + (c.change ? '<span class="cc-chg" style="color:' + color + '">' + c.change + "</span>" : "") + "</a>";
+  return '<span class="comp-chip"><a class="comp-chip-link" href="' + tickerHref(c.symbol) + '" target="_blank"><span class="cc-sym">' + c.symbol + "</span>" + (c.price ? '<span class="cc-price">$' + c.price + "</span>" : "") + (c.change ? '<span class="cc-chg" style="color:' + color + '">' + c.change + "</span>" : "") + "</a>" + addTickerBtnHTML(c.symbol) + "</span>";
 }
 async function runAgitatorCheck() {
   var qEl = document.getElementById("agitator-query");
@@ -2723,12 +2762,13 @@ async function runAgitatorCheck() {
     var tq = data.tickerQuote;
     var tqColor = !tq ? "" : tq.direction === "green" ? "var(--green)" : tq.direction === "red" ? "var(--red)" : "var(--ink-dim)";
     var tqHTML = tq ? '<span class="tq-price">$' + tq.price + '</span><span class="tq-chg" style="color:' + tqColor + '">' + tq.change + "</span>" : "";
-    var gaugeHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl"><a href="' + tickerHref(data.symbol) + '" target="_blank">' + data.symbol + "</a></span>" + tqHTML + '</span><span class="trigger-val-wrap"><span class="trigger-val" style="color:' + gaugeColor + '">' + (comp ? comp.level : "N/A") + '</span><button type="button" class="help-btn" data-help="agitator-score" aria-label="What is this?">?</button></span><span class="trigger-sub">' + (comp ? Math.round(comp.score / 10) + "/10 avg. of 6 signals" : "no data") + "</span></div>";
+    var gaugeHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl"><a href="' + tickerHref(data.symbol) + '" target="_blank">' + data.symbol + "</a></span>" + tqHTML + addTickerBtnHTML(data.symbol) + '</span><span class="trigger-val-wrap"><span class="trigger-val" style="color:' + gaugeColor + '">' + (comp ? comp.level : "N/A") + '</span><button type="button" class="help-btn" data-help="agitator-score" aria-label="What is this?">?</button></span><span class="trigger-sub">' + (comp ? Math.round(comp.score / 10) + "/10 avg. of 6 signals" : "no data") + "</span></div>";
     var f = data.factors;
     var factorsHTML = f ? '<div class="track-log-title" style="margin-top:10px">SIGNALS</div>' + agitatorFactorRow("Surprise", "agitator-surprise", f.surprise) + agitatorFactorRow("Uncertainty", "agitator-uncertainty", f.uncertainty) + agitatorFactorRow("Freshness", "agitator-freshness", f.positioning) + agitatorFactorRow("Ripple Effect", "agitator-ripple", f.crossAsset) + agitatorFactorRow("Swing Risk", "agitator-swing", f.liquidity) + agitatorFactorRow("Expected Move", "agitator-expected-move", f.ivEnvironment) + '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl">Past Reactions</span><button type="button" class="help-btn" data-help="agitator-past" aria-label="What is this?">?</button></span><span class="trigger-sub">not tracked yet</span></div>' : "";
     var headlineHTML = data.headlineUsed ? '<div class="headline" style="margin-top:8px">' + (data.headlineUsedUrl ? '<a href="' + data.headlineUsedUrl + '" target="_blank">' + data.headlineUsed + "</a>" : data.headlineUsed) + "</div>" : "";
     var compsHTML = data.comps && data.comps.length ? '<div class="track-log-title" style="margin-top:10px">RELATED</div><div class="comp-chips">' + data.comps.map(compChipHTML).join("") + "</div>" : "";
     out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML;
+    wireAgitatorAddButtons(out);
     snapCardUnderDock(document.getElementById("card-agitator"));
   } catch (e) {
     out.innerHTML = '<div class="track-empty">Agitator Gauge unavailable right now.</div>';
@@ -2820,17 +2860,6 @@ async function exportWatchlistCSV(btnEl) {
     btnEl.textContent = old;
     btnEl.disabled = false;
   }
-}
-var ctxDebounce = null;
-function wireContextHighlight() {
-  var ctxInputEl = document.getElementById("context-input");
-  if (!ctxInputEl) return;
-  ctxInputEl.addEventListener("input", function() {
-    if (ctxDebounce) clearTimeout(ctxDebounce);
-    ctxDebounce = setTimeout(() => {
-      refreshRoloCards();
-    }, 250);
-  });
 }
 function enforceMarketState() {
   if (isMarketClosed()) {
@@ -3113,7 +3142,6 @@ var HELP_CONTENT = {
 function initApp() {
   cleanLS();
   document.getElementById("ticker-count").textContent = "CRF \xB7 " + watchlist.length + " TICKERS";
-  wireContextHighlight();
   onPrefsChange(function() {
     refreshRoloCards();
     renderMarketTs();
