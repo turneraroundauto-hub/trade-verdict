@@ -258,13 +258,14 @@
   .compact-plus-btn:disabled{ opacity:1; cursor:default; }
 
   /* ── Aggression Dial — a real slider, not a button row ─────────────── */
-  .dial-track{ position:relative; height:4px; background:var(--surface-2); border-radius:2px; margin:20px 11px 12px; }
+  .dial-track{ position:relative; height:4px; background:var(--surface-2); border-radius:2px; margin:20px 11px 12px; touch-action:none; cursor:pointer; }
   .dial-tick{ position:absolute; top:50%; width:18px; height:18px; margin:-9px 0 0 -9px; border-radius:50%; border:2px solid var(--border); background:var(--bg); padding:0; cursor:pointer; z-index:1; }
-  .dial-tick.active{ border-color:var(--purple); }
-  .dial-thumb{ position:absolute; top:50%; width:22px; height:22px; margin:-11px 0 0 -11px; border-radius:50%; background:var(--purple); box-shadow:0 0 0 5px var(--purple-dim); transition:left .2s ease; pointer-events:none; z-index:2; }
+  .dial-tick.active{ border-color:var(--amber); }
+  .dial-thumb{ position:absolute; top:50%; width:22px; height:22px; margin:-11px 0 0 -11px; border-radius:50%; background:var(--amber); box-shadow:0 0 14px 3px rgba(255,182,45,.7), 0 0 0 5px var(--amber-dim); transition:left .2s ease; cursor:grab; touch-action:none; z-index:2; }
+  .dial-thumb:active{ cursor:grabbing; transition:none; }
   .dial-labels{ display:flex; margin:0 -3px 4px; }
   .dial-label-item{ flex:1; text-align:center; font-family:var(--mono); font-size:10px; letter-spacing:.03em; color:var(--ink-dim); cursor:pointer; padding:0 2px; }
-  .dial-label-item.active{ color:var(--purple); font-weight:700; }
+  .dial-label-item.active{ color:var(--amber); font-weight:700; }
   .ctx-match{ background:rgba(255,182,45,.22); color:var(--amber); border-radius:3px; padding:0 2px; font-weight:700; }
   .meta-row{ display:flex; gap:12px; font-size:13px; color:var(--ink-dim); margin-top:4px; flex-wrap:wrap; }
   .meta-row b{ color:var(--ink); font-weight:700; }
@@ -615,6 +616,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=87"></script>
+<script type="module" src="./app.js?v=88"></script>
 </body>
 </html>
