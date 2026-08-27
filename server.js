@@ -2097,8 +2097,17 @@ async function fetchTickerPeers(symbol) {
 // isFull-scaled 3-vs-8 split existed to ration a bigger data dump, which
 // no longer applies once the list itself is short by design.
 const AGITATOR_COMPS_LIMIT = 3;
-async function computeAgitatorComps(symbol) {
-  const peers = (await fetchTickerPeers(symbol)).slice(0, AGITATOR_COMPS_LIMIT);
+// mentionedSymbols: other real, resolvable companies already named in the
+// user's own typed input (e.g. "Salesforce, Crowdstrike, Okta surge" ->
+// CRWD/OKTA alongside primary CRM) -- when present, these are what the user
+// actually asked about, so they take priority over a generic same-industry
+// guess from Finnhub's peer list, which can surface something genuinely
+// unrelated to the story being checked (confirmed live: APP/AppLovin as a
+// "related" company for a Salesforce enterprise-SaaS earnings beat).
+async function computeAgitatorComps(symbol, mentionedSymbols) {
+  const peers = (mentionedSymbols && mentionedSymbols.length)
+    ? mentionedSymbols.slice(0, AGITATOR_COMPS_LIMIT)
+    : (await fetchTickerPeers(symbol)).slice(0, AGITATOR_COMPS_LIMIT);
   const quotes = await Promise.all(peers.map(sym => fetchQuote(sym)));
   return peers.map((sym, i) => {
     const q = quotes[i];
@@ -2590,6 +2599,22 @@ app.get("/agitator", async (req, res) => {
     symbol = symbol.toUpperCase();
     if (!directMatch && !headlineOverride) headlineOverride = raw;
 
+    // Other real companies named alongside the primary one -- mirror-only,
+    // see Tra's server.js for the full write-up.
+    const mentionedSymbols = [];
+    if (!/^[A-Z]{1,6}$/.test(raw)) {
+      const MENTION_SCAN_CAP = 6;
+      let scanned = 0;
+      for (const candidate of extractCompanyCandidates(raw)) {
+        if (mentionedSymbols.length >= AGITATOR_COMPS_LIMIT || scanned >= MENTION_SCAN_CAP) break;
+        scanned++;
+        const candSym = await searchSymbolByName(candidate);
+        if (candSym && candSym.toUpperCase() !== symbol && !mentionedSymbols.includes(candSym.toUpperCase())) {
+          mentionedSymbols.push(candSym.toUpperCase());
+        }
+      }
+    }
+
     const isFull = !!req.tierConfig?.tracker;
     const [fundamentals, quote, news] = await Promise.all([
       fetchTickerFundamentals(symbol),
@@ -2613,10 +2638,13 @@ app.get("/agitator", async (req, res) => {
     if (ivEnvironment != null) factorsForComposite.ivEnvironment = ivEnvironment;
     const composite = computeAgitatorComposite(factorsForComposite);
 
-    const comps = await computeAgitatorComps(symbol);
+    const comps = await computeAgitatorComps(symbol, mentionedSymbols);
 
     res.json({
       resolved: true, symbol,
+      // Real, live price move for the resolved ticker -- mirror-only, see
+      // Tra's server.js for the full write-up.
+      tickerQuote: quote ? { price: quote.price, change: quote.change, direction: quote.direction } : null,
       headlineUsed: effectiveHeadline,
       headlineUsedUrl: (!headlineOverride && news) ? news.url || null : null,
       // Phase 0 fix (Aug 26, 2026) -- mirror-only, see Tra's server.js.

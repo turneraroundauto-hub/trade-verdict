@@ -1082,9 +1082,19 @@ async function runAgitatorCheck(): Promise<void> {
 
     var comp = data.composite;
     var gaugeColor = !comp ? 'var(--ink-dim)' : comp.level === 'HIGH' ? 'var(--red)' : comp.level === 'MEDIUM' ? 'var(--amber)' : 'var(--green)';
-    var gaugeHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl"><a href="' + tickerHref(data.symbol) + '" target="_blank">' + data.symbol + '</a></span>'
+    // The ticker's own real, live price move -- so a claimed rally/catalyst
+    // can be checked directly against actual trading, not just an abstract
+    // AI-scored signal reading (direct feedback: "it never pointed to the
+    // rally today"). Sits next to the ticker symbol itself.
+    var tq = data.tickerQuote;
+    var tqColor = !tq ? '' : tq.direction === 'green' ? 'var(--green)' : tq.direction === 'red' ? 'var(--red)' : 'var(--ink-dim)';
+    var tqHTML = tq ? '<span class="tq-price">$' + tq.price + '</span><span class="tq-chg" style="color:' + tqColor + '">' + tq.change + '</span>' : '';
+    // (?) moved off the ticker and onto the rating itself -- direct
+    // feedback: "the (?) next to the ticker needs to move next to the
+    // rating."
+    var gaugeHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl"><a href="' + tickerHref(data.symbol) + '" target="_blank">' + data.symbol + '</a></span>' + tqHTML + '</span>'
+      + '<span class="trigger-val-wrap"><span class="trigger-val" style="color:' + gaugeColor + '">' + (comp ? comp.level : 'N/A') + '</span>'
       + '<button type="button" class="help-btn" data-help="agitator-score" aria-label="What is this?">?</button></span>'
-      + '<span class="trigger-val" style="color:' + gaugeColor + '">' + (comp ? comp.level : 'N/A') + '</span>'
       + '<span class="trigger-sub">' + (comp ? Math.round(comp.score / 10) + '/10 · ' + comp.factorCount + '/6 signals' : 'no data') + '</span></div>';
 
     // data.factors is only present for "full" tiers (server-side isFull
