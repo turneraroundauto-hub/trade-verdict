@@ -2226,7 +2226,7 @@ function refreshRoloCards() {
 var DIAL_POSITIONS = {
   ACTIVE_SWING: { label: "Aggressive", cadence: "Session-by-session", entries: "Opening Drive, Pre-Catalyst Buildup, post-flush", stops: "Tight (+4% / -1%)", recheck: "Every session", sizing: "Smaller, capped at HALF" },
   ACTIVE_LEAN: { label: "Light Aggressive", cadence: "Daily", entries: "Pre-Catalyst Buildup, post-flush (no Opening Drive)", stops: "Standard (+4% / -3%)", recheck: "Daily", sizing: "Standard" },
-  NEUTRAL: { label: "Neutral (default)", cadence: "Same as current analysis", entries: "Same as current analysis", stops: "Same as current analysis", recheck: "Same as current analysis", sizing: "Same as current analysis" },
+  NEUTRAL: { label: "CRF Default", cadence: "CRF default", entries: "CRF default", stops: "CRF default", recheck: "CRF default", sizing: "CRF default" },
   POSITION_LEAN: { label: "Light Passive", cadence: "2\u20133x per week", entries: "Post-flush only", stops: "Wider (-5%)", recheck: "2\u20133x per week", sizing: "Larger, fewer concurrent" },
   POSITION_LONG: { label: "Passive", cadence: "Weekly", entries: "Post-flush, full confirmation only", stops: "Widest (-8%)", recheck: "Weekly", sizing: "Largest, fewest concurrent" }
 };
@@ -3180,7 +3180,7 @@ var HELP_CONTENT = {
   "agitator-swing": "How easily this stock\u2019s price can be pushed around. Smaller, thinly-traded stocks swing more on the same amount of buying or selling.",
   "agitator-expected-move": "How much price movement the options market is already betting on for this stock, right now.",
   "agitator-past": "How this stock has reacted to similar news before. Not tracked yet in this app, so it always shows as unavailable.",
-  dial: "Sets your monitoring cadence and holding-period posture \u2014 Active/Swing (watching the tape) through Position/Long (check in occasionally). Neutral (default) behaves exactly like every other tier. Active/Swing caps position sizing at HALF; nothing on this dial ever inflates a sizing your gates didn\u2019t already earn. A real earnings print always blocks new entries first, at every position, unless you explicitly hold through it for that one check. Monitoring cadence, entry guidance, stop guidance, and recheck interval are informational \u2014 this app doesn\u2019t place real stop orders or send reminders yet."
+  dial: "Sets your monitoring cadence and holding-period posture \u2014 Aggressive (watching the tape) through Passive (check in occasionally). CRF Default behaves exactly like every other tier. Aggressive caps position sizing at HALF; nothing on this dial ever inflates a sizing your gates didn\u2019t already earn. A real earnings print always blocks new entries first, at every position, unless you explicitly hold through it for that one check. Monitoring cadence, entry guidance, stop guidance, and recheck interval are informational \u2014 this app doesn\u2019t place real stop orders or send reminders yet."
 };
 function initApp() {
   cleanLS();
