@@ -2463,6 +2463,16 @@ async function renderScorecardCard() {
     }
     var strictRow = data.strictPct != null ? '<div class="trigger-row"><span class="trigger-lbl">Strict accuracy</span><span class="trigger-val">' + data.strictPct + "%</span></div>" : "";
     var html = '<div class="track-log-title">VERDICT ACCURACY (' + data.gradedCount + " graded)</div>" + strictRow + '<div class="trigger-row"><span class="trigger-lbl">Directional accuracy</span><span class="trigger-val">' + data.directionalPct + "%</span></div>";
+    if (data.tickerAccuracy) {
+      var tFmt = function(s) {
+        return s && !s.insufficientData && s.directionalPct != null ? s.directionalPct + "% (" + s.gradedCount + ")" : "\u2014";
+      };
+      var tRows = Object.keys(data.tickerAccuracy).map(function(t) {
+        var entry = data.tickerAccuracy[t];
+        return '<div class="trigger-row"><span class="trigger-lbl">' + t + '</span><span class="trigger-val">' + tFmt(entry.personal) + '</span><span class="trigger-sub">pool ' + tFmt(entry.pool) + "</span></div>";
+      }).join("");
+      if (tRows) html += '<div class="track-log-title" style="margin-top:12px">BY TICKER (yours vs. pool)</div>' + tRows;
+    }
     if (data.breakdown) {
       var section = function(title, key) {
         var groups = data.breakdown[key] || {};
@@ -2472,7 +2482,7 @@ async function renderScorecardCard() {
         }).join("");
         return rows ? '<div class="track-log-title" style="margin-top:12px">' + title + "</div>" + rows : "";
       };
-      html += section("BY GATE 1 BRANCH", "gate1Branch") + section("BY PRE-GATE STATE", "preGateState") + section("BY GATE 0 READ", "gate0Read");
+      html += section("BY GATE 1 BRANCH", "gate1Branch") + section("BY PRE-GATE STATE", "preGateState") + section("BY GATE 0 READ", "gate0Read") + section("BY GATE 2 CORROBORATION", "gate2CorroborationState");
     }
     el.innerHTML = html;
   } catch (e) {

@@ -1110,6 +1110,24 @@ async function renderScorecardCard(): Promise<void> {
     var html = '<div class="track-log-title">VERDICT ACCURACY (' + data.gradedCount + ' graded)</div>'
       + strictRow
       + '<div class="trigger-row"><span class="trigger-lbl">Directional accuracy</span><span class="trigger-val">' + data.directionalPct + '%</span></div>';
+    // Per-ticker: yours vs. everyone's -- answers "is MY watchlist actually
+    // getting correct verdicts," not just "am I personally good at this."
+    // Available to any tier with a personal scope (Starter included, per
+    // Proposal 7's own "Personalized to user's tickers" scope line), not
+    // gated behind data.breakdown below (that's the Pro-only gate/branch
+    // split). A ticker below the pool's own floor still renders its row
+    // with a "—" pool value rather than being dropped, so the personal
+    // number is never silently missing a comparison column.
+    if (data.tickerAccuracy) {
+      var tFmt = function (s: any): string {
+        return (s && !s.insufficientData && s.directionalPct != null) ? s.directionalPct + '% (' + s.gradedCount + ')' : '—';
+      };
+      var tRows = Object.keys(data.tickerAccuracy).map(function (t) {
+        var entry = data.tickerAccuracy[t];
+        return '<div class="trigger-row"><span class="trigger-lbl">' + t + '</span><span class="trigger-val">' + tFmt(entry.personal) + '</span><span class="trigger-sub">pool ' + tFmt(entry.pool) + '</span></div>';
+      }).join('');
+      if (tRows) html += '<div class="track-log-title" style="margin-top:12px">BY TICKER (yours vs. pool)</div>' + tRows;
+    }
     if (data.breakdown) {
       var section = function (title: string, key: string): string {
         var groups = data.breakdown[key] || {};
@@ -1119,7 +1137,7 @@ async function renderScorecardCard(): Promise<void> {
         }).join('');
         return rows ? '<div class="track-log-title" style="margin-top:12px">' + title + '</div>' + rows : '';
       };
-      html += section('BY GATE 1 BRANCH', 'gate1Branch') + section('BY PRE-GATE STATE', 'preGateState') + section('BY GATE 0 READ', 'gate0Read');
+      html += section('BY GATE 1 BRANCH', 'gate1Branch') + section('BY PRE-GATE STATE', 'preGateState') + section('BY GATE 0 READ', 'gate0Read') + section('BY GATE 2 CORROBORATION', 'gate2CorroborationState');
     }
     el.innerHTML = html;
   } catch (e) {
