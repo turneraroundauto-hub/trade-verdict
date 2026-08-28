@@ -6834,3 +6834,85 @@ clusters), the exact 8-day boundary still escalates, and the exact
 **Not yet verified against a live re-deploy** — same standing posture as
 every backend change in this file. To confirm: re-check TWST after `Tra`
 redeploys and confirm Pre-Gate no longer reports a HARD trigger for it.
+
+## Backend: Gate 2 corroboration was dead — Session Context retirement silently broke Proposal 4, not just decay (Aug 28, 2026, `trade-verdict` PR #249, `Tra` PR #72)
+
+Prompted by a direct question: "have you built the backend for the
+historical evidence that was logged in notion?" — asking about Proposal
+7 (the Verdict Accuracy Scorecard + Corroboration Decay Indicator).
+Verified with real evidence rather than trusting a stale task list:
+`verdict_log`/`corroboration_log` tables exist with the exact schema
+the proposal specified, a real 30-minute grading job runs
+(`runVerdictGradingSweep`), `/scorecard` has genuine tier-scoped logic
+(Free aggregate/Directional-only, Starter personal, Pro full
+breakdown), and — confirmed via Supabase — 77 real `verdict_log` rows
+had already accumulated since Aug 26. **The backend is genuinely built,
+not just claimed.**
+
+**But verifying it surfaced two real, previously-unnoticed problems.**
+`corroboration_log` had **zero rows, ever**. Its only write path
+(`logCorroborationHits`) sat behind `if (marketContext &&
+marketContext.trim().length > 0)` — and every tier's client has sent an
+empty `marketContext` since Session Context was retired app-wide (Aug
+26-27, 2026, replaced by the Agitator Gauge — see that section above).
+The Corroboration Decay Indicator's backend has had no way to receive
+data since the day Session Context left the UI. **The bigger half of
+the finding:** the identical gate also blocks Proposal 4's Gate 2
+corroboration modifier — a real, already-shipped, verdict-influencing
+feature — entirely. Confirmed live: every `verdict_log` row logged
+since Scorecard shipped had a null `gate2_corroboration_state`. This
+wasn't a decay-display cosmetic issue; a real piece of the verdict
+pipeline had been silently dark since the Session Context removal, and
+nobody had noticed because nothing in that removal's own testing
+exercised this downstream dependency.
+
+**Fix: stopped treating this as "broken," fixed the actual design
+instead.** Of the three original corroboration sources (news-content
+match against a user-typed claim, Gate 3's buildup pattern, a real
+earnings-calendar event), only the first ever depended on user-typed
+text — the other two are genuine, always-computable deterministic
+market signals that never needed Session Context in the first place.
+Removed the news-content-match source and its now-fully-dead support
+code (`gx.contextTextMatches`, `fetchNewsBodiesForCorroboration`,
+`stripHtmlForCorroboration`) entirely rather than leaving it disabled,
+renamed `corroborateSessionContext` → `computeGate2Corroboration`
+(gates-extended.ts, recompiled via `tsc -p tsconfig.build.json` and
+re-verified with a direct `require()` check per this file's own
+documented CommonJS-export gotcha for this exact file), and removed the
+`marketContext` gate — corroboration now runs unconditionally on every
+`/analyze` call using only the two deterministic signals, requiring
+both (2-of-2, same `CONTEXT_CORROBORATION_THRESHOLD=2` constant as
+before, now literally "both must agree" since only 2 sources remain) to
+promote to a new `GATE2-CORROBORATED` modifier.
+
+**A related, previously-unwired gap closed in the same pass.**
+Proposal 7's own spec named "Gate 2 corroboration state" as one of the
+Scorecard's per-gate breakdown dimensions — but `/scorecard`'s SELECT
+and breakdown object never actually included
+`gate2_corroboration_state`, even though `logVerdict` had been writing
+it (always null) the whole time. Added it to both, so real data can
+finally reach the Pro-tier breakdown this was supposed to feed all
+along — directly answering "operates in the scorecard as scoped."
+
+**SYSTEM_PROMPT and response text updated to match**, not left
+referencing a retired UI element: Step 5's description now describes
+the deterministic mechanism instead of "Session Context," the `/analyze`
+prompt's context line reads "Gate 2 corroboration" instead of a
+sometimes-N/A "Session Context corroboration," and the Gate 2 note tag
+is now only appended on an actual positive hit (`GATE2-CORROBORATED,
+N/2`) rather than on every single analysis — this check runs
+unconditionally now, and most tickers on most days won't have both
+signals, so tagging every miss would just be visual noise nobody asked
+for.
+
+**Verified:** `node --check` clean in both repos; `npm test` (72/72 —
+3 fewer than the prior 75, since `contextTextMatches`'s own dead tests
+were removed along with the function it tested); a direct `require()` +
+behavioral check against 3 realistic scenarios (both signals real,
+neither real, only one real) all produced correct
+`GATE2-CORROBORATED`/`UNCORROBORATED` results and correct
+`gate2_corroboration_state` strings. **Not yet verified against a live
+deploy** — same standing posture as every backend change in this file.
+To confirm: check Render logs for real `corroboration_log` inserts and
+watch for the first non-null `gate2_corroboration_state` values landing
+in `verdict_log` after this deploys.
