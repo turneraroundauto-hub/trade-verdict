@@ -6916,3 +6916,78 @@ deploy** — same standing posture as every backend change in this file.
 To confirm: check Render logs for real `corroboration_log` inserts and
 watch for the first non-null `gate2_corroboration_state` values landing
 in `verdict_log` after this deploys.
+
+## Backend/Frontend: Scorecard gets a per-ticker breakdown, personal vs. pool (Aug 28, 2026, `trade-verdict` PR #251, `Tra` PR #73)
+
+Prompted by a direct question about what Proposal 7 (the Verdict Accuracy
+Scorecard) was originally scoped to do. Re-checked the actual Notion spec
+rather than trusting the shipped implementation as the ground truth, and
+found a real gap: the spec's tier rollout table names Starter's scope as
+literally **"personalized to user's tickers"** (Pro's own line, "full
+breakdown by gate/branch fired," was meant to layer on top of that, not
+replace it) — but the shipped `/scorecard` only ever delivered the
+gate/branch breakdown, gated to Pro/Shark via `tierConfig.tracker`. No
+tier ever got a per-ticker view, even though that was Starter's literal
+named scope.
+
+**Separately, a direct product point:** since grading is 100% objective
+(real N-day forward price return vs. the verdict, graded automatically —
+no manual position logging), a user's *personal* ticker-accuracy slice is
+just a thin, often-small-sample subset of the exact same ground truth
+every other user's verdicts on that same ticker also contribute to.
+Pooling is strictly more statistically meaningful for judging whether the
+app's read on a given ticker is reliable, and doesn't require any new
+data — `verdict_log` already carries every user's rows. Direct
+instruction: build the per-ticker breakdown, and pool it.
+
+**Shipped:** `/scorecard`'s personal-scope response now includes
+`tickerAccuracy`, keyed by ticker — for each ticker the user has graded
+verdicts on, both their own personal stat and the same ticker's stat
+pooled across every user (one extra `verdict_log` query, `.in("ticker",
+tickers)` scoped to only the tickers already in the personal breakdown,
+not a full-table scan). New `SCORECARD_TICKER_MIN_GRADED = 5` — separate,
+lower floor than the overall `SCORECARD_MIN_GRADED = 20`, since a single
+ticker's sample is naturally much smaller than the whole-account total;
+a ticker below the floor (on either side, personal or pool,
+independently) reports `insufficientData` instead of a noisy percentage,
+same "don't publish 100%/0% off 2-3 samples" reasoning `SCORECARD_MIN_GRADED`
+itself already established. Available to Starter as well as Pro/Shark —
+unlike the gate/branch breakdown, this one is not gated behind
+`tierConfig.tracker`, matching the spec's own tier split.
+
+**Frontend:** Pro's and Starter's `renderScorecardCard()` both render a
+new "BY TICKER (yours vs. pool)" section from this data. Also fixed in
+the same pass, found while touching this function: `gate2_corroboration_state`
+has been returned by `/scorecard`'s breakdown object since the Aug 28
+Gate 2 corroboration fix above, but neither tier's frontend ever added a
+`section()` call for it — a "wired the data but never surfaced it" gap of
+the exact same shape this whole thread of work was already correcting,
+left unaddressed would have repeated it. Both tiers now render "BY GATE 2
+CORROBORATION" alongside the existing gate/branch sections.
+
+**Explicitly not built in this pass, flagged as a future direction, not
+implied by this one:** using the pooled data to let the app "learn from
+its own mistakes" — e.g., feeding a ticker/trigger combo's pooled
+accuracy back into Gate 2 corroboration or auto-adjusting confidence. A
+real, bigger idea, but a separate, deliberate decision — this pass only
+surfaces the pooled comparison to the user, it doesn't feed it back into
+the verdict pipeline anywhere.
+
+**Verified:** `node --check` clean in both repos; `npm test` (72/72 in
+each, unaffected — this doesn't touch `gates-extended.ts`/
+`analyze-helpers.ts`); a standalone Node simulation of the grouping/floor
+logic against synthetic personal + pool data (below-floor, at-floor, and
+multi-ticker cases); `npx tsc --noEmit` against `tsconfig.json` and each
+tier's own `app.ts` directly — same known 7-error `?v=N` baseline, zero
+new errors; `esbuild` rebuild + chunk-header grep confirmed no
+duplicate-module regression across all three bundles; a real
+headless-Chromium pass (mocked `/scorecard`) on both Pro and Starter
+confirmed the ticker section renders with correct personal/pool values,
+a below-floor ticker correctly falls back to "—" on both sides, and the
+new Gate 2 corroboration section renders with real data. `?v=` bumped on
+`pro/index.html` (35→36) and `starter/index.html` (89→90) since each
+tier's bundled `app.js` content changed. **Not yet verified against a
+live deploy** — same standing posture as every backend change in this
+file. To confirm: check a real signed-in Starter/Pro account's
+`/scorecard` response once enough graded verdicts exist and confirm
+`tickerAccuracy` populates with sane personal/pool numbers.
