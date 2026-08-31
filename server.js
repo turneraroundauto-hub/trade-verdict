@@ -1740,7 +1740,7 @@ async function fetchWeeklyCarryover(symbol) {
 // (see its own comment), so it can't be reused to find "this week's
 // Monday" robustly across holidays.
 async function fetchWeekOwnRange(symbol) {
-  if (!alpacaKeys()) return null;
+  if (!process.env.ALPACA_KEY || !process.env.ALPACA_SECRET) return null;
   try {
     const end   = new Date();
     const start = new Date(end.getTime() - 10 * 24 * 60 * 60 * 1000);
@@ -2068,6 +2068,125 @@ async function searchSymbolByName(query) {
   }
   symbolSearchCache.set(key, { symbol, time: Date.now() });
   return symbol;
+}
+
+// ─── AGITATOR GAUGE — no-company topical sentiment fallback (Aug 31, 2026) ───
+// Mirror of Tra -- see that repo's own comment for the full rationale (why
+// this doesn't keyword-match the query's literal words, and why the model
+// only ever returns an INDEX into real fetched articles, never its own
+// headline/URL text, so the citation link served back can't be
+// hallucinated). Adapted for this repo's own alpacaGet(url)'s different
+// contract (full URL + raw Response object, vs Tra's path-only URL +
+// pre-parsed JSON) -- not a straight copy-paste.
+const GENERAL_NEWS_MAX_AGE_MS = 5 * 60 * 1000; // general feed churns fast -- short TTL
+let generalNewsCache = { data: null, time: 0 };
+async function fetchGeneralNews() {
+  if (generalNewsCache.data && Date.now() - generalNewsCache.time < GENERAL_NEWS_MAX_AGE_MS) {
+    return generalNewsCache.data;
+  }
+  const now = Date.now();
+  const hasAlpaca = process.env.ALPACA_KEY && process.env.ALPACA_SECRET;
+  const [fhResult, alResult] = await Promise.allSettled([
+    finnhubGet(`/news?category=general`),
+    hasAlpaca ? alpacaGet(`https://data.alpaca.markets/v1beta1/news?limit=15&sort=desc`) : Promise.resolve(null),
+  ]);
+  const items = [];
+  if (fhResult.status === "fulfilled" && Array.isArray(fhResult.value)) {
+    for (const a of fhResult.value.slice(0, 15)) {
+      if (!a?.headline || !a?.url || !a?.datetime) continue;
+      items.push({ headline: a.headline, url: a.url, source: a.source || "Finnhub", timestamp: a.datetime * 1000 });
+    }
+  }
+  if (alResult.status === "fulfilled" && alResult.value && alResult.value.ok) {
+    try {
+      const data = await alResult.value.json();
+      if (Array.isArray(data?.news)) {
+        for (const a of data.news.slice(0, 15)) {
+          if (!a?.headline || !a?.url || !a?.created_at) continue;
+          items.push({ headline: a.headline, url: a.url, source: a.source || "Benzinga", timestamp: new Date(a.created_at).getTime() });
+        }
+      }
+    } catch (e) { /* fall through with whatever Finnhub already gave us */ }
+  }
+  // Newest first, deduped by URL, capped so the AI prompt stays small.
+  const seen = new Set();
+  const merged = items
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .filter(a => { if (seen.has(a.url)) return false; seen.add(a.url); return true; })
+    .slice(0, 20);
+  generalNewsCache = { data: merged, time: now };
+  return merged;
+}
+
+const MACRO_TOPIC_PROMPT = `You are given a user's typed topic or headline
+and a numbered list of real, currently published news article headlines.
+Pick the SINGLE article whose real-world subject matter is genuinely the
+same as the user's typed topic -- it does not need to share exact words,
+only be about the same real story or theme (e.g. a Fed policy event and an
+inflation-data headline can be the same topic). If none of the listed
+articles are genuinely about the same subject, use index -1. Return ONLY
+this exact JSON shape, no other text, no markdown fences:
+{"index":N,"sentiment":"BULLISH"|"BEARISH"|"NEUTRAL","summary":"..."}
+- index: the number of the most topically relevant article, or -1
+- sentiment: the likely overall market read implied by that one article
+- summary: one plain sentence distilling what that article means for
+  markets -- about the article you picked, not the user's original text`;
+
+// Cached on the fully-resolved result (a real article + sentiment), not
+// raw AI output -- a cache hit costs zero API calls of either kind.
+const MACRO_TOPIC_MAX_AGE_MS = 15 * 60 * 1000;
+const macroTopicCache = new Map(); // normalized query -> { result, time }
+async function computeMacroTopicalSentiment(query) {
+  const key = String(query).trim().toLowerCase();
+  if (!key) return null;
+  const cached = macroTopicCache.get(key);
+  if (cached && Date.now() - cached.time < MACRO_TOPIC_MAX_AGE_MS) return cached.result;
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  let result = null;
+  try {
+    const articles = await fetchGeneralNews();
+    if (apiKey && articles.length) {
+      const now = Date.now();
+      const listing = articles.map((a, i) => {
+        const ageHrs = Math.round((now - a.timestamp) / 3600000);
+        return `${i + 1}. [${ageHrs < 1 ? "just now" : ageHrs + "h ago"}] ${a.headline}`;
+      }).join("\n");
+      const res = await fetchWithTimeout("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6", max_tokens: 150, temperature: 0,
+          system: MACRO_TOPIC_PROMPT,
+          messages: [{ role: "user", content: `Topic: "${query}"\n\nArticles:\n${listing}` }],
+        }),
+      }, 20000);
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.content?.[0]?.text || "";
+        const match = text.match(/\{[^}]*\}/);
+        if (match) {
+          const parsed = JSON.parse(match[0]);
+          const idx = Number.isInteger(parsed.index) ? parsed.index : -1;
+          const article = idx >= 1 && idx <= articles.length ? articles[idx - 1] : null;
+          const sentiment = ["BULLISH", "BEARISH", "NEUTRAL"].includes(parsed.sentiment) ? parsed.sentiment : null;
+          if (article && sentiment && typeof parsed.summary === "string" && parsed.summary.trim()) {
+            result = {
+              headline: article.headline,
+              url:      article.url,
+              source:   article.source,
+              sentiment,
+              summary:  parsed.summary.trim(),
+            };
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error(`computeMacroTopicalSentiment "${query}":`, e.message);
+  }
+  macroTopicCache.set(key, { result, time: Date.now() });
+  return result;
 }
 
 // ─── PROPOSAL 5 — AGITATOR GAUGE (Aug 26, 2026) ───────────────────────
@@ -2714,7 +2833,10 @@ app.get("/agitator", async (req, res) => {
         }
       }
     }
-    if (!symbol) return res.json({ resolved: false, query: raw });
+    if (!symbol) {
+      const topical = await computeMacroTopicalSentiment(raw);
+      return res.json({ resolved: false, query: raw, topical });
+    }
     symbol = symbol.toUpperCase();
     if (!directMatch && !headlineOverride) headlineOverride = raw;
 

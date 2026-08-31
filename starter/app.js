@@ -2552,6 +2552,12 @@ async function runAgitatorCheck() {
     }
     var data = await res.json();
     if (!data.resolved) {
+      var topical = data.topical;
+      if (topical) {
+        var sentColor = topical.sentiment === "BULLISH" ? "var(--green)" : topical.sentiment === "BEARISH" ? "var(--red)" : "var(--amber)";
+        out.innerHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span style="width:8px;height:8px;border-radius:50%;flex:none;display:inline-block;background:' + sentColor + '"></span><span class="trigger-lbl">---</span></span><span class="trigger-val" style="color:' + sentColor + '">' + topical.sentiment + '</span></div><div class="headline" style="margin-top:8px"><a href="' + topical.url + '" target="_blank">' + topical.summary + "</a></div>";
+        return;
+      }
       out.innerHTML = '<div class="track-empty">Couldn\u2019t find a company for "' + q + '".</div>';
       return;
     }

@@ -1174,7 +1174,25 @@ async function runAgitatorCheck(): Promise<void> {
     if (res.status === 403) { out.innerHTML = '<div class="track-empty">Agitator Gauge not available on this tier yet.</div>'; return; }
     if (res.status === 429) { out.innerHTML = '<div class="track-empty">Too many checks this hour — try again later.</div>'; return; }
     var data = await res.json();
-    if (!data.resolved) { out.innerHTML = '<div class="track-empty">Couldn’t find a company for "' + q + '".</div>'; return; }
+    if (!data.resolved) {
+      // No single company applies (e.g. a macro/policy event name) -- a
+      // real, computed answer beats a dead-end "couldn't find" message
+      // whenever a genuinely on-topic, currently-published article exists.
+      // "---" stands in for the ticker slot; the sentiment word/dot reuse
+      // the same BULLISH/BEARISH/NEUTRAL-as-color language as everywhere
+      // else in this app, and the one-sentence summary links straight to
+      // the real article it was distilled from -- never a bare claim.
+      var topical = data.topical;
+      if (topical) {
+        var sentColor = topical.sentiment === 'BULLISH' ? 'var(--green)' : topical.sentiment === 'BEARISH' ? 'var(--red)' : 'var(--amber)';
+        out.innerHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span style="width:8px;height:8px;border-radius:50%;flex:none;display:inline-block;background:' + sentColor + '"></span><span class="trigger-lbl">---</span></span>'
+          + '<span class="trigger-val" style="color:' + sentColor + '">' + topical.sentiment + '</span></div>'
+          + '<div class="headline" style="margin-top:8px"><a href="' + topical.url + '" target="_blank">' + topical.summary + '</a></div>';
+        return;
+      }
+      out.innerHTML = '<div class="track-empty">Couldn’t find a company for "' + q + '".</div>';
+      return;
+    }
 
     var comp = data.composite;
     var gaugeColor = !comp ? 'var(--ink-dim)' : comp.level === 'HIGH' ? 'var(--red)' : comp.level === 'MEDIUM' ? 'var(--amber)' : 'var(--green)';
