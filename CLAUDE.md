@@ -7161,3 +7161,58 @@ here. To confirm: type a real macro/event query with no company match
 is live) and confirm a real, currently-published article's sentiment
 renders with a working citation link instead of the old dead-end
 message; check Render logs for `computeMacroTopicalSentiment` errors.
+
+## Backend: Agitator topical-sentiment was caching a miss, not just a match (Aug 31, 2026, `trade-verdict` PR #257, `Tra` PR #76)
+
+Live report, same day the fallback above shipped: the exact same
+"Couldn't find a company for 'Jackson Hole Economic Policy Symposium'."
+message showed up again, on a retry several minutes later, on a
+*different tier* (Free, then Pro). Same message, same query, two
+different sessions minutes apart — the specific signature of a shared
+server-side cache serving a stale negative result, not two independent
+genuine misses.
+
+**Root cause, confirmed by re-reading the code rather than guessing at
+Render-deploy timing first.** `computeMacroTopicalSentiment()` wrote
+*every* outcome to `macroTopicCache` for the full 15-minute TTL,
+including a `null` (no topical match). The cache is server-global,
+keyed only by the normalized query text — not per-user, not per-tier
+— so a single transient miss (a fetch hiccup, or the general-news feed
+just not having picked up the story yet at that exact moment) got
+replayed identically to every caller asking about the same query, from
+any tier, for up to 15 minutes, with zero chance of a different
+outcome even once whatever caused the original miss had cleared. This
+directly undercut the whole point of the feature — "find the *newest*
+article" — by making a bad first attempt sticky for a quarter of an
+hour.
+
+**Fix:** only a real, validated match is ever written to
+`macroTopicCache` now; a miss (for any reason) always re-attempts
+fresh on the next call, no exceptions. Confirmed via simulation this
+doesn't reopen a spam/cost concern: the endpoint's existing per-user
+rate limit (`AGITATOR_RATE_LIMIT_MAX = 20`/hour) already bounds
+worst-case repeated-attempt volume regardless of caching, so there's no
+real trade-off in removing negative caching.
+
+**Also added, since there was previously no way to tell which failure
+mode was actually occurring:** explicit logging at every branch that
+can produce a `null` result — a missing `ANTHROPIC_API_KEY`, zero
+general-news articles fetched from Finnhub/Alpaca, a non-ok Anthropic
+response, an unparseable AI response, a genuine model-reported
+no-match (`index: -1`), or a response that fails the existing
+validation. Before this, every one of those distinct causes looked
+identical from the outside — the same generic fallback message with
+nothing in Render logs to distinguish them.
+
+**Verified:** `node --check` clean in both repos; `npm test` (72/72,
+unaffected); a standalone Node simulation confirming a miss is never
+cached (a retry always re-attempts) while a real match IS cached and
+reused on a subsequent call — all 3 scenarios (miss, retry-succeeds,
+cached-hit-on-success) pass. **Not yet confirmed which of the newly-
+logged branches was actually firing for the reported query** — that
+requires a live Render log check post-deploy, which this sandbox can't
+do. To confirm: re-run the exact reported query after this deploys and
+check Render logs for one of the new `computeMacroTopicalSentiment`
+lines to see whether it was a missing API key, an empty general-news
+fetch, an Anthropic error, or a genuine no-match — rather than
+continuing to guess from the symptom alone.
