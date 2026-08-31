@@ -2640,6 +2640,21 @@ app.get("/lookup", async (req, res) => {
 // the full write-up. One box now recognizes both a short name/ticker and a
 // pasted headline/rumor, extracting a likely company name from the latter.
 const CANDIDATE_STOPWORDS = new Set(["The","This","That","These","Those","A","An","Is","Are","Was","Were","Why","How","What","When","Where","Who","Will","Could","Should","Would","New","Real","Big","Not","And","But","For","With","After","Before","Amid","Says","Said","It","Its","There","Here"]);
+// A capitalized run that names a scheduled macro/policy event or
+// proceeding -- not a company -- reads exactly like a real headline-shaped
+// multi-word run otherwise. "Jackson Hole Economic Policy Symposium"
+// fuzzy-matched its own first word "Jackson" to Jackson Financial Inc (a
+// real company, real live quote, completely unrelated) via the
+// single-word fallback below -- the Round 6 "must have a real positive
+// quote" guard in computeAgitatorComps can't catch this, since JXN is a
+// perfectly legitimate real symbol, just for the wrong company. A real
+// company headline essentially never ends in one of these, so it's a
+// narrow, cheap, confirmed signal: skip single-word decomposition for a
+// run containing one (the full run itself is still tried as its own
+// candidate, which correctly fails to match any company and returns
+// resolved:false -- an honest "couldn't find a company" beats a
+// confidently wrong one).
+const EVENT_NAME_MARKERS = new Set(["Symposium","Summit","Conference","Forum","Hearing","Testimony","Convention"]);
 function extractCompanyCandidates(text) {
   const words = String(text).split(/\s+/);
   const runs = [];
@@ -2659,7 +2674,7 @@ function extractCompanyCandidates(text) {
   for (const run of runs) {
     candidates.push(run);
     const parts = run.split(" ");
-    if (parts.length > 1) candidates.push(...parts);
+    if (parts.length > 1 && !parts.some(p => EVENT_NAME_MARKERS.has(p))) candidates.push(...parts);
   }
   const seen = new Set();
   return candidates.sort((a, b) => b.split(" ").length - a.split(" ").length).filter(r => {
