@@ -7216,3 +7216,79 @@ check Render logs for one of the new `computeMacroTopicalSentiment`
 lines to see whether it was a missing API key, an empty general-news
 fetch, an Anthropic error, or a genuine no-match — rather than
 continuing to guess from the symptom alone.
+
+## Backend: the event-name-marker fix only blocked single-word candidates, not the full phrase (Aug 31, 2026, `trade-verdict` PR #259, `Tra` PR #77)
+
+Live-reported a second time, same day, same exact query — this time
+typed in **lowercase**: "jackson hole economic policy symposium" still
+resolved to **JXN**, even after the earlier `EVENT_NAME_MARKERS` fix
+shipped and deployed. Not a repeat of the negative-caching bug fixed
+immediately before this — a fresh, previously-uncached query, still
+wrong.
+
+**Root cause: the first fix protected the wrong half of the mechanism,
+on an assumption that turned out to be false.** That fix reasoned "the
+full run itself is still tried as its own candidate, which correctly
+fails to match any company" — an assumption based on how the
+5-word phrase *should* behave against Finnhub's fuzzy search, never
+actually confirmed against a live response (this sandbox can't reach
+Finnhub). Live evidence now disproves it directly: Finnhub's search
+apparently still surfaces Jackson Financial Inc for the **entire**
+"jackson hole economic policy symposium" string, not just the bare word
+"jackson" — so guarding only the single-word decomposition left the
+full-phrase candidate exposed the whole time.
+
+**A second, independent gap, worse in a specific way: an all-lowercase
+query never even reaches the code the first fix touched.**
+`extractCompanyCandidates()`'s run-building step only accepts words
+matching `/^[A-Z][a-zA-Z]*$/` — a lowercase query produces zero
+"runs" and therefore zero candidates from that function at all. The
+actual path a lowercase query takes is `/agitator`'s own **initial**
+`searchSymbolByName(raw)` call, made directly on the untouched raw
+string, *before* `extractCompanyCandidates()` is ever reached on a
+failure. The first fix, scoped entirely inside that later function,
+structurally could not have protected this exact input shape —
+independent of the full-phrase-matching gap above.
+
+**Fix, two parts, addressing both gaps:**
+- New `containsEventNameMarker(text)` — a case-insensitive whole-word
+  regex test against the same `EVENT_NAME_MARKERS` set — now guards
+  `/agitator`'s initial `searchSymbolByName(raw)` attempt directly,
+  before it's ever called, regardless of casing or whether the text
+  forms a capitalized "run."
+- `extractCompanyCandidates()` itself corrected too, as defense in
+  depth for any other caller: a marker-containing run now contributes
+  **no** candidates at all — neither the full run nor any of its
+  words — not just its single-word decomposition as before.
+
+**Verified, this time against every casing variant, not just the one
+originally reported.** Simulated the actual `/agitator` resolution
+decision (mocking `searchSymbolByName` to match Finnhub's real observed
+behavior — "succeeds on any string containing 'jackson,' case-
+insensitive") across 5 cases: the exact reported lowercase query, a
+Title Case variant, an ALL CAPS variant, a variant with the marker word
+elsewhere in the run ("FOMC Jackson Hole Summit Speech"), and a
+genuinely legitimate "jackson financial earnings" query with no marker
+— the first four all correctly resolve to no company, the last still
+correctly resolves to JXN. `node --check` clean in both repos, `npm
+test` (72/72) unaffected.
+
+**Lesson, worth keeping distinct from the negative-caching fix
+immediately before this one:** that fix was a real, separate bug (a
+correct mechanism whose result was getting stuck), while this one is
+the mechanism itself having been incomplete from the start — built
+against a live-untestable assumption about Finnhub's fuzzy-match
+behavior that a second real report proved wrong, plus a code-path gap
+(the direct raw-string attempt) that a synthetic regression test with a
+Title-Case-only fixture never would have exercised. When a fix can't
+be verified against the real live dependency it targets, treat the
+first live report that contradicts it as real evidence to re-derive
+from — not as a second instance of the same already-diagnosed cause —
+and re-check every code path the input could actually take, not just
+the one the original bug report happened to use.
+
+**Not yet verified against a live deploy** — same standing posture as
+every backend change in this file. To confirm: re-run the exact
+reported query (in whatever casing) on a live deploy and confirm it
+now shows the topical-sentiment fallback (or the honest "couldn't find
+a company" message) rather than JXN.
