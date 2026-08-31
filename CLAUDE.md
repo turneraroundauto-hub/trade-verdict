@@ -7051,3 +7051,113 @@ standing sandbox limitation as every other Finnhub integration in this
 file. To confirm: re-run the exact reported query on a live deploy and
 confirm it now shows "Couldn't find a company for ..." instead of a
 JXN result.
+
+## Backend/Frontend: Agitator distills a real topical article's sentiment when no company applies (Aug 31, 2026, `trade-verdict` PR #255, `Tra` PR #75)
+
+Direct follow-up to the Jackson Hole/JXN fix above: "instead of saying
+'Couldn't find a company for ...' make a calculation like the 'look for'
+section... find the newest article that fits and distill it to a single
+sentence sentiment... if it does correlate to a company display the
+symbol otherwise leave 3 dashes in place of symbol and just show a
+sentiment in place with hyperlink to news article citing as evidence."
+
+**Why literal keyword-matching the query's own words against news text
+wouldn't work.** "Jackson Hole Economic Policy Symposium" is a real
+macro/Fed event with no ticker to resolve to — but the user's own
+example was clear that the query is really *about* inflation, even
+though the literal text shares zero words with a real "inflation data
+cools, futures rally" headline. A plain keyword-overlap search (the
+technique this codebase already uses for per-company news relevance)
+structurally cannot connect the two, since there's no shared vocabulary
+to overlap on — this needed real semantic topic matching, which only an
+AI call can do here, not another deterministic heuristic.
+
+**The safety constraint that shaped the whole design: never let the
+model invent the citation.** A "sentiment + hyperlink as evidence"
+feature is worthless (worse than worthless — actively misleading) if
+the link can be a hallucinated URL pointing nowhere, or somewhere real
+but wrong. Fixed by construction, not by validation after the fact:
+`computeMacroTopicalSentiment()` fetches a real batch of currently-
+published general-news headlines first (`fetchGeneralNews()`, Finnhub
+`/news?category=general` + Alpaca `/v1beta1/news`, no symbol filter —
+a new kind of fetch for this app, every other news fetch here is
+per-ticker), then asks the model to pick that article by its own INDEX
+in the list it was just handed — never asked to produce its own
+headline or URL text at all. The server then pulls the actual
+headline/URL back out of its OWN array at that index. There is
+structurally no code path where the served link doesn't point to a
+real, just-fetched article.
+
+**Response shape:** `/agitator`'s existing `!symbol` dead-end branch
+now calls `computeMacroTopicalSentiment(raw)` before responding —
+`{resolved:false, query, topical: {headline, url, source, sentiment,
+summary} | null}`. `topical` stays `null` (falling back to the
+original "Couldn't find a company for ..." message, unchanged) when the
+model finds nothing genuinely on-topic (returns index `-1`), or when
+any part of its response fails validation.
+
+**Two caches, both new, both deliberately short-TTL for different
+reasons.** `generalNewsCache` (5 minutes) — the general news feed
+itself churns fast, a stale cache here means missing "the newest
+article." `macroTopicCache` (15 minutes, keyed by the normalized typed
+query) — caches the fully-resolved result (a real article + sentiment),
+not raw AI output, so a repeat check of the identical typed text costs
+zero further API calls of either kind (general-news fetch or the AI
+call) within the window. This directly answers the token-cost question
+from the same conversation that led to this fix — baked into this
+feature's design from the start rather than bolted on separately.
+
+**A real, unrelated latent bug found and fixed while touching this
+area, not part of the actual ask.** `fetchWeekOwnRange()` (Aug 22, 2026,
+the Gate 3 Friday full-weight check) called `alpacaKeys()` — a function
+that only exists in `Tra`, never defined anywhere in this repo's own
+`server.js`. Since that function only runs on Fridays
+(`etWeekday() === 5`), this would have thrown `ReferenceError:
+alpacaKeys is not defined` the first time this repo's own copy of that
+code path actually executed — invisible until now since nothing had
+exercised it. Fixed with the same direct `process.env.ALPACA_KEY &&
+process.env.ALPACA_SECRET` check `alpacaGet()` itself already uses
+in this file, rather than defining a whole new helper function for one
+call site.
+
+**Frontend (all three tiers, `app.ts`/`starter/app.ts`/`pro/app.ts`):**
+the no-company branch of `runAgitatorCheck()` now renders "---" in the
+ticker slot, a colored dot + the sentiment word (BULLISH/BEARISH/
+NEUTRAL — green/red/amber, the same three-color convention used
+everywhere else in this app, e.g. `confColor()`), and the one-sentence
+summary as a real hyperlink to the cited article (reusing the existing
+`.trigger-row`/`.headline` markup/classes already used for a resolved
+ticker's own news line — no new CSS). Falls back to the original
+"Couldn't find a company for ..." message when `topical` is `null`.
+
+**Verified:** `node --check` clean in both repos; `npm test` (72/72,
+unaffected — this doesn't touch `gates-extended.ts`/`analyze-helpers.ts`);
+a standalone Node simulation of the index-resolution/validation logic
+against 6 cases (a real match, no relevant article, an out-of-range
+index, an invalid sentiment enum, an empty summary, a non-integer
+index) — all 6 behave correctly, only the real match produces a
+result; `npx tsc --noEmit` against all three tiers' own `app.ts` —
+same known 7-error `?v=N` baseline, zero new errors; `esbuild` rebuild
++ chunk-header grep confirmed no duplicate-module regression across
+all three bundles; a real headless-Chromium pass on Free/Starter/Pro
+(mocked `/agitator`) confirmed the full topical-match render (dash,
+correct sentiment word/color, summary text, real hyperlink) and
+confirmed the original "Couldn't find a company for ..." message still
+renders correctly when no topical match exists either. **A real,
+self-inflicted testing gotcha hit again, worth re-confirming rather
+than assuming fixed:** the first Free-tier test run failed with
+"Agitator Gauge unavailable right now" even though Starter/Pro passed
+identically — the exact Service-Worker-breaks-`page.route()`-mocking
+issue this file's own testing notes already document; fixed by
+blocking `navigator.serviceWorker.register` before `page.goto()`, same
+as that note prescribes.
+
+**Not yet verified against a live deploy** — same standing posture as
+every backend change in this file; `fetchGeneralNews()`'s exact
+Finnhub/Alpaca response shapes are implemented from documented formats,
+not confirmed against a real response, same as every other integration
+here. To confirm: type a real macro/event query with no company match
+(the Jackson Hole example itself, once its own fix from the entry above
+is live) and confirm a real, currently-published article's sentiment
+renders with a working citation link instead of the old dead-end
+message; check Render logs for `computeMacroTopicalSentiment` errors.
