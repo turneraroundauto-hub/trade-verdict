@@ -7292,3 +7292,47 @@ every backend change in this file. To confirm: re-run the exact
 reported query (in whatever casing) on a live deploy and confirm it
 now shows the topical-sentiment fallback (or the honest "couldn't find
 a company" message) rather than JXN.
+
+## Backend: topical sentiment now always commits to an article, never declines (Aug 31, 2026, `trade-verdict` PR #261, `Tra` PR #78)
+
+Direct correction after the ticker-mismatch fix landed and was
+confirmed working (JXN no longer showed for the Jackson Hole query) —
+but the result was still the plain "Couldn't find a company for ..."
+message, no sentiment, no link. Restated requirement, precisely: when
+no company genuinely correlates, the result must **always** be dashes
+in place of a symbol, a sentiment, and a hyperlink to a real article —
+never a bare dead-end message. "There should always be a hyperlink in
+the text."
+
+**The actual gap.** `MACRO_TOPIC_PROMPT` gave the model an explicit
+out — "if none of the listed articles are genuinely about the same
+subject, use index -1" — and that decline path, not a fetch/API
+failure, was the routine reason the dead-end message kept appearing.
+Distinct from both bugs fixed earlier the same day (the negative-cache
+bug, the event-marker full-phrase bug): those were about a wrong
+*ticker* resolution; this is about the *topical fallback itself*
+being allowed to give up.
+
+**Fix: removed the decline option entirely.** The model is now
+instructed to always pick the single closest available article and
+rate its sentiment, explicitly "even if the connection is broad rather
+than exact — picking the best available option is always more useful
+than refusing." Any index that isn't a real, in-range number is now
+treated as a genuine response error (bad JSON, model malfunction), not
+a legitimate decline — there's no longer a "the model chose not to
+answer" case in the parsing logic at all. The plain fallback message
+now only fires on an actual failure: zero general-news articles
+fetched, a missing API key, or a non-ok Anthropic response — rare
+conditions, not the everyday case it used to cover.
+
+**Verified:** `node --check` clean in both repos; `npm test` (72/72,
+unaffected); a standalone Node simulation of the updated resolution
+logic against 5 cases — a real match, the model committing to a loose/
+broad match instead of declining, a model that still tries to decline
+(now correctly treated as an error rather than accepted), an
+out-of-range index, and an invalid sentiment enum — all behave as
+intended. **Not yet verified against a live deploy** — same standing
+posture as every backend change in this file. To confirm: re-run the
+Jackson Hole query (or any other no-company query) and confirm it now
+always shows dashes + a sentiment + a real hyperlink, never the plain
+"couldn't find" text.
