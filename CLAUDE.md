@@ -6991,3 +6991,63 @@ live deploy** — same standing posture as every backend change in this
 file. To confirm: check a real signed-in Starter/Pro account's
 `/scorecard` response once enough graded verdicts exist and confirm
 `tickerAccuracy` populates with sane personal/pool numbers.
+
+## Backend: Agitator resolved a macro event name to an unrelated real company (Aug 28, 2026, `trade-verdict` PR #253, `Tra` PR #74)
+
+Live report: typing "Jackson Hole Economic Policy Symposium" (a
+well-known annual Fed/central-bank macro event, no single tradable
+company) into the Agitator Gauge resolved to **JXN — Jackson Financial
+Inc**, a Michigan-based insurance holding company with zero connection
+to the actual query, just the coincidentally shared word "Jackson."
+
+**Root cause, confirmed by reading the real resolution path (`raw` never
+matched directly, so `directMatch` stayed false and `headlineOverride`
+was set to the raw query — exactly matching the screenshot rendering the
+raw text as the "headline," not a real JXN news headline).**
+`extractCompanyCandidates()` breaks a headline into capitalized-word
+runs, then — per its own documented purpose (recovering "Tesla" out of a
+merged "Tesla Q" run) — also tries each run's individual words as
+fallback candidates. "Jackson Hole Economic Policy Symposium" forms one
+unbroken 5-word run (none of its words are in `CANDIDATE_STOPWORDS`);
+the full run correctly fails to match any company, but the single-word
+fallback then tries "Jackson" alone, and Finnhub's fuzzy search
+surfaced a real, live-quoted match (JXN) for it. **The Round 6
+"must have a real positive quote" guard (`computeAgitatorComps`) can't
+catch this class of bug** — JXN isn't a junk/dead symbol like GDVM/PRDL
+were, it's a perfectly legitimate real company, just the wrong one.
+
+**A length-based fix would have broken a real, desired case — checked
+before shipping, not assumed.** The obvious first idea (only decompose
+short runs into single words) would fix the reported case but also
+silently break "Nvidia Reports Record Quarter" — a realistic 4-word
+headline shape where single-word decomposition is exactly what recovers
+"Nvidia" and lets the query resolve at all. Run length doesn't actually
+distinguish "a real headline with a company name as its first word"
+from "an event/place name that coincidentally shares a word with an
+unrelated company" — both are multi-word capitalized runs of similar
+length.
+
+**Fix: a small, narrow `EVENT_NAME_MARKERS` set** (Symposium, Summit,
+Conference, Forum, Hearing, Testimony, Convention) — a real company
+headline essentially never ends in one of these, so a run containing
+one of them skips single-word decomposition entirely (the full run is
+still tried as its own candidate, correctly fails, and the query
+degrades to the existing "Couldn't find a company for ..." message —
+an honest miss instead of a confidently wrong resolution). Same
+"pair a general mechanism with a small guaranteed override for the
+actually-reported case" posture as the DRAM/Google-brand-name sagas
+elsewhere in this file, applied to a exclusion list instead of an
+inclusion one.
+
+**Verified:** `node --check` clean in both repos; `npm test` (72/72,
+unaffected); extracted the real `extractCompanyCandidates()` and ran it
+against 5 cases — the reported query (no longer yields bare "Jackson"),
+a variant with the marker elsewhere in the run ("FOMC Jackson Hole
+Summit Speech"), and three regression cases confirming legitimate
+single-word decomposition still works unchanged (the Nvidia headline
+above, the documented "Tesla Q" case, "Roundhill Memory ETF") — all 5
+pass. **Not yet verified against a live Finnhub response** — same
+standing sandbox limitation as every other Finnhub integration in this
+file. To confirm: re-run the exact reported query on a live deploy and
+confirm it now shows "Couldn't find a company for ..." instead of a
+JXN result.
