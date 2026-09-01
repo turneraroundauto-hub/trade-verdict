@@ -1840,7 +1840,7 @@ async function runAgitatorCheck() {
         var tHeadlineHTML = '<div class="headline" style="margin-top:8px"><a href="' + topical.url + '" target="_blank">' + topical.summary + "</a></div>";
         var tf = topical.factors;
         var tFactorsHTML = tf ? '<div class="track-log-title" style="margin-top:10px">SIGNALS</div>' + agitatorFactorRow("Surprise", "agitator-surprise", tf.surprise ?? null) + agitatorFactorRow("Uncertainty", "agitator-uncertainty", tf.uncertainty ?? null) + agitatorFactorRow("Freshness", "agitator-freshness", tf.freshness ?? null) + agitatorFactorRow("Ripple Effect", "agitator-ripple", tf.rippleEffect ?? null) + agitatorFactorRow("Swing Risk", "agitator-swing", tf.swingRisk ?? null) + agitatorFactorRow("Expected Move", "agitator-expected-move", tf.expectedMove ?? null) : "";
-        var tCompaniesHTML = topical.companies && topical.companies.length ? '<div class="track-log-title" style="margin-top:10px">RELATED</div><div class="compact-list">' + topical.companies.map(topicalCompanyRowHTML).join("") + "</div>" : "";
+        var tCompaniesHTML = '<div class="track-log-title" style="margin-top:10px">RELATED</div>' + (topical.companies && topical.companies.length ? '<div class="compact-list">' + topical.companies.map(topicalCompanyRowHTML).join("") + "</div>" : '<div class="track-empty">No related companies found.</div>');
         topicalHTML = tGaugeHTML + tHeadlineHTML + tFactorsHTML + tCompaniesHTML;
       } else {
         topicalHTML = '<div class="track-empty">Couldn\u2019t find a company for "' + q + '".</div>';
@@ -1866,9 +1866,9 @@ async function runAgitatorCheck() {
     var tqHTML = tq ? '<span class="tq-price">$' + tq.price + '</span><span class="tq-chg" style="color:' + tqColor + '">' + tq.change + "</span>" : "";
     var gaugeHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl"><a href="' + tickerHref2(data.symbol) + '" target="_blank">' + data.symbol + "</a></span>" + tqHTML + addTickerBtnHTML(data.symbol) + '</span><span class="trigger-val-wrap"><span class="trigger-val" style="color:' + gaugeColor + '">' + (comp ? comp.level : "N/A") + '</span><button type="button" class="help-btn" data-help="agitator-score" aria-label="What is this?">?</button></span><span class="trigger-sub">' + (comp ? Math.round(comp.score / 10) + "/10 avg. of 6 signals" : "no data") + "</span></div>";
     var f = data.factors;
-    var factorsHTML = f ? '<div class="track-log-title" style="margin-top:10px">SIGNALS</div>' + agitatorFactorRow("Surprise", "agitator-surprise", f.surprise) + agitatorFactorRow("Uncertainty", "agitator-uncertainty", f.uncertainty) + agitatorFactorRow("Freshness", "agitator-freshness", f.positioning) + agitatorFactorRow("Ripple Effect", "agitator-ripple", f.crossAsset) + agitatorFactorRow("Swing Risk", "agitator-swing", f.liquidity) + agitatorFactorRow("Expected Move", "agitator-expected-move", f.ivEnvironment) + '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl">Past Reactions</span><button type="button" class="help-btn" data-help="agitator-past" aria-label="What is this?">?</button></span><span class="trigger-sub">not tracked yet</span></div>' : "";
-    var headlineHTML = data.headlineUsed ? '<div class="headline" style="margin-top:8px">' + (data.headlineUsedUrl ? '<a href="' + data.headlineUsedUrl + '" target="_blank">' + data.headlineUsed + "</a>" : data.headlineUsed) + "</div>" : "";
-    var compsHTML = data.comps && data.comps.length ? '<div class="track-log-title" style="margin-top:10px">RELATED</div><div class="compact-list">' + data.comps.map(relatedRowHTML).join("") + "</div>" : "";
+    var factorsHTML = f ? '<div class="track-log-title" style="margin-top:10px">SIGNALS</div>' + agitatorFactorRow("Surprise", "agitator-surprise", f.surprise) + agitatorFactorRow("Uncertainty", "agitator-uncertainty", f.uncertainty) + agitatorFactorRow("Freshness", "agitator-freshness", f.positioning) + agitatorFactorRow("Ripple Effect", "agitator-ripple", f.crossAsset) + agitatorFactorRow("Swing Risk", "agitator-swing", f.liquidity) + agitatorFactorRow("Expected Move", "agitator-expected-move", f.ivEnvironment) + agitatorFactorRow("Past Reactions", "agitator-past", f.historicalReaction) : "";
+    var headlineHTML = '<div class="headline" style="margin-top:8px">' + (data.headlineUsed ? data.headlineUsedUrl ? '<a href="' + data.headlineUsedUrl + '" target="_blank">' + data.headlineUsed + "</a>" : data.headlineUsed : '<span style="opacity:.6">No recent related news found.</span>') + "</div>";
+    var compsHTML = '<div class="track-log-title" style="margin-top:10px">RELATED</div>' + (data.comps && data.comps.length ? '<div class="compact-list">' + data.comps.map(relatedRowHTML).join("") + "</div>" : '<div class="track-empty">No related companies found.</div>');
     out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML;
     wireAgitatorAddButtons(out);
     snapCardUnderDock(document.getElementById("card-agitator"));
@@ -2139,7 +2139,7 @@ var HELP_CONTENT = {
   "agitator-ripple": "How likely this is to also move other related stocks, the sector, or the broader market \u2014 not just this one company.",
   "agitator-swing": "How easily this stock\u2019s price can be pushed around. Smaller, thinly-traded stocks swing more on the same amount of buying or selling.",
   "agitator-expected-move": "How much price movement the options market is already betting on for this stock, right now.",
-  "agitator-past": "How this stock has reacted to similar news before. Not tracked yet in this app, so it always shows as unavailable."
+  "agitator-past": "How reliably this app\u2019s past verdicts on this ticker have graded out. Shows n/a until enough real graded history exists."
 };
 function initApp() {
   cleanLS();

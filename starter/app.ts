@@ -1277,6 +1277,13 @@ async function runAgitatorCheck(): Promise<void> {
     // data.factors is only present for "full" tiers (server-side isFull
     // gate) -- a simple-gauge tier gets the composite level/score above
     // with no breakdown at all, by design.
+    // Fix 4 (Sep 1 2026): Past Reactions used to be permanently hardcoded
+    // to "not tracked yet" -- a real oversight in the same pass that
+    // activated it server-side (f.historicalReaction was already being
+    // sent, just never read here). Now reads the real value like every
+    // other row; agitatorFactorRow's own null-check already renders
+    // "n/a" when a ticker has too little graded history, so no separate
+    // placeholder string is needed here.
     var f = data.factors;
     var factorsHTML = f
       ? '<div class="track-log-title" style="margin-top:10px">SIGNALS</div>'
@@ -1286,21 +1293,24 @@ async function runAgitatorCheck(): Promise<void> {
         + agitatorFactorRow('Ripple Effect', 'agitator-ripple', f.crossAsset)
         + agitatorFactorRow('Swing Risk', 'agitator-swing', f.liquidity)
         + agitatorFactorRow('Expected Move', 'agitator-expected-move', f.ivEnvironment)
-        + '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl">Past Reactions</span><button type="button" class="help-btn" data-help="agitator-past" aria-label="What is this?">?</button></span><span class="trigger-sub">not tracked yet</span></div>'
+        + agitatorFactorRow('Past Reactions', 'agitator-past', f.historicalReaction)
       : '';
 
-    // Hyperlinked whenever it's a real, fetched article (headlineUsedUrl
-    // present); a user-pasted headline/rumor has no source URL to link.
-    var headlineHTML = data.headlineUsed
-      ? '<div class="headline" style="margin-top:8px">' + (data.headlineUsedUrl
+    // Direct feedback (Sep 1 2026): a section that sometimes appears and
+    // sometimes silently vanishes reads as broken, not as "no data this
+    // time." Both the headline and RELATED now always render a row --
+    // real content when there is any, an explicit "none found" line when
+    // there isn't -- so the card's shape never changes between checks.
+    var headlineHTML = '<div class="headline" style="margin-top:8px">' + (data.headlineUsed
+      ? (data.headlineUsedUrl
           ? '<a href="' + data.headlineUsedUrl + '" target="_blank">' + data.headlineUsed + '</a>'
-          : data.headlineUsed) + '</div>'
-      : '';
+          : data.headlineUsed)
+      : '<span style="opacity:.6">No recent related news found.</span>') + '</div>';
 
-    var compsHTML = (data.comps && data.comps.length)
-      ? '<div class="track-log-title" style="margin-top:10px">RELATED</div>'
-        + '<div class="compact-list">' + data.comps.map(relatedRowHTML).join('') + '</div>'
-      : '';
+    var compsHTML = '<div class="track-log-title" style="margin-top:10px">RELATED</div>'
+      + ((data.comps && data.comps.length)
+          ? '<div class="compact-list">' + data.comps.map(relatedRowHTML).join('') + '</div>'
+          : '<div class="track-empty">No related companies found.</div>');
 
     out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML;
     wireAgitatorAddButtons(out);
@@ -1330,7 +1340,7 @@ const HELP_CONTENT: Record<string, string> = {
   'agitator-ripple': 'How likely this is to also move other related stocks, the sector, or the broader market — not just this one company.',
   'agitator-swing': 'How easily this stock’s price can be pushed around. Smaller, thinly-traded stocks swing more on the same amount of buying or selling.',
   'agitator-expected-move': 'How much price movement the options market is already betting on for this stock, right now.',
-  'agitator-past': 'How this stock has reacted to similar news before. Not tracked yet in this app, so it always shows as unavailable.',
+  'agitator-past': 'How reliably this app’s past verdicts on this ticker have graded out. Shows n/a until enough real graded history exists.',
   dial: 'Sets your monitoring cadence and holding-period posture — Starter offers Light Aggressive, CRF Default, and Light Passive; Pro adds the full-strength Aggressive position above and the full-strength Passive position below. CRF Default behaves exactly like every other tier. Light Aggressive never inflates sizing beyond what your gates already earned. A real earnings print always blocks new entries first, at every position, unless you explicitly hold through it for that one check. Monitoring cadence, entry guidance, stop guidance, and recheck interval are informational — this app doesn’t place real stop orders or send reminders yet.',
 };
 

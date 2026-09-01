@@ -764,10 +764,12 @@ async function runAgitatorCheck(): Promise<void> {
             + agitatorFactorRow('Swing Risk', 'agitator-swing', tf.swingRisk ?? null)
             + agitatorFactorRow('Expected Move', 'agitator-expected-move', tf.expectedMove ?? null)
           : '';
-        var tCompaniesHTML = (topical.companies && topical.companies.length)
-          ? '<div class="track-log-title" style="margin-top:10px">RELATED</div>'
-            + '<div class="compact-list">' + topical.companies.map(topicalCompanyRowHTML).join('') + '</div>'
-          : '';
+        // Same consistency fix as Path A's compsHTML below -- always show
+        // the RELATED row, real content or an explicit "none found" line.
+        var tCompaniesHTML = '<div class="track-log-title" style="margin-top:10px">RELATED</div>'
+          + ((topical.companies && topical.companies.length)
+              ? '<div class="compact-list">' + topical.companies.map(topicalCompanyRowHTML).join('') + '</div>'
+              : '<div class="track-empty">No related companies found.</div>');
         topicalHTML = tGaugeHTML + tHeadlineHTML + tFactorsHTML + tCompaniesHTML;
       } else {
         topicalHTML = '<div class="track-empty">Couldn’t find a company for "' + q + '".</div>';
@@ -799,7 +801,11 @@ async function runAgitatorCheck(): Promise<void> {
 
     // data.factors is only present for "full" tiers (server-side isFull
     // gate) -- Free's simple-gauge variant gets the composite level/score
-    // above with no breakdown at all, by design.
+    // above with no breakdown at all, by design. Past Reactions (Fix 4,
+    // Sep 1 2026) reads the real value now instead of a permanently
+    // hardcoded "not tracked yet" -- a real oversight in the same pass
+    // that activated it server-side; agitatorFactorRow's own null-check
+    // already renders "n/a" when a ticker has too little graded history.
     var f = data.factors;
     var factorsHTML = f
       ? '<div class="track-log-title" style="margin-top:10px">SIGNALS</div>'
@@ -809,19 +815,24 @@ async function runAgitatorCheck(): Promise<void> {
         + agitatorFactorRow('Ripple Effect', 'agitator-ripple', f.crossAsset)
         + agitatorFactorRow('Swing Risk', 'agitator-swing', f.liquidity)
         + agitatorFactorRow('Expected Move', 'agitator-expected-move', f.ivEnvironment)
-        + '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl">Past Reactions</span><button type="button" class="help-btn" data-help="agitator-past" aria-label="What is this?">?</button></span><span class="trigger-sub">not tracked yet</span></div>'
+        + agitatorFactorRow('Past Reactions', 'agitator-past', f.historicalReaction)
       : '';
 
-    var headlineHTML = data.headlineUsed
-      ? '<div class="headline" style="margin-top:8px">' + (data.headlineUsedUrl
+    // Direct feedback (Sep 1 2026): a section that sometimes appears and
+    // sometimes silently vanishes reads as broken, not as "no data this
+    // time." Both the headline and RELATED now always render a row --
+    // real content when there is any, an explicit "none found" line when
+    // there isn't -- so the card's shape never changes between checks.
+    var headlineHTML = '<div class="headline" style="margin-top:8px">' + (data.headlineUsed
+      ? (data.headlineUsedUrl
           ? '<a href="' + data.headlineUsedUrl + '" target="_blank">' + data.headlineUsed + '</a>'
-          : data.headlineUsed) + '</div>'
-      : '';
+          : data.headlineUsed)
+      : '<span style="opacity:.6">No recent related news found.</span>') + '</div>';
 
-    var compsHTML = (data.comps && data.comps.length)
-      ? '<div class="track-log-title" style="margin-top:10px">RELATED</div>'
-        + '<div class="compact-list">' + data.comps.map(relatedRowHTML).join('') + '</div>'
-      : '';
+    var compsHTML = '<div class="track-log-title" style="margin-top:10px">RELATED</div>'
+      + ((data.comps && data.comps.length)
+          ? '<div class="compact-list">' + data.comps.map(relatedRowHTML).join('') + '</div>'
+          : '<div class="track-empty">No related companies found.</div>');
 
     out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML;
     wireAgitatorAddButtons(out);
@@ -1130,7 +1141,7 @@ const HELP_CONTENT: Record<string, string> = {
   'agitator-ripple': 'How likely this is to also move other related stocks, the sector, or the broader market — not just this one company.',
   'agitator-swing': 'How easily this stock’s price can be pushed around. Smaller, thinly-traded stocks swing more on the same amount of buying or selling.',
   'agitator-expected-move': 'How much price movement the options market is already betting on for this stock, right now.',
-  'agitator-past': 'How this stock has reacted to similar news before. Not tracked yet in this app, so it always shows as unavailable.',
+  'agitator-past': 'How reliably this app’s past verdicts on this ticker have graded out. Shows n/a until enough real graded history exists.',
 };
 
 // ── init ────────────────────────────────────────────────────────────
