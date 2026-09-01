@@ -2201,7 +2201,7 @@ async function fetchGeneralNews() {
   if (fhResult.status === "fulfilled" && Array.isArray(fhResult.value)) {
     for (const a of fhResult.value.slice(0, 15)) {
       if (!a?.headline || !a?.url || !a?.datetime) continue;
-      items.push({ headline: a.headline, url: a.url, source: a.source || "Finnhub", timestamp: a.datetime * 1000 });
+      items.push({ headline: a.headline, summary: a.summary || "", url: a.url, source: a.source || "Finnhub", timestamp: a.datetime * 1000 });
     }
   }
   if (alResult.status === "fulfilled" && alResult.value && alResult.value.ok) {
@@ -2210,7 +2210,7 @@ async function fetchGeneralNews() {
       if (Array.isArray(data?.news)) {
         for (const a of data.news.slice(0, 15)) {
           if (!a?.headline || !a?.url || !a?.created_at) continue;
-          items.push({ headline: a.headline, url: a.url, source: a.source || "Benzinga", timestamp: new Date(a.created_at).getTime() });
+          items.push({ headline: a.headline, summary: a.summary || a.content || "", url: a.url, source: a.source || "Benzinga", timestamp: new Date(a.created_at).getTime() });
         }
       }
     } catch (e) { /* fall through with whatever Finnhub already gave us */ }
@@ -2234,7 +2234,8 @@ async function fetchGeneralNews() {
 // contract (full URL + raw Response object, vs Tra's path-only URL +
 // pre-parsed JSON) -- not a straight copy-paste.
 const TOPICAL_PROMPT = `You are given a user's typed topic or headline and
-a numbered list of real, currently published news article headlines.
+a numbered list of real, currently published news articles -- each with a
+headline and, when available, a short excerpt of the article's own text.
 Always pick the SINGLE article from the list whose real-world subject
 matter is closest to the user's typed topic -- it does not need to share
 exact words, only be about a related real story or theme (e.g. a Fed
@@ -2250,8 +2251,11 @@ shape, no other text, no markdown fences:
 - summary: one plain sentence distilling what that article means for
   markets -- about the article you picked, not the user's original text
 - companies: real, specific company names (not tickers) explicitly named
-  in or clearly central to THAT article -- 0 to 5 names, an empty array if
-  the story is purely macro/index-level with no single company at its center
+  in or clearly central to THAT article -- read the excerpt, not just the
+  headline, since a company is often named in the article's own text even
+  when the headline itself doesn't mention it by name. 0 to 5 names, an
+  empty array if the story is genuinely purely macro/index-level with no
+  single company at its center
 - surprise/uncertainty/freshness: score each 0-100 (100 = maximum) for
   that one article -- surprise: how unexpected given the normal run of
   news on this topic; uncertainty: how much the market doesn't yet know
@@ -2333,9 +2337,16 @@ async function computeTopicalFallback(query, knownSymbols) {
       console.error(`computeTopicalFallback "${query}": fetchGeneralNews returned 0 articles (Finnhub/Alpaca both empty or failed) -- nothing corroborates`);
     } else {
       const now = Date.now();
+      // Excerpt, not just headline -- mirrored from Tra, see that repo's
+      // server.js for the full write-up (a real query correctly
+      // corroborated to a real article and rendered a real citation link,
+      // but RELATED came back empty even though the linked article did
+      // name a real company -- because extraction only ever saw the bare
+      // headline text, never the body).
       const listing = articles.map((a, i) => {
         const ageHrs = Math.round((now - a.timestamp) / 3600000);
-        return `${i + 1}. [${ageHrs < 1 ? "just now" : ageHrs + "h ago"}] ${a.headline}`;
+        const excerpt = a.summary ? ` — ${a.summary.slice(0, 300)}` : "";
+        return `${i + 1}. [${ageHrs < 1 ? "just now" : ageHrs + "h ago"}] ${a.headline}${excerpt}`;
       }).join("\n");
       const res = await fetchWithTimeout("https://api.anthropic.com/v1/messages", {
         method: "POST",
