@@ -7587,3 +7587,112 @@ real test is whether a future report of this exact shape (a real,
 correctly-cited article whose named company doesn't show up under
 RELATED) stops recurring once this is live. Merged same day as reported;
 Render/GitHub Pages propagation ceilings apply as always.
+
+## Backend: Agitator Path B gets real keyword search via Marketaux (Sep 1, 2026, `Tra` PR #81 / `trade-verdict` PR #268)
+
+Direct follow-up to the Shein/PDD-AMZN-GAP-WMT-TGT-META-GOOGL report above.
+The excerpt-reading fix (immediately above) closed the "extraction can't
+see the article body" gap, but the user pushed back that RELATED was
+still empty for that exact query and reframed the whole issue directly:
+**"this is a problem with Finnhub, and is a bug if we're not getting real
+news from a hot headline from our source. I keep bringing up that Google
+does a better job..."** — not an extraction-logic bug, a real
+data-source/coverage gap. Confirmed by re-reading both vendors' own
+documented parameters (not assumed): neither Finnhub's `/news` (category-
+only — general/forex/crypto/merger) nor Alpaca's `/v1beta1/news`
+(symbol-only) supports genuine free-text/keyword search at all. A real,
+topical "hot" story a user types about can be entirely invisible to
+`computeTopicalFallback()` if it simply didn't land in that day's generic
+category/symbol-less pool — no amount of better excerpt-reading fixes
+that, since the AI can only ever pick from what the pool actually
+contains.
+
+Researched real keyword-searchable financial-news vendors before writing
+any code, per the user's own explicit ask ("Research real search-capable
+providers, come back with options") and this session's standing "tell me
+your plan before you change anything" instruction: **Marketaux**
+(finance-specific, resolves articles to real ticker entities + sentiment,
+free tier ~100 req/day), NewsAPI.org (real Boolean search, $449/month
+minimum — not viable for this feature), GNews (freemium, general-purpose,
+less finance-specific). User already had a Marketaux account and chose it.
+Credential handoff followed this app's own established convention for
+every other integration (`FINNHUB_KEY`, `ALPACA_KEY`/`ALPACA_SECRET`,
+`ANTHROPIC_API_KEY`, `SUPABASE_SERVICE_KEY`): the key was never pasted
+into chat, only set directly as a Render environment variable
+(`MARKETAUX_API_KEY`) on the `Tra` service.
+
+**Shipped: `fetchMarketauxNews(query)`** — real keyword search against
+Marketaux's `/v1/news/all?search=`, called alongside (not instead of) the
+existing `fetchGeneralNews()` pool inside `computeTopicalFallback()`.
+Results are merged with Marketaux's hits listed first (real topical
+matches for the actual typed query, ranked ahead of the generic pool),
+deduped by URL. Optional dependency by construction — `MARKETAUX_API_KEY`
+unset, a request/parse error, or the daily quota being spent all fail
+safe to an empty array, in which case `computeTopicalFallback()` runs
+exactly its pre-Marketaux behavior with zero regression.
+
+**The bigger value-add over just "more articles": trusting Marketaux's own
+vendor-tagged entities directly, ahead of the existing AI-extraction
+path.** Each Marketaux article already ships pre-tagged with real,
+resolved entities (ticker + name + sentiment score) — this is exactly the
+gap the user's own researched Shein example was pointing at (PDD/AMZN/
+GAP/WMT/TGT/META/GOOGL as real, market-relevant related companies a
+generic AI-excerpt-reading pass might never surface). Since a
+vendor-tagged entity is already a real, pre-resolved ticker — not an AI
+guess — it doesn't carry the hallucination risk `classifyEntityMatch()`
+exists to catch, so it's trusted directly rather than re-validated through
+that gate. AI-extracted names (from the excerpt-reading path) still go
+through the identical `classifyEntityMatch` validation as before, since
+that path is the one that can actually invent or misremember a name — the
+anti-hallucination design principle from the whole Agitator saga is
+preserved, not loosened, for the one source that still needs it. The
+combined list (Marketaux entities first, then validated AI extractions)
+is capped at 5, matching the pre-existing cap.
+
+**A lightweight daily budget guard**, not a rolling-window throttle like
+Finnhub/Alpaca/SEC's own queues — Marketaux's free tier is capped at
+~100/day, not per-minute, so a simple UTC-day counter
+(`MARKETAUX_DAILY_LIMIT = 90`, reset at the next UTC midnight) is the
+right shape for this constraint. Exhausting the budget silently falls
+back to the pre-Marketaux pool, same as a missing key — no error surfaced
+to the user.
+
+**UNVERIFIED AGAINST A LIVE RESPONSE — same standing posture as every
+integration in this file.** `api.marketaux.com` is unreachable from this
+sandbox (confirmed via a direct fetch attempt, `EGRESS_BLOCKED`), joining
+the long-documented list of finance/data-API domains this sandbox's
+egress proxy blocks outright. Field names (`title`/`description`/
+`entities[].symbol`/`entities[].sentiment_score`, the `search=`/
+`api_token=`/`filter_entities=` query params) are triangulated across
+Marketaux's own published docs summary, a PHP integration example, and an
+MCP-server tool description — not confirmed against a real response —
+so every field read has a defensive fallback (`a.title || a.headline`,
+etc.) and the whole function fails safe to `[]` on any mismatch, same
+posture as the DRAM SEC-CIK override and every other unverified-from-
+sandbox integration in this file.
+
+**Verified by simulation, not a live call, same discipline as everywhere
+else in this file:** `node --check`/`npm test` (72/72, unaffected — this
+doesn't touch `gates-extended.ts`/`analyze-helpers.ts`) in both repos; a
+local boot test (`require('./server.js')`) in `Tra` — clean start, zero
+crashes; a standalone Node simulation of the merge/dedup/entity-priority
+logic (7 cases: Marketaux-plus-generic with no overlap, same-URL dedup
+preferring the Marketaux copy, Marketaux-empty fallback to the generic
+pool, both-empty producing the correct "nothing corroborates" path,
+Marketaux entities + AI-extracted names combining and capping at 5,
+duplicate-symbol suppression between the two sources, an AI-extracted
+name that fails `classifyEntityMatch` being dropped) — all 7 pass;
+a standalone simulation of the daily-budget guard (allows exactly 90,
+blocks the 91st, resets cleanly at the next UTC day) — passes.
+
+**To confirm live:** re-run the exact reported "Shein Hong Kong listing"
+query once `MARKETAUX_API_KEY` is set and `Tra` has redeployed, and check
+whether PDD/AMZN/GAP/WMT/TGT/META/GOOGL (or whatever Marketaux's own
+tagging actually surfaces for that story) show up under RELATED instead
+of "No related companies found." Check Render logs for
+`fetchMarketauxNews` errors to confirm the real field-name guesses above
+actually match Marketaux's live response shape — if they don't, the
+function still fails safe to the pre-Marketaux behavior, but Render logs
+are the only way to tell the difference between "no Marketaux match
+found" and "the response shape guess was wrong," so check logs before
+assuming either.
