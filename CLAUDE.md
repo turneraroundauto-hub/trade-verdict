@@ -7551,3 +7551,39 @@ each; propagation can take a few minutes (Render) to ~22 minutes (GitHub
 Pages CDN, per this file's own documented ceiling). Re-check the reported
 phrasing and the consistency of RELATED/headline/SIGNALS once both have
 had time to roll out.
+
+## Backend: Agitator Path B — headline-only extraction was blind to companies named in the article body (Sep 1, 2026, `Tra` PR #80 / `trade-verdict` PR #266)
+
+Live report, once the deploy above was actually live: a real query
+corroborated to a real article and rendered a real citation link exactly
+as designed — but RELATED still said "No related companies found" even
+though the linked article did name a real company (LGLC).
+
+**Root cause.** `computeTopicalFallback()`'s AI call — both for picking
+the closest real article and for extracting company names from it — was
+only ever given each candidate article's bare **headline**. Never the
+body. So a company named only in the article's own text, not in its
+headline, was structurally invisible to extraction regardless of how
+correctly corroboration and citation were already working — this was a
+real gap in what the model could see, not a validation-logic bug in
+`classifyEntityMatch` (which only ever gets a chance to run on names the
+extraction step actually produces).
+
+**Fix.** `fetchGeneralNews()` now also captures each item's real
+`summary`/`content` field — Finnhub's `/news` response includes a
+`summary` field, Alpaca's `/v1beta1/news` includes `summary`/`content`;
+both are real, documented fields this codebase already used once before
+for the now-retired Proposal 4 news-content-match corroboration source,
+so this isn't a new, unverified assumption about either API's shape.
+`computeTopicalFallback()` now includes a truncated (300-char) excerpt
+alongside each headline in the listing fed to the model, and
+`TOPICAL_PROMPT`'s own companies instruction now explicitly says to read
+the excerpt, not just the headline.
+
+**Verified:** `node --check`/`npm test` (72/72, unaffected) in both
+repos. **Not verified against a live Finnhub/Alpaca response** — same
+standing sandbox limitation as every other integration in this file. The
+real test is whether a future report of this exact shape (a real,
+correctly-cited article whose named company doesn't show up under
+RELATED) stops recurring once this is live. Merged same day as reported;
+Render/GitHub Pages propagation ceilings apply as always.
