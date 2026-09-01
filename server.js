@@ -2089,6 +2089,15 @@ const KNOWN_BRAND_TICKER_OVERRIDES = {
   facebook: "META",
   instagram: "META",
   whatsapp: "META",
+  // QNX -- BlackBerry's automotive/embedded real-time OS, widely used in
+  // connected vehicles -- is a product/division name that shares zero
+  // words with BlackBerry's own canonical name ("BLACKBERRY LTD"), the
+  // same class of gap as Google/Alphabet above. Confirmed live (Sep 1,
+  // 2026): querying "Qnx automotive iot" found no company and fell
+  // through to the topical fallback, which then picked an unrelated Dell
+  // supply-chain article as the closest available match -- exactly the
+  // failure mode this override map exists to close.
+  qnx: "BB",
 };
 
 // ─── FIX 1 (Notion "Proposal 5 — Amendment: Entity Resolution, News
@@ -2296,6 +2305,32 @@ async function fetchMarketauxNews(query) {
     console.error(`fetchMarketauxNews "${query}":`, e.message);
     return [];
   }
+}
+
+// Marketaux-based primary resolution (Sep 1, 2026, mirrored from Tra) --
+// when Finnhub's own /search + classifyEntityMatch can't bridge a query
+// to a company because the query is a product/brand name rather than the
+// company's own canonical legal name (confirmed live: "Qnx automotive
+// iot" found nothing -- QNX is BlackBerry's automotive/embedded OS
+// brand, sharing zero words with "BLACKBERRY LTD" -- and fell through to
+// Path B, which then surfaced an unrelated Dell article as the closest
+// available topic), Marketaux's real keyword search + vendor-tagged
+// entities generalizes the fix KNOWN_BRAND_TICKER_OVERRIDES can only
+// ever patch one hand-added case at a time. See Tra's server.js for the
+// full design comment.
+async function resolveViaMarketaux(query) {
+  const articles = await fetchMarketauxNews(query);
+  for (const a of articles) {
+    const first = (a.entities || [])[0];
+    if (first) {
+      return {
+        symbol: first.symbol,
+        companyName: first.name,
+        article: { headline: a.headline, url: a.url, source: a.source },
+      };
+    }
+  }
+  return null;
 }
 
 // Fix 5 (Notion "Proposal 5 — Amendment," Sep 1 2026, mirrored from Tra) —
@@ -3201,6 +3236,9 @@ app.get("/agitator", async (req, res) => {
     // write-up of the same-day bug this replaces.
     let symbol = null, directMatch = false;
     let suggestion = null;
+    // Set only when primary resolution came via Marketaux -- a REAL,
+    // already-fetched, linkable article, never a synthetic placeholder.
+    let marketauxArticle = null;
     if (/^[A-Z]{1,6}$/.test(raw)) {
       symbol = raw;
       directMatch = true;
@@ -3215,6 +3253,16 @@ app.get("/agitator", async (req, res) => {
           const cand = await resolveCompanyEntity(candidate, knownSymbols);
           if (cand && cand.matchType === "exact") { symbol = cand.symbol; break; }
           if (cand && cand.matchType === "partial" && !bestPartial) bestPartial = cand;
+        }
+        // Marketaux fallback resolution -- see resolveViaMarketaux's own
+        // comment / Tra's server.js for the full design writeup. Tried
+        // once, on the raw query only, before falling to Path B.
+        if (!symbol) {
+          const viaMarketaux = await resolveViaMarketaux(raw);
+          if (viaMarketaux) {
+            symbol = viaMarketaux.symbol;
+            marketauxArticle = viaMarketaux.article;
+          }
         }
         if (!symbol && bestPartial) {
           suggestion = { company: bestPartial.companyName, ticker: bestPartial.symbol };
@@ -3236,7 +3284,9 @@ app.get("/agitator", async (req, res) => {
       });
     }
     symbol = symbol.toUpperCase();
-    if (!directMatch && !headlineOverride) headlineOverride = raw;
+    // A real Marketaux article always wins over the synthetic "the raw
+    // query text is the headline" placeholder.
+    if (!directMatch && !marketauxArticle && !headlineOverride) headlineOverride = raw;
 
     // Other real companies named alongside the primary one -- only an
     // 'exact' classification counts, mirror-only, see Tra's server.js.
@@ -3260,7 +3310,13 @@ app.get("/agitator", async (req, res) => {
     // available to filter news for relevance -- mirror-only, see Tra's
     // server.js.
     let fundamentals, quote, news;
-    if (headlineOverride) {
+    if (marketauxArticle) {
+      // Real, already-fetched Marketaux article -- use it directly
+      // instead of a synthetic headlineOverride or a fresh fetchNews()
+      // call that would discard a real article already in hand.
+      [fundamentals, quote] = await Promise.all([fetchTickerFundamentals(symbol), fetchQuote(symbol)]);
+      news = marketauxArticle;
+    } else if (headlineOverride) {
       [fundamentals, quote] = await Promise.all([fetchTickerFundamentals(symbol), fetchQuote(symbol)]);
       news = null;
     } else {
