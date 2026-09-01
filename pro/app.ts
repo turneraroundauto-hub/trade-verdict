@@ -1237,6 +1237,22 @@ function relatedRowHTML(c: { symbol: string; price: string | null; change: strin
     + addTickerBtnHTML(t)
     + '</div></div>';
 }
+// Fix 5 (Notion "Proposal 5 — Amendment," Sep 1 2026): a validated Path B
+// company -- real symbol/name from AI extraction re-checked through the
+// same exact-match gate a typed query goes through, with a real measured
+// price reaction since the article's own publish time (Alpaca), not a
+// live quote/news pairing the way relatedRowHTML's Path A comps are.
+function topicalCompanyRowHTML(c: { symbol: string; name: string; reactionPct: number | null }): string {
+  var color = c.reactionPct == null ? 'var(--ink-dim)' : c.reactionPct > 0 ? 'var(--green)' : c.reactionPct < 0 ? 'var(--red)' : 'var(--amber)';
+  var pctLabel = c.reactionPct == null ? 'no data' : (c.reactionPct > 0 ? '+' : '') + c.reactionPct.toFixed(2) + '% since publish';
+  return '<div class="compact-row-wrap" data-ticker="' + c.symbol + '">'
+    + '<div class="compact-row"><div class="compact-row-main">'
+    + '<div class="compact-row-top"><span class="compact-ticker" style="color:' + color + '"><a class="ticker-a" href="' + tickerHref(c.symbol) + '" target="_blank">' + c.symbol + '</a></span>'
+    + '<span class="compact-pct" style="color:' + color + '">' + pctLabel + '</span></div>'
+    + '</div>'
+    + addTickerBtnHTML(c.symbol)
+    + '</div></div>';
+}
 async function runAgitatorCheck(): Promise<void> {
   var qEl = document.getElementById('agitator-query') as HTMLInputElement;
   var btn = document.getElementById('agitatorCheckBtn') as HTMLButtonElement;
@@ -1247,28 +1263,75 @@ async function runAgitatorCheck(): Promise<void> {
   btn.disabled = true; btn.classList.add('btn-running'); btn.textContent = 'CHECKING…';
   out.innerHTML = '<div class="track-empty">Loading...</div>';
   try {
-    var url = API_URL + '/agitator?q=' + encodeURIComponent(q);
+    // Fix 1 (Notion "Proposal 5 — Amendment," Sep 1 2026): the known-ticker
+    // shortcut is a backend optimization for every tier, including
+    // anonymous Free -- send the local watchlist along so the server can
+    // check it without a Finnhub round trip.
+    var url = API_URL + '/agitator?q=' + encodeURIComponent(q) + '&watchlist=' + encodeURIComponent(watchlist.join(','));
     var res = await fetch(addSecret(url), { headers: authH() });
     if (res.status === 403) { out.innerHTML = '<div class="track-empty">Agitator Gauge not available on this tier yet.</div>'; return; }
     if (res.status === 429) { out.innerHTML = '<div class="track-empty">Too many checks this hour — try again later.</div>'; return; }
     var data = await res.json();
     if (!data.resolved) {
-      // No single company applies (e.g. a macro/policy event name) -- a
-      // real, computed answer beats a dead-end "couldn't find" message
-      // whenever a genuinely on-topic, currently-published article exists.
-      // "---" stands in for the ticker slot; the sentiment word/dot reuse
-      // the same BULLISH/BEARISH/NEUTRAL-as-color language as everywhere
-      // else in this app, and the one-sentence summary links straight to
-      // the real article it was distilled from -- never a bare claim.
+      // Fix 1: a 'partial' match (e.g. "Summit" vs "Summit Therapeutics")
+      // is never auto-accepted -- surfaced as a one-tap "Did you mean"
+      // confirm instead. Fix 5: Path B (below) always computes and ships
+      // alongside it, so there's something real to look at either way,
+      // whether or not the suggestion gets tapped.
+      var suggestionHTML = '';
+      if (data.suggestion) {
+        suggestionHTML = '<div class="track-empty" id="agitatorSuggestBanner" style="margin-bottom:8px">Did you mean <strong>' + data.suggestion.company + '</strong> (' + data.suggestion.ticker + ')? '
+          + '<button type="button" class="btn-compact" id="agitatorSuggestYes" data-ticker="' + data.suggestion.ticker + '">Yes</button> '
+          + '<button type="button" class="btn-compact" id="agitatorSuggestNo">Cancel</button></div>';
+      }
+      // Fix 5 (Sep 1 2026): every check shows a real score either way --
+      // Path B computes the same-style gauge off event-level signals that
+      // don't depend on a single company, not just dashes+text. "---"
+      // stands in for the ticker slot; the sentiment word/dot reuse the
+      // same BULLISH/BEARISH/NEUTRAL-as-color language as everywhere else
+      // in this app, and the one-sentence summary links straight to the
+      // real article it was distilled from -- never a bare claim.
       var topical = data.topical;
+      var topicalHTML = '';
       if (topical) {
         var sentColor = topical.sentiment === 'BULLISH' ? 'var(--green)' : topical.sentiment === 'BEARISH' ? 'var(--red)' : 'var(--amber)';
-        out.innerHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span style="width:8px;height:8px;border-radius:50%;flex:none;display:inline-block;background:' + sentColor + '"></span><span class="trigger-lbl">---</span></span>'
-          + '<span class="trigger-val" style="color:' + sentColor + '">' + topical.sentiment + '</span></div>'
-          + '<div class="headline" style="margin-top:8px"><a href="' + topical.url + '" target="_blank">' + topical.summary + '</a></div>';
-        return;
+        var tComp = topical.composite;
+        var tGaugeColor = !tComp ? 'var(--ink-dim)' : tComp.level === 'HIGH' ? 'var(--red)' : tComp.level === 'MEDIUM' ? 'var(--amber)' : 'var(--green)';
+        var tGaugeHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span style="width:8px;height:8px;border-radius:50%;flex:none;display:inline-block;background:' + sentColor + '"></span><span class="trigger-lbl">---</span></span>'
+          + '<span class="trigger-val-wrap"><span class="trigger-val" style="color:' + tGaugeColor + '">' + (tComp ? tComp.level : 'N/A') + '</span>'
+          + '<button type="button" class="help-btn" data-help="agitator-score" aria-label="What is this?">?</button></span>'
+          + '<span class="trigger-sub">' + topical.sentiment + (tComp ? ' · ' + Math.round(tComp.score / 10) + '/10' : '') + '</span></div>';
+        var tHeadlineHTML = '<div class="headline" style="margin-top:8px"><a href="' + topical.url + '" target="_blank">' + topical.summary + '</a></div>';
+        var tf = topical.factors;
+        var tFactorsHTML = tf
+          ? '<div class="track-log-title" style="margin-top:10px">SIGNALS</div>'
+            + agitatorFactorRow('Surprise', 'agitator-surprise', tf.surprise ?? null)
+            + agitatorFactorRow('Uncertainty', 'agitator-uncertainty', tf.uncertainty ?? null)
+            + agitatorFactorRow('Freshness', 'agitator-freshness', tf.freshness ?? null)
+            + agitatorFactorRow('Ripple Effect', 'agitator-ripple', tf.rippleEffect ?? null)
+            + agitatorFactorRow('Swing Risk', 'agitator-swing', tf.swingRisk ?? null)
+            + agitatorFactorRow('Expected Move', 'agitator-expected-move', tf.expectedMove ?? null)
+          : '';
+        var tCompaniesHTML = (topical.companies && topical.companies.length)
+          ? '<div class="track-log-title" style="margin-top:10px">RELATED</div>'
+            + '<div class="compact-list">' + topical.companies.map(topicalCompanyRowHTML).join('') + '</div>'
+          : '';
+        topicalHTML = tGaugeHTML + tHeadlineHTML + tFactorsHTML + tCompaniesHTML;
+      } else {
+        topicalHTML = '<div class="track-empty">Couldn’t find a company for "' + q + '".</div>';
       }
-      out.innerHTML = '<div class="track-empty">Couldn’t find a company for "' + q + '".</div>';
+      out.innerHTML = suggestionHTML + topicalHTML;
+      var yesBtn = document.getElementById('agitatorSuggestYes');
+      if (yesBtn) yesBtn.addEventListener('click', function () {
+        qEl.value = (yesBtn as HTMLElement).dataset.ticker || '';
+        runAgitatorCheck();
+      });
+      var noBtn = document.getElementById('agitatorSuggestNo');
+      if (noBtn) noBtn.addEventListener('click', function () {
+        var banner = document.getElementById('agitatorSuggestBanner');
+        if (banner) banner.remove();
+      });
+      wireAgitatorAddButtons(out);
       return;
     }
 
