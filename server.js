@@ -1921,6 +1921,58 @@ async function fetchAlpacaNews(symbol, companyName) {
   }
 }
 
+// Fix 2 (Notion "Proposal 5 — Amendment," Sep 1 2026, mirrored from Tra):
+// news_cache, per-ticker overwrite, two-timestamp design
+// (supabase-ddl-patch11). Wired into fetchNews() itself -- the ONE shared
+// function every per-ticker news lookup in this file already goes through
+// (ticker cards via /ticker/:symbol, the Agitator's primary ticker and its
+// comps) -- per direct instruction, not scoped to the Agitator alone. The
+// live fetch below always runs first, every time; the cache is read as a
+// fallback ONLY when the live call itself comes back with nothing.
+// last_checked_at updates on every check regardless of outcome (proves the
+// app looked); published_at only updates when the returned article is
+// genuinely different (a new URL). The same write also feeds
+// corroboration_log directly (source: finnhub_secondary) on a genuinely
+// NEW article only -- one write path, not two separate pipelines for the
+// same underlying event.
+async function upsertNewsCache(symbol, item) {
+  if (!supabase) return;
+  try {
+    const { data: existing } = await supabase.from("news_cache").select("url").eq("ticker", symbol).maybeSingle();
+    const isNewArticle = !existing || existing.url !== item.url;
+    const row = { ticker: symbol, last_checked_at: new Date().toISOString() };
+    if (isNewArticle) {
+      row.headline     = item.headline;
+      row.url          = item.url;
+      row.source       = item.source;
+      row.published_at = new Date(Date.now() - item.ageHours * 3600000).toISOString();
+    }
+    await supabase.from("news_cache").upsert(row, { onConflict: "ticker" });
+    if (isNewArticle) {
+      await supabase.from("corroboration_log").insert({ ticker: symbol, source: "finnhub_secondary" });
+    }
+  } catch (e) {
+    console.error(`upsertNewsCache ${symbol}:`, e.message);
+  }
+}
+
+async function readNewsCacheFallback(symbol) {
+  if (!supabase) return null;
+  try {
+    const { data } = await supabase.from("news_cache").select("*").eq("ticker", symbol).maybeSingle();
+    if (!data || !data.headline || !data.published_at) return null;
+    const ageHrs = Math.round((Date.now() - new Date(data.published_at).getTime()) / 3600000);
+    return {
+      headline: data.headline, url: data.url, source: data.source,
+      ageLabel: ageHrs < 1 ? "just now" : ageHrs < 24 ? `${ageHrs}h ago` : `${Math.floor(ageHrs / 24)}d ago`,
+      ageHours: ageHrs,
+    };
+  } catch (e) {
+    console.error(`readNewsCacheFallback ${symbol}:`, e.message);
+    return null;
+  }
+}
+
 // Queries both sources concurrently and returns whichever headline is
 // actually more recent, rather than only falling back to Alpaca when
 // Finnhub comes back completely empty (see fetchAlpacaNews's comment for
@@ -1932,9 +1984,12 @@ async function fetchNews(symbol, companyName) {
   ]);
   const finnhub = fh.status === "fulfilled" ? fh.value : null;
   const alpaca  = al.status === "fulfilled" ? al.value : null;
-  if (!finnhub) return alpaca;
-  if (!alpaca) return finnhub;
-  return alpaca.ageHours <= finnhub.ageHours ? alpaca : finnhub;
+  const live = !finnhub ? alpaca : !alpaca ? finnhub : (alpaca.ageHours <= finnhub.ageHours ? alpaca : finnhub);
+  if (live) {
+    await upsertNewsCache(symbol, live);
+    return live;
+  }
+  return readNewsCacheFallback(symbol);
 }
 
 // Proposal 4's original news-content-match corroboration source
@@ -2035,6 +2090,50 @@ const KNOWN_BRAND_TICKER_OVERRIDES = {
   whatsapp: "META",
 };
 
+// ─── FIX 1 (Notion "Proposal 5 — Amendment: Entity Resolution, News
+// Caching, Options Data Gap, Topical Fallback," logged Aug 25 2026, built
+// Sep 1 2026, mirrored from Tra) — deterministic entity resolution ───────
+// Supersedes the event-marker keyword-blocklist patches that used to live
+// here (EVENT_NAME_MARKERS/containsEventNameMarker, now removed). See
+// Tra's server.js for the full design comment -- mirror-only here per the
+// two-repo rule.
+function stripLegalSuffix(name) {
+  return String(name || "")
+    .replace(/\b(inc|incorporated|corp|corporation|co|company|ltd|limited|plc|holdings?|group|trust|the|class\s+[a-z])\b\.?/gi, "")
+    .replace(/[.,]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+const NAME_MATCH_STOPWORDS = new Set(["of", "and", "a", "an"]);
+function normalizeNameWords(text) {
+  return stripLegalSuffix(text).toLowerCase().split(/\s+/).filter(w => w && !NAME_MATCH_STOPWORDS.has(w));
+}
+function classifyEntityMatch(query, canonicalName) {
+  const qWords = normalizeNameWords(query);
+  const cWords = normalizeNameWords(canonicalName);
+  if (!qWords.length || !cWords.length) return "none";
+  const cSet = new Set(cWords);
+  if (!qWords.every(w => cSet.has(w))) return "none";
+  return new Set(qWords).size >= cSet.size ? "exact" : "partial";
+}
+
+const SYSTEM_TRACKED_SYMBOLS = ["SPY","QQQ","IWM","SOXX","XBI","GLD","USO","IBB","NVDA","TSM","MSFT"];
+function resolveKnownTicker(query, knownSymbols) {
+  const q = query.trim();
+  if (!q || !knownSymbols || !knownSymbols.size) return null;
+  const upper = q.toUpperCase();
+  if (/^[A-Z]{1,6}$/i.test(q) && knownSymbols.has(upper)) {
+    return { symbol: upper, companyName: null, matchType: "exact" };
+  }
+  for (const sym of knownSymbols) {
+    const name = symbolFundamentalsCache.get(sym)?.data?.sectorInfo?.name;
+    if (!name) continue;
+    const matchType = classifyEntityMatch(q, name);
+    if (matchType !== "none") return { symbol: sym, companyName: name, matchType };
+  }
+  return null;
+}
+
 // Company-name -> ticker resolution for Import's free-text entry (Aug
 // 2026). Only ever called for an Import entry that already failed the
 // plain-ticker regex client-side (shared/watchlist.ts's parseTickers) --
@@ -2043,31 +2142,39 @@ const KNOWN_BRAND_TICKER_OVERRIDES = {
 // query. Routed through the same finnhubGet()/finnhubThrottle() queue as
 // every other Finnhub call in this file. Results (including misses) are
 // cached in symbolSearchCache above so a popular name isn't re-searched
-// on every Import/Agitator lookup across every user.
-async function searchSymbolByName(query) {
+// on every Import/Agitator lookup across every user -- keyed by query
+// text, not by the classification outcome.
+async function resolveCompanyEntity(query, knownSymbols) {
   const key = query.trim().toLowerCase();
   if (!key) return null;
-  if (KNOWN_BRAND_TICKER_OVERRIDES[key]) return KNOWN_BRAND_TICKER_OVERRIDES[key];
+  if (KNOWN_BRAND_TICKER_OVERRIDES[key]) {
+    return { symbol: KNOWN_BRAND_TICKER_OVERRIDES[key], companyName: null, matchType: "exact" };
+  }
+  const known = resolveKnownTicker(query, knownSymbols);
+  if (known) return known;
   const cached = symbolSearchCache.get(key);
-  if (cached && Date.now() - cached.time < SYMBOL_SEARCH_MAX_AGE_MS) return cached.symbol;
-  let symbol = null;
+  if (cached && Date.now() - cached.time < SYMBOL_SEARCH_MAX_AGE_MS) return cached.result;
+  let result = null;
   try {
     const data = await finnhubGet(`/search?q=${encodeURIComponent(query)}`);
     const hits = Array.isArray(data?.result) ? data.result : [];
-    // Finnhub's search already ranks by relevance -- just take the first
-    // hit that's a plain, bare US-listed symbol (no exchange suffix like
-    // ".DE"/".MX", matching the same 1-5 letter shape shared/watchlist.ts's
-    // own ticker regex expects) and an actual tradable security type, not
-    // a warrant/index/mutual-fund-class row a bare name search can also
-    // surface.
-    const hit = hits.find(h => typeof h.symbol === "string" && /^[A-Z]{1,5}$/.test(h.symbol)
+    // Finnhub's search already ranks by relevance -- restrict to a plain,
+    // bare US-listed symbol (no exchange suffix like ".DE"/".MX") and an
+    // actual tradable security type, not a warrant/index/mutual-fund-class
+    // row a bare name search can also surface -- then judge each one
+    // (in Finnhub's own ranked order) against the query AS TYPED via
+    // classifyEntityMatch; first hit that isn't 'none' wins.
+    const tradable = hits.filter(h => typeof h.symbol === "string" && /^[A-Z]{1,5}$/.test(h.symbol)
       && (h.type === "Common Stock" || h.type === "ETP"));
-    if (hit) symbol = hit.symbol;
+    for (const hit of tradable) {
+      const matchType = classifyEntityMatch(query, hit.description || "");
+      if (matchType !== "none") { result = { symbol: hit.symbol, companyName: hit.description, matchType }; break; }
+    }
   } catch (e) {
-    console.error(`searchSymbolByName "${query}":`, e.message);
+    console.error(`resolveCompanyEntity "${query}":`, e.message);
   }
-  symbolSearchCache.set(key, { symbol, time: Date.now() });
-  return symbol;
+  symbolSearchCache.set(key, { result, time: Date.now() });
+  return result;
 }
 
 // ─── AGITATOR GAUGE — no-company topical sentiment fallback (Aug 31, 2026) ───
@@ -2118,8 +2225,16 @@ async function fetchGeneralNews() {
   return merged;
 }
 
-const MACRO_TOPIC_PROMPT = `You are given a user's typed topic or headline
-and a numbered list of real, currently published news article headlines.
+// Fix 5 (Notion "Proposal 5 — Amendment," Sep 1 2026, mirrored from Tra) —
+// Path B rework. See Tra's server.js for the full design comment (5-step
+// pipeline: corroborate first, AI extracts companies from the confirmed
+// article only, re-validate every name via classifyEntityMatch, real
+// Alpaca price reaction per validated company, an always-on event-level
+// gauge). Adapted here for this repo's own alpacaGet(url)'s different
+// contract (full URL + raw Response object, vs Tra's path-only URL +
+// pre-parsed JSON) -- not a straight copy-paste.
+const TOPICAL_PROMPT = `You are given a user's typed topic or headline and
+a numbered list of real, currently published news article headlines.
 Always pick the SINGLE article from the list whose real-world subject
 matter is closest to the user's typed topic -- it does not need to share
 exact words, only be about a related real story or theme (e.g. a Fed
@@ -2128,16 +2243,25 @@ decline to pick one; always choose the closest available match, even if
 the connection is broad rather than exact -- picking the best available
 option is always more useful than refusing. Return ONLY this exact JSON
 shape, no other text, no markdown fences:
-{"index":N,"sentiment":"BULLISH"|"BEARISH"|"NEUTRAL","summary":"..."}
+{"index":N,"sentiment":"BULLISH"|"BEARISH"|"NEUTRAL","summary":"...","companies":["Name1","Name2"],"surprise":N,"uncertainty":N,"freshness":N}
 - index: the number of the closest article -- always a real number from
   the list, never omitted
 - sentiment: the likely overall market read implied by that one article
 - summary: one plain sentence distilling what that article means for
-  markets -- about the article you picked, not the user's original text`;
+  markets -- about the article you picked, not the user's original text
+- companies: real, specific company names (not tickers) explicitly named
+  in or clearly central to THAT article -- 0 to 5 names, an empty array if
+  the story is purely macro/index-level with no single company at its center
+- surprise/uncertainty/freshness: score each 0-100 (100 = maximum) for
+  that one article -- surprise: how unexpected given the normal run of
+  news on this topic; uncertainty: how much the market doesn't yet know
+  how to price this; freshness: how unpriced/new this still is (100 =
+  just broke, 0 = already fully priced in)`;
 
-// Cached on the fully-resolved result (a real article + sentiment), not
-// raw AI output -- a cache hit costs zero API calls of either kind.
-const MACRO_TOPIC_MAX_AGE_MS = 15 * 60 * 1000;
+// Cached on the fully-resolved result (a real article + everything derived
+// from it), not raw AI output -- a cache hit costs zero API calls of
+// either kind.
+const TOPICAL_MAX_AGE_MS = 15 * 60 * 1000;
 // Only ever caches a REAL match, never a miss/failure -- a "no topical
 // article found" outcome can easily be transient (a fetch hiccup, or the
 // general news feed just not having caught up to a breaking story yet),
@@ -2145,21 +2269,68 @@ const MACRO_TOPIC_MAX_AGE_MS = 15 * 60 * 1000;
 // window replay the identical stale miss with zero chance to succeed.
 // The endpoint's existing per-user rate limit (20/hr) already bounds
 // worst-case repeated-attempt cost, so there's no real trade-off here.
-const macroTopicCache = new Map(); // normalized query -> { result, time }
-async function computeMacroTopicalSentiment(query) {
+const topicalCache = new Map(); // normalized query -> { result, time }
+
+// Real price reaction since a real article's publish time, via Alpaca --
+// reuses the same dated-bars-fetch shape as fetchWeeklyCarryover/
+// fetchWeekOwnRange elsewhere in this file. The anchor is the last daily
+// close at-or-before the article's own publish time; "now" is the
+// symbol's real live quote, not another daily bar. Adapted for this
+// repo's alpacaGet(url): full URL, raw Response object, no alpacaKeys()
+// helper (checked inline like every other Alpaca call site here).
+async function computeReactionSincePublish(symbol, publishedAtMs) {
+  if (!process.env.ALPACA_KEY || !process.env.ALPACA_SECRET) return null;
+  try {
+    const start = new Date(publishedAtMs - 5 * 24 * 60 * 60 * 1000);
+    const end   = new Date();
+    const barsUrl = `https://data.alpaca.markets/v2/stocks/${symbol}/bars?timeframe=1Day&start=${start.toISOString().split("T")[0]}&end=${end.toISOString().split("T")[0]}&limit=15&feed=iex&adjustment=split`;
+    const [barsRes, quote] = await Promise.all([alpacaGet(barsUrl), fetchQuote(symbol)]);
+    if (!barsRes || !barsRes.ok) return null;
+    const bars = await barsRes.json();
+    const allBars = bars?.bars || [];
+    if (!allBars.length) return null;
+    const before = allBars.filter(b => new Date(b.t).getTime() <= publishedAtMs);
+    const anchorBar = before.length ? before[before.length - 1] : allBars[0];
+    const currentPrice = quote ? parseFloat(quote.price) : null;
+    if (!anchorBar || !anchorBar.c || currentPrice == null) return null;
+    return Math.round(((currentPrice - anchorBar.c) / anchorBar.c) * 10000) / 100;
+  } catch (e) {
+    console.error(`computeReactionSincePublish ${symbol}:`, e.message);
+    return null;
+  }
+}
+
+function computeTopicalFactors(aiFactors, companies) {
+  const factors = {};
+  if (aiFactors) {
+    factors.surprise    = aiFactors.surprise;
+    factors.uncertainty = aiFactors.uncertainty;
+    factors.freshness   = aiFactors.freshness;
+  }
+  const withReaction = companies.filter(c => typeof c.reactionPct === "number");
+  if (withReaction.length) {
+    const avgAbsMove = withReaction.reduce((a, c) => a + Math.abs(c.reactionPct), 0) / withReaction.length;
+    factors.rippleEffect = Math.max(0, Math.min(100, Math.round(avgAbsMove * 20)));
+    factors.swingRisk    = Math.max(0, Math.min(100, Math.round(avgAbsMove * 25)));
+    factors.expectedMove = Math.max(0, Math.min(100, Math.round(avgAbsMove * 15)));
+  }
+  return factors;
+}
+
+async function computeTopicalFallback(query, knownSymbols) {
   const key = String(query).trim().toLowerCase();
   if (!key) return null;
-  const cached = macroTopicCache.get(key);
-  if (cached && Date.now() - cached.time < MACRO_TOPIC_MAX_AGE_MS) return cached.result;
+  const cached = topicalCache.get(key);
+  if (cached && Date.now() - cached.time < TOPICAL_MAX_AGE_MS) return cached.result;
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   let result = null;
   try {
     const articles = await fetchGeneralNews();
     if (!apiKey) {
-      console.error(`computeMacroTopicalSentiment "${query}": ANTHROPIC_API_KEY not set`);
+      console.error(`computeTopicalFallback "${query}": ANTHROPIC_API_KEY not set`);
     } else if (!articles.length) {
-      console.error(`computeMacroTopicalSentiment "${query}": fetchGeneralNews returned 0 articles (Finnhub/Alpaca both empty or failed)`);
+      console.error(`computeTopicalFallback "${query}": fetchGeneralNews returned 0 articles (Finnhub/Alpaca both empty or failed) -- nothing corroborates`);
     } else {
       const now = Date.now();
       const listing = articles.map((a, i) => {
@@ -2170,46 +2341,58 @@ async function computeMacroTopicalSentiment(query) {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-6", max_tokens: 150, temperature: 0,
-          system: MACRO_TOPIC_PROMPT,
+          model: "claude-sonnet-4-6", max_tokens: 250, temperature: 0,
+          system: TOPICAL_PROMPT,
           messages: [{ role: "user", content: `Topic: "${query}"\n\nArticles:\n${listing}` }],
         }),
       }, 20000);
       if (!res.ok) {
-        console.error(`computeMacroTopicalSentiment "${query}": Anthropic ${res.status}`);
+        console.error(`computeTopicalFallback "${query}": Anthropic ${res.status}`);
       } else {
         const data = await res.json();
         const text = data.content?.[0]?.text || "";
-        const match = text.match(/\{[^}]*\}/);
+        const match = text.match(/\{[\s\S]*\}/);
         if (!match) {
-          console.error(`computeMacroTopicalSentiment "${query}": no JSON object in AI response: ${text.slice(0, 200)}`);
+          console.error(`computeTopicalFallback "${query}": no JSON object in AI response: ${text.slice(0, 200)}`);
         } else {
           const parsed = JSON.parse(match[0]);
-          // The prompt no longer offers a "no match" option -- the model
-          // always commits to the closest available article now, so any
-          // index that isn't a real, in-range number is a genuine
-          // response error, not a legitimate decline.
           const idx = Number.isInteger(parsed.index) ? parsed.index : null;
           const article = idx !== null && idx >= 1 && idx <= articles.length ? articles[idx - 1] : null;
           const sentiment = ["BULLISH", "BEARISH", "NEUTRAL"].includes(parsed.sentiment) ? parsed.sentiment : null;
+          const clamp = v => (typeof v === "number" && v >= 0 && v <= 100) ? Math.round(v) : null;
+          const aiFactors = { surprise: clamp(parsed.surprise), uncertainty: clamp(parsed.uncertainty), freshness: clamp(parsed.freshness) };
+          const extractedNames = Array.isArray(parsed.companies) ? parsed.companies.filter(n => typeof n === "string" && n.trim()).slice(0, 5) : [];
           if (!article || !sentiment || typeof parsed.summary !== "string" || !parsed.summary.trim()) {
-            console.error(`computeMacroTopicalSentiment "${query}": AI response failed validation: ${JSON.stringify(parsed)}`);
+            console.error(`computeTopicalFallback "${query}": AI response failed validation: ${JSON.stringify(parsed)}`);
           } else {
+            const validated = [];
+            const seenSymbols = new Set();
+            for (const name of extractedNames) {
+              const m = await resolveCompanyEntity(name, knownSymbols);
+              if (m && m.matchType === "exact" && !seenSymbols.has(m.symbol)) {
+                seenSymbols.add(m.symbol);
+                validated.push({ symbol: m.symbol, name });
+              }
+            }
+            const companies = await Promise.all(validated.map(async v => ({
+              symbol: v.symbol, name: v.name,
+              reactionPct: await computeReactionSincePublish(v.symbol, article.timestamp),
+            })));
+            const factors = computeTopicalFactors(aiFactors, companies);
             result = {
-              headline: article.headline,
-              url:      article.url,
-              source:   article.source,
-              sentiment,
-              summary:  parsed.summary.trim(),
+              headline: article.headline, url: article.url, source: article.source,
+              sentiment, summary: parsed.summary.trim(),
+              companies, factors,
+              composite: computeAgitatorComposite(factors),
             };
           }
         }
       }
     }
   } catch (e) {
-    console.error(`computeMacroTopicalSentiment "${query}":`, e.message);
+    console.error(`computeTopicalFallback "${query}":`, e.message);
   }
-  if (result) macroTopicCache.set(key, { result, time: Date.now() });
+  if (result) topicalCache.set(key, { result, time: Date.now() });
   return result;
 }
 
@@ -2243,6 +2426,53 @@ function computeLiquiditySensitivity(fundamentals) {
 function ivToAgitatorScore(iv) {
   if (typeof iv !== "number") return null;
   return Math.max(0, Math.min(100, Math.round(iv)));
+}
+
+// Fix 3 (Notion "Proposal 5 — Amendment," Sep 1 2026, mirrored from Tra):
+// Alpaca /snapshots options data extends the Options/IV sub-factor. See
+// Tra's server.js for the full design comment -- adapted here for this
+// repo's alpacaGet(url): full URL, raw Response object, no alpacaKeys()
+// helper (checked inline like every other Alpaca call site here).
+// UNVERIFIED AGAINST LIVE ALPACA OPTIONS ENTITLEMENT, same posture as
+// every other unverified-from-sandbox integration in this file.
+async function fetchOptionsSnapshot(symbol) {
+  if (!process.env.ALPACA_KEY || !process.env.ALPACA_SECRET) return null;
+  try {
+    const res = await alpacaGet(`https://data.alpaca.markets/v1beta1/options/snapshots/${symbol}?limit=50`);
+    if (!res || !res.ok) return null;
+    const data = await res.json();
+    const snapshots = data?.snapshots && typeof data.snapshots === "object" ? Object.values(data.snapshots) : [];
+    if (!snapshots.length) return null;
+    const ivs = snapshots.map(s => s?.impliedVolatility).filter(v => typeof v === "number" && v > 0);
+    if (!ivs.length) return null;
+    const avgIvPct = (ivs.reduce((a, b) => a + b, 0) / ivs.length) * 100;
+    return { avgIvPct, contractCount: snapshots.length };
+  } catch (e) {
+    console.error(`fetchOptionsSnapshot ${symbol}:`, e.message);
+    return null;
+  }
+}
+
+// Fix 4 (Notion "Proposal 5 — Amendment," Sep 1 2026, mirrored from Tra):
+// Historical Reaction, activated -- pooled across every user's graded
+// verdict_log rows for this ticker. See Tra's server.js for the full
+// design comment. Reuses computeAccuracyStats/tickerStatsWithFloor/
+// SCORECARD_TICKER_MIN_GRADED, defined further down this file as plain
+// function/const declarations -- safe to reference here since the whole
+// module finishes loading before any request handler runs.
+async function computeHistoricalReaction(symbol) {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase.from("verdict_log").select("grade")
+      .eq("ticker", symbol).not("graded_at", "is", null);
+    if (error) { console.error(`computeHistoricalReaction ${symbol}:`, error.message); return null; }
+    const stats = tickerStatsWithFloor(data || [], SCORECARD_TICKER_MIN_GRADED);
+    if (stats.insufficientData) return null;
+    return Math.max(0, Math.min(100, Math.round(stats.directionalPct)));
+  } catch (e) {
+    console.error(`computeHistoricalReaction ${symbol}:`, e.message);
+    return null;
+  }
 }
 
 async function scoreAgitatorFactors(symbol, headline) {
@@ -2770,7 +3000,11 @@ app.get("/lookup", async (req, res) => {
   const q = String(req.query.q || "").trim();
   if (!q) return res.status(400).json({ error: "q is required" });
   try {
-    const symbol = await searchSymbolByName(q);
+    // Fix 1: only an 'exact' match is trusted enough to silently add a
+    // ticker to someone's watchlist via Import -- mirror-only, see Tra's
+    // server.js for the full write-up.
+    const match = await resolveCompanyEntity(q);
+    const symbol = match && match.matchType === "exact" ? match.symbol : null;
     res.json({ symbol });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2779,41 +3013,10 @@ app.get("/lookup", async (req, res) => {
 
 // ─── PROPOSAL 5 — GET /agitator (Aug 26, 2026) ────────────────────────
 // Mirror-only per the two-repo rule -- Tra is the real deploy target.
-// Reworked Aug 26, 2026 (same day) -- mirror-only, see Tra's server.js for
-// the full write-up. One box now recognizes both a short name/ticker and a
-// pasted headline/rumor, extracting a likely company name from the latter.
+// Fix 1 (Sep 1 2026): EVENT_NAME_MARKERS/containsEventNameMarker removed,
+// superseded by classifyEntityMatch's deterministic full-text comparison
+// -- see Tra's server.js for the full write-up.
 const CANDIDATE_STOPWORDS = new Set(["The","This","That","These","Those","A","An","Is","Are","Was","Were","Why","How","What","When","Where","Who","Will","Could","Should","Would","New","Real","Big","Not","And","But","For","With","After","Before","Amid","Says","Said","It","Its","There","Here"]);
-// A capitalized run that names a scheduled macro/policy event or
-// proceeding -- not a company -- reads exactly like a real headline-shaped
-// multi-word run otherwise. "Jackson Hole Economic Policy Symposium"
-// fuzzy-matched its own first word "Jackson" to Jackson Financial Inc (a
-// real company, real live quote, completely unrelated) via the
-// single-word fallback below -- the Round 6 "must have a real positive
-// quote" guard in computeAgitatorComps can't catch this, since JXN is a
-// perfectly legitimate real symbol, just for the wrong company. A real
-// company headline essentially never contains one of these, so it's a
-// narrow, cheap, confirmed signal.
-//
-// Live-reported again (Aug 31, 2026) with the identical query typed in
-// lowercase -- the first fix only excluded a marker-containing run's
-// single-WORD candidates, but still tried the run's own FULL text as a
-// candidate, on the (wrong, since disproven live) assumption that a
-// 5-word phrase could never itself fuzzy-match a company. It can:
-// Finnhub's search apparently still surfaces Jackson Financial Inc for
-// the entire "jackson hole economic policy symposium" string, not just
-// the bare word "jackson". A marker-containing run now contributes NO
-// candidates at all -- neither the full run nor any of its words --
-// and containsEventNameMarker() below additionally guards the /agitator
-// handler's own direct searchSymbolByName(raw) attempt, which runs
-// BEFORE this function is ever called and was the actual path this
-// live report went through (a full lowercase phrase never even forms a
-// capitalized "run" here in the first place, so this function alone
-// can't protect that case).
-const EVENT_NAME_MARKERS = new Set(["Symposium","Summit","Conference","Forum","Hearing","Testimony","Convention"]);
-const EVENT_NAME_MARKER_RE = new RegExp("\\b(?:" + Array.from(EVENT_NAME_MARKERS).join("|") + ")\\b", "i");
-function containsEventNameMarker(text) {
-  return EVENT_NAME_MARKER_RE.test(String(text));
-}
 function extractCompanyCandidates(text) {
   const words = String(text).split(/\s+/);
   const runs = [];
@@ -2832,7 +3035,6 @@ function extractCompanyCandidates(text) {
   const candidates = [];
   for (const run of runs) {
     const parts = run.split(" ");
-    if (parts.some(p => EVENT_NAME_MARKERS.has(p))) continue; // scheduled macro/policy event name -- never a company candidate, whole run or any of its words
     candidates.push(run);
     if (parts.length > 1) candidates.push(...parts);
   }
@@ -2857,43 +3059,66 @@ app.get("/agitator", async (req, res) => {
   let headlineOverride = req.query.headline ? String(req.query.headline).trim() : null;
 
   try {
-    // No word-count/punctuation heuristic -- mirror-only, see Tra's
-    // server.js for the full write-up of the same-day bug this replaces.
-    let symbol = null;
-    let directMatch = false;
+    // Fix 1 known-ticker shortcut inputs -- mirror-only, see Tra's
+    // server.js for the full write-up.
+    const knownSymbols = new Set(SYSTEM_TRACKED_SYMBOLS);
+    String(req.query.watchlist || "").split(",").forEach(t => {
+      const s = t.trim().toUpperCase();
+      if (/^[A-Z]{1,6}$/.test(s)) knownSymbols.add(s);
+    });
+    if (req.userEmail && supabase) {
+      try {
+        const { data } = await supabase.from("watchlists").select("tickers")
+          .eq("email", req.userEmail.trim().toLowerCase()).maybeSingle();
+        (data?.tickers || []).forEach(t => knownSymbols.add(t));
+      } catch (e) { console.error(`GET /agitator known-ticker lookup:`, e.message); }
+    }
+
+    // Fix 1 (Sep 1 2026): resolution now classifies every candidate as
+    // exact/partial/none via classifyEntityMatch rather than trusting any
+    // Finnhub hit -- mirror-only, see Tra's server.js for the full
+    // write-up of the same-day bug this replaces.
+    let symbol = null, directMatch = false;
+    let suggestion = null;
     if (/^[A-Z]{1,6}$/.test(raw)) {
       symbol = raw;
       directMatch = true;
-    } else if (containsEventNameMarker(raw)) {
-      // A scheduled macro/policy event name (Symposium/Summit/Conference/
-      // etc., any casing) never resolves to a company here, full stop --
-      // Finnhub's own fuzzy search can match the ENTIRE raw phrase to an
-      // incidentally-named company (Jackson Hole Economic Policy Symposium
-      // -> Jackson Financial Inc), not just a decomposed single word, so
-      // this has to be checked before searchSymbolByName(raw) is even
-      // called, not just inside extractCompanyCandidates()'s own
-      // candidate list (see that function's comment for the full history).
-      symbol = null;
     } else {
-      symbol = await searchSymbolByName(raw);
-      if (symbol) directMatch = true;
-      else {
+      const primary = await resolveCompanyEntity(raw, knownSymbols);
+      if (primary && primary.matchType === "exact") {
+        symbol = primary.symbol;
+        directMatch = true;
+      } else {
+        let bestPartial = primary && primary.matchType === "partial" ? primary : null;
         for (const candidate of extractCompanyCandidates(raw)) {
-          symbol = await searchSymbolByName(candidate);
-          if (symbol) break;
+          const cand = await resolveCompanyEntity(candidate, knownSymbols);
+          if (cand && cand.matchType === "exact") { symbol = cand.symbol; break; }
+          if (cand && cand.matchType === "partial" && !bestPartial) bestPartial = cand;
+        }
+        if (!symbol && bestPartial) {
+          suggestion = { company: bestPartial.companyName, ticker: bestPartial.symbol };
         }
       }
     }
     if (!symbol) {
-      const topical = await computeMacroTopicalSentiment(raw);
-      return res.json({ resolved: false, query: raw, topical });
+      const isFullPathB = !!req.tierConfig?.tracker;
+      const topical = await computeTopicalFallback(raw, knownSymbols);
+      return res.json({
+        resolved: false, query: raw, suggestion,
+        topical: topical ? {
+          headline: topical.headline, url: topical.url, source: topical.source,
+          sentiment: topical.sentiment, summary: topical.summary,
+          companies: topical.companies,
+          composite: topical.composite,
+          factors: isFullPathB ? topical.factors : undefined,
+        } : null,
+      });
     }
     symbol = symbol.toUpperCase();
     if (!directMatch && !headlineOverride) headlineOverride = raw;
 
-    // Other real companies named alongside the primary one -- mirror-only,
-    // see Tra's server.js for the full write-up.
-    // Not capped by how many are found -- mirror-only, see Tra's server.js.
+    // Other real companies named alongside the primary one -- only an
+    // 'exact' classification counts, mirror-only, see Tra's server.js.
     const mentionedSymbols = [];
     if (!/^[A-Z]{1,6}$/.test(raw)) {
       const MENTION_SCAN_CAP = 6;
@@ -2901,9 +3126,10 @@ app.get("/agitator", async (req, res) => {
       for (const candidate of extractCompanyCandidates(raw)) {
         if (scanned >= MENTION_SCAN_CAP) break;
         scanned++;
-        const candSym = await searchSymbolByName(candidate);
-        if (candSym && candSym.toUpperCase() !== symbol && !mentionedSymbols.includes(candSym.toUpperCase())) {
-          mentionedSymbols.push(candSym.toUpperCase());
+        const cand = await resolveCompanyEntity(candidate, knownSymbols);
+        if (cand && cand.matchType === "exact" && cand.symbol.toUpperCase() !== symbol
+          && !mentionedSymbols.includes(cand.symbol.toUpperCase())) {
+          mentionedSymbols.push(cand.symbol.toUpperCase());
         }
       }
     }
@@ -2924,13 +3150,17 @@ app.get("/agitator", async (req, res) => {
     const effectiveHeadline = headlineOverride || (news ? news.headline : null);
     const price = quote ? parseFloat(quote.price) : null;
 
-    const [aiFactors, iv] = await Promise.all([
+    // Fix 3/Fix 4 -- mirror-only, see Tra's server.js for the full
+    // write-up.
+    const [aiFactors, iv, optionsSnapshot, historicalReaction] = await Promise.all([
       effectiveHeadline ? scoreAgitatorFactors(symbol, effectiveHeadline) : null,
       req.tierConfig?.iv ? fetchImpliedVolatility(symbol, price) : null,
+      fetchOptionsSnapshot(symbol),
+      computeHistoricalReaction(symbol),
     ]);
 
     const liquidity = computeLiquiditySensitivity(fundamentals);
-    const ivEnvironment = ivToAgitatorScore(iv);
+    const ivEnvironment = ivToAgitatorScore(optionsSnapshot?.avgIvPct ?? iv);
 
     const factorsForComposite = {};
     if (aiFactors) Object.assign(factorsForComposite, aiFactors);
@@ -2954,7 +3184,7 @@ app.get("/agitator", async (req, res) => {
         positioning: aiFactors?.positioning ?? null,
         crossAsset:  aiFactors?.crossAsset  ?? null,
         liquidity, ivEnvironment,
-        historicalReaction: null, // deliberately omitted -- no data source exists for this yet
+        historicalReaction, // Fix 4 -- activated, see Tra's server.js.
       } : undefined,
       composite, comps,
     });

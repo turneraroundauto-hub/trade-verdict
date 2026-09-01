@@ -2525,6 +2525,11 @@ function relatedRowHTML(c) {
   var ctxVal = ctxEl ? ctxEl.value : "";
   return '<div class="compact-row-wrap" data-ticker="' + t + '"><div class="compact-row"><div class="compact-row-main"><div class="compact-row-top"><span class="compact-ticker" style="color:' + color + '"><a class="ticker-a" href="' + tickerHref(t) + '" target="_blank">' + t + '</a></span><span class="compact-price" style="color:' + color + '">' + (c.price ? "$" + c.price : "&mdash;") + '</span><span class="compact-pct" style="color:' + color + '">' + (c.change || "&mdash;") + '</span></div><div class="compact-news"' + (hasNews ? "" : ' style="display:none"') + ">" + (hasNews ? wrapHeadlineLinks(t, autoLinkGlossaryTerms(highlightContextMatches(c.news.headline, ctxVal))) : "") + "</div></div>" + addTickerBtnHTML(t) + "</div></div>";
 }
+function topicalCompanyRowHTML(c) {
+  var color = c.reactionPct == null ? "var(--ink-dim)" : c.reactionPct > 0 ? "var(--green)" : c.reactionPct < 0 ? "var(--red)" : "var(--amber)";
+  var pctLabel = c.reactionPct == null ? "no data" : (c.reactionPct > 0 ? "+" : "") + c.reactionPct.toFixed(2) + "% since publish";
+  return '<div class="compact-row-wrap" data-ticker="' + c.symbol + '"><div class="compact-row"><div class="compact-row-main"><div class="compact-row-top"><span class="compact-ticker" style="color:' + color + '"><a class="ticker-a" href="' + tickerHref(c.symbol) + '" target="_blank">' + c.symbol + '</a></span><span class="compact-pct" style="color:' + color + '">' + pctLabel + "</span></div></div>" + addTickerBtnHTML(c.symbol) + "</div></div>";
+}
 async function runAgitatorCheck() {
   var qEl = document.getElementById("agitator-query");
   var btn = document.getElementById("agitatorCheckBtn");
@@ -2540,7 +2545,7 @@ async function runAgitatorCheck() {
   btn.textContent = "CHECKING\u2026";
   out.innerHTML = '<div class="track-empty">Loading...</div>';
   try {
-    var url = API_URL2 + "/agitator?q=" + encodeURIComponent(q);
+    var url = API_URL2 + "/agitator?q=" + encodeURIComponent(q) + "&watchlist=" + encodeURIComponent(watchlist.join(","));
     var res = await fetch(addSecret2(url), { headers: authH2() });
     if (res.status === 403) {
       out.innerHTML = '<div class="track-empty">Agitator Gauge not available on this tier yet.</div>';
@@ -2552,13 +2557,37 @@ async function runAgitatorCheck() {
     }
     var data = await res.json();
     if (!data.resolved) {
+      var suggestionHTML = "";
+      if (data.suggestion) {
+        suggestionHTML = '<div class="track-empty" id="agitatorSuggestBanner" style="margin-bottom:8px">Did you mean <strong>' + data.suggestion.company + "</strong> (" + data.suggestion.ticker + ')? <button type="button" class="btn-compact" id="agitatorSuggestYes" data-ticker="' + data.suggestion.ticker + '">Yes</button> <button type="button" class="btn-compact" id="agitatorSuggestNo">Cancel</button></div>';
+      }
       var topical = data.topical;
+      var topicalHTML = "";
       if (topical) {
         var sentColor = topical.sentiment === "BULLISH" ? "var(--green)" : topical.sentiment === "BEARISH" ? "var(--red)" : "var(--amber)";
-        out.innerHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span style="width:8px;height:8px;border-radius:50%;flex:none;display:inline-block;background:' + sentColor + '"></span><span class="trigger-lbl">---</span></span><span class="trigger-val" style="color:' + sentColor + '">' + topical.sentiment + '</span></div><div class="headline" style="margin-top:8px"><a href="' + topical.url + '" target="_blank">' + topical.summary + "</a></div>";
-        return;
+        var tComp = topical.composite;
+        var tGaugeColor = !tComp ? "var(--ink-dim)" : tComp.level === "HIGH" ? "var(--red)" : tComp.level === "MEDIUM" ? "var(--amber)" : "var(--green)";
+        var tGaugeHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span style="width:8px;height:8px;border-radius:50%;flex:none;display:inline-block;background:' + sentColor + '"></span><span class="trigger-lbl">---</span></span><span class="trigger-val-wrap"><span class="trigger-val" style="color:' + tGaugeColor + '">' + (tComp ? tComp.level : "N/A") + '</span><button type="button" class="help-btn" data-help="agitator-score" aria-label="What is this?">?</button></span><span class="trigger-sub">' + topical.sentiment + (tComp ? " \xB7 " + Math.round(tComp.score / 10) + "/10" : "") + "</span></div>";
+        var tHeadlineHTML = '<div class="headline" style="margin-top:8px"><a href="' + topical.url + '" target="_blank">' + topical.summary + "</a></div>";
+        var tf = topical.factors;
+        var tFactorsHTML = tf ? '<div class="track-log-title" style="margin-top:10px">SIGNALS</div>' + agitatorFactorRow("Surprise", "agitator-surprise", tf.surprise ?? null) + agitatorFactorRow("Uncertainty", "agitator-uncertainty", tf.uncertainty ?? null) + agitatorFactorRow("Freshness", "agitator-freshness", tf.freshness ?? null) + agitatorFactorRow("Ripple Effect", "agitator-ripple", tf.rippleEffect ?? null) + agitatorFactorRow("Swing Risk", "agitator-swing", tf.swingRisk ?? null) + agitatorFactorRow("Expected Move", "agitator-expected-move", tf.expectedMove ?? null) : "";
+        var tCompaniesHTML = topical.companies && topical.companies.length ? '<div class="track-log-title" style="margin-top:10px">RELATED</div><div class="compact-list">' + topical.companies.map(topicalCompanyRowHTML).join("") + "</div>" : "";
+        topicalHTML = tGaugeHTML + tHeadlineHTML + tFactorsHTML + tCompaniesHTML;
+      } else {
+        topicalHTML = '<div class="track-empty">Couldn\u2019t find a company for "' + q + '".</div>';
       }
-      out.innerHTML = '<div class="track-empty">Couldn\u2019t find a company for "' + q + '".</div>';
+      out.innerHTML = suggestionHTML + topicalHTML;
+      var yesBtn = document.getElementById("agitatorSuggestYes");
+      if (yesBtn) yesBtn.addEventListener("click", function() {
+        qEl.value = yesBtn.dataset.ticker || "";
+        runAgitatorCheck();
+      });
+      var noBtn = document.getElementById("agitatorSuggestNo");
+      if (noBtn) noBtn.addEventListener("click", function() {
+        var banner = document.getElementById("agitatorSuggestBanner");
+        if (banner) banner.remove();
+      });
+      wireAgitatorAddButtons(out);
       return;
     }
     var comp = data.composite;
@@ -2568,9 +2597,9 @@ async function runAgitatorCheck() {
     var tqHTML = tq ? '<span class="tq-price">$' + tq.price + '</span><span class="tq-chg" style="color:' + tqColor + '">' + tq.change + "</span>" : "";
     var gaugeHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl"><a href="' + tickerHref(data.symbol) + '" target="_blank">' + data.symbol + "</a></span>" + tqHTML + addTickerBtnHTML(data.symbol) + '</span><span class="trigger-val-wrap"><span class="trigger-val" style="color:' + gaugeColor + '">' + (comp ? comp.level : "N/A") + '</span><button type="button" class="help-btn" data-help="agitator-score" aria-label="What is this?">?</button></span><span class="trigger-sub">' + (comp ? Math.round(comp.score / 10) + "/10 avg. of 6 signals" : "no data") + "</span></div>";
     var f = data.factors;
-    var factorsHTML = f ? '<div class="track-log-title" style="margin-top:10px">SIGNALS</div>' + agitatorFactorRow("Surprise", "agitator-surprise", f.surprise) + agitatorFactorRow("Uncertainty", "agitator-uncertainty", f.uncertainty) + agitatorFactorRow("Freshness", "agitator-freshness", f.positioning) + agitatorFactorRow("Ripple Effect", "agitator-ripple", f.crossAsset) + agitatorFactorRow("Swing Risk", "agitator-swing", f.liquidity) + agitatorFactorRow("Expected Move", "agitator-expected-move", f.ivEnvironment) + '<div class="trigger-row"><span class="trigger-lbl-wrap"><span class="trigger-lbl">Past Reactions</span><button type="button" class="help-btn" data-help="agitator-past" aria-label="What is this?">?</button></span><span class="trigger-sub">not tracked yet</span></div>' : "";
-    var headlineHTML = data.headlineUsed ? '<div class="headline" style="margin-top:8px">' + (data.headlineUsedUrl ? '<a href="' + data.headlineUsedUrl + '" target="_blank">' + data.headlineUsed + "</a>" : data.headlineUsed) + "</div>" : "";
-    var compsHTML = data.comps && data.comps.length ? '<div class="track-log-title" style="margin-top:10px">RELATED</div><div class="compact-list">' + data.comps.map(relatedRowHTML).join("") + "</div>" : "";
+    var factorsHTML = f ? '<div class="track-log-title" style="margin-top:10px">SIGNALS</div>' + agitatorFactorRow("Surprise", "agitator-surprise", f.surprise) + agitatorFactorRow("Uncertainty", "agitator-uncertainty", f.uncertainty) + agitatorFactorRow("Freshness", "agitator-freshness", f.positioning) + agitatorFactorRow("Ripple Effect", "agitator-ripple", f.crossAsset) + agitatorFactorRow("Swing Risk", "agitator-swing", f.liquidity) + agitatorFactorRow("Expected Move", "agitator-expected-move", f.ivEnvironment) + agitatorFactorRow("Past Reactions", "agitator-past", f.historicalReaction) : "";
+    var headlineHTML = '<div class="headline" style="margin-top:8px">' + (data.headlineUsed ? data.headlineUsedUrl ? '<a href="' + data.headlineUsedUrl + '" target="_blank">' + data.headlineUsed + "</a>" : data.headlineUsed : '<span style="opacity:.6">No recent related news found.</span>') + "</div>";
+    var compsHTML = '<div class="track-log-title" style="margin-top:10px">RELATED</div>' + (data.comps && data.comps.length ? '<div class="compact-list">' + data.comps.map(relatedRowHTML).join("") + "</div>" : '<div class="track-empty">No related companies found.</div>');
     out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML;
     wireAgitatorAddButtons(out);
     snapCardUnderDock(document.getElementById("card-agitator"));
@@ -2596,7 +2625,7 @@ var HELP_CONTENT = {
   "agitator-ripple": "How likely this is to also move other related stocks, the sector, or the broader market \u2014 not just this one company.",
   "agitator-swing": "How easily this stock\u2019s price can be pushed around. Smaller, thinly-traded stocks swing more on the same amount of buying or selling.",
   "agitator-expected-move": "How much price movement the options market is already betting on for this stock, right now.",
-  "agitator-past": "How this stock has reacted to similar news before. Not tracked yet in this app, so it always shows as unavailable.",
+  "agitator-past": "How reliably this app\u2019s past verdicts on this ticker have graded out. Shows n/a until enough real graded history exists.",
   dial: "Sets your monitoring cadence and holding-period posture \u2014 Starter offers Light Aggressive, CRF Default, and Light Passive; Pro adds the full-strength Aggressive position above and the full-strength Passive position below. CRF Default behaves exactly like every other tier. Light Aggressive never inflates sizing beyond what your gates already earned. A real earnings print always blocks new entries first, at every position, unless you explicitly hold through it for that one check. Monitoring cadence, entry guidance, stop guidance, and recheck interval are informational \u2014 this app doesn\u2019t place real stop orders or send reminders yet."
 };
 function initApp() {
