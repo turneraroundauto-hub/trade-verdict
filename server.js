@@ -2225,6 +2225,78 @@ async function fetchGeneralNews() {
   return merged;
 }
 
+// ─── Marketaux — real keyword/topic search for the topical fallback ───
+// (Sep 1 2026, mirrored from Tra -- see that repo's server.js for the full
+// design comment.) Real keyword search + vendor-tagged entities that
+// neither Finnhub's /news nor Alpaca's /v1beta1/news support. Optional
+// dependency by construction: MARKETAUX_API_KEY unset, any request/parse
+// error, or the ~100/day free-tier quota being spent all fail safe to an
+// empty array. UNVERIFIED AGAINST A LIVE RESPONSE, same posture as every
+// other integration in this file -- api.marketaux.com is unreachable from
+// this sandbox, field names triangulated from documentation, not confirmed.
+const MARKETAUX_MAX_AGE_MS = 10 * 60 * 1000;
+const marketauxSearchCache = new Map();
+const MARKETAUX_DAILY_LIMIT = 90;
+let marketauxDailyCount = 0;
+let marketauxDailyResetAt = 0;
+function marketauxBudgetOk() {
+  const now = Date.now();
+  if (now >= marketauxDailyResetAt) {
+    marketauxDailyCount = 0;
+    const d = new Date();
+    d.setUTCHours(24, 0, 0, 0);
+    marketauxDailyResetAt = d.getTime();
+  }
+  return marketauxDailyCount < MARKETAUX_DAILY_LIMIT;
+}
+async function fetchMarketauxNews(query) {
+  const key = String(query).trim().toLowerCase();
+  if (!key) return [];
+  const cached = marketauxSearchCache.get(key);
+  if (cached && Date.now() - cached.time < MARKETAUX_MAX_AGE_MS) return cached.data;
+  const apiKey = process.env.MARKETAUX_API_KEY;
+  if (!apiKey) return [];
+  if (!marketauxBudgetOk()) {
+    console.error(`fetchMarketauxNews "${query}": daily budget (${MARKETAUX_DAILY_LIMIT}) exhausted, skipping`);
+    return [];
+  }
+  try {
+    marketauxDailyCount++;
+    const url = `https://api.marketaux.com/v1/news/all?search=${encodeURIComponent(query)}&language=en&limit=10&filter_entities=true&api_token=${apiKey}`;
+    const res = await fetchWithTimeout(url, {}, 10000);
+    if (!res.ok) {
+      console.error(`fetchMarketauxNews "${query}": HTTP ${res.status}`);
+      return [];
+    }
+    const data = await res.json();
+    const items = Array.isArray(data?.data) ? data.data : [];
+    const mapped = items.map(a => {
+      const headline = a.title || a.headline || "";
+      const publishedRaw = a.published_at || a.publishedAt || a.published_on;
+      const entities = Array.isArray(a.entities) ? a.entities : [];
+      return {
+        headline,
+        summary: a.description || a.snippet || a.summary || "",
+        url: a.url || "",
+        source: (typeof a.source === "string" && a.source) || "Marketaux",
+        timestamp: publishedRaw ? new Date(publishedRaw).getTime() : Date.now(),
+        entities: entities
+          .map(e => ({
+            symbol: (e && (e.symbol || e.ticker) || "").toUpperCase(),
+            name: (e && (e.name || e.company_name)) || null,
+            sentimentScore: e && typeof e.sentiment_score === "number" ? e.sentiment_score : null,
+          }))
+          .filter(e => /^[A-Z]{1,5}$/.test(e.symbol) && e.name),
+      };
+    }).filter(a => a.headline && a.url && Number.isFinite(a.timestamp));
+    marketauxSearchCache.set(key, { data: mapped, time: Date.now() });
+    return mapped;
+  } catch (e) {
+    console.error(`fetchMarketauxNews "${query}":`, e.message);
+    return [];
+  }
+}
+
 // Fix 5 (Notion "Proposal 5 — Amendment," Sep 1 2026, mirrored from Tra) —
 // Path B rework. See Tra's server.js for the full design comment (5-step
 // pipeline: corroborate first, AI extracts companies from the confirmed
@@ -2330,11 +2402,20 @@ async function computeTopicalFallback(query, knownSymbols) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   let result = null;
   try {
-    const articles = await fetchGeneralNews();
+    const [marketauxArticles, generalArticles] = await Promise.all([
+      fetchMarketauxNews(query),
+      fetchGeneralNews(),
+    ]);
+    const seenUrls = new Set();
+    const articles = [...marketauxArticles, ...generalArticles].filter(a => {
+      if (!a.url || seenUrls.has(a.url)) return false;
+      seenUrls.add(a.url);
+      return true;
+    });
     if (!apiKey) {
       console.error(`computeTopicalFallback "${query}": ANTHROPIC_API_KEY not set`);
     } else if (!articles.length) {
-      console.error(`computeTopicalFallback "${query}": fetchGeneralNews returned 0 articles (Finnhub/Alpaca both empty or failed) -- nothing corroborates`);
+      console.error(`computeTopicalFallback "${query}": fetchMarketauxNews + fetchGeneralNews returned 0 articles combined -- nothing corroborates`);
     } else {
       const now = Date.now();
       // Excerpt, not just headline -- mirrored from Tra, see that repo's
@@ -2376,9 +2457,22 @@ async function computeTopicalFallback(query, knownSymbols) {
           if (!article || !sentiment || typeof parsed.summary !== "string" || !parsed.summary.trim()) {
             console.error(`computeTopicalFallback "${query}": AI response failed validation: ${JSON.stringify(parsed)}`);
           } else {
+            // Mirrored from Tra: Marketaux entities (already real, vendor-
+            // resolved tickers) are trusted directly and listed first; AI-
+            // extracted names still go through the classifyEntityMatch
+            // gate, since only those carry hallucination risk. Combined
+            // list capped at 5, matching the pre-existing AI-extraction cap.
             const validated = [];
             const seenSymbols = new Set();
+            for (const e of (article.entities || [])) {
+              if (validated.length >= 5) break;
+              if (!seenSymbols.has(e.symbol)) {
+                seenSymbols.add(e.symbol);
+                validated.push({ symbol: e.symbol, name: e.name });
+              }
+            }
             for (const name of extractedNames) {
+              if (validated.length >= 5) break;
               const m = await resolveCompanyEntity(name, knownSymbols);
               if (m && m.matchType === "exact" && !seenSymbols.has(m.symbol)) {
                 seenSymbols.add(m.symbol);
