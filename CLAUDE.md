@@ -7521,3 +7521,33 @@ and confirm it shows a real score + article instead of resolving to JXN
 or dead-ending; type "Summit" and confirm the suggestion banner appears;
 check Render logs for `fetchOptionsSnapshot`/`computeHistoricalReaction`
 errors.
+
+**Follow-up, same day: consistency fix + a real stale-row bug, both
+merged before the above ever went live.** Live screenshots against the
+*still-deployed pre-fix* app were reported as "still not fixed" — the
+JXN mis-resolve in them was the old keyword-blocklist code, confirmed
+directly (`classifyEntityMatch("Jackson hole economic meeting", "Jackson
+Financial Inc")` returns `'none'`, not the JXN match shown). But a
+separate, real complaint landed alongside it: **"sometimes there's the
+signal breakdown, sometimes there's not, sometimes there's a headline
+link sometimes not, sometimes recommended companies sometimes not... all
+of these should be ALL THE TIME."** Root cause: RELATED and the headline
+line were coded to omit the entire section whenever empty, rather than
+say so — reads as broken, not as "no data this check." Fixed in all
+three tiers: both sections now always render a row, real content when
+there is any, an explicit "No related companies found." / "No recent
+related news found." line when there isn't.
+
+**Caught in the same pass, not reported but real:** the "Past Reactions"
+row was still hardcoded to the literal string "not tracked yet" in every
+tier's frontend, even though Fix 4 (same PR, same day) had already
+activated real `historicalReaction` data server-side — the frontend
+simply never read the field. Wired through `agitatorFactorRow` like
+every other signal now.
+
+**Merged and live as of this writing** (`Tra` #79, `trade-verdict` #263/
+#264, all merged) — Render/GitHub Pages are the actual deploy target for
+each; propagation can take a few minutes (Render) to ~22 minutes (GitHub
+Pages CDN, per this file's own documented ceiling). Re-check the reported
+phrasing and the consistency of RELATED/headline/SIGNALS once both have
+had time to roll out.
