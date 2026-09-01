@@ -7336,3 +7336,188 @@ posture as every backend change in this file. To confirm: re-run the
 Jackson Hole query (or any other no-company query) and confirm it now
 always shows dashes + a sentiment + a real hyperlink, never the plain
 "couldn't find" text.
+
+## Backend/Frontend: Agitator entity resolution rebuilt from a Notion plan — deterministic matching, news_cache, options data, always-on score (Sep 1, 2026, `Tra` PR #79 / `trade-verdict` PR #263)
+
+Direct continuation of the "Jackson Hole" saga above. Three consecutive
+keyword-blocklist patches (`EVENT_NAME_MARKERS`) each got bypassed by a
+new phrasing (Title Case, then lowercase, then a report with no marker
+word at all) — the pattern itself, not any one patch, was the actual
+problem. Direct instruction after the third bypass: **"stop making
+repeative changes of things I've asked you not to do. going forward,
+tell what you plan to change before you change anything."** A follow-up
+also rejected adding a second AI confirmation call to fix the mismatch:
+**"why does it have to be an AI call?? ... I've asked several times for
+this to be a search engine that can decide whether I'm asking for
+context or I'm asking for a ticker aggregation."** Mr. T then worked out
+a fuller plan in a separate conversation and logged it to Notion
+("Proposal 5 — Amendment: Entity Resolution, News Caching, Options Data
+Gap, Topical Fallback") with instructions to search Notion, ask
+clarifying questions, and build it as written — which is what this entry
+covers. Clarifying questions and their answers, load-bearing for the
+implementation below: **(1)** the "Did you mean" popup's Yes/Cancel
+carries no new web-search call — reuses data already in hand (Finnhub's
+own matched name), Path B still renders alongside it regardless of
+whether the user acts; **(2)** the known-ticker shortcut is a backend
+optimization for every tier including anonymous Free (via a client-sent
+watchlist), while the UI itself stays as tier-diluted as every other
+Agitator element already is; **(3)** `news_cache` wires into every
+regular per-ticker news fetch, not just the Agitator; **(4)** contrary to
+the Notion plan's own "no fake score for something that was never a
+single-company story" — direct correction: **"the user should see a
+score either way and pro should see that breakdown."**
+
+**Fix 1 — deterministic entity resolution, replacing the keyword
+blocklist entirely.** New `classifyEntityMatch(query, canonicalName)` —
+strips legal suffixes (`stripLegalSuffix`), then classifies `exact`
+(every word matches both ways), `partial` (every query word is present
+in the canonical name, but the canonical name has more words — e.g.
+"Summit" vs "Summit Therapeutics"), or `none` (the query has a word the
+canonical name doesn't — e.g. "Jackson Hole Economic Policy Symposium"
+vs "Jackson Financial Inc," which has four words the canonical name
+never contains). This is what actually separates the two Notion-doc
+examples that look identical under a naive "shares a word" test: the
+comparison always runs against the full text a caller is testing, never
+a pre-decomposed single word — which is also what makes the old keyword
+blocklist unnecessary. `EVENT_NAME_MARKERS`/`containsEventNameMarker`
+removed outright, not left disabled — `resolveCompanyEntity()` (renamed
+from `searchSymbolByName`) now judges every Finnhub hit, in Finnhub's own
+ranked order, against the query as typed; first hit that isn't `none`
+wins. A decomposed single-word candidate (from `extractCompanyCandidates`,
+still used to recover a company name from a longer pasted headline) can
+still classify as `partial` against an unrelated company, but `partial`
+is never auto-accepted — worst case it surfaces an unconfirmed
+suggestion, never a silent wrong resolve, closing the actual bug class
+instead of chasing its latest phrasing.
+
+**Known-ticker shortcut.** `resolveKnownTicker()` skips Finnhub `/search`
+entirely for a symbol already on the fixed `SYSTEM_TRACKED_SYMBOLS` list
+or the caller's own watchlist — checked before any Finnhub call. Per
+answer (2) above, `/agitator` now accepts a `watchlist` query param sent
+by every tier's `runAgitatorCheck()` (including anonymous Free from its
+local `tv_wl`), plus a signed-in account's saved server watchlist
+regardless of tier. A company-name match against a known ticker only
+fires when that ticker's real name is already sitting in the existing
+24h fundamentals cache (a read-only peek, never a new fetch) — a cache
+miss just means no shortcut benefit that one time, never a wrong answer.
+
+**Frontend: the "Did you mean" confirm + Path B always rendering
+alongside it.** `/agitator`'s response now carries a `suggestion:
+{company, ticker}` field on a `partial` match, independent of `topical`
+— per answer (1), both are always present together rather than gating
+one behind the other. All three tiers' `runAgitatorCheck()` render a
+banner ("Did you mean **Summit Therapeutics, Inc.** (SMMT)? [Yes]
+[Cancel]") above the Path B card; **Yes** sets the query box to the
+suggested ticker and re-runs the check (a full Path A resolve); **Cancel**
+just removes the banner, leaving the already-rendered Path B content in
+place. No new fetch either way — matching the "no web search" answer.
+
+**Fix 2 — `news_cache`, wired app-wide per direct instruction, not
+scoped to the Agitator.** New Supabase table
+(`supabase-ddl-patch11-news-cache.sql`, two-timestamp design:
+`last_checked_at` updates on every check regardless of outcome,
+`published_at` only updates on a genuinely new URL — kept separate so
+Proposal 7's Corroboration Decay Indicator never reads a re-checked-but-
+unchanged headline as falsely "Fresh"). Wired directly into `fetchNews()`
+itself — the one shared function `/ticker/:symbol`'s card news, the
+Agitator's primary ticker, and its comps all already call — so this one
+change covers every per-ticker news lookup in the app, per the direct
+answer to clarifying question (3). Live fetch always runs first; the
+cache is read as a fallback only when the live call comes back empty. A
+genuinely new cached article also inserts a `corroboration_log` row
+(`source: 'finnhub_secondary'`) — one write path feeding both, not two
+separate pipelines for the same event. `corroboration_log`'s `source`
+CHECK constraint widened (`finnhub_secondary` added) rather than
+replaced, so the three pre-existing values keep working on old rows.
+Applied directly via the Supabase MCP connection (table created, RLS
+disabled + `anon`/`authenticated` revoked, confirmed zero rows on the
+standard grants-check query) — same two-step pattern this file's own
+established rule requires for every service-role table.
+
+**Fix 3 — Alpaca `/snapshots` extends (not replaces) the Options/IV
+sub-factor.** `fetchOptionsSnapshot()` pulls a real average IV across the
+live options chain for a ticker, feeding `ivEnvironment` ahead of the
+existing single-figure `fetchImpliedVolatility()` (kept as the fallback,
+and left completely untouched as Pro/Shark's own CSV-export data source —
+this is Agitator-scoped only, per the same "give a new Alpaca-backed
+feature its own tier flag" caution this file already carries elsewhere).
+Market Positioning (`positioning`) deliberately stays AI-judged — the
+Notion amendment names an options-data source for IV but gives no
+concrete deterministic formula for "positioning" the way it does for IV,
+and inventing one wasn't worth the risk of a second unverified guess.
+**Unverified against live Alpaca options entitlement**, same posture as
+every other unconfirmed integration in this file.
+
+**Fix 4 — Historical Reaction, activated.** `computeHistoricalReaction()`
+pools `verdict_log` (Proposal 7) across every user's graded verdicts for
+the resolved ticker — a property of the ticker itself, not one user's own
+history, same reasoning `/scorecard`'s own per-ticker pool stat already
+uses. Explicit `null` ("no data") below `SCORECARD_TICKER_MIN_GRADED`,
+reusing that existing floor rather than inventing a second one for the
+same "too few graded rows to publish" shape. Replaces the permanent
+"not tracked yet" placeholder this factor has shown since the Agitator
+first shipped.
+
+**Fix 5 — Path B rebuilt: always a real score, direct correction to the
+Notion doc's own "no fake number" plan.** `computeTopicalFallback()`
+(renamed from `computeMacroTopicalSentiment`) still corroborates via real
+general news first (no AI call at all if `fetchGeneralNews()` returns
+nothing) — but the one AI call now also extracts 0-5 real company names
+plus surprise/uncertainty/freshness scores from the confirmed article in
+the same response, instead of just an index + sentiment + summary. Every
+extracted name is re-validated through the identical `classifyEntityMatch`
+gate a real typed query goes through — an AI-invented or misremembered
+name is rejected here exactly like a bad query would be upstream, so the
+hallucination risk documented as a real design constraint when this
+feature first shipped never just moves down one layer. Each validated
+company gets a real price reaction since the article's own publish time
+(`computeReactionSincePublish()`, an Alpaca dated-bars fetch, same shape
+as `fetchWeeklyCarryover`/`fetchWeekOwnRange` elsewhere in this file —
+`dailyCloses` is deliberately not date-anchored, so it can't be reused
+here either). `computeTopicalFactors()` then builds a deterministic
+event-level gauge — the AI's own surprise/uncertainty/freshness reads,
+plus Ripple Effect/Swing Risk/Expected Move computed directly from the
+validated companies' real average price move (no AI for those three) —
+run through the same `computeAgitatorComposite()` every resolved-ticker
+check already uses. `/agitator` gates the sub-factor breakdown behind the
+same `isFull` (`tierConfig.tracker`) flag Path A already uses, so Pro
+sees the full 6-signal breakdown and every other tier sees just the
+composite level/score — directly satisfying "the user should see a score
+either way and pro should see that breakdown." A pure-macro query with
+zero validated companies (Jackson Hole itself) still gets a real
+composite score computed from the AI's three article-level factors alone
+— dashes for the symbol slot, but never an empty gauge.
+
+**Two-repo split, same as always.** `Tra` (PR #79) is the real backend
+change; `trade-verdict`'s `server.js` mirror (PR #263) is
+cosmetic/historical, adapted for this repo's different `alpacaGet(url)`
+contract (full URL + raw `Response`, vs `Tra`'s path-only URL +
+pre-parsed JSON, and no `alpacaKeys()` helper — checked inline like every
+other Alpaca call site here) — not a straight copy-paste. `trade-verdict`
+PR #263 also carries the real frontend (`app.ts`/`starter/app.ts`/
+`pro/app.ts`, byte-identical Agitator logic across all three, confirmed
+via diff before shipping) and the `news_cache` migration, since `Tra` has
+no frontend and no migration-file convention of its own.
+
+**Verified:** `node --check`/`npm test` (72/72, unaffected — none of this
+touches `gates-extended.ts`/`analyze-helpers.ts`) in both repos; a
+standalone `classifyEntityMatch` simulation against all three real
+live-reported bug phrasings (Title Case, lowercase, and the no-marker-word
+report) plus Tesla/Apple/Summit/Nvidia/Roundhill regression cases — all
+8 pass; a real local boot test of `Tra`'s `server.js` (clean start, zero
+crashes); `tsc` against each tier's own `app.ts` (known `?v=N`-import-
+resolution baseline only, zero new errors) and an `esbuild` rebuild +
+chunk-header grep (no duplicate-module regression across all three
+bundles); a real headless-Chromium pass on Starter confirming a `partial`
+match renders the suggestion banner + topical card together, tapping
+"Yes" re-fires scoped to the suggested ticker, the Jackson-Hole-shaped
+zero-company case still shows a real composite score with no RELATED
+section, an exact match is unaffected, and the `watchlist` param is sent
+on every request. **Not yet verified against live Finnhub/Alpaca/
+Anthropic credentials or a real deploy** — same standing sandbox
+limitation as every integration in this file. To confirm after `Tra`
+redeploys: re-run "Jackson Hole Economic Policy Symposium" (any casing)
+and confirm it shows a real score + article instead of resolving to JXN
+or dead-ending; type "Summit" and confirm the suggestion banner appears;
+check Render logs for `fetchOptionsSnapshot`/`computeHistoricalReaction`
+errors.
