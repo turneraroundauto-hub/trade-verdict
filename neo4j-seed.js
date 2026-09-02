@@ -30,6 +30,17 @@ const COMPANIES = [
   { company_id: "ASML",              name: "ASML Holding N.V.",                           country: "Netherlands",  industry: "Semiconductor Equipment", ticker: "ASML", exchange: "NASDAQ" },
   { company_id: "APPLIED_MATERIALS", name: "Applied Materials, Inc.",                     country: "United States", industry: "Semiconductor Equipment", ticker: "AMAT", exchange: "NASDAQ" },
   { company_id: "SAMSUNG",           name: "Samsung Electronics Co., Ltd.",               country: "South Korea",  industry: "Semiconductors",        ticker: null,   exchange: null },
+
+  // ── Automotive/embedded-OS cluster (Sep 1, 2026) ───────────────────
+  // Mirror-only, see Tra's neo4j-seed.js for the full write-up -- added
+  // specifically because the graph had zero coverage for a live-reported
+  // query ("Qnx automotive iot"), and Finnhub's own /stock/peers came
+  // back empty for BB with no real fallback.
+  { company_id: "BLACKBERRY", name: "BlackBerry Limited",    country: "Canada",        industry: "Automotive Software", ticker: "BB",   exchange: "NYSE" },
+  { company_id: "APTIV",      name: "Aptiv PLC",             country: "Ireland",       industry: "Automotive Technology", ticker: "APTV", exchange: "NYSE" },
+  { company_id: "WIND_RIVER", name: "Wind River Systems",   country: "United States", industry: "Embedded Software",    ticker: null,   exchange: null },
+  { company_id: "FORD",       name: "Ford Motor Company",   country: "United States", industry: "Automotive",           ticker: "F",    exchange: "NYSE" },
+  { company_id: "QUALCOMM",   name: "Qualcomm Incorporated", country: "United States", industry: "Semiconductors",       ticker: "QCOM", exchange: "NASDAQ" },
 ];
 
 const RELATIONSHIPS = [
@@ -39,6 +50,12 @@ const RELATIONSHIPS = [
   { from: "TSMC", to: "ASML",              relationship_type: "buys_equipment_from",    direction: "directed", source: "seed" },
   { from: "TSMC", to: "APPLIED_MATERIALS", relationship_type: "buys_equipment_from",    direction: "directed", source: "seed" },
   { from: "TSMC", to: "SAMSUNG",           relationship_type: "competes_with",          direction: "mutual",   source: "seed" },
+
+  // Automotive/embedded-OS cluster -- see the COMPANIES comment above.
+  { from: "WIND_RIVER",  to: "APTIV",      relationship_type: "subsidiary_of", direction: "directed", source: "seed (Aptiv acquired Wind River, 2022)" },
+  { from: "BLACKBERRY",  to: "WIND_RIVER", relationship_type: "competes_with", direction: "mutual",   source: "seed (QNX vs. VxWorks, automotive/embedded real-time OS)" },
+  { from: "BLACKBERRY",  to: "QUALCOMM",   relationship_type: "competes_with", direction: "mutual",   source: "seed (QNX vs. Snapdragon Digital Chassis, software-defined vehicle platforms)" },
+  { from: "BLACKBERRY",  to: "FORD",       relationship_type: "supplies",     direction: "directed", source: "seed (BlackBerry QNX / Ford software partnership, announced 2023)" },
 ];
 
 async function main() {
@@ -66,18 +83,24 @@ async function main() {
     console.log(`  ${rel.from} -[${rel.relationship_type}]-> ${rel.to}`);
   }
 
-  console.log("\nVerifying — TSMC's relationships as read back from Neo4j:");
-  const tsmcRelationships = await kg.getCompanyRelationships("TSM");
-  for (const r of tsmcRelationships) {
-    console.log(`  ${r.direction === "outgoing" ? "→" : "←"} ${r.relationship_type} ${r.name} (${r.ticker || "no ticker"})`);
+  // Verify each cluster independently -- mirror-only, see Tra's
+  // neo4j-seed.js for why a single shared count check no longer works
+  // now that a second, unrelated cluster exists.
+  async function verifyCluster(ticker, expectedCount) {
+    console.log(`\nVerifying — ${ticker}'s relationships as read back from Neo4j:`);
+    const rels = await kg.getCompanyRelationships(ticker);
+    for (const r of rels) {
+      console.log(`  ${r.direction === "outgoing" ? "→" : "←"} ${r.relationship_type} ${r.name} (${r.ticker || "no ticker"})`);
+    }
+    if (rels.length !== expectedCount) {
+      console.error(`WARNING: expected ${expectedCount} relationships for ${ticker}, found ${rels.length}`);
+    } else {
+      console.log(`OK — all ${expectedCount} relationships confirmed round-trip through Neo4j.`);
+    }
   }
 
-  const expectedCount = RELATIONSHIPS.length;
-  if (tsmcRelationships.length !== expectedCount) {
-    console.error(`WARNING: expected ${expectedCount} relationships for TSMC, found ${tsmcRelationships.length}`);
-  } else {
-    console.log(`\nOK — all ${expectedCount} relationships confirmed round-trip through Neo4j.`);
-  }
+  await verifyCluster("TSM", 6);
+  await verifyCluster("BB", 3);
 
   await kg.closeDriver();
 }
