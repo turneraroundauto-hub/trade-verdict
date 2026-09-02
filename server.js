@@ -2717,14 +2717,22 @@ async function fetchGraphPeers(symbol) {
   return related.filter(r => r.ticker).map(r => r.ticker.toUpperCase());
 }
 
-async function computeAgitatorComps(symbol, mentionedSymbols) {
+// marketauxMentioned (optional): mirror-only, see Tra's server.js for the
+// full design writeup. Priority order, end to end: literal mentions >
+// graph > Marketaux > generic Finnhub peers.
+async function computeAgitatorComps(symbol, mentionedSymbols, marketauxMentioned) {
   let candidatePeers;
   if (mentionedSymbols && mentionedSymbols.length) {
     candidatePeers = mentionedSymbols.slice(0, AGITATOR_COMPS_CANDIDATE_POOL);
   } else {
     const graphPeers = await fetchGraphPeers(symbol);
-    candidatePeers = (graphPeers.length ? graphPeers : await fetchTickerPeers(symbol))
-      .slice(0, AGITATOR_COMPS_CANDIDATE_POOL);
+    if (graphPeers.length) {
+      candidatePeers = graphPeers.slice(0, AGITATOR_COMPS_CANDIDATE_POOL);
+    } else if (marketauxMentioned && marketauxMentioned.length) {
+      candidatePeers = marketauxMentioned.slice(0, AGITATOR_COMPS_CANDIDATE_POOL);
+    } else {
+      candidatePeers = (await fetchTickerPeers(symbol)).slice(0, AGITATOR_COMPS_CANDIDATE_POOL);
+    }
   }
   const quotes = await Promise.all(candidatePeers.map(sym => fetchQuote(sym)));
   const valid = [];
@@ -3299,6 +3307,28 @@ app.get("/agitator", async (req, res) => {
       });
     }
     symbol = symbol.toUpperCase();
+    // Marketaux enrichment for a real article + related-company
+    // candidates whenever resolution didn't already come with one --
+    // mirror-only, see Tra's server.js for the full design writeup.
+    // marketauxMentioned is kept separate from mentionedSymbols (below)
+    // and passed to computeAgitatorComps as a lower-priority fallback
+    // than the Knowledge Graph. Priority order, end to end: literal
+    // mentions > graph > Marketaux > generic Finnhub peers.
+    let marketauxMentioned = [];
+    if (!directMatch && !marketauxArticle) {
+      const enrichArticles = await fetchMarketauxNews(raw);
+      if (enrichArticles.length) {
+        const top = enrichArticles[0];
+        marketauxArticle = { headline: top.headline, url: top.url, source: top.source };
+        for (const a of enrichArticles) {
+          for (const e of (a.entities || [])) {
+            if (e.symbol !== symbol && !marketauxMentioned.includes(e.symbol)) {
+              marketauxMentioned.push(e.symbol);
+            }
+          }
+        }
+      }
+    }
     // A real Marketaux article always wins over the synthetic "the raw
     // query text is the headline" placeholder.
     if (!directMatch && !marketauxArticle && !headlineOverride) headlineOverride = raw;
@@ -3360,7 +3390,7 @@ app.get("/agitator", async (req, res) => {
     if (ivEnvironment != null) factorsForComposite.ivEnvironment = ivEnvironment;
     const composite = computeAgitatorComposite(factorsForComposite);
 
-    const comps = await computeAgitatorComps(symbol, mentionedSymbols);
+    const comps = await computeAgitatorComps(symbol, mentionedSymbols, marketauxMentioned);
 
     res.json({
       resolved: true, symbol,
