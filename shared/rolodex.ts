@@ -27,6 +27,7 @@ export interface RolodexElements {
   gateFullOverlay: HTMLElement;
   gateSpacer: HTMLElement;
   gateMarquee: HTMLElement;
+  listHead: HTMLElement;
   roloIndex: HTMLElement;
   roloStage: HTMLElement;
   roloHint: HTMLElement | null;
@@ -72,6 +73,24 @@ export function sizeGateSpacer(): void {
   // "re-check whenever the thing being measured can change" reasoning as
   // updateGateDockState() just above.
   scheduleFirstCardSnapCheck();
+  sizeRoloIndexOffset();
+}
+
+// listHead (the "Tap Pills to Analyze" CTA row) sits between the Gate and
+// the ticker-pill strip and is sticky itself, so #roloIndex has to dock
+// BELOW its real height, not directly under the Gate. Measured live
+// rather than baked into a CSS pixel value -- the exact "guess a
+// font-metric-dependent constant, then it's wrong on a real device's
+// actual font" mistake this app's own gate-dot alignment fix (Aug 18,
+// 2026) already learned the hard way applies here just as much: listHead's
+// height is real rendered text + padding, not a fixed control like the
+// Gate's own docked bar.
+function listHeadHeight(): number {
+  return els.listHead.getBoundingClientRect().height;
+}
+
+function sizeRoloIndexOffset(): void {
+  els.roloIndex.style.top = (GATE_DOCKED_H + listHeadHeight()) + 'px';
 }
 
 export function updateGateDockState(): void {
@@ -177,11 +196,12 @@ export function getRoloCurrent(): number {
 }
 
 // Caps the active .rolo-card to the space actually available below
-// whichever dock sits above the Rolodex stage -- the docked Gate plus the
-// pill strip, since .rolo-wrap always sits after #roloIndex in every
-// tier's markup, the same "dock offset" every below-pill utility card
-// already uses (capCardBodyHeight above) -- with internal scroll past
-// that, matching the same treatment every accordion card already got.
+// whichever dock sits above the Rolodex stage -- the docked Gate, the
+// sticky "Tap Pills to Analyze" row, and the pill strip, since .rolo-wrap
+// always sits after #roloIndex in every tier's markup, the same "dock
+// offset" every below-pill utility card already uses (capCardBodyHeight
+// above) -- with internal scroll past that, matching the same treatment
+// every accordion card already got.
 // activeCard.scrollHeight (not offsetHeight) reports the true, un-clipped
 // content height regardless of any max-height already applied from a
 // previous call, so this is safe to call every time without needing to
@@ -191,7 +211,7 @@ const ROLO_CARD_BOTTOM_MARGIN = 16;
 
 function capRoloCardHeight(activeCard: HTMLElement): void {
   const roloIndexH = els.roloIndex.getBoundingClientRect().height;
-  const available = els.scroller.clientHeight - GATE_DOCKED_H - roloIndexH - ROLO_CARD_BOTTOM_MARGIN;
+  const available = els.scroller.clientHeight - GATE_DOCKED_H - listHeadHeight() - roloIndexH - ROLO_CARD_BOTTOM_MARGIN;
   const cap = Math.max(ROLO_CARD_MIN_HEIGHT, available);
   if (activeCard.scrollHeight > cap) {
     activeCard.style.maxHeight = cap + 'px';
@@ -285,7 +305,7 @@ function scrollToActiveCard(): void {
   const wrap = els.roloStage.closest<HTMLElement>('.rolo-wrap');
   if (!wrap) return;
   const roloIndexH = forceGateDockedSync();
-  wrap.style.scrollMarginTop = (GATE_DOCKED_H + roloIndexH) + 'px';
+  wrap.style.scrollMarginTop = (GATE_DOCKED_H + listHeadHeight() + roloIndexH) + 'px';
   wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -312,7 +332,7 @@ function capCardBodyHeight(cardEl: HTMLElement, dockOffset: number): void {
 
 function dockOffsetFor(cardEl: HTMLElement, roloIndexH: number): number {
   const afterPillStrip = !!(els.roloIndex.compareDocumentPosition(cardEl) & Node.DOCUMENT_POSITION_FOLLOWING);
-  return GATE_DOCKED_H + (afterPillStrip ? roloIndexH : 0);
+  return GATE_DOCKED_H + (afterPillStrip ? listHeadHeight() + roloIndexH : 0);
 }
 
 // Soft-snaps a tapped/expanded utility card's top edge to sit just under
@@ -323,9 +343,10 @@ function dockOffsetFor(cardEl: HTMLElement, roloIndexH: number): number {
 // card; Sector Pulse/Session Context/Import sit above it, same as the
 // Gate). A card before #roloIndex snaps under the docked Gate alone
 // (GATE_DOCKED_H); a card after it snaps under the docked Gate PLUS the
-// pill strip's own docked height, exactly matching scrollToActiveCard()'s
-// own offset for the same reason -- both sticky bars are stacked and
-// occupying real space above it once docked. Never reorders anything or
+// sticky "Tap Pills to Analyze" row PLUS the pill strip's own docked
+// height, exactly matching scrollToActiveCard()'s own offset for the same
+// reason -- three sticky bars are stacked and occupying real space above
+// it once docked. Never reorders anything or
 // locks scroll -- a single smooth scrollIntoView, same as
 // scrollToActiveCard(), so free scrolling immediately afterward is
 // completely unaffected.
@@ -760,11 +781,14 @@ export function initRolodex(elements: RolodexElements, callbacks: RolodexCallbac
   const contentEl = document.querySelector('.content');
   dockThreshold = contentEl ? parseFloat(getComputedStyle(contentEl).paddingTop) || 0 : 0;
 
+  sizeRoloIndexOffset();
+
   window.addEventListener('resize', sizeGateMarquee);
   window.addEventListener('resize', sizeGateSpacer);
   window.addEventListener('resize', sizeRoloMarquee);
   window.addEventListener('resize', recapExpandedCards);
   window.addEventListener('resize', syncRoloStageHeight);
+  window.addEventListener('resize', sizeRoloIndexOffset);
 
   let gateTickingLocal = false;
   els.scroller.addEventListener('scroll', () => {

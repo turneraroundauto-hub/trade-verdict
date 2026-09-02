@@ -216,7 +216,10 @@
   .btn-blue.btn-running:disabled{ opacity:1; animation:runPulse 1.2s ease-in-out infinite; }
   .btn-purple.btn-running:disabled{ opacity:1; animation:runPulse 1.2s ease-in-out infinite; }
 
-  .list-head{ display:flex; align-items:center; justify-content:space-between; padding:6px 4px 2px; font-size:13px; color:var(--ink-dim); letter-spacing:.08em; text-transform:uppercase; }
+  .list-head{
+    display:flex; align-items:center; justify-content:space-between; font-size:13px; color:var(--ink-dim); letter-spacing:.08em; text-transform:uppercase;
+    position:sticky; top:var(--gate-docked-h); z-index:16; background:var(--bg); margin:0 -14px; padding:6px 18px 2px;
+  }
   .list-head-cta{ color:var(--amber); font-weight:700; }
   .list-head-badge{ font-size:11px; font-weight:700; color:var(--ink); background:rgba(255,255,255,.06); border-radius:3px; padding:1px 7px; text-transform:none; letter-spacing:0; }
 
@@ -621,7 +624,7 @@
         </div></div></div>
       </div>
 
-      <div class="list-head"><span class="list-head-cta">Tap Pills to Analyze</span><span class="list-head-badge" id="card-count">0/15</span></div>
+      <div class="list-head" id="listHead"><span class="list-head-cta">Tap Pills to Analyze</span><span class="list-head-badge" id="card-count">0/15</span></div>
 
       <!-- #roloIndex is a direct child of .content (not nested in
            .rolo-wrap) so its sticky "stuck" range spans through the
@@ -766,6 +769,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=41"></script>
+<script type="module" src="./app.js?v=42"></script>
 </body>
 </html>

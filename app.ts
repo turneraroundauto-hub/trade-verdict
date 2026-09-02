@@ -1178,6 +1178,7 @@ async function boot(): Promise<void> {
     gateFullOverlay: document.getElementById('gateFullOverlay') as HTMLElement,
     gateSpacer: document.getElementById('gateSpacer') as HTMLElement,
     gateMarquee: gateMarquee,
+    listHead: document.getElementById('listHead') as HTMLElement,
     roloIndex: roloIndex,
     roloStage: roloStage,
     roloHint: document.getElementById('roloHint'),

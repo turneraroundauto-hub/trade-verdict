@@ -1167,6 +1167,13 @@ function sizeGateSpacer() {
   els.gateSpacer.style.height = (els.gateCard.classList.contains("docked") ? 0 : spacerHeight) + "px";
   updateGateDockState();
   scheduleFirstCardSnapCheck();
+  sizeRoloIndexOffset();
+}
+function listHeadHeight() {
+  return els.listHead.getBoundingClientRect().height;
+}
+function sizeRoloIndexOffset() {
+  els.roloIndex.style.top = GATE_DOCKED_H + listHeadHeight() + "px";
 }
 function updateGateDockState() {
   const docked = els.scroller.scrollTop >= dockThreshold;
@@ -1233,7 +1240,7 @@ var ROLO_CARD_MIN_HEIGHT = 160;
 var ROLO_CARD_BOTTOM_MARGIN = 16;
 function capRoloCardHeight(activeCard) {
   const roloIndexH = els.roloIndex.getBoundingClientRect().height;
-  const available = els.scroller.clientHeight - GATE_DOCKED_H - roloIndexH - ROLO_CARD_BOTTOM_MARGIN;
+  const available = els.scroller.clientHeight - GATE_DOCKED_H - listHeadHeight() - roloIndexH - ROLO_CARD_BOTTOM_MARGIN;
   const cap = Math.max(ROLO_CARD_MIN_HEIGHT, available);
   if (activeCard.scrollHeight > cap) {
     activeCard.style.maxHeight = cap + "px";
@@ -1293,7 +1300,7 @@ function scrollToActiveCard() {
   const wrap = els.roloStage.closest(".rolo-wrap");
   if (!wrap) return;
   const roloIndexH = forceGateDockedSync();
-  wrap.style.scrollMarginTop = GATE_DOCKED_H + roloIndexH + "px";
+  wrap.style.scrollMarginTop = GATE_DOCKED_H + listHeadHeight() + roloIndexH + "px";
   wrap.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 var CARD_BODY_MIN_HEIGHT = 120;
@@ -1307,7 +1314,7 @@ function capCardBodyHeight(cardEl, dockOffset) {
 }
 function dockOffsetFor(cardEl, roloIndexH) {
   const afterPillStrip = !!(els.roloIndex.compareDocumentPosition(cardEl) & Node.DOCUMENT_POSITION_FOLLOWING);
-  return GATE_DOCKED_H + (afterPillStrip ? roloIndexH : 0);
+  return GATE_DOCKED_H + (afterPillStrip ? listHeadHeight() + roloIndexH : 0);
 }
 function snapCardUnderDock(cardEl) {
   const roloIndexH = forceGateDockedSync();
@@ -1601,11 +1608,13 @@ function initRolodex(elements, callbacks) {
   GATE_DOCKED_H = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--gate-docked-h")) || 44;
   const contentEl = document.querySelector(".content");
   dockThreshold = contentEl ? parseFloat(getComputedStyle(contentEl).paddingTop) || 0 : 0;
+  sizeRoloIndexOffset();
   window.addEventListener("resize", sizeGateMarquee);
   window.addEventListener("resize", sizeGateSpacer);
   window.addEventListener("resize", sizeRoloMarquee);
   window.addEventListener("resize", recapExpandedCards);
   window.addEventListener("resize", syncRoloStageHeight);
+  window.addEventListener("resize", sizeRoloIndexOffset);
   let gateTickingLocal = false;
   els.scroller.addEventListener("scroll", () => {
     if (gateTickingLocal) return;
@@ -3319,6 +3328,7 @@ initRolodex({
   gateFullOverlay: document.getElementById("gateFullOverlay"),
   gateSpacer: document.getElementById("gateSpacer"),
   gateMarquee,
+  listHead: document.getElementById("listHead"),
   roloIndex,
   roloStage,
   roloHint: document.getElementById("roloHint")
