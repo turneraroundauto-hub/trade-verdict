@@ -7696,3 +7696,374 @@ function still fails safe to the pre-Marketaux behavior, but Render logs
 are the only way to tell the difference between "no Marketaux match
 found" and "the response shape guess was wrong," so check logs before
 assuming either.
+
+## Backend: Agitator entity resolution — the QNX/BlackBerry saga, consolidated (Sep 1-2, 2026)
+
+Consolidated from what was originally five separate rounds of live-reported
+bugs and fixes, all chasing the same underlying case (typing "Qnx automotive
+iot" into the Agitator Gauge) — kept as one entry, same convention as this
+file's other multi-round sagas, since the individual rounds matter less than
+the real lesson at the end.
+
+**Round 1 — a real, small bug: digit-stripping broke candidate extraction
+(`Tra` PR #85 / `trade-verdict` PR #273).** Found via a pasted Render log
+showing a garbled search candidate ("Other Takeaways From His G Speech")
+being sent to Finnhub. Root cause: `extractCompanyCandidates()`'s
+punctuation-stripping regex also stripped trailing digits, so "G20" silently
+became "G" and merged into an unrelated word run. Fixed by forcing a run-
+break on any digit-bearing token before the shape test runs.
+
+**Round 2 — challenged and corrected mid-fix.** The actual reported bug
+("Qnx automotive iot" resolving to nothing, with an unrelated Dell headline)
+was about to be patched with a single hardcoded `qnx: "BB"` entry in
+`KNOWN_BRAND_TICKER_OVERRIDES` — matching the existing Google/Facebook
+pattern. Direct challenge mid-build: **"what happened to using marketaux??"**
+— correctly pointing out that a bare override does nothing for article/
+related-company enrichment, only symbol resolution. Per direct instruction
+("Wire Marketaux into resolution, not just Path B"), built `resolveViaMarketaux(query)`
+as a general mechanism (any article's first tagged entity can resolve a
+query, not just this one hand-added case) — landed alongside the `qnx` override
+as a zero-cost fast path checked first (`Tra` PR #86 / `trade-verdict` PR #274).
+
+**Round 3 — "seriously, you fix one problem and another one comes back."**
+BB now resolved correctly, but the card showed the raw query text as a fake,
+unlinked headline and "No related companies found." Root cause: the `qnx`
+override resolved `symbol` inside the Finnhub-candidate loop, before
+`resolveViaMarketaux` was ever reached (guarded behind `if (!symbol)`), so no
+enrichment fetch ever ran for an override-resolved ticker; separately,
+Finnhub's `/stock/peers` returned empty for BB with no fallback. A fix was
+in progress (re-calling Marketaux post-resolution for enrichment) when —
+
+**Round 4 — the actual turning point: "what happened to the table logic that
+we built. why is it not being implemented?"** A direct, correct call-out:
+this session had spent three rounds building parallel, ad-hoc patches
+(Finnhub-peers investigation, a Marketaux-enrichment re-fetch) without ever
+wiring in or populating the Neo4j Knowledge Graph — infrastructure already
+built and explicitly scoped, in an earlier design conversation, to solve
+exactly this class of problem ("what's this graph actually for" had already
+been answered as "the Agitator Gauge's RELATED companies"). Acknowledged
+directly: the graph existed and worked (Phase 1 shipped) but was never
+called from `/agitator`, and its only seed data was the original 7-company
+TSMC demo cluster — it genuinely had zero BlackBerry coverage, so it could
+not have helped even if wired in. The in-progress Marketaux-enrichment patch
+was discarded rather than shipped on top of a known-wrong foundation.
+Scoped via `AskUserQuestion` — "Stop patching, go straight to wiring +
+populating the graph" was chosen over shipping the patch first.
+
+Landed (`Tra` PR #87 / `trade-verdict` PR #275): `fetchGraphPeers()` (the
+function already reading `kg.getCompanyRelationships()` for the Agitator's
+RELATED tier) was already correct — it just needed real data. A real
+BlackBerry/automotive cluster was researched and added to `neo4j-seed.js`:
+BlackBerry (BB), Aptiv (APTV), Wind River Systems (private, `ticker:null`),
+Ford (F), Qualcomm (QCOM) — with `competes_with`/`supplies`/`subsidiary_of`
+edges (QNX vs. VxWorks, QNX vs. Snapdragon Digital Chassis, the real 2023
+BlackBerry QNX/Ford partnership, Aptiv's real 2022 Wind River acquisition).
+**Not yet live at this point** — the seed script had never been run against
+the actual Neo4j Aura instance, only committed as source.
+
+**Round 5 — Marketaux re-added as a complementary layer, not a competing
+one (`Tra` PR #88 / `trade-verdict` PR #276).** Once the graph was correctly
+the primary mechanism, Marketaux enrichment was added back as a genuinely
+lower-priority fallback: `computeAgitatorComps()`'s final priority chain,
+end to end, is **literal mentions in the user's own text > Knowledge Graph
+(curated) > Marketaux (automated search) > generic Finnhub peers**.
+Marketaux's own tagged entities are kept in a separate `marketauxMentioned`
+array, never merged into the higher-priority `mentionedSymbols` list, so an
+automated keyword match can never silently outrank a hand-curated graph
+edge.
+
+**The lesson, worth keeping independent of this specific bug:** when a
+fix depends on a class of data (real-world company relationships) that
+already has dedicated infrastructure built for it, check whether that
+infrastructure is actually wired in and populated *before* building a
+parallel, narrower patch — three rounds of increasingly specific patches
+here were all solving a smaller version of a problem the graph was already
+designed to solve, and nobody asked "wait, why isn't the graph handling
+this" until directly prompted to.
+
+### The headline still didn't show up — a second, distinct bug (Sep 2, 2026, `Tra` PR #90 / `trade-verdict` PR #278)
+
+Reported again after the graph wiring shipped: BB now resolved correctly,
+but the card *still* showed the raw query text as a fake, unlinked headline.
+Traced through the actual code this time, not re-guessed: once a ticker
+resolves via the `extractCompanyCandidates()` loop (as `qnx` does) rather
+than a direct match, `directMatch` stays `false`. The enrichment block
+correctly tries a real Marketaux search on the raw query — but "Qnx
+automotive iot" is an artificial test phrase no real article is published
+under, so it comes back empty. The line immediately after that then set
+`headlineOverride = raw` as a fallback — and the block right after **that**
+branches on `headlineOverride`'s mere presence to decide whether to run the
+real per-ticker `fetchNews(symbol, companyName)` call at all. So the
+fallback for "nothing found yet" was itself what prevented the real news
+source from ever being tried — a real BlackBerry article was one fetch
+away and the code never asked for it.
+
+**Fix:** stopped tainting `headlineOverride` with the raw-text fallback —
+it now only ever means a genuine, explicit client-supplied `headline` query
+param (its original, correct meaning), so the `else if (headlineOverride)`
+branch (skip `fetchNews`) fires only when the client actually asked for
+that. The raw-text echo moved to a true last resort in `effectiveHeadline`,
+reached only after the real `fetchNews()` call has already run and also
+come back empty. Verified via a 5-case standalone simulation (the exact
+reported bug shape, the true-last-resort echo, a real Marketaux-resolved
+primary, an explicit client headline override, and the existing plain-
+ticker path) — all correct, nothing regressed.
+
+**Not yet verified against a live deploy** — same standing posture as every
+backend-dependent feature in this file; Finnhub/Marketaux are unreachable
+from this sandbox.
+
+## Ops: Neo4j seed script actually run against live Aura (Sep 2, 2026)
+
+The BlackBerry/automotive cluster added to `neo4j-seed.js` above sat
+uncommitted-to-production for a full day — this sandbox has never had, and
+will never have, the real `NEO4J_URI`/`NEO4J_USERNAME`/`NEO4J_PASSWORD`
+credentials, so `node neo4j-seed.js` here only ever prints "nothing to
+seed" and exits.
+
+**A Render MCP connector became available mid-session** (distinct from any
+Neo4j-specific connector — confirmed directly with the user which one was
+actually meant, after an initial "you're connected to neo4j now" turned out
+to mean Render). Used it to inspect (not modify blindly) the real `Tra`
+service config via `list_services`/`get_service` — confirmed it's a
+free-tier Node web service (`srv-d9c6gdvavr4c73af40p0`, `tra-zacg.onrender.com`).
+Render's API/MCP tools do not expose existing secret env var *values* back
+out (by design) — only let you set new ones — so there was still no way to
+read Tra's real Neo4j credentials from here even with Render access.
+
+**The actual mechanism used: a temporary, one-off Render Cron Job**, not a
+change to the live `Tra` service. Created via `create_cron_job` — same
+repo (`turneraroundauto-hub/Tra`), same branch (`main`), `build: npm install`,
+`start: node neo4j-seed.js`, scheduled for Feb 31 (a date that never occurs,
+so it can never auto-fire) so it only ever runs when manually triggered.
+**Real, disclosed cost, confirmed with the user before creating it:**
+Render does not offer a free-tier Cron Job — the cheapest valid plan is
+`starter`, a real (if small) charge — flagged explicitly via
+`AskUserQuestion` before creating it, not assumed. The three real secret
+values were added by the user directly in that job's own Environment tab
+in the Render dashboard — never pasted into this conversation, same
+standing rule as every other credential handoff in this file.
+
+**Verified as genuinely successful, not just "it ran," via real Render
+logs:** `list_logs` on the cron job's resource ID showed a full, clean run
+— `Ensuring schema...`, `Upserting 12 companies...` (every company in
+`neo4j-seed.js`, TSMC cluster and BlackBerry cluster both), `Upserting 10
+relationships...` (every edge, printed by name), then both verification
+blocks the script itself runs: `OK — all 6 relationships confirmed
+round-trip through Neo4j` (TSM) and `OK — all 3 relationships confirmed
+round-trip through Neo4j` (BB), ending in `Cron job run finished
+successfully`. This is the first genuinely-confirmed-live Neo4j write in
+this project's history — every other Neo4j claim in this file up to this
+point was "verified by simulation only."
+
+**Cleanup, still open:** this MCP toolset has no delete/destroy tool for
+Render resources (only create/list/get/metrics) — the cron job itself
+(`crn-dabqlmu7bikc73dvmv90`) needs to be deleted by hand via the Render
+dashboard (Settings → Delete Cron Job). Flagged to the user, not yet
+confirmed done as of this writing.
+
+**What this actually unblocks:** the Agitator Gauge's RELATED companies for
+BB should now show real data (Ford, Qualcomm) for the first time, and the
+TSMC cluster's own relationships (already there since Phase 1) are
+re-confirmed live and intact. The correlation/classification side (see the
+Phase 1.5 entry below) needed no seeding at all — it grows automatically
+from real traffic — but the hand-curated `RELATED_TO` facts (supply chain/
+competitor relationships) only ever grow when someone researches and adds
+them to `neo4j-seed.js` the same way, then runs it live the same way. There
+is no automatic mechanism that discovers a fact like "BlackBerry supplies
+Ford" from traffic alone — confirmed directly to the user when asked
+whether new tickers "auto-populate" the graph (they don't, for this half of
+it).
+
+## Backend: Neo4j Phase 1.5 — correlation/classification graph, wired into Proposal 5 & Proposal 7 (Sep 2, 2026, `Tra` PR #89 / `trade-verdict` PR #277)
+
+Direct instruction to move forward implementing Neo4j into "the previous
+proposals 5 & 7" — clarified via a pasted framing (originally from an
+earlier design conversation, restated here as the actual scope): the
+90-day correlation-comparables system and the Dynamic Proxy Resolution
+Algorithm's proxy-basket matching are graph problems — "which tickers
+correlate with which sector proxies" — and the Agitator Gauge/Corroboration
+Decay Indicator are network-discovery problems on top of that same
+structure. Scoped down (via `AskUserQuestion`) to the concrete, bounded
+piece: wire the graph into data this app was *already computing* rather
+than inventing new correlation math, and keep event classification
+deterministic (no new AI call) rather than building a speculative Event
+node layer.
+
+**Landed, `neo4j-graph.js`:**
+- New `Sector` node type (`sector_id` unique constraint) — the same
+  `PROXY_RULES`/`DEFAULT_PROXY` category strings already shown in the UI
+  (`AI/Semiconductor`, `Biotech/Medical`, etc.), no new taxonomy invented.
+- `upsertClassification(ticker, sectorId, {tier})` — a `CLASSIFIED_AS` edge,
+  `tier` matching `resolveGate5`'s own vocabulary (`primary`/`secondary`/
+  `fundamentals-confirmed`/`fundamentals-speculative`).
+- `upsertCorrelation(fromTicker, toTicker, {coefficient, tier, source})` —
+  a `CORRELATES_WITH` edge, deliberately undirected (`MERGE (a)-[r]-(b)`
+  with no arrow, the standard Neo4j idiom for a relationship with no real
+  direction — a correlation coefficient has none), distinct from
+  `RELATED_TO`'s directed supply-chain edges.
+- `getComparableTickers(ticker)` — the literal "tickers within 2 hops of X
+  via a shared proxy or sector" traversal from the original design
+  conversation, via a single Cypher `*1..2` variable-length pattern over
+  both new relationship types.
+- Both `upsertClassification`/`upsertCorrelation` lazily create a minimal
+  stand-in `Company` node (`MERGE` on `ticker`, `company_id = ticker`) for
+  a ticker that only ever shows up as a proxy/correlation target (SPY, TSM,
+  etc.) and doesn't already have a full node from `upsertCompany()` — a
+  later, richer `upsertCompany()` call for the same ticker still matches
+  and fills in the real name/industry rather than creating a duplicate.
+
+**Wired into `server.js`, fire-and-forget, fail-safe by construction:**
+- `resolveGate5`'s static-classification branch calls
+  `syncClassificationToGraph(symbol, staticRule.category, "primary")` —
+  deduped per-process via a plain `Set` (a ticker's static classification
+  never changes at runtime, and this branch fires on every
+  `/ticker/:symbol` refresh for the common case, so writing more than once
+  per process lifetime would be pure waste).
+- `resolveGate5`'s dynamic-resolution branch and `resolveProxyRegime`'s
+  weekly Taiwan/Korea regime check both call
+  `syncCorrelationToGraph(symbol, proxySymbol, coefficient, tier, source)`
+  — never deduped (these paths are already rare: quarterly recompute, or a
+  weekly check), always fire-and-forget (never awaited at the call site).
+- `fetchGraphPeers()` (the Agitator's RELATED-companies source) now merges
+  `kg.getComparableTickers()` in behind the existing hand-curated
+  `RELATED_TO` peers — curated facts still rank first, statistically-
+  derived correlation/sector comparables fill in behind them, deduped
+  against both the symbol itself and each other.
+
+**Also touched `/scorecard` (Proposal 7) in the same PR — later reworked
+the same day, see the entry below** — the very first version of this PR
+added a third `peers` comparison (pooled accuracy across graph-comparable
+tickers) to the per-ticker breakdown; that whole breakdown was removed a
+few hours later on direct live feedback, so the `peers` addition never
+shipped in its original form. Kept here only as a note that it existed
+briefly, not as a currently-true description of `/scorecard`'s shape — see
+the Scorecard-rework entry immediately below for what actually shipped.
+
+**Verified:** `node --check`, `npm test` (72/72, unaffected), a real local
+boot (clean start, zero crashes), and standalone Node simulations of
+`sectorIdFor()`, the `fetchGraphPeers` merge/dedup logic, and (before its
+removal) the `/scorecard` peer-grouping logic — all passed. **Not verified
+against live Neo4j at the time this PR merged** — confirmed live
+afterward, see the Ops entry above.
+
+## Frontend/Backend: Verdict Scorecard rework — per-ticker breakdown replaced by a pooled TRACK RECORD line on the ticker card itself (Sep 2, 2026, same `Tra` PR #89 / `trade-verdict` PR #277)
+
+Direct live feedback against real screenshots of the deployed Pro-tier
+Scorecard card: **"individual tickers is unnecessary in the scorecard,
+however if they were displayed at the bottom of the corresponding ticker
+verdict card, that would be helpful if it showed total accuracy percentage
+pooled — on every tier."** Confirmed via a follow-up clarification exchange
+that this means exactly what `computeHistoricalReaction()` already
+computes: pooled (cross-user) directional accuracy for verdicts issued
+**specifically on that one ticker** — never mixed with correlated/"peer"
+tickers, which is precisely the distinction that made the graph-peers
+addition (see the Phase 1.5 entry above) the wrong thing to keep once this
+request landed.
+
+**What the reported screenshot actually showed, worth keeping as the
+evidence:** 15 tickers listed under "BY TICKER," 14 of them rendering
+`— pool —` (both personal and pool stats below the 5-graded floor), only
+MU showing a real number. A near-useless wall of placeholders, not a
+hypothetical concern.
+
+**Removed entirely from `/scorecard`:** the whole personal/pool/graph-peers
+per-ticker block (`tickerGroups`, the pool query, the graph-peers query) —
+deleted from the backend response, not just hidden client-side, so the two
+extra Supabase queries and N Neo4j traversals per load stop happening too.
+Same removal on the frontend: `renderScorecardCard()`'s `BY TICKER` section
+deleted from both `pro/app.ts` and `starter/app.ts`.
+
+**Replaced with:** `computeHistoricalReaction(symbol)` — already built for
+the Agitator Gauge — now also relayed through `refreshMarketEntry`/
+`symbolMarketCache`/`/ticker/:symbol`'s own response, so it's available on
+**every tier**, with no sign-in and no tier gate (matching that function's
+existing free/unauthenticated-safe posture). Its return shape changed from
+a bare `0-100` number to `{ directionalPct, gradedCount }` (the ticker card
+needed to show the sample size too, the Agitator's own gauge display
+didn't and still doesn't — that one call site was updated to read
+`.directionalPct` and otherwise unaffected). A new 1h in-memory cache
+(`historicalReactionCache`) was added since this now rides
+`refreshMarketEntry`'s own cache cycle — as often as every 1 minute on
+Pro — rather than only the Agitator's on-demand call; grading only updates
+every 30 minutes regardless, so a much longer TTL here is pure waste
+avoidance, not staleness risk.
+
+Rendered as a new `TRACK RECORD` row (e.g. `TRACK RECORD  65% (12
+graded)`) at the bottom of `gateListHTML()`'s gate list, right after
+CONFIDENCE, on Free/Starter/Pro alike — omitted entirely (not a placeholder
+dash) below the 5-graded floor. Free had never had any Scorecard-adjacent
+feature at all before this; this is the first ticker-level track-record
+signal to reach that tier.
+
+**Two smaller, related fixes landed in the same PR, from the same round of
+screenshot feedback:**
+
+1. **Card-sub subtitle truncation, several utility cards on Pro + one on
+   Starter.** The screenshots showed "Proxy + live coherence per ti…",
+   "Fixed sectors + your wat…", "Log verdicts and track your a…", and
+   "Real accuracy, graded automat…" all visibly clipped. Confirmed and
+   fixed via a **real headless-Chromium pixel measurement** (a local static
+   HTTP server + Playwright, not eyeballed) rather than guessed character
+   counts: Proxy Resolution Explorer was 6px over, Sector Heat Map 25px
+   over, Track Record 30px over, Verdict Scorecard 22px over. Same
+   regression *class* as the Aug 18, 2026 card-sub truncation fix earlier
+   in this file — caused the same way: a later `.help-btn` addition (for
+   the help-balloon system) shrank `.card-title-wrap`'s available width on
+   cards that fix never re-measured. Shortened each subtitle with real
+   character-count margin, not just barely clearing (`"Proxy + live
+   coherence per ticker"` → `"Coherence per ticker"`, `"Fixed sectors +
+   your watchlist"` → `"Sectors + your watchlist"`, `"Log verdicts and
+   track your accuracy"` → `"Log & track accuracy"`, `"Real accuracy,
+   graded automatically"` → `"Auto-graded accuracy"`), re-measured to
+   confirm zero overflow on Pro and (separately) on Starter's own single
+   affected card.
+2. **`gate0_read`'s logged value used to collapse "genuinely GREEN" and
+   "no data at all" into the same bucket.** `gate0Status` (the value used
+   for actual verdict enforcement) has always correctly defaulted to
+   `GREEN` on missing `sectorContext.gateStatus` — a deliberate fail-safe,
+   left untouched. But the *same* defaulted value was also what got written
+   to `verdict_log.gate0_read` for the Scorecard's own "BY GATE 0 READ"
+   breakdown — so a screenshot showing 37/37 graded verdicts as Gate 0
+   GREEN was genuinely ambiguous: real market calm, or missing client data
+   silently defaulting? Fixed by splitting the two: a new `gate0Reported`
+   variable carries the *raw* client-sent value (or the literal string
+   `"UNKNOWN"` when absent), used only for the `verdict_log` write —
+   `gate0Status` itself, and every enforcement decision built on it, is
+   completely unchanged.
+
+**A real testing-methodology lesson surfaced while verifying the TRACK
+RECORD row end-to-end, worth keeping alongside this file's other Playwright
+lessons:** the first attempt at a real headless-Chromium click-through
+(mock `/ticker/:symbol` and `/analyze`, tap a pill, check the rendered
+result) silently returned an empty `{}` response for *every* mocked route,
+including the specific ones. Root cause: **Playwright matches
+`page.route()` patterns LIFO (last-registered wins), not in registration
+order** — a broad catch-all (`page.route(API + '/**', ...)`) registered
+*after* the specific routes (`/ticker/**`, `/analyze**`) silently
+intercepted everything, since `/**` also matches those exact paths. The fix
+is procedural, not a code bug: **register the catch-all first, specific
+routes after**, so the more specific ones actually take priority. This
+likely also affected at least one earlier test in this file's own history
+that used the same catch-all-last pattern without noticing (the mocked
+`/watchlist` ticker list silently never took effect in an earlier
+verification pass, though that test's own goal — measuring layout, not
+which tickers rendered — was unaffected by the mistake).
+
+**Verified end-to-end, not just via simulation:** a real headless-Chromium
+pass on all three tiers (mocked backend, a real `page.mouse.click()` at a
+pill's real screen coordinates, not the DOM `.click()` method, which
+doesn't reliably trigger this app's pointer-event-based tap handling)
+confirmed the `TRACK RECORD` row renders with the correct percentage and
+graded count, all 6 gates render, `BY TICKER` is gone, and the previously-
+truncating subtitles measure zero overflow against the real compiled
+bundle and CSS. `npx tsc --noEmit` (same known 7-error `?v=N` baseline,
+zero new), `node esbuild.config.mjs` (all three bundles rebuild clean, no
+duplicate-module regression), `?v=` bumped on all three tiers' `<script>`
+tags.
+
+**Not yet verified against a live deploy** — same standing posture as
+every backend-dependent feature in this file. To confirm: check a real
+analyzed ticker's card for a `TRACK RECORD` line once it has 5+ graded
+verdicts, and confirm the Scorecard card no longer shows a `BY TICKER`
+section at all.
