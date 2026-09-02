@@ -2044,7 +2044,7 @@ function analystViewHTML(sym, result, td) {
   }
   return `<button class="expand-btn expand-btn-purple" data-toggle-analyst="${sym}"><span>ANALYST VIEW</span><span class="analyst-arrow">\u25BC</span></button><div class="analyst-list" data-analyst-body="${sym}" style="display:none"><div class="analyst-row"><span class="analyst-lbl">TRIGGER</span><span class="analyst-val" style="color:${triggerColor[trigger]}">${TRIGGER_LABELS[trigger]}</span></div><div class="analyst-row"><span class="analyst-lbl">CORROBORATION</span><span class="analyst-val">${redCount}/4 non-exempt gates RED</span></div>` + (result.reason ? `<div class="analyst-row"><span class="analyst-lbl">VERDICT REASON</span></div><div class="analyst-note">${result.reason}</div>` : "") + proxyHtml + "</div>";
 }
-function gateListHTML(sym, result) {
+function gateListHTML(sym, result, historicalReaction) {
   if (!result || !result.gates) {
     return '<div class="gate-list"><div class="gate-clear"><span class="gate-dot" style="background:var(--ink-faint)"></span><span>Tap ANALYZE to run the gates</span></div></div>';
   }
@@ -2064,8 +2064,9 @@ function gateListHTML(sym, result) {
     return `<div class="gate-row"><span class="gate-dot" style="background:${sigColor(gate.status)}"></span><div class="gn"><span class="gl">${label}</span>${gate.note ? " - " + autoLinkGlossaryTerms(gate.note) : ""}</div></div>`;
   }).join("");
   const conf = `<div class="conf-row"><span class="conf-lbl">CONFIDENCE</span><span class="conf-val" style="color:${confColor(result.confidence)}">${result.confidence || ""}</span></div>`;
+  const track = historicalReaction ? `<div class="conf-row"><span class="conf-lbl">TRACK RECORD</span><span class="conf-val">${historicalReaction.directionalPct}% <span style="color:var(--ink-dim);font-weight:normal">(${historicalReaction.gradedCount} graded)</span></span></div>` : "";
   const v = (result.verdict || "FLAT").toUpperCase();
-  return '<div class="gate-list">' + rows + logSectionHTML(sym, v) + conf + "</div>";
+  return '<div class="gate-list">' + rows + logSectionHTML(sym, v) + conf + track + "</div>";
 }
 function verdictAreaHTML(sym, result) {
   const closed = isMarketClosed();
@@ -2101,7 +2102,7 @@ function roloCardHTML(sym, state) {
   const analyzing = state.analyzing;
   const result = state.result;
   const dir = priceDirClass(td);
-  return `<div class="ticker-row"><div class="ticker-left"><span class="ticker-sym ${dir}"><a href="${tickerHref(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}">${price}</span><div class="ticker-swipe-hint">\u2190 Swipe to delete</div></div><div class="ticker-action">` + (result ? verdictAreaHTML(sym, result) : `<button class="btn btn-blue btn-compact${analyzing ? " btn-running" : ""}" data-analyze="${sym}" ${analyzing ? "disabled" : ""}>${analyzing ? "RUNNING\u2026" : "ANALYZE"}</button>`) + `</div></div>` + pregateStripHTML(result) + earningsBlockedRetryHTML(sym, result) + `<div class="headline">${wrapHeadlineLinks(sym, headline)} <span class="age">${age}</span></div><div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>\u03B2 <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span>${decayHTML}</div>` + badgesHTML(result) + gateListHTML(sym, result) + analystViewHTML(sym, result, td) + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : "");
+  return `<div class="ticker-row"><div class="ticker-left"><span class="ticker-sym ${dir}"><a href="${tickerHref(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}">${price}</span><div class="ticker-swipe-hint">\u2190 Swipe to delete</div></div><div class="ticker-action">` + (result ? verdictAreaHTML(sym, result) : `<button class="btn btn-blue btn-compact${analyzing ? " btn-running" : ""}" data-analyze="${sym}" ${analyzing ? "disabled" : ""}>${analyzing ? "RUNNING\u2026" : "ANALYZE"}</button>`) + `</div></div>` + pregateStripHTML(result) + earningsBlockedRetryHTML(sym, result) + `<div class="headline">${wrapHeadlineLinks(sym, headline)} <span class="age">${age}</span></div><div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>\u03B2 <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span>${decayHTML}</div>` + badgesHTML(result) + gateListHTML(sym, result, td && td.historicalReaction) + analystViewHTML(sym, result, td) + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : "");
 }
 function wireCardButtons(card, sym) {
   const btn = card.querySelector("[data-analyze]");
@@ -2718,16 +2719,6 @@ async function renderScorecardCard() {
     }
     var strictRow = data.strictPct != null ? '<div class="trigger-row"><span class="trigger-lbl">Strict accuracy</span><span class="trigger-val">' + data.strictPct + "%</span></div>" : "";
     var html = '<div class="track-log-title">VERDICT ACCURACY (' + data.gradedCount + " graded)</div>" + strictRow + '<div class="trigger-row"><span class="trigger-lbl">Directional accuracy</span><span class="trigger-val">' + data.directionalPct + "%</span></div>";
-    if (data.tickerAccuracy) {
-      var tFmt = function(s) {
-        return s && !s.insufficientData && s.directionalPct != null ? s.directionalPct + "% (" + s.gradedCount + ")" : "\u2014";
-      };
-      var tRows = Object.keys(data.tickerAccuracy).map(function(t) {
-        var entry = data.tickerAccuracy[t];
-        return '<div class="trigger-row"><span class="trigger-lbl">' + t + '</span><span class="trigger-val">' + tFmt(entry.personal) + '</span><span class="trigger-sub">pool ' + tFmt(entry.pool) + "</span></div>";
-      }).join("");
-      if (tRows) html += '<div class="track-log-title" style="margin-top:12px">BY TICKER (yours vs. pool)</div>' + tRows;
-    }
     if (data.breakdown) {
       var section = function(title, key) {
         var groups = data.breakdown[key] || {};

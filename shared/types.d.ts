@@ -106,6 +106,12 @@ export interface TickerData {
   // scorecard flag AND this ticker has a corroboration_log hit on record
   // (i.e. Session Context has actually been used on it at least once).
   corroborationDecay?: { freshnessPct: number; label: "FRESH" | "STALE"; hitAt: string } | null;
+  // Proposal 7 (Sep 2, 2026) -- pooled, cross-user directional accuracy
+  // for this ticker specifically (verdict_log, floored at 5 graded).
+  // Replaces the removed /scorecard "BY TICKER" breakdown; available on
+  // every tier, no sign-in required. null below the floor or when
+  // Supabase is unconfigured.
+  historicalReaction?: { directionalPct: number; gradedCount: number } | null;
   timestamp: string;
 }
 

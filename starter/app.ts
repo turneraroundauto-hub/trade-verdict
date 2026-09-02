@@ -290,7 +290,10 @@ function logSectionHTML(): string {
   return '<div class="log-row"><span class="log-prompt">TRACK RECORD</span><a class="log-upgrade-btn" href="https://buy.stripe.com/6oU4gA98t57p4dh2x33VC02" target="_blank">UPGRADE → Pro to log results</a></div>';
 }
 
-function gateListHTML(result: AnalyzeResponse | null): string {
+// historicalReaction (Sep 2, 2026) -- mirror of pro/app.ts's own comment.
+// Pooled, cross-user directional accuracy for this ticker, replacing the
+// removed /scorecard "BY TICKER" breakdown.
+function gateListHTML(result: AnalyzeResponse | null, historicalReaction?: { directionalPct: number; gradedCount: number } | null): string {
   if (!result || !result.gates) {
     return '<div class="gate-list"><div class="gate-clear"><span class="gate-dot" style="background:var(--ink-faint)"></span><span>Tap ANALYZE to run the gates</span></div></div>';
   }
@@ -307,7 +310,10 @@ function gateListHTML(result: AnalyzeResponse | null): string {
       + `<div class="gn"><span class="gl">${label}</span>${gate.note ? ' - ' + autoLinkGlossaryTerms(gate.note) : ''}</div></div>`;
   }).join('');
   const conf = `<div class="conf-row"><span class="conf-lbl">CONFIDENCE</span><span class="conf-val" style="color:${confColor(result.confidence)}">${result.confidence || ''}</span></div>`;
-  return '<div class="gate-list">' + rows + logSectionHTML() + conf + '</div>';
+  const track = historicalReaction
+    ? `<div class="conf-row"><span class="conf-lbl">TRACK RECORD</span><span class="conf-val">${historicalReaction.directionalPct}% <span style="color:var(--ink-dim);font-weight:normal">(${historicalReaction.gradedCount} graded)</span></span></div>`
+    : '';
+  return '<div class="gate-list">' + rows + logSectionHTML() + conf + track + '</div>';
 }
 
 function verdictAreaHTML(sym: string, result: AnalyzeResponse): string {
@@ -370,7 +376,7 @@ function roloCardHTML(sym: string, state: TickerState): string {
     + `<div class="headline">${wrapHeadlineLinks(sym, headline)} <span class="age">${age}</span></div>`
     + `<div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>β <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span>${decayHTML}</div>`
     + badgesHTML(result)
-    + gateListHTML(result)
+    + gateListHTML(result, td && td.historicalReaction)
     + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : '');
 }
 
@@ -1029,25 +1035,9 @@ async function renderScorecardCard(): Promise<void> {
     var html = '<div class="track-log-title">VERDICT ACCURACY (' + data.gradedCount + ' graded)</div>'
       + strictRow
       + '<div class="trigger-row"><span class="trigger-lbl">Directional accuracy</span><span class="trigger-val">' + data.directionalPct + '%</span></div>';
-    // Per-ticker: yours vs. everyone's -- answers "is MY watchlist actually
-    // getting correct verdicts," not just "am I personally good at this."
-    // Available to any tier with a personal scope (Starter included, per
-    // Proposal 7's own "Personalized to user's tickers" scope line), not
-    // gated behind data.breakdown below (that's the Pro-only gate/branch
-    // split, which never actually populates on Starter since tracker is
-    // false here). A ticker below the pool's own floor still renders its
-    // row with a "—" pool value rather than being dropped, so the
-    // personal number is never silently missing a comparison column.
-    if (data.tickerAccuracy) {
-      var tFmt = function (s: any): string {
-        return (s && !s.insufficientData && s.directionalPct != null) ? s.directionalPct + '% (' + s.gradedCount + ')' : '—';
-      };
-      var tRows = Object.keys(data.tickerAccuracy).map(function (t) {
-        var entry = data.tickerAccuracy[t];
-        return '<div class="trigger-row"><span class="trigger-lbl">' + t + '</span><span class="trigger-val">' + tFmt(entry.personal) + '</span><span class="trigger-sub">pool ' + tFmt(entry.pool) + '</span></div>';
-      }).join('');
-      if (tRows) html += '<div class="track-log-title" style="margin-top:12px">BY TICKER (yours vs. pool)</div>' + tRows;
-    }
+    // BY TICKER breakdown removed Sep 2, 2026 -- mirror of pro/app.ts's
+    // own comment. Replaced by a single pooled stat shown on the
+    // ticker's own analyzed card instead, available on every tier.
     if (data.breakdown) {
       var section = function (title: string, key: string): string {
         var groups = data.breakdown[key] || {};
