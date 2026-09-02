@@ -3388,9 +3388,15 @@ app.get("/agitator", async (req, res) => {
         }
       }
     }
-    // A real Marketaux article always wins over the synthetic "the raw
-    // query text is the headline" placeholder.
-    if (!directMatch && !marketauxArticle && !headlineOverride) headlineOverride = raw;
+    // Sep 2, 2026 -- mirror-only, see Tra's server.js for the full
+    // write-up. Real bug: this used to taint headlineOverride with the
+    // raw query text whenever enrichment came up empty, which made the
+    // block below skip the real per-ticker fetchNews() call entirely
+    // (the BB/QNX case) -- fixed by not tainting it here at all;
+    // headlineOverride now only ever means a genuine explicit client-
+    // supplied `headline` param. The raw-text echo moved to
+    // effectiveHeadline below, as a true last resort after fetchNews()
+    // has actually been tried.
 
     // Other real companies named alongside the primary one -- only an
     // 'exact' classification counts, mirror-only, see Tra's server.js.
@@ -3428,7 +3434,8 @@ app.get("/agitator", async (req, res) => {
       const companyName = fundamentals?.sectorInfo?.name || null;
       [quote, news] = await Promise.all([fetchQuote(symbol), fetchNews(symbol, companyName).catch(() => null)]);
     }
-    const effectiveHeadline = headlineOverride || (news ? news.headline : null);
+    // Last resort echo -- mirror-only, see Tra's server.js.
+    const effectiveHeadline = headlineOverride || (news ? news.headline : null) || raw;
     const price = quote ? parseFloat(quote.price) : null;
 
     // Fix 3/Fix 4 -- mirror-only, see Tra's server.js for the full
