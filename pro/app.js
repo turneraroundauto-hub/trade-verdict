@@ -2724,9 +2724,10 @@ async function renderScorecardCard() {
       };
       var tRows = Object.keys(data.tickerAccuracy).map(function(t) {
         var entry = data.tickerAccuracy[t];
-        return '<div class="trigger-row"><span class="trigger-lbl">' + t + '</span><span class="trigger-val">' + tFmt(entry.personal) + '</span><span class="trigger-sub">pool ' + tFmt(entry.pool) + "</span></div>";
+        var peersHTML = entry.peers ? '<span class="trigger-sub">peers ' + tFmt(entry.peers) + "</span>" : "";
+        return '<div class="trigger-row"><span class="trigger-lbl">' + t + '</span><span class="trigger-val">' + tFmt(entry.personal) + '</span><span class="trigger-sub">pool ' + tFmt(entry.pool) + "</span>" + peersHTML + "</div>";
       }).join("");
-      if (tRows) html += '<div class="track-log-title" style="margin-top:12px">BY TICKER (yours vs. pool)</div>' + tRows;
+      if (tRows) html += '<div class="track-log-title" style="margin-top:12px">BY TICKER (yours vs. pool vs. correlated peers)</div>' + tRows;
     }
     if (data.breakdown) {
       var section = function(title, key) {

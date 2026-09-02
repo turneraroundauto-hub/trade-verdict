@@ -2712,9 +2712,25 @@ const AGITATOR_COMPS_CANDIDATE_POOL = 6;
 // write-up (BB returned zero Finnhub peers, even though real competitor/
 // supplier relationships exist and are now in the graph). Falls back to
 // fetchTickerPeers when the graph has nothing yet for this symbol.
+// Sep 2, 2026: also walks the CORRELATES_WITH/CLASSIFIED_AS correlation/
+// sector graph (kg.getComparableTickers) -- mirror-only, see Tra's
+// server.js for the full write-up. RELATED_TO peers stay ranked first.
 async function fetchGraphPeers(symbol) {
-  const related = await kg.getCompanyRelationships(symbol);
-  return related.filter(r => r.ticker).map(r => r.ticker.toUpperCase());
+  const [related, comparable] = await Promise.all([
+    kg.getCompanyRelationships(symbol),
+    kg.getComparableTickers(symbol),
+  ]);
+  const seen = new Set([symbol.toUpperCase()]);
+  const peers = [];
+  for (const r of related) {
+    const t = r.ticker && r.ticker.toUpperCase();
+    if (t && !seen.has(t)) { seen.add(t); peers.push(t); }
+  }
+  for (const c of comparable) {
+    const t = c.ticker && c.ticker.toUpperCase();
+    if (t && !seen.has(t)) { seen.add(t); peers.push(t); }
+  }
+  return peers;
 }
 
 // marketauxMentioned (optional): mirror-only, see Tra's server.js for the
@@ -3014,7 +3030,10 @@ async function resolveProxyRegime(symbol, tickerCloses) {
   if (!proxyCloses) return null;
 
   const result = gx.regimeValidation(tickerCloses, proxyCloses);
-  if (result.state !== "UNKNOWN") await saveRegimeState(symbol, result);
+  if (result.state !== "UNKNOWN") {
+    await saveRegimeState(symbol, result);
+    syncCorrelationToGraph(symbol, "TSM", result.rolling, result.state, "regime_check");
+  }
   return result;
 }
 
@@ -3054,6 +3073,32 @@ function buildDynamicProxyRule(resolved) {
   };
 }
 
+// Neo4j graph sync (Sep 2, 2026) -- mirror-only, see Tra's server.js for
+// the full write-up. Fire-and-forget, internally fail-safe, deduped
+// per-process for the static (hot-path) classification case.
+const graphClassificationSynced = new Set();
+function sectorIdFor(category) {
+  return category.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+function syncClassificationToGraph(symbol, category, tier) {
+  if (!kg.isConfigured() || graphClassificationSynced.has(symbol)) return;
+  graphClassificationSynced.add(symbol);
+  (async () => {
+    try {
+      const sectorId = sectorIdFor(category);
+      await kg.upsertSector({ sector_id: sectorId, name: category });
+      await kg.upsertClassification(symbol, sectorId, { tier });
+    } catch (e) {
+      console.error(`syncClassificationToGraph ${symbol}:`, e.message);
+    }
+  })();
+}
+function syncCorrelationToGraph(symbol, proxySymbol, coefficient, tier, source) {
+  if (!kg.isConfigured() || !proxySymbol) return;
+  kg.upsertCorrelation(symbol, proxySymbol, { coefficient, tier, source })
+    .catch(e => console.error(`syncCorrelationToGraph ${symbol}:`, e.message));
+}
+
 // regime (optional 5th param, Proposal 3, Aug 13 2026): the caller's
 // already-resolved weekly regime check for a fixed Taiwan/Korea ticker (null
 // for every other ticker's classification). A BROKEN regime strips the
@@ -3069,6 +3114,7 @@ async function resolveGate5(symbol, metrics, tickerCloses, forceRecompute, regim
   const staticRule = classifyTicker(symbol, metrics?.sectorInfo);
   const regimeBroken = staticRule !== DEFAULT_PROXY && staticRule.category === "AI/Semiconductor" && regime?.state === "BROKEN";
   if (staticRule !== DEFAULT_PROXY && !regimeBroken) {
+    syncClassificationToGraph(symbol, staticRule.category, "primary");
     return { ...staticRule, tier: "primary", forceDownAuthority: false, dynamicallyResolved: false };
   }
 
@@ -3115,6 +3161,8 @@ async function resolveGate5(symbol, metrics, tickerCloses, forceRecompute, regim
 
   const resolved = gx.resolveFixedProxyBreak(tickerCloses, candidateBasket, fundamentals);
   await saveProxyResolution(symbol, resolved, forceRecompute ? "pre_gate_hard_trigger" : "quarterly");
+  syncCorrelationToGraph(symbol, resolved.proxy, resolved.r, resolved.tier,
+    forceRecompute ? "pre_gate_hard_trigger" : "quarterly");
   return buildDynamicProxyRule(resolved);
 }
 
@@ -3612,6 +3660,47 @@ app.get("/scorecard", async (req, res) => {
         tickers.forEach(t => {
           result.tickerAccuracy[t].pool = tickerStatsWithFloor(poolGroups[t] || [], SCORECARD_TICKER_MIN_GRADED);
         });
+      }
+    }
+
+    // Graph peer accuracy (Sep 2, 2026) -- mirror-only, see Tra's
+    // server.js for the full write-up. A third comparison alongside
+    // personal/pool: accuracy on tickers that CORRELATE with (share a
+    // resolved Gate 5 proxy) or are CLASSIFIED into the same sector as
+    // this one. Fails safe to omitting the `peers` key, never
+    // insufficientData, when Neo4j is unconfigured/down or a ticker has
+    // no graph comparables yet.
+    if (tickers.length && kg.isConfigured()) {
+      try {
+        const peerTickersByTicker = {};
+        const allPeerTickers = new Set();
+        await Promise.all(tickers.map(async (t) => {
+          const comparable = await kg.getComparableTickers(t);
+          const peerList = comparable.map(c => c.ticker).filter(Boolean);
+          peerTickersByTicker[t] = peerList;
+          peerList.forEach(p => allPeerTickers.add(p));
+        }));
+        if (allPeerTickers.size) {
+          const { data: peerData, error: peerError } = await supabase
+            .from("verdict_log")
+            .select("grade, ticker")
+            .in("ticker", Array.from(allPeerTickers))
+            .not("graded_at", "is", null);
+          if (peerError) {
+            console.error("GET /scorecard (graph peers):", peerError.message);
+          } else {
+            const peerGroups = {};
+            (peerData || []).forEach(r => { const k = r.ticker || "(unknown)"; (peerGroups[k] = peerGroups[k] || []).push(r); });
+            tickers.forEach(t => {
+              const peerRows = (peerTickersByTicker[t] || []).flatMap(p => peerGroups[p] || []);
+              if (peerRows.length) {
+                result.tickerAccuracy[t].peers = tickerStatsWithFloor(peerRows, SCORECARD_TICKER_MIN_GRADED);
+              }
+            });
+          }
+        }
+      } catch (e) {
+        console.error("GET /scorecard (graph peers):", e.message);
       }
     }
 

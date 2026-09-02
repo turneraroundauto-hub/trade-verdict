@@ -1122,11 +1122,20 @@ async function renderScorecardCard(): Promise<void> {
       var tFmt = function (s: any): string {
         return (s && !s.insufficientData && s.directionalPct != null) ? s.directionalPct + '% (' + s.gradedCount + ')' : '—';
       };
+      // `peers` (Sep 2, 2026, Neo4j correlation/sector graph) is a third,
+      // optional comparison alongside personal/pool -- pooled accuracy
+      // across DIFFERENT tickers that correlate with (share a resolved
+      // Gate 5 proxy) or are classified into the same sector as this one,
+      // not the same ticker across users the way `pool` already is. Only
+      // rendered when present -- omitted entirely (not a "—") when the
+      // graph has no comparables yet for a given ticker, so the row
+      // doesn't imply a comparison that was never actually attempted.
       var tRows = Object.keys(data.tickerAccuracy).map(function (t) {
         var entry = data.tickerAccuracy[t];
-        return '<div class="trigger-row"><span class="trigger-lbl">' + t + '</span><span class="trigger-val">' + tFmt(entry.personal) + '</span><span class="trigger-sub">pool ' + tFmt(entry.pool) + '</span></div>';
+        var peersHTML = entry.peers ? '<span class="trigger-sub">peers ' + tFmt(entry.peers) + '</span>' : '';
+        return '<div class="trigger-row"><span class="trigger-lbl">' + t + '</span><span class="trigger-val">' + tFmt(entry.personal) + '</span><span class="trigger-sub">pool ' + tFmt(entry.pool) + '</span>' + peersHTML + '</div>';
       }).join('');
-      if (tRows) html += '<div class="track-log-title" style="margin-top:12px">BY TICKER (yours vs. pool)</div>' + tRows;
+      if (tRows) html += '<div class="track-log-title" style="margin-top:12px">BY TICKER (yours vs. pool vs. correlated peers)</div>' + tRows;
     }
     if (data.breakdown) {
       var section = function (title: string, key: string): string {
