@@ -325,7 +325,12 @@ function pregateStripHTML(result: AnalyzeResponse | null): string {
     + '</div>';
 }
 
-function gateListHTML(result: AnalyzeResponse | null): string {
+// historicalReaction (Sep 2, 2026) -- mirror of pro/app.ts's own comment.
+// Pooled, cross-user directional accuracy for this ticker, replacing the
+// removed /scorecard "BY TICKER" breakdown -- Free never had a Scorecard
+// card at all, so this is the first time any ticker-level track-record
+// signal reaches this tier.
+function gateListHTML(result: AnalyzeResponse | null, historicalReaction?: { directionalPct: number; gradedCount: number } | null): string {
   if (!result || !result.gates) {
     return '<div class="gate-list"><div class="gate-clear"><span class="gate-dot" style="background:var(--ink-faint)"></span><span>Tap ANALYZE to run the gates</span></div></div>';
   }
@@ -342,7 +347,10 @@ function gateListHTML(result: AnalyzeResponse | null): string {
       + `<div class="gn"><span class="gl">${label}</span>${gate.note ? ' - ' + autoLinkGlossaryTerms(gate.note) : ''}</div></div>`;
   }).join('');
   const conf = `<div class="conf-row"><span class="conf-lbl">CONFIDENCE</span><span class="conf-val" style="color:${confColor(result.confidence)}">${result.confidence || ''}</span></div>`;
-  return '<div class="gate-list">' + rows + conf + '</div>';
+  const track = historicalReaction
+    ? `<div class="conf-row"><span class="conf-lbl">TRACK RECORD</span><span class="conf-val">${historicalReaction.directionalPct}% <span style="color:var(--ink-dim);font-weight:normal">(${historicalReaction.gradedCount} graded)</span></span></div>`
+    : '';
+  return '<div class="gate-list">' + rows + conf + track + '</div>';
 }
 
 function verdictAreaHTML(sym: string, result: AnalyzeResponse): string {
@@ -393,7 +401,7 @@ function roloCardHTML(sym: string, state: TickerState): string {
     + `<div class="headline">${wrapHeadlineLinks(sym, headline)} <span class="age">${age}</span></div>`
     + `<div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>β <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span></div>`
     + badgesHTML(result)
-    + gateListHTML(result)
+    + gateListHTML(result, td && td.historicalReaction)
     + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : '');
 }
 

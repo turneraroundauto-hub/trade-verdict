@@ -2601,18 +2601,29 @@ async function fetchOptionsSnapshot(symbol) {
 // SCORECARD_TICKER_MIN_GRADED, defined further down this file as plain
 // function/const declarations -- safe to reference here since the whole
 // module finishes loading before any request handler runs.
+// Sep 2, 2026 -- mirror-only, see Tra's server.js for the full write-up.
+// Now cached (1h) and returns { directionalPct, gradedCount } instead of
+// a bare number.
+const historicalReactionCache = new Map(); // symbol -> { data, time }
+const HISTORICAL_REACTION_CACHE_MAX_AGE_MS = 60 * 60 * 1000;
 async function computeHistoricalReaction(symbol) {
   if (!supabase) return null;
+  const cached = historicalReactionCache.get(symbol);
+  if (cached && Date.now() - cached.time < HISTORICAL_REACTION_CACHE_MAX_AGE_MS) return cached.data;
   try {
     const { data, error } = await supabase.from("verdict_log").select("grade")
       .eq("ticker", symbol).not("graded_at", "is", null);
-    if (error) { console.error(`computeHistoricalReaction ${symbol}:`, error.message); return null; }
+    if (error) { console.error(`computeHistoricalReaction ${symbol}:`, error.message); return cached ? cached.data : null; }
     const stats = tickerStatsWithFloor(data || [], SCORECARD_TICKER_MIN_GRADED);
-    if (stats.insufficientData) return null;
-    return Math.max(0, Math.min(100, Math.round(stats.directionalPct)));
+    const result = stats.insufficientData ? null : {
+      directionalPct: Math.max(0, Math.min(100, Math.round(stats.directionalPct))),
+      gradedCount: stats.gradedCount,
+    };
+    historicalReactionCache.set(symbol, { data: result, time: Date.now() });
+    return result;
   } catch (e) {
     console.error(`computeHistoricalReaction ${symbol}:`, e.message);
-    return null;
+    return cached ? cached.data : null;
   }
 }
 
@@ -3454,7 +3465,10 @@ app.get("/agitator", async (req, res) => {
         positioning: aiFactors?.positioning ?? null,
         crossAsset:  aiFactors?.crossAsset  ?? null,
         liquidity, ivEnvironment,
-        historicalReaction, // Fix 4 -- activated, see Tra's server.js.
+        // Sep 2, 2026: computeHistoricalReaction() now returns
+        // { directionalPct, gradedCount } -- mirror-only, see Tra's
+        // server.js for the full write-up.
+        historicalReaction: historicalReaction?.directionalPct ?? null,
       } : undefined,
       composite, comps,
     });
@@ -3627,82 +3641,11 @@ app.get("/scorecard", async (req, res) => {
     }
     const result = { scope: "personal", strictPct: stats.strictPct, directionalPct: stats.directionalPct, gradedCount: stats.gradedCount };
 
-    // Per-ticker breakdown — Proposal 7's own spec named this as Starter's
-    // literal scope line ("Personalized to user's tickers"), distinct from
-    // the Pro-only gate/branch breakdown below — available to every paid
-    // tier with a personal scope, not gated behind tierConfig.tracker.
-    // Alongside each ticker's PERSONAL stat, also surface the POOL stat —
-    // the same ticker's graded accuracy across every user, not just this
-    // one — so a user can see whether the app's read on a ticker they
-    // personally track is consistent with everyone else's graded history
-    // on it, not just their own (often thin) sample. This is the same
-    // verdict_log data either way; pooling costs one extra indexed query
-    // scoped to only the tickers already in this user's own breakdown,
-    // not a full-table scan.
-    const tickerGroups = {};
-    rows.forEach(r => { const k = r.ticker || "(unknown)"; (tickerGroups[k] = tickerGroups[k] || []).push(r); });
-    const tickers = Object.keys(tickerGroups);
-    result.tickerAccuracy = {};
-    tickers.forEach(t => {
-      result.tickerAccuracy[t] = { personal: tickerStatsWithFloor(tickerGroups[t], SCORECARD_TICKER_MIN_GRADED) };
-    });
-    if (tickers.length) {
-      const { data: poolData, error: poolError } = await supabase
-        .from("verdict_log")
-        .select("grade, ticker")
-        .in("ticker", tickers)
-        .not("graded_at", "is", null);
-      if (poolError) {
-        console.error("GET /scorecard (pool):", poolError.message);
-      } else {
-        const poolGroups = {};
-        (poolData || []).forEach(r => { const k = r.ticker || "(unknown)"; (poolGroups[k] = poolGroups[k] || []).push(r); });
-        tickers.forEach(t => {
-          result.tickerAccuracy[t].pool = tickerStatsWithFloor(poolGroups[t] || [], SCORECARD_TICKER_MIN_GRADED);
-        });
-      }
-    }
-
-    // Graph peer accuracy (Sep 2, 2026) -- mirror-only, see Tra's
-    // server.js for the full write-up. A third comparison alongside
-    // personal/pool: accuracy on tickers that CORRELATE with (share a
-    // resolved Gate 5 proxy) or are CLASSIFIED into the same sector as
-    // this one. Fails safe to omitting the `peers` key, never
-    // insufficientData, when Neo4j is unconfigured/down or a ticker has
-    // no graph comparables yet.
-    if (tickers.length && kg.isConfigured()) {
-      try {
-        const peerTickersByTicker = {};
-        const allPeerTickers = new Set();
-        await Promise.all(tickers.map(async (t) => {
-          const comparable = await kg.getComparableTickers(t);
-          const peerList = comparable.map(c => c.ticker).filter(Boolean);
-          peerTickersByTicker[t] = peerList;
-          peerList.forEach(p => allPeerTickers.add(p));
-        }));
-        if (allPeerTickers.size) {
-          const { data: peerData, error: peerError } = await supabase
-            .from("verdict_log")
-            .select("grade, ticker")
-            .in("ticker", Array.from(allPeerTickers))
-            .not("graded_at", "is", null);
-          if (peerError) {
-            console.error("GET /scorecard (graph peers):", peerError.message);
-          } else {
-            const peerGroups = {};
-            (peerData || []).forEach(r => { const k = r.ticker || "(unknown)"; (peerGroups[k] = peerGroups[k] || []).push(r); });
-            tickers.forEach(t => {
-              const peerRows = (peerTickersByTicker[t] || []).flatMap(p => peerGroups[p] || []);
-              if (peerRows.length) {
-                result.tickerAccuracy[t].peers = tickerStatsWithFloor(peerRows, SCORECARD_TICKER_MIN_GRADED);
-              }
-            });
-          }
-        }
-      } catch (e) {
-        console.error("GET /scorecard (graph peers):", e.message);
-      }
-    }
+    // Per-ticker breakdown (personal/pool/graph-peers) removed Sep 2, 2026
+    // -- mirror-only, see Tra's server.js for the full write-up. Replaced
+    // by a single pooled stat shown on the ticker's own analyzed card
+    // instead (computeHistoricalReaction, relayed through
+    // /ticker/:symbol) -- available on every tier.
 
     if (req.tierConfig?.tracker) {
       const breakdownBy = key => {
@@ -3985,16 +3928,20 @@ async function refreshMarketEntry(symbol, hardTrigger = false) {
   // skips the extra Alpaca call entirely on 4 of 7 days, weekends included.
   const wantCarryover = carryoverDecayLabel() !== null;
 
-  const [metricsRes, barRes, gate1Res, carryoverRes] = await Promise.allSettled([
+  const [metricsRes, barRes, gate1Res, carryoverRes, historicalReactionRes] = await Promise.allSettled([
     fetchTickerMetrics(symbol),
     fetchOpeningBar(symbol),
     fetchGate1Metrics(symbol),
     wantCarryover ? fetchWeeklyCarryover(symbol) : Promise.resolve(null),
+    computeHistoricalReaction(symbol),
   ]);
   const metrics     = metricsRes.status === "fulfilled" ? metricsRes.value : null;
   const openingBar  = barRes.status     === "fulfilled" ? barRes.value     : null;
   const dailyCloses = gate1Res.status   === "fulfilled" ? gate1Res.value   : null; // ascending closes, Patch 4
   const weeklyCarryover = carryoverRes.status === "fulfilled" ? carryoverRes.value : null;
+  // { directionalPct, gradedCount } | null -- mirror-only, see Tra's
+  // server.js for the full write-up.
+  const historicalReaction = historicalReactionRes.status === "fulfilled" ? historicalReactionRes.value : null;
 
   // Proposal 3 — weekly health check on a FIXED Taiwan/Korea proxy
   // assignment (no-op / null for every other ticker's classification).
@@ -4010,7 +3957,7 @@ async function refreshMarketEntry(symbol, hardTrigger = false) {
   // or when the regime check above says the fixed proxy has gone BROKEN.
   const proxyRule = await resolveGate5(symbol, metrics, dailyCloses, hardTrigger, regime);
 
-  const marketEntry = { data: { metrics, openingBar, dailyCloses, proxyRule, weeklyCarryover, regime }, time: Date.now() };
+  const marketEntry = { data: { metrics, openingBar, dailyCloses, proxyRule, weeklyCarryover, regime, historicalReaction }, time: Date.now() };
   symbolMarketCache.set(symbol, marketEntry);
   return marketEntry;
 }
@@ -4088,7 +4035,7 @@ app.get("/ticker/:symbol", async (req, res) => {
     const marketStale = !marketEntry ||
       (isMarketDataWindow() && Date.now() - marketEntry.time >= tierCacheMinutes * 60 * 1000);
     if (marketStale) marketEntry = await refreshMarketEntry(symbol, preGate.hardTrigger);
-    const { metrics, openingBar, dailyCloses, proxyRule, weeklyCarryover, regime } = marketEntry.data;
+    const { metrics, openingBar, dailyCloses, proxyRule, weeklyCarryover, regime, historicalReaction } = marketEntry.data;
 
     // Server-enforced Gate 1 — pure/cheap derivation from dailyCloses, so it's
     // recomputed on every request (cache hit or not) rather than stored,
@@ -4104,7 +4051,7 @@ app.get("/ticker/:symbol", async (req, res) => {
 
     const corroborationDecay = req.tierConfig?.scorecard ? await computeCorroborationDecay(symbol) : null;
 
-    res.json({ symbol, metrics, news, openingBar, proxyRule, gate1, preGate, iv, weeklyCarryover, regime, corroborationDecay, timestamp: new Date().toISOString() });
+    res.json({ symbol, metrics, news, openingBar, proxyRule, gate1, preGate, iv, weeklyCarryover, regime, corroborationDecay, historicalReaction, timestamp: new Date().toISOString() });
   } catch(err) {
     res.status(500).json({ error: err.message });
   }
@@ -4184,8 +4131,14 @@ app.post("/analyze", async (req, res) => {
   const preGateResult = preGateData || { status: "GREEN", hardTrigger: false, note: "Pre-Gate data unavailable — server enforcement failed, treat cautiously." };
 
   // ── GATE 0 — PRE-DETERMINED ───────────────────────────────────────
-  const gate0Status = sectorContext?.gateStatus || "GREEN";
-  const gate0Note   = sectorContext?.gateNote   || "Sector data unavailable";
+  // gate0Reported (Sep 2, 2026) -- mirror-only, see Tra's server.js for
+  // the full write-up. Keeps the raw client-sent value separate from the
+  // fail-safe GREEN-on-missing-data enforcement default, so the
+  // verdict_log audit trail can distinguish a real GREEN read from
+  // absent data.
+  const gate0Status   = sectorContext?.gateStatus || "GREEN";
+  const gate0Reported = sectorContext?.gateStatus || "UNKNOWN";
+  const gate0Note     = sectorContext?.gateNote   || "Sector data unavailable";
 
   // ── GATE 5 — SMART PROXY PRE-DETERMINED ──────────────────────────
   const rule        = proxyRule || DEFAULT_PROXY;
@@ -4636,7 +4589,7 @@ Return only JSON.
         ticker, verdict: parsed.verdict, sizeAction: parsed.sizing,
         issuedPrice: typeof metricsData?.price === "number" ? metricsData.price : null,
         preGateState: preGateResult.status, gate1Branch: gate1Result.branch,
-        gate0Read: gate0Status,
+        gate0Read: gate0Reported,
         gate2CorroborationState: `${contextCorroboration.corroborated ? "GATE2-CORROBORATED" : "UNCORROBORATED"} (${contextCorroboration.matchCount}/2)`,
         dialPosition: req.tierConfig?.dial ? effectiveDialPosition : null,
         gradingWindowDays: DEFAULT_GRADING_WINDOW_TRADING_DAYS,

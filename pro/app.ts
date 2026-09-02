@@ -400,7 +400,16 @@ function analystViewHTML(sym: string, result: AnalyzeResponse | null, td: Ticker
     + '</div>';
 }
 
-function gateListHTML(sym: string, result: AnalyzeResponse | null): string {
+// historicalReaction (Sep 2, 2026): pooled, cross-user directional
+// accuracy for THIS ticker (verdict_log, floored at 5 graded) -- replaces
+// the removed /scorecard "BY TICKER" breakdown, shown at the bottom of
+// the ticker's own analyzed card instead, right where a user is actually
+// looking at it. Sourced from td (ticker data), not the verdict response
+// -- it's a property of the ticker, not of this particular verdict --
+// so it's only rendered once real gates exist, matching the request's
+// own "bottom of the verdict card" framing, not the pre-analysis
+// placeholder state.
+function gateListHTML(sym: string, result: AnalyzeResponse | null, historicalReaction?: { directionalPct: number; gradedCount: number } | null): string {
   if (!result || !result.gates) {
     return '<div class="gate-list"><div class="gate-clear"><span class="gate-dot" style="background:var(--ink-faint)"></span><span>Tap ANALYZE to run the gates</span></div></div>';
   }
@@ -417,8 +426,11 @@ function gateListHTML(sym: string, result: AnalyzeResponse | null): string {
       + `<div class="gn"><span class="gl">${label}</span>${gate.note ? ' - ' + autoLinkGlossaryTerms(gate.note) : ''}</div></div>`;
   }).join('');
   const conf = `<div class="conf-row"><span class="conf-lbl">CONFIDENCE</span><span class="conf-val" style="color:${confColor(result.confidence)}">${result.confidence || ''}</span></div>`;
+  const track = historicalReaction
+    ? `<div class="conf-row"><span class="conf-lbl">TRACK RECORD</span><span class="conf-val">${historicalReaction.directionalPct}% <span style="color:var(--ink-dim);font-weight:normal">(${historicalReaction.gradedCount} graded)</span></span></div>`
+    : '';
   const v = (result.verdict || 'FLAT').toUpperCase();
-  return '<div class="gate-list">' + rows + logSectionHTML(sym, v) + conf + '</div>';
+  return '<div class="gate-list">' + rows + logSectionHTML(sym, v) + conf + track + '</div>';
 }
 
 function verdictAreaHTML(sym: string, result: AnalyzeResponse): string {
@@ -477,7 +489,7 @@ function roloCardHTML(sym: string, state: TickerState): string {
     + `<div class="headline">${wrapHeadlineLinks(sym, headline)} <span class="age">${age}</span></div>`
     + `<div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>β <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span>${decayHTML}</div>`
     + badgesHTML(result)
-    + gateListHTML(sym, result)
+    + gateListHTML(sym, result, td && td.historicalReaction)
     + analystViewHTML(sym, result, td)
     + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : '');
 }
@@ -1110,33 +1122,12 @@ async function renderScorecardCard(): Promise<void> {
     var html = '<div class="track-log-title">VERDICT ACCURACY (' + data.gradedCount + ' graded)</div>'
       + strictRow
       + '<div class="trigger-row"><span class="trigger-lbl">Directional accuracy</span><span class="trigger-val">' + data.directionalPct + '%</span></div>';
-    // Per-ticker: yours vs. everyone's -- answers "is MY watchlist actually
-    // getting correct verdicts," not just "am I personally good at this."
-    // Available to any tier with a personal scope (Starter included, per
-    // Proposal 7's own "Personalized to user's tickers" scope line), not
-    // gated behind data.breakdown below (that's the Pro-only gate/branch
-    // split). A ticker below the pool's own floor still renders its row
-    // with a "—" pool value rather than being dropped, so the personal
-    // number is never silently missing a comparison column.
-    if (data.tickerAccuracy) {
-      var tFmt = function (s: any): string {
-        return (s && !s.insufficientData && s.directionalPct != null) ? s.directionalPct + '% (' + s.gradedCount + ')' : '—';
-      };
-      // `peers` (Sep 2, 2026, Neo4j correlation/sector graph) is a third,
-      // optional comparison alongside personal/pool -- pooled accuracy
-      // across DIFFERENT tickers that correlate with (share a resolved
-      // Gate 5 proxy) or are classified into the same sector as this one,
-      // not the same ticker across users the way `pool` already is. Only
-      // rendered when present -- omitted entirely (not a "—") when the
-      // graph has no comparables yet for a given ticker, so the row
-      // doesn't imply a comparison that was never actually attempted.
-      var tRows = Object.keys(data.tickerAccuracy).map(function (t) {
-        var entry = data.tickerAccuracy[t];
-        var peersHTML = entry.peers ? '<span class="trigger-sub">peers ' + tFmt(entry.peers) + '</span>' : '';
-        return '<div class="trigger-row"><span class="trigger-lbl">' + t + '</span><span class="trigger-val">' + tFmt(entry.personal) + '</span><span class="trigger-sub">pool ' + tFmt(entry.pool) + '</span>' + peersHTML + '</div>';
-      }).join('');
-      if (tRows) html += '<div class="track-log-title" style="margin-top:12px">BY TICKER (yours vs. pool vs. correlated peers)</div>' + tRows;
-    }
+    // BY TICKER breakdown removed Sep 2, 2026 -- direct feedback: with
+    // most watchlists holding far fewer than 5 graded rows per ticker,
+    // this rendered as a wall of "—" placeholders with real data on maybe
+    // one ticker out of fifteen. Replaced by a single pooled stat shown
+    // on the ticker's own analyzed card instead (see the TRACK RECORD row
+    // in gateListHTML), available on every tier.
     if (data.breakdown) {
       var section = function (title: string, key: string): string {
         var groups = data.breakdown[key] || {};
