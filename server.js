@@ -2707,10 +2707,25 @@ const AGITATOR_COMPS_LIMIT = 3;
 // capitalized words fuzzy-matched Finnhub's company-name search into
 // unrelated, effectively-worthless tickers shown as "related companies").
 const AGITATOR_COMPS_CANDIDATE_POOL = 6;
+// Company/Industry Knowledge Graph (Neo4j) checked ahead of Finnhub's
+// generic /stock/peers -- mirror-only, see Tra's server.js for the full
+// write-up (BB returned zero Finnhub peers, even though real competitor/
+// supplier relationships exist and are now in the graph). Falls back to
+// fetchTickerPeers when the graph has nothing yet for this symbol.
+async function fetchGraphPeers(symbol) {
+  const related = await kg.getCompanyRelationships(symbol);
+  return related.filter(r => r.ticker).map(r => r.ticker.toUpperCase());
+}
+
 async function computeAgitatorComps(symbol, mentionedSymbols) {
-  const candidatePeers = (mentionedSymbols && mentionedSymbols.length)
-    ? mentionedSymbols.slice(0, AGITATOR_COMPS_CANDIDATE_POOL)
-    : (await fetchTickerPeers(symbol)).slice(0, AGITATOR_COMPS_CANDIDATE_POOL);
+  let candidatePeers;
+  if (mentionedSymbols && mentionedSymbols.length) {
+    candidatePeers = mentionedSymbols.slice(0, AGITATOR_COMPS_CANDIDATE_POOL);
+  } else {
+    const graphPeers = await fetchGraphPeers(symbol);
+    candidatePeers = (graphPeers.length ? graphPeers : await fetchTickerPeers(symbol))
+      .slice(0, AGITATOR_COMPS_CANDIDATE_POOL);
+  }
   const quotes = await Promise.all(candidatePeers.map(sym => fetchQuote(sym)));
   const valid = [];
   candidatePeers.forEach((sym, i) => {
