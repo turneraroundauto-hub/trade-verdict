@@ -1460,8 +1460,13 @@ function expandCard(card) {
   if (card.dataset.card === "glossary") buildGlossary();
   snapCardUnderDock(card);
 }
+var accordionLastToggleAt = /* @__PURE__ */ new WeakMap();
+var ACCORDION_TOGGLE_DEBOUNCE_MS = 400;
 function wireAccordionHead(head) {
   function toggle() {
+    const now = Date.now();
+    if (now - (accordionLastToggleAt.get(head) || 0) < ACCORDION_TOGGLE_DEBOUNCE_MS) return;
+    accordionLastToggleAt.set(head, now);
     const card = head.closest(".card");
     const wasExpanded = card.classList.contains("expanded");
     if (wasExpanded) {
