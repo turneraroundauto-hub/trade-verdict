@@ -139,8 +139,32 @@ const FIRST_CARD_SNAP_MAX_DELTA = 80;
 const FIRST_CARD_SNAP_SETTLE_MS = 120;
 let firstCardSnapTimer: ReturnType<typeof setTimeout> | null = null;
 
+// gateSpacer's height is CSS-transitioned (.2s == 200ms) on every dock/undock,
+// same as the case forceGateDockedSync() above already handles synchronously
+// for a forced dock. This check only debounces to FIRST_CARD_SNAP_SETTLE_MS
+// (120ms) after the last scroll event -- shorter than the 200ms transition, so
+// a dock/undock that happens right as scrolling stops can still be mid-
+// animation when this runs. Reading getBoundingClientRect() against a
+// still-animating spacer measures a moving target: the computed delta can
+// under/overshoot, and the resulting scrollBy() dispatches its own scroll
+// events, which reschedule this same check -- a real, demonstrable path to
+// exactly the repeated-correction "glitching" this function exists to
+// prevent, not just a theoretical race. Forcing the spacer to its final
+// height synchronously first (transition suppressed, forced reflow, then
+// restored) removes the timing dependency entirely, the same trick
+// forceGateDockedSync() already uses for the same underlying reason.
+function settleGateSpacerHeightSync(): void {
+  const target = els.gateCard.classList.contains('docked') ? 0 : spacerHeight;
+  const prevTransition = els.gateSpacer.style.transition;
+  els.gateSpacer.style.transition = 'none';
+  els.gateSpacer.style.height = target + 'px';
+  void els.gateSpacer.offsetHeight;
+  els.gateSpacer.style.transition = prevTransition;
+}
+
 function snapFirstCardUnderGateDock(): void {
   if (!els.gateCard.classList.contains('docked')) return;
+  settleGateSpacerHeightSync();
   const card = document.querySelector('.content')?.firstElementChild as HTMLElement | null;
   if (!card) return;
   const scrollerTop = els.scroller.getBoundingClientRect().top;

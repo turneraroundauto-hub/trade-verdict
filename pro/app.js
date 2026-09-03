@@ -1190,8 +1190,17 @@ function jumpToTop() {
 var FIRST_CARD_SNAP_MAX_DELTA = 80;
 var FIRST_CARD_SNAP_SETTLE_MS = 120;
 var firstCardSnapTimer = null;
+function settleGateSpacerHeightSync() {
+  const target = els.gateCard.classList.contains("docked") ? 0 : spacerHeight;
+  const prevTransition = els.gateSpacer.style.transition;
+  els.gateSpacer.style.transition = "none";
+  els.gateSpacer.style.height = target + "px";
+  void els.gateSpacer.offsetHeight;
+  els.gateSpacer.style.transition = prevTransition;
+}
 function snapFirstCardUnderGateDock() {
   if (!els.gateCard.classList.contains("docked")) return;
+  settleGateSpacerHeightSync();
   const card = document.querySelector(".content")?.firstElementChild;
   if (!card) return;
   const scrollerTop = els.scroller.getBoundingClientRect().top;

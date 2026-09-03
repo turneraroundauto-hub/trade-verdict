@@ -47,7 +47,13 @@ def twaManifest = [
     // 'customtabs' and 'webview'.
     fallbackType: 'customtabs',
     enableSiteSettingsShortcut: 'true',
-    orientation: 'portrait',
+    // Was 'portrait' -- Play Console flagged this as a resizability/orientation
+    // restriction that breaks large-screen (tablet/foldable) support and that
+    // Android 16 will ignore outright regardless. 'any' removes the lock so the
+    // app adapts on every Android version instead of behaving inconsistently
+    // pre-16 vs. post-16. The web content itself is responsive; there was never
+    // a real reason for the native shell to force portrait.
+    orientation: 'any',
 ]
 
 android {
@@ -207,7 +213,13 @@ repositories {
 
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
-    
-        implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.6.2'
-    
+
+        // 2.6.2 -> 2.7.3: Play Console flagged "Edge-to-edge may not display for
+        // all users" / "uses deprecated APIs or parameters for edge-to-edge" for
+        // apps targeting SDK 35 (Android 15+ renders edge-to-edge by default).
+        // androidbrowserhelper 2.7.0-alpha03 is the release that actually fixed
+        // this for Bubblewrap-generated TWAs (github.com/GoogleChromeLabs/bubblewrap
+        // issue #967); 2.7.3 is the current stable release past that fix.
+        implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.7.3'
+
 }

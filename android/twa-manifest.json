@@ -35,7 +35,7 @@
   "isMetaQuest": false,
   "fullScopeUrl": "https://tradetribunal.app/",
   "minSdkVersion": 21,
-  "orientation": "portrait",
+  "orientation": "any",
   "fingerprints": [],
   "additionalTrustedOrigins": [],
   "retainedBundles": [],
