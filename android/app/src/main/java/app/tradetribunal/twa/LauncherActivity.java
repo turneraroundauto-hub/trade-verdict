@@ -17,7 +17,6 @@ package app.tradetribunal.twa;
 
 import android.content.pm.ActivityInfo;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 
 
@@ -31,15 +30,15 @@ public class LauncherActivity
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        // Setting an orientation crashes the app due to the transparent background on Android 8.0
-        // Oreo and below. We only set the orientation on Oreo and above. This only affects the
-        // splash screen and Chrome will still respect the orientation.
-        // See https://github.com/GoogleChromeLabs/bubblewrap/issues/496 for details.
-        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.O) {
-            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT);
-        } else {
-            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
-        }
+        // Was SCREEN_ORIENTATION_USER_PORTRAIT on Android 8.1+ (with UNSPECIFIED
+        // used only <=8.0 to dodge a transparent-background splash crash -- see
+        // https://github.com/GoogleChromeLabs/bubblewrap/issues/496). Play Console
+        // flagged the portrait lock as a resizability/orientation restriction
+        // ("Remove resizability and orientation restrictions... to support large
+        // screen devices") that Android 16 ignores outright anyway. UNSPECIFIED on
+        // every version defers fully to the system/manifest; the old <=8.0 branch
+        // already proved UNSPECIFIED doesn't reintroduce that splash crash.
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
     }
 
     @Override
