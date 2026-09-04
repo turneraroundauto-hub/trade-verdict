@@ -1351,6 +1351,82 @@ function recapExpandedCards() {
     capCardBodyHeight(cardEl, dockOffsetFor(cardEl, roloIndexH));
   });
 }
+var LANDSCAPE_HUD_MIN_HEIGHT = 160;
+var LANDSCAPE_HUD_BOTTOM_MARGIN = 16;
+var lsEls = null;
+var lsOnSelect = null;
+var lsIsActive = false;
+var lsActiveCard = null;
+var lsAnchors = /* @__PURE__ */ new Map();
+function isLandscapeMode() {
+  return lsIsActive;
+}
+function snapLandscapeHudUnderDock(hudEl) {
+  if (!lsEls) return;
+  const roloIndexH = forceGateDockedSync();
+  const dockOffset = dockOffsetFor(hudEl, roloIndexH);
+  hudEl.style.scrollMarginTop = dockOffset + "px";
+  hudEl.scrollIntoView({ behavior: "smooth", block: "start" });
+  const available = els.scroller.clientHeight - dockOffset - LANDSCAPE_HUD_BOTTOM_MARGIN;
+  lsEls.pane.style.maxHeight = Math.max(LANDSCAPE_HUD_MIN_HEIGHT, available) + "px";
+}
+function buildLandscapeRibbon(cards) {
+  if (!lsEls) return;
+  lsEls.ribbon.innerHTML = cards.map((card) => {
+    const icon = card.querySelector(".card-icon")?.textContent || "";
+    const label = card.querySelector(".card-label")?.textContent || "";
+    return `<button type="button" class="ribbon-item" data-card="${card.dataset.card}" aria-label="${label}"><span class="ribbon-icon">${icon}</span><span class="ribbon-label">${label}</span></button>`;
+  }).join("");
+  Array.from(lsEls.ribbon.children).forEach((btn, i) => {
+    btn.addEventListener("click", () => selectLandscapeCard(cards[i]));
+  });
+}
+function selectLandscapeCard(card) {
+  if (!lsEls) return;
+  lsActiveCard = card;
+  lsEls.empty.style.display = "none";
+  Array.from(lsEls.pane.querySelectorAll(".card[data-card]")).forEach((c) => {
+    c.classList.toggle("landscape-active", c === card);
+  });
+  Array.from(lsEls.ribbon.children).forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.card === card.dataset.card);
+  });
+  if (lsOnSelect) lsOnSelect(card);
+  snapLandscapeHudUnderDock(lsEls.hud);
+}
+function activateLandscape() {
+  if (!lsEls) return;
+  const cards = Array.from(document.querySelectorAll(".card[data-card]"));
+  cards.forEach((card) => {
+    if (!lsAnchors.has(card)) lsAnchors.set(card, { parent: card.parentNode, next: card.nextSibling });
+    lsEls.pane.appendChild(card);
+  });
+  if (!lsEls.ribbon.childElementCount) buildLandscapeRibbon(cards);
+  lsIsActive = true;
+  if (lsActiveCard) selectLandscapeCard(lsActiveCard);
+  else lsEls.empty.style.display = "";
+}
+function deactivateLandscape() {
+  if (!lsEls) return;
+  Array.from(document.querySelectorAll(".card[data-card]")).forEach((card) => {
+    const anchor = lsAnchors.get(card);
+    if (anchor) anchor.parent.insertBefore(card, anchor.next);
+    card.classList.remove("landscape-active");
+  });
+  lsEls.pane.style.maxHeight = "";
+  lsIsActive = false;
+}
+function initLandscapeMode(landscapeElements, onSelect) {
+  lsEls = landscapeElements;
+  lsOnSelect = onSelect;
+  const mq = window.matchMedia("(orientation: landscape)");
+  const apply = () => {
+    if (mq.matches) activateLandscape();
+    else deactivateLandscape();
+  };
+  mq.addEventListener("change", apply);
+  apply();
+}
 function goRolo(i) {
   const count = els.roloStage.querySelectorAll(".rolo-card").length;
   if (!count) return;
@@ -1942,7 +2018,7 @@ function expandCard(card) {
   if (head) head.setAttribute("aria-expanded", "true");
   const kind = card.dataset.card;
   if (kind === "glossary") buildGlossary();
-  snapCardUnderDock(card);
+  if (!isLandscapeMode()) snapCardUnderDock(card);
   if (kind === "watchlist") renderOverflowList();
   else if (kind === "proxy") renderProxyExplorer();
   else if (kind === "heatmap") renderHeatMap();
@@ -3355,6 +3431,12 @@ initRolodex({
   onDeleteConfirmed: deleteActiveTicker
 });
 initHelpBalloons(HELP_CONTENT, jumpToGlossaryTerm);
+initLandscapeMode({
+  hud: document.getElementById("landscapeHud"),
+  ribbon: document.getElementById("utilityRibbon"),
+  pane: document.getElementById("utilityPane"),
+  empty: document.getElementById("utilityEmpty")
+}, expandCard);
 checkAuth();
 document.getElementById("analyzeAllBtn").addEventListener("click", analyzeAll);
 document.getElementById("importBtn").addEventListener("click", addTickers);

@@ -246,7 +246,12 @@ function expandCard(card: HTMLElement): void {
   // fetch-based and populate well after this function returns either way,
   // so their relative order to the snap call doesn't matter the same way.
   if (kind === 'glossary') buildGlossary();
-  rolodex.snapCardUnderDock(card);
+  // Landscape mode handles positioning at the HUD level (the whole
+  // ribbon+pane block snaps into view, not the individual card, which
+  // sits display:none inside #utilityPane until selectLandscapeCard()
+  // makes it active) -- calling the portrait-only snap here too would
+  // measure a hidden element and fight the HUD's own scroll.
+  if (!rolodex.isLandscapeMode()) rolodex.snapCardUnderDock(card);
   if (kind === 'watchlist') renderOverflowList();
   else if (kind === 'proxy') renderProxyExplorer();
   else if (kind === 'heatmap') renderHeatMap();
@@ -1909,6 +1914,12 @@ rolodex.initRolodex({
   onDeleteConfirmed: deleteActiveTicker,
 });
 rolodex.initHelpBalloons(HELP_CONTENT, jumpToGlossaryTerm);
+rolodex.initLandscapeMode({
+  hud: document.getElementById('landscapeHud') as HTMLElement,
+  ribbon: document.getElementById('utilityRibbon') as HTMLElement,
+  pane: document.getElementById('utilityPane') as HTMLElement,
+  empty: document.getElementById('utilityEmpty') as HTMLElement,
+}, expandCard);
 
 checkAuth();
 

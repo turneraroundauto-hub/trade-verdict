@@ -431,6 +431,125 @@ function recapExpandedCards(): void {
   });
 }
 
+// ── Landscape "HUD" mode ─────────────────────────────────────────────────
+// In portrait, utility cards (Pulse/Agitator/Import/Watchlist/Proxy/etc.)
+// stack vertically as independent accordions -- fine when there's plenty
+// of height to scroll through. Landscape is the opposite shape (wide,
+// short), so instead they collapse into a left-side icon ribbon; tapping
+// one shows ONLY that card's full content in a pane to the right,
+// positioned directly under the active ticker card (not interleaved with
+// it -- every card, wherever it lives in the DOM in portrait, ends up in
+// this one shared pane). Only one card visible at a time, matching a
+// direct instruction, not the independent-multi-open portrait behavior.
+//
+// Tapping a ribbon item snaps the whole hud into view exactly the way
+// snapCardUnderDock() already brings a newly-expanded portrait card into
+// view -- reusing forceGateDockedSync()/dockOffsetFor() directly rather
+// than re-deriving the same offset math a second time. Unlike
+// snapCardUnderDock(), there's no per-card 0fr/1fr collapse animation to
+// race against here (a landscape card is plain display:none/block, not
+// CSS-transitioned), so no measure-against-a-moving-target guard is
+// needed for this part -- forceGateDockedSync() alone is enough to settle
+// the one animated thing (the Gate's own dock) before scrollIntoView
+// reads positions.
+export interface LandscapeElements {
+  hud: HTMLElement;
+  ribbon: HTMLElement;
+  pane: HTMLElement;
+  empty: HTMLElement;
+}
+
+const LANDSCAPE_HUD_MIN_HEIGHT = 160;
+const LANDSCAPE_HUD_BOTTOM_MARGIN = 16;
+
+let lsEls: LandscapeElements | null = null;
+let lsOnSelect: ((card: HTMLElement) => void) | null = null;
+let lsIsActive = false;
+let lsActiveCard: HTMLElement | null = null;
+// Records each card's real original DOM position (parent + next sibling)
+// the first time it's ever moved into the pane, so it can be put back
+// exactly where portrait expects it when landscape deactivates -- captured
+// lazily on first activation (not at init) so it reflects the DOM as the
+// page actually finished rendering, not a guess at load order.
+const lsAnchors = new Map<HTMLElement, { parent: Node; next: ChildNode | null }>();
+
+export function isLandscapeMode(): boolean {
+  return lsIsActive;
+}
+
+function snapLandscapeHudUnderDock(hudEl: HTMLElement): void {
+  if (!lsEls) return;
+  const roloIndexH = forceGateDockedSync();
+  const dockOffset = dockOffsetFor(hudEl, roloIndexH);
+  hudEl.style.scrollMarginTop = dockOffset + 'px';
+  hudEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const available = els.scroller.clientHeight - dockOffset - LANDSCAPE_HUD_BOTTOM_MARGIN;
+  lsEls.pane.style.maxHeight = Math.max(LANDSCAPE_HUD_MIN_HEIGHT, available) + 'px';
+}
+
+function buildLandscapeRibbon(cards: HTMLElement[]): void {
+  if (!lsEls) return;
+  lsEls.ribbon.innerHTML = cards.map((card) => {
+    const icon = card.querySelector('.card-icon')?.textContent || '';
+    const label = card.querySelector('.card-label')?.textContent || '';
+    return `<button type="button" class="ribbon-item" data-card="${card.dataset.card}" aria-label="${label}"><span class="ribbon-icon">${icon}</span><span class="ribbon-label">${label}</span></button>`;
+  }).join('');
+  Array.from(lsEls.ribbon.children).forEach((btn, i) => {
+    btn.addEventListener('click', () => selectLandscapeCard(cards[i]));
+  });
+}
+
+function selectLandscapeCard(card: HTMLElement): void {
+  if (!lsEls) return;
+  lsActiveCard = card;
+  lsEls.empty.style.display = 'none';
+  Array.from(lsEls.pane.querySelectorAll<HTMLElement>('.card[data-card]')).forEach((c) => {
+    c.classList.toggle('landscape-active', c === card);
+  });
+  Array.from(lsEls.ribbon.children).forEach((btn) => {
+    (btn as HTMLElement).classList.toggle('active', (btn as HTMLElement).dataset.card === card.dataset.card);
+  });
+  if (lsOnSelect) lsOnSelect(card);
+  snapLandscapeHudUnderDock(lsEls.hud);
+}
+
+function activateLandscape(): void {
+  if (!lsEls) return;
+  const cards = Array.from(document.querySelectorAll<HTMLElement>('.card[data-card]'));
+  cards.forEach((card) => {
+    if (!lsAnchors.has(card)) lsAnchors.set(card, { parent: card.parentNode as Node, next: card.nextSibling as ChildNode | null });
+    lsEls!.pane.appendChild(card);
+  });
+  if (!lsEls.ribbon.childElementCount) buildLandscapeRibbon(cards);
+  lsIsActive = true;
+  if (lsActiveCard) selectLandscapeCard(lsActiveCard);
+  else lsEls.empty.style.display = '';
+}
+
+function deactivateLandscape(): void {
+  if (!lsEls) return;
+  Array.from(document.querySelectorAll<HTMLElement>('.card[data-card]')).forEach((card) => {
+    const anchor = lsAnchors.get(card);
+    if (anchor) anchor.parent.insertBefore(card, anchor.next);
+    card.classList.remove('landscape-active');
+  });
+  lsEls.pane.style.maxHeight = '';
+  lsIsActive = false;
+}
+
+// onSelect is called with the same card element portrait's own
+// expandCard() already handles (lazy-render dispatch, etc.) -- the tier
+// passes its real expandCard so both entry points share one
+// implementation, not two copies that could drift.
+export function initLandscapeMode(landscapeElements: LandscapeElements, onSelect: (card: HTMLElement) => void): void {
+  lsEls = landscapeElements;
+  lsOnSelect = onSelect;
+  const mq = window.matchMedia('(orientation: landscape)');
+  const apply = () => { if (mq.matches) activateLandscape(); else deactivateLandscape(); };
+  mq.addEventListener('change', apply);
+  apply();
+}
+
 export function goRolo(i: number): void {
   const count = els.roloStage.querySelectorAll('.rolo-card').length;
   if (!count) return;
