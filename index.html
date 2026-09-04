@@ -157,6 +157,46 @@
   .card-body-inner{ overflow:hidden; }
   .card-body-pad{ padding:0 14px 14px; overflow-y:auto; overflow-x:hidden; touch-action:pan-y; -webkit-overflow-scrolling:touch; }
 
+  /* ── Landscape HUD: utility cards collapse into a left ribbon + a single
+     detail pane instead of a vertical accordion stack. Hidden entirely in
+     portrait; shared/rolodex.ts's initLandscapeMode() (matchMedia on the
+     same orientation:landscape condition) physically moves every
+     .card[data-card] element into #utilityPane and keeps this in sync.
+     Same mechanism/CSS as Pro/Starter's build (trade-verdict PR #285) --
+     kept byte-identical since the class names/shapes are shared, generic
+     markup, not tier-specific. ── */
+  .landscape-hud{ display:none; }
+  @media (orientation:landscape){
+    .landscape-hud{
+      display:flex; border:1px solid var(--border); border-radius:12px;
+      overflow:hidden; background:var(--surface); margin-bottom:10px;
+      min-height:200px;
+    }
+    .utility-ribbon{
+      flex:none; width:72px; display:flex; flex-direction:column;
+      overflow-y:auto; background:var(--bg-raise); border-right:1px solid var(--border);
+      touch-action:pan-y; -webkit-overflow-scrolling:touch;
+    }
+    .ribbon-item{
+      flex:none; display:flex; flex-direction:column; align-items:center; gap:3px;
+      padding:10px 3px; background:none; border:none; border-bottom:1px solid var(--border);
+      color:var(--ink-dim); cursor:pointer; font-family:var(--mono);
+    }
+    .ribbon-item:last-child{ border-bottom:none; }
+    .ribbon-item.active{ background:var(--surface-2); color:var(--purple); }
+    .ribbon-icon{ font-size:18px; line-height:1; }
+    .ribbon-label{ font-size:9px; line-height:1.2; text-align:center; }
+    .utility-pane{
+      flex:1; min-width:0; overflow-y:auto; padding:10px;
+      touch-action:pan-y; -webkit-overflow-scrolling:touch;
+    }
+    .utility-pane .card[data-card]{ display:none; border:none; border-radius:0; }
+    .utility-pane .card[data-card].landscape-active{ display:block; }
+    .utility-pane .card[data-card] > .card-head{ display:none; }
+    .utility-pane .card[data-card] .card-body{ display:grid; grid-template-rows:1fr; }
+    .utility-empty{ padding:24px 10px; text-align:center; color:var(--ink-dim); font-size:13px; }
+  }
+
   /* "(?)" help buttons on every card header + the Gate's own header, and
      the fixed-position balloon they pop open — shared/rolodex.ts owns
      the open/fade/dismiss mechanics, this is just the look. */
@@ -504,6 +544,18 @@
         <div class="rolo-nav"><span class="nav-hint" id="roloHint">— / —</span></div>
       </div>
 
+      <!-- Landscape-only: every utility card below gets moved in here by
+           shared/rolodex.ts's initLandscapeMode() when the viewport is
+           landscape -- ribbon on the left (one item per card), only the
+           tapped card's full content shows in the pane on the right.
+           Hidden by default (CSS); portrait never touches this element. -->
+      <div class="landscape-hud" id="landscapeHud">
+        <div class="utility-ribbon" id="utilityRibbon"></div>
+        <div class="utility-pane" id="utilityPane">
+          <div class="utility-empty" id="utilityEmpty">Tap a card on the left to view it.</div>
+        </div>
+      </div>
+
       <div class="card" data-card="glossary" id="card-glossary">
         <div class="card-head" tabindex="0" role="button" aria-expanded="false" id="glossary-header">
           <span class="card-icon">📚</span>
@@ -539,7 +591,7 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=82"></script>
+<script type="module" src="./app.js?v=83"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));

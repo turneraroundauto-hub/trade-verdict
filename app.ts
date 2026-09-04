@@ -262,7 +262,12 @@ function expandCard(card: HTMLElement): void {
   // height scroll-target computation (inside snapCardUnderDock) measures
   // the real, capped content height instead of the still-empty panel.
   if (card.dataset.card === 'glossary') buildGlossary();
-  rolodex.snapCardUnderDock(card);
+  // Landscape mode handles positioning at the HUD level (the whole
+  // ribbon+pane block snaps into view, not the individual card, which
+  // sits display:none inside #utilityPane until selectLandscapeCard()
+  // makes it active) -- calling the portrait-only snap here too would
+  // measure a hidden element and fight the HUD's own scroll.
+  if (!rolodex.isLandscapeMode()) rolodex.snapCardUnderDock(card);
 }
 // Opening a card calls rolodex.snapCardUnderDock() (inside expandCard()),
 // which forces the Gate to dock and smooth-scrolls the card into place --
@@ -863,7 +868,7 @@ async function runAgitatorCheck(): Promise<void> {
 
     out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML;
     wireAgitatorAddButtons(out);
-    rolodex.snapCardUnderDock(document.getElementById('card-agitator') as HTMLElement);
+    if (!rolodex.isLandscapeMode()) rolodex.snapCardUnderDock(document.getElementById('card-agitator') as HTMLElement);
   } catch (e) {
     out.innerHTML = '<div class="track-empty">Agitator Gauge unavailable right now.</div>';
   } finally {
@@ -1108,7 +1113,7 @@ function ensureGlossaryOpen(): void {
   var card = document.getElementById('card-glossary') as HTMLElement | null;
   if (!card) return;
   if (!card.classList.contains('expanded')) expandCard(card);
-  else rolodex.snapCardUnderDock(card);
+  else if (!rolodex.isLandscapeMode()) rolodex.snapCardUnderDock(card);
 }
 // Opens the Glossary (if closed), clears any active search filter so the
 // term can't be hidden by it, then scrolls the matching entry into view
@@ -1210,6 +1215,12 @@ async function boot(): Promise<void> {
     onDeleteConfirmed: deleteActiveTicker,
   });
   rolodex.initHelpBalloons(HELP_CONTENT, jumpToGlossaryTerm);
+  rolodex.initLandscapeMode({
+    hud: document.getElementById('landscapeHud') as HTMLElement,
+    ribbon: document.getElementById('utilityRibbon') as HTMLElement,
+    pane: document.getElementById('utilityPane') as HTMLElement,
+    empty: document.getElementById('utilityEmpty') as HTMLElement,
+  }, expandCard);
 
   // Signed-in-but-free is the lapsed-subscriber case (or a free signup
   // that created an account) — sync their watchlist so a Starter/Pro/
