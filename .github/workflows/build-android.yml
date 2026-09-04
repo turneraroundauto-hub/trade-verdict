@@ -68,7 +68,30 @@ jobs:
           RAW_KEY_PW: ${{ secrets.BUBBLEWRAP_KEY_PASSWORD }}
 
       - name: Build and sign
-        run: bubblewrap build
+        # `bubblewrap build` checks twa-manifest.json against a stored
+        # manifest-checksum.txt and, on any drift, prompts interactively
+        # ("There are changes in twa-manifest.json. Would you like to apply
+        # them to the project before building?", default answer: yes) --
+        # there's no CLI flag to skip this, and with no TTY in CI it fails
+        # immediately (exit 130) instead of blocking. First hit the moment
+        # anyone edited twa-manifest.json post-scaffold (an orientation
+        # change), since every prior run never touched that file.
+        #
+        # Answered "n", not "y": accepting would run bubblewrap's own
+        # `update`, which regenerates build.gradle from twa-manifest.json +
+        # bubblewrap's own template defaults -- silently reverting the
+        # androidbrowserhelper version bump (2.6.2 -> 2.7.3, hand-edited
+        # directly in build.gradle for the edge-to-edge fix, since
+        # twa-manifest.json has no field for that dependency version at
+        # all) back to whatever this bubblewrap/cli release still bundles.
+        # Declining keeps the already-correct, hand-verified build.gradle
+        # exactly as committed and proceeds straight to the real build --
+        # safe here because every twa-manifest.json field that actually
+        # matters for the generated app (orientation included) is mirrored
+        # by hand into build.gradle already, per this repo's own documented
+        # "build.gradle is a static Groovy map, not dynamically read from
+        # twa-manifest.json at build time" behavior.
+        run: printf 'n\n' | bubblewrap build
         env:
           BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ env.KEYSTORE_PW_CLEAN }}
           BUBBLEWRAP_KEY_PASSWORD: ${{ env.KEY_PW_CLEAN }}

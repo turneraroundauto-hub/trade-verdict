@@ -61,7 +61,13 @@ android {
     namespace "app.tradetribunal.twa"
     defaultConfig {
         applicationId "app.tradetribunal.twa"
-        minSdkVersion 21
+        // Was 21 -- the androidbrowserhelper 2.7.3 bump above (for the edge-to-edge
+        // fix) requires minSdk 23 itself; the Gradle manifest merger fails outright
+        // below that ("uses-sdk:minSdkVersion 21 cannot be smaller than version 23
+        // declared in library... as the library might be using APIs not available
+        // in 21"). 23 = Android 6.0 (2015) -- a real, negligible loss of reach for
+        // this app, not the aggressive floor it might look like on paper.
+        minSdkVersion 23
         targetSdkVersion 36
         versionCode 1
         versionName "1"

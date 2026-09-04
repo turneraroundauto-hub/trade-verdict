@@ -210,8 +210,27 @@ function expandCard(card: HTMLElement): void {
   rolodex.snapCardUnderDock(card);
   if (card.dataset.card === 'scorecard') renderScorecardCard();
 }
+// Opening a card calls rolodex.snapCardUnderDock() (inside expandCard()),
+// which forces the Gate to dock and smooth-scrolls the card into place --
+// a real, visible motion that takes a few hundred ms to settle. A user who
+// taps again quickly (impatient, or just because that motion drew their eye
+// away from the card itself rather than confirming it opened) lands a
+// second click on the same still-stationary card-head before the first
+// click's own toggle() has had any visible effect worth noticing --
+// synchronously reopening then immediately re-closing the card. Net result:
+// the card ends up right back where it started, but the Gate's forced dock
+// from the first click's expandCard() never reverts on collapse, so the
+// only visible outcome is the Gate snapping to docked -- exactly the
+// "doesn't drop, only docks/undocks the Gate" symptom. Guarded per-head
+// (not globally) so legitimately opening a DIFFERENT card immediately after
+// this one is never blocked.
+const accordionLastToggleAt = new WeakMap<Element, number>();
+const ACCORDION_TOGGLE_DEBOUNCE_MS = 400;
 function wireAccordionHead(head: Element): void {
   function toggle(): void {
+    const now = Date.now();
+    if (now - (accordionLastToggleAt.get(head) || 0) < ACCORDION_TOGGLE_DEBOUNCE_MS) return;
+    accordionLastToggleAt.set(head, now);
     const card = head.closest('.card') as HTMLElement;
     const wasExpanded = card.classList.contains('expanded');
     if (wasExpanded) {

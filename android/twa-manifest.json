@@ -34,7 +34,7 @@
   "isChromeOSOnly": false,
   "isMetaQuest": false,
   "fullScopeUrl": "https://tradetribunal.app/",
-  "minSdkVersion": 21,
+  "minSdkVersion": 23,
   "orientation": "any",
   "fingerprints": [],
   "additionalTrustedOrigins": [],
