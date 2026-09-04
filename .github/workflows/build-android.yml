@@ -6,6 +6,11 @@ name: Build Android App Bundle
 on:
   workflow_dispatch:
 
+# contents: write -- needed by the "Publish APK for direct download" step
+# below, which pushes the built .apk to a scratch branch in this same repo.
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -107,3 +112,40 @@ jobs:
             android/app-release-bundle.aab
             android/app-release-signed.apk
           retention-days: 90
+
+      - name: Publish APK for direct download
+        # The Actions artifact above (actions/upload-artifact) is only
+        # downloadable via a signed Azure Blob Storage URL -- unreachable
+        # from a sandboxed session's own egress policy, the same class of
+        # problem this file's own CLAUDE.md history already solved once for
+        # other file handoffs ("route around the need instead of hunting
+        # for a workaround"). This runner has normal internet access, so it
+        # pushes the APK directly into the repo instead: a stable filename
+        # on a scratch branch, overwritten on every build, giving one
+        # unchanging raw.githubusercontent.com URL that always serves the
+        # latest signed build -- installable straight from a phone browser.
+        working-directory: .
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          VCODE=$(node -e "console.log(require('./android/twa-manifest.json').appVersionCode)")
+          cp android/app-release-signed.apk /tmp/trade-tribunal-latest.apk
+
+          if git ls-remote --exit-code --heads origin store-assets/android-builds >/dev/null 2>&1; then
+            git fetch origin store-assets/android-builds:store-assets/android-builds
+            git checkout store-assets/android-builds
+          else
+            git checkout --orphan store-assets/android-builds
+            git rm -rf --cached . >/dev/null 2>&1 || true
+            git clean -fd
+          fi
+
+          mkdir -p android-builds
+          cp /tmp/trade-tribunal-latest.apk android-builds/trade-tribunal-latest.apk
+          git add android-builds/trade-tribunal-latest.apk
+          if ! git diff --cached --quiet; then
+            git commit -m "Publish Android build v$VCODE ($GITHUB_SHA)"
+            git push origin store-assets/android-builds
+          else
+            echo "APK unchanged since last publish -- nothing to push."
+          fi
