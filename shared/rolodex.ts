@@ -43,6 +43,19 @@ export interface RolodexCallbacks {
   // (shared/watchlist.ts's real one, with persistence/sync/undo toast).
   onDeleteConfirmed: (sym: string) => void;
   getWatchlist: () => string[];
+  // Fired exactly once per dock/undock transition (never on every scroll
+  // tick) -- a landscape-only header collapse hooks this to reclaim
+  // vertical space once the Gate is docked, since landscape has far less
+  // height to spare than portrait. Deliberately NOT the same shape as the
+  // Aug 16, 2026 scroll-hide header this app already tried and reverted
+  // ("broke too much") -- that one reacted continuously to scroll
+  // position and fought scrollToActiveCard()'s own scroll-margin math;
+  // this is a discrete boolean tied to the Gate's own already-debounced
+  // dock state, the same one gateSpacer's collapse already uses, so it
+  // can't independently drift out of sync or fire mid-gesture in a new way
+  // that state doesn't already handle. Optional -- a tier that doesn't
+  // want this leaves it undefined and nothing changes for it.
+  onGateDockChange?: (docked: boolean) => void;
 }
 
 const GATE_MARQUEE_SPEED = 0.4;
@@ -100,6 +113,7 @@ export function updateGateDockState(): void {
   if (docked !== gateDockedLast) {
     els.gateSpacer.style.height = (docked ? 0 : spacerHeight) + 'px';
     gateDockedLast = docked;
+    if (cb.onGateDockChange) cb.onGateDockChange(docked);
   }
 }
 
@@ -315,6 +329,7 @@ function forceGateDockedSync(): number {
     void els.gateSpacer.offsetHeight;
     els.gateSpacer.style.transition = prevTransition;
     gateDockedLast = true;
+    if (cb.onGateDockChange) cb.onGateDockChange(true);
   }
   return els.roloIndex.getBoundingClientRect().height;
 }

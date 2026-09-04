@@ -1912,6 +1912,14 @@ rolodex.initRolodex({
     if (state && !state.result && !state.analyzing) analyzeOne(sym);
   },
   onDeleteConfirmed: deleteActiveTicker,
+  // Landscape-only: collapse the header once the Gate docks, to reclaim
+  // vertical space on a short landscape viewport. See shared/rolodex.ts's
+  // own comment on onGateDockChange for why this is a different, safer
+  // mechanism than the Aug 16, 2026 scroll-hide header this app already
+  // tried and reverted.
+  onGateDockChange: (docked) => {
+    if (rolodex.isLandscapeMode()) document.body.classList.toggle('header-collapsed', docked);
+  },
 });
 rolodex.initHelpBalloons(HELP_CONTENT, jumpToGlossaryTerm);
 rolodex.initLandscapeMode({

@@ -60,6 +60,16 @@
      never changes, silently breaking the Gate's dock/undock entirely. */
   .app-shell{ max-width:640px; margin:0 auto; height:100vh; height:100dvh; display:flex; flex-direction:column; }
 
+  /* Landscape gets its own, wider cap -- 640px was tuned for portrait/
+     desktop-browser widths (see the PR that introduced it) and left real
+     dead margin on either side of a landscape phone/tablet, which already
+     has an entirely different (ribbon+pane) layout built to use more
+     width. Portrait is completely untouched -- this only ever applies
+     inside the orientation:landscape query. */
+  @media (orientation:landscape){
+    .app-shell{ max-width:960px; }
+  }
+
   .safe-top{ height:env(safe-area-inset-top,32px); background:var(--bg-raise); flex:none; }
 
   /* ── HEADER — same Rolodex structure/typography as Starter's, plain
@@ -72,7 +82,12 @@
      A position:fixed hide-on-scroll-down variant of this header was
      tried and reverted the same day (direct feedback: "broke too much,
      I don't like it") — see CLAUDE.md for what it was and why it went
-     back out. Plain flow element, not sticky/fixed. ────────────────── */
+     back out. Plain flow element, not sticky/fixed, in portrait.
+     Landscape (only) gets a DIFFERENT, narrower mechanism below
+     (.header-collapsed) -- a discrete collapse tied to the Gate's own
+     already-debounced dock-state transition, not a continuous
+     scroll-position listener, which is what made the reverted attempt
+     fight scrollToActiveCard()'s own scroll-margin math. ────────────── */
   .app-topbar{
     padding:12px 16px; flex:none;
     display:flex; justify-content:space-between; align-items:center; flex-wrap:nowrap; gap:8px 6px;
@@ -195,6 +210,19 @@
     .utility-pane .card[data-card] > .card-head{ display:none; }
     .utility-pane .card[data-card] .card-body{ display:grid; grid-template-rows:1fr; }
     .utility-empty{ padding:24px 10px; text-align:center; color:var(--ink-dim); font-size:13px; }
+
+    /* Header collapse, landscape-only -- driven by rolodex.ts's
+       onGateDockChange callback toggling .header-collapsed on <body>
+       exactly when the Gate's own dock state transitions (see that
+       callback's own comment for why this is a different, safer
+       mechanism than the reverted scroll-hide attempt). A normal
+       in-flow flex-height collapse, not position:fixed -- #scroller
+       (flex:1) automatically reclaims the space via ordinary reflow,
+       no compensating padding needed elsewhere the way a fixed-position
+       header would have required. */
+    .safe-top, .app-topbar{ transition: height .2s ease, padding .2s ease, opacity .15s ease, border-bottom-width .2s ease; overflow:hidden; }
+    body.header-collapsed .safe-top{ height:0; }
+    body.header-collapsed .app-topbar{ height:0; padding-top:0; padding-bottom:0; opacity:0; border-bottom-width:0; }
   }
 
   /* "(?)" help buttons on every card header + the Gate's own header, and
@@ -591,7 +619,7 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=83"></script>
+<script type="module" src="./app.js?v=84"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
