@@ -137,6 +137,16 @@ jobs:
           cp android/app-release-signed.apk /tmp/trade-tribunal-latest.apk
           cp android/app-release-bundle.aab /tmp/trade-tribunal-latest.aab
 
+          # `bubblewrap build` rewrites android/app/src/main/res/xml/shortcuts.xml
+          # (and possibly other generated resources) as a normal build side effect,
+          # independent of the twa-manifest.json regeneration prompt declined above
+          # -- leaves the working tree with real uncommitted changes that block a
+          # plain `git checkout <other branch>` ("would be overwritten by checkout").
+          # Safe to discard unconditionally here: everything this step needs from
+          # the build (the .apk/.aab) is already copied out to /tmp above.
+          git reset --hard HEAD
+          git clean -fd
+
           if git ls-remote --exit-code --heads origin store-assets/android-builds >/dev/null 2>&1; then
             git fetch origin store-assets/android-builds:store-assets/android-builds
             git checkout store-assets/android-builds
