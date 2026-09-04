@@ -63,6 +63,16 @@
      never changes, silently breaking the Gate's dock/undock entirely. */
   .app-shell{ max-width:640px; margin:0 auto; height:100vh; height:100dvh; display:flex; flex-direction:column; }
 
+  /* Landscape gets its own, wider cap -- 640px was tuned for portrait/
+     desktop-browser widths and left real dead margin on either side of a
+     landscape phone/tablet, which already has an entirely different
+     (ribbon+pane) layout built to use more width. Portrait is completely
+     untouched -- this only ever applies inside the orientation:landscape
+     query. Same value/reasoning as Free's identical rule. */
+  @media (orientation:landscape){
+    .app-shell{ max-width:960px; }
+  }
+
   .safe-top{ height:env(safe-area-inset-top,32px); background:var(--bg-raise); flex:none; }
 
   /* ── AUTH SCREEN — unchanged real flow, purple accent for the Pro tier. */
@@ -220,6 +230,12 @@
     .utility-pane .card[data-card] > .card-head{ display:none; }
     .utility-pane .card[data-card] .card-body{ display:grid; grid-template-rows:1fr; }
     .utility-empty{ padding:24px 10px; text-align:center; color:var(--ink-dim); font-size:13px; }
+
+    /* Header collapse, landscape-only -- see Free's identical rule/comment
+       for the full reasoning (driven by rolodex.ts's onGateDockChange). */
+    .safe-top, .app-topbar{ transition: height .2s ease, padding .2s ease, opacity .15s ease, border-bottom-width .2s ease; overflow:hidden; }
+    body.header-collapsed .safe-top{ height:0; }
+    body.header-collapsed .app-topbar{ height:0; padding-top:0; padding-bottom:0; opacity:0; border-bottom-width:0; }
   }
 
   /* "(?)" help buttons on every card header + the Gate's own header, and
@@ -831,6 +847,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=44"></script>
+<script type="module" src="./app.js?v=46"></script>
 </body>
 </html>

@@ -1035,6 +1035,7 @@ function updateGateDockState() {
   if (docked !== gateDockedLast) {
     els.gateSpacer.style.height = (docked ? 0 : spacerHeight) + "px";
     gateDockedLast = docked;
+    if (cb.onGateDockChange) cb.onGateDockChange(docked);
   }
 }
 function jumpToTop() {
@@ -1155,6 +1156,7 @@ function forceGateDockedSync() {
     void els.gateSpacer.offsetHeight;
     els.gateSpacer.style.transition = prevTransition;
     gateDockedLast = true;
+    if (cb.onGateDockChange) cb.onGateDockChange(true);
   }
   return els.roloIndex.getBoundingClientRect().height;
 }
@@ -2822,7 +2824,15 @@ initRolodex({
     const state = tickerState.get(sym);
     if (state && !state.result && !state.analyzing) analyzeOne(sym);
   },
-  onDeleteConfirmed: deleteActiveTicker
+  onDeleteConfirmed: deleteActiveTicker,
+  // Landscape-only: collapse the header once the Gate docks, to reclaim
+  // vertical space on a short landscape viewport. See shared/rolodex.ts's
+  // own comment on onGateDockChange for why this is a different, safer
+  // mechanism than the Aug 16, 2026 scroll-hide header this app already
+  // tried and reverted.
+  onGateDockChange: (docked) => {
+    if (isLandscapeMode()) document.body.classList.toggle("header-collapsed", docked);
+  }
 });
 initHelpBalloons(HELP_CONTENT, jumpToGlossaryTerm);
 initLandscapeMode({
