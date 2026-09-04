@@ -218,9 +218,17 @@
 
     /* Header collapse, landscape-only -- see Free's identical rule/comment
        for the full reasoning (driven by rolodex.ts's onGateDockChange). */
-    .safe-top, .app-topbar{ transition: height .2s ease, padding .2s ease, opacity .15s ease, border-bottom-width .2s ease; overflow:hidden; }
-    body.header-collapsed .safe-top{ height:0; }
-    body.header-collapsed .app-topbar{ height:0; padding-top:0; padding-bottom:0; opacity:0; border-bottom-width:0; }
+    /* overflow:hidden lives ONLY on the collapsed-state rules below, not
+       here unconditionally -- .app-topbar's real child (the profile-menu
+       dropdown) is deliberately position:absolute and overflows the
+       topbar's own box on purpose whenever it's open at full height.
+       Clipping that unconditionally trapped the dropdown behind the page
+       below it even when nothing was collapsing (a real regression,
+       caught live) -- only actually needed while the header is genuinely
+       collapsing/collapsed. */
+    .safe-top, .app-topbar{ transition: height .2s ease, padding .2s ease, opacity .15s ease, border-bottom-width .2s ease; }
+    body.header-collapsed .safe-top{ height:0; overflow:hidden; }
+    body.header-collapsed .app-topbar{ height:0; padding-top:0; padding-bottom:0; opacity:0; border-bottom-width:0; overflow:hidden; }
   }
 
   /* "(?)" help buttons on every card header + the Gate's own header, and
