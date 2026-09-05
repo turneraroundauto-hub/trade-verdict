@@ -8326,3 +8326,31 @@ is completely absent from the rendered disclaimer, zero page errors.
 `tsc`/`esbuild`+chunk-header-grep/`npm test` (72/72) all clean across
 all three tiers. `?v=` bumped on all three tiers' `<script>` tags (Free
 88→89, Starter 104→105, Pro 50→51).
+
+**Correction, same day: the "left deliberately untouched" call above was
+wrong — the topical-fallback path DOES sometimes have a real tradable
+correlation, and the gauge was hiding it (`trade-verdict` PR #305,
+merged).** Direct pushback: "that fix should be applied broad not just
+this input. any tradable correlation should be in the spot especially if
+it's a proxy." Re-examined the topical-fallback path more carefully: it
+already validates real companies mentioned in the article
+(`topical.companies`, via `computeTopicalFallback()`'s own
+`classifyEntityMatch()` guard against hallucination — see the Aug 31,
+2026 entry above) and shows them, hyperlinked, in its own RELATED list
+right below the gauge. The gauge's "---" was structurally correct only
+for the subset of topical results with **zero** validated companies —
+not, as the prior entry assumed, the whole path.
+
+**Fix:** the gauge now shows the first/most relevant validated company's
+real, hyperlinked ticker whenever `topical.companies` has at least one
+entry, falling back to "---" only when there's genuinely nothing
+tradable correlated to the query at all (the actual, narrower case the
+dashes are honestly meant for). Applied identically to all three tiers.
+
+**Verified both branches directly, not just the happy path:** a mocked
+result with a real validated company (a Fed-related headline mentioning
+JPMorgan) renders that ticker's hyperlink in the gauge; a mocked result
+with zero validated companies still correctly falls back to dashes.
+`tsc`/`esbuild`+chunk-header-grep/`npm test` (72/72) all clean across all
+three tiers, zero page errors in either case. `?v=` bumped again on all
+three tiers (Free 89→90, Starter 105→106, Pro 51→52).
