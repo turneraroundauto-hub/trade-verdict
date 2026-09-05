@@ -8068,47 +8068,128 @@ analyzed ticker's card for a `TRACK RECORD` line once it has 5+ graded
 verdicts, and confirm the Scorecard card no longer shows a `BY TICKER`
 section at all.
 
-## Agitator Gauge — mandatory rule: every query gets a news article + 2-3 recommendations (Sep 5, 2026)
+## Agitator Gauge — commodity/spot-price path (XAU/XAG), full saga, and the standing "always news + recommendations" rule (Sep 5, 2026, `Tra` PRs #93-#99 / `trade-verdict` PRs #290, #292-#297, all merged)
 
-**Permanent, standing product rule — read this before touching the
-Agitator Gauge again, do not make the user re-state it:** every single
-query typed into the Agitator, with zero exceptions for query type, must
-produce (1) at least one real, cited news article and (2) 2-3 related
-recommendations. This applies uniformly across all three current result
-shapes — a resolved company/ticker match, the no-company topical
-fallback, and a commodity/currency spot-code match (xau/xag today) — the
-commodity path is not a lesser or different case, it gets the exact same
-two things.
+A user-reported gap ("typing xau/gold into the Agitator does nothing
+useful") turned into a seven-PR arc adding a fourth Agitator input shape
+(commodity/currency spot codes) alongside the existing resolved-ticker/
+topical-fallback paths — consolidated here as one entry per this file's
+own convention for a multi-round saga, since the individual rounds matter
+less than the final shape and the standing rule it produced.
 
-**Concretely, for the commodity path specifically (the gap flagged live,
-Sep 5, 2026, right after the goldprice.dev spot-price fix finally
-worked):** the XAU/XAG result correctly shows a real spot price and a
-tradable-proxy ticker (GLD/SLV), but shipped with no news headline and
-no related-recommendations section at all — inconsistent with every
-other Agitator result type, and flagged directly as something not to
-keep needing a reminder about.
+**What shipped, in order:**
+1. **Original commodity feature (`Tra` #93 / `trade-verdict` #290).**
+   New `COMMODITY_CODES` map (`xau`→Gold, `xag`→Silver) checked in
+   `/agitator` ahead of the normal ticker/topical resolution path.
+2. **Tradable-proxy fallback (`Tra` #94 / `trade-verdict` #292).** Real
+   spot-price sourcing wasn't there yet, so GLD/SLV (via the already-
+   working `fetchQuote()`) shipped first as a stand-in — correctly
+   rejected by the user ("that's not what I asked for... you need to pull
+   the actual spot"), since a proxy substituting for the real answer is
+   not the same as actually pursuing the real answer through the app's
+   other real connections.
+3. **Real spot price via goldprice.dev (`Tra` #95 / `trade-verdict`
+   #293).** First attempt assumed goldprice.dev's documented "no API key
+   required for basic access" claim was true — live Render logs
+   (`fetchCommodityPrice xag: goldprice.dev 403`) proved it false. The
+   user signed up for a real key.
+4. **API-key auth (`Tra` #96 / `trade-verdict` #294).** Wired
+   `GOLDPRICE_API_KEY` as a Render env var + `Authorization: Bearer`
+   header — never pasted into chat, same standing credential-handoff
+   convention as every other integration in this file.
+5. **Diagnostic logging (`Tra` #97 / `trade-verdict` #295).** Needed
+   because the auth fix alone still silently produced nothing — see the
+   real bug below.
+6. **Real-shape parsing fix (`Tra` #98 / `trade-verdict` #296)** — the
+   fix the logging from step 5 actually made possible.
+7. **News + 2-3 recommendations + signal-breakdown consistency (`Tra`
+   #99 / `trade-verdict` #297, merged Sep 5, 2026)** — closing the gap
+   documented in the standing rule below.
 
-**Do not treat this as optional polish or something to re-litigate per
-request.** If a future change to the Agitator would leave any result
-type without a real article + 2-3 recommendations, that is a regression
-against this rule, not a design choice to reconsider from scratch.
+**The real bug that cost two full "check the logs" rounds: a silent
+shape-mismatch swallowed every failure with zero log output.** The
+original parsing code was `if (raw == null || raw <= 0) return null;` —
+correct defensively, but silent. That made a genuine response-shape
+mismatch completely indistinguishable from "nothing to report," even
+though a real network round trip was visibly happening (the button ran
+for close to a minute). Fixed by adding `console.error` logging the
+actual truncated response body on any mismatch, plus a `console.log`
+confirmation on success — only once that was in place did the real shape
+become visible.
 
-**Extended the same day: the signal breakdown is part of this rule too,
-not just the article + recommendations.** Direct follow-up confirmed the
-mental model this app should match: every Agitator query, symbol/company/
-headline/rumor/commodity alike, gets resolved through the same real
-connections (Finnhub, Alpaca, Marketaux, goldprice.dev) and an AI
-decision that produces a genuine related article, 2-3 recommendations,
-**and** a composite signal score — with Pro additionally seeing the full
-per-factor SIGNALS breakdown of how it's likely affecting/affected. The
-commodity path's `computeTopicalFallback()` reuse already computed
-`factors`/`composite` internally the whole time (it's the same function
-Path B uses) — it was being discarded before reaching the response
-instead of forwarded. Fixed: the commodity response now includes
-`composite` (all tiers) and `factors` (Pro/Shark only, same
-`req.tierConfig?.tracker` gate Path B already uses), and all three
-tiers' frontend renders the identical gauge/SIGNALS/RELATED shape for a
-commodity result as it does for any other unresolved query. **Keep this
-symmetry whenever any of these three paths changes** — a fix to Path A/B
-that isn't mirrored into the commodity path (or vice versa) reopens
-exactly the inconsistency this rule exists to prevent.
+**The real shape, once visible via the new logging:** goldprice.dev
+nests the result under a `symbols` array with **string** values, not the
+flat, numeric shape originally assumed:
+```json
+{"symbols":[{"symbol":"XAU","quote_currency":"USD","unit":"troy_ounce",
+"contract_type":"spot","price":"4429.83","bid":"4429.83","ask":"4429.83",
+"is_stale":false,"computed_at":"..."}]}
+```
+`fetchCommodityPrice()` was corrected to read `data.symbols[0].price`
+(falling back to the bid/ask average if `price` is absent), `Number()`-
+coerced, defensively fails safe to `null` with a logged reason on any
+other shape. Confirmed live via a real screenshot: Gold $4429.83/oz.
+
+**The standing rule, confirmed directly by the user and now permanent —
+read this before touching the Agitator Gauge again, do not make the user
+re-state it:** every single query typed into the Agitator, with zero
+exceptions for query type, must produce (1) at least one real, cited news
+article, (2) 2-3 related recommendations, and (3) a composite signal
+score (with Pro/Shark additionally seeing the full per-factor SIGNALS
+breakdown) — uniformly across all current result shapes: a resolved
+company/ticker match (Path A), the no-company topical fallback (Path B),
+and a commodity/currency spot-code match (Path C, xau/xag today). None of
+these three is a lesser or different case — each gets the exact same
+three things. **Do not treat this as optional polish or something to
+re-litigate per request** — a future change to any path that leaves a
+result without a real article, 2-3 recommendations, and a composite score
+is a regression against this rule, not a design choice to reconsider from
+scratch.
+
+**How PR #99/#297 (the final round) closed the gap.** Two sub-gaps found
+in sequence, both fixed the same day:
+- The commodity path initially had no news/related section at all —
+  fixed by reusing `computeTopicalFallback(commodityEntry.name, new
+  Set())` (the same battle-tested Path B mechanism, not a parallel one)
+  to source a real cited article, then building a 3-item RELATED list
+  from `topical.companies` first, falling back to a small hand-curated
+  `COMMODITY_RELATED_FALLBACK` map (`xau`→GDX/NEM/SLV, `xag`→SIL/PAAS/GLD)
+  when the topical result doesn't surface enough real companies.
+- A "confirmation check" question from the user, asking me to verify my
+  own mental model of how the Agitator is wired end-to-end, surfaced a
+  second gap I found and reported precisely rather than just agreeing:
+  `computeTopicalFallback()` was already computing `factors`/`composite`
+  internally for the commodity path (it's the same function Path B
+  uses) — but the commodity response was discarding both before they
+  reached the client, so Pro never saw a signal breakdown for a
+  commodity query even though the data already existed. Confirmed
+  ("yes, wire that through, keep everything consistent throughout") and
+  fixed: the commodity response now includes `composite` (all tiers) and
+  `factors` (Pro/Shark only, same `req.tierConfig?.tracker` gate Path B
+  already uses), and all three tiers' frontend renders the identical
+  gauge/SIGNALS/RELATED shape for a commodity result as for any other
+  unresolved query — same `agitatorFactorRow()`/`relatedRowHTML()`/
+  `addTickerBtnHTML()` components reused verbatim, not reimplemented.
+
+**Keep this symmetry whenever any of these three paths changes** — a fix
+to Path A/B that isn't mirrored into the commodity path (or vice versa)
+reopens exactly the inconsistency this whole saga exists to prevent.
+
+**Verified via real headless Chromium** (mocked `/agitator` responses,
+all three tiers): Pro renders the full gauge + 6-factor SIGNALS +
+RELATED (with working "+" add-to-watchlist buttons) with zero page
+errors; Starter renders the gauge + RELATED but correctly omits SIGNALS,
+matching the Pro-only gate exactly. `npx tsc --noEmit` (same known
+7-error `?v=N` baseline, zero new), `esbuild` rebuild + chunk-header grep
+(no duplicate-module regression across all three bundles), `npm test`
+(72/72) and `node --check` clean in both repos. `?v=` bumped on all
+three tiers' `<script>` tags (Free 87→88, Starter 103→104, Pro 49→50).
+
+**Not yet verified against a live deploy** — same standing posture as
+every backend-dependent feature in this file; goldprice.dev's real
+response shape was confirmed via live Render logs (not this sandbox,
+which cannot reach `api.goldprice.dev`), but the news/recommendations/
+signal-breakdown extension itself hasn't been spot-checked against a
+live deploy yet. To confirm: type "xau" or "xag" into the Agitator on a
+live Pro account and confirm the full gauge + SIGNALS + RELATED render
+alongside the real spot price.
