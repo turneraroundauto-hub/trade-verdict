@@ -8580,3 +8580,124 @@ change that could be coincidental; confirmed the HUD/pane still fill
 available space correctly, unaffected by this pass. `npm test` (72/72)
 and `node --check` clean; `tsc`/`esbuild` chunk-header grep confirm no
 duplicate-module regression (7/8/10 shared modules, unchanged).
+
+## Frontend: landscape mode scales to fit tablets, Chromebooks, and desktop windows — real zoom, not a reflow (Sep 5, 2026, `trade-verdict` PR #315)
+
+Direct question after the landscape HUD work above: "is the landscape
+view adaptable per device? say a 10\" tablet or Chromebook will it
+expand to fit larger screens?" Live-tested rather than guessed — real
+headless-Chromium checks at 1280x800 (10" tablet), 1366x768
+(Chromebook), and 1920x1080 (desktop window) confirmed the honest
+answer was no: `.app-shell` has always capped at `max-width:960px` in
+landscape (`@media (orientation:landscape)`), so anything wider than
+that just centered the same phone-tuned layout with a growing dead
+margin on both sides — fonts, pills, everything stayed pixel-locked at
+their phone size regardless of how much real screen was available.
+
+**Direct correction of my own first framing.** Presented three options
+via `AskUserQuestion` (leave as-is / raise the width cap / a real
+tablet-specific redesign) — none were picked. Instead, a direct
+statement of actual intent: **"Why can't the framing zoom [and]
+maintain aspect ratio and keep font sizes... behave like a normal app
+that adapts naturally for all different screens."** Not a responsive
+reflow into a different (e.g. multi-column) layout — a genuine
+uniform zoom, the whole design scaled up together, matching how a
+native app or a browser's own page-zoom behaves on a larger screen.
+
+**Implementation (`shared/rolodex.ts`, `updateResponsiveScale()`,
+`APP_SCALE_REFERENCE_WIDTH = 960`) — `transform:scale()` on
+`.app-shell`, with one real subtlety worth keeping.** Naively scaling
+up a `height:100dvh` element makes its rendered height grow right
+along with its width (a 1.33x-wider screen scaled 1.33x also renders
+1.33x TALLER), overflowing the real viewport vertically — a
+scale-then-scroll result, not a clean fill. Fixed by feeding
+`.app-shell` an explicit height of `(real viewport height / scale)`
+instead of `100dvh` — rendering the app as if the device were exactly
+960px wide with a proportionally shorter "virtual" height, then
+scaling the whole rendered result back up to real screen pixels. The
+scale-up exactly cancels the height shrink, so the visual result fills
+the real viewport in both dimensions with zero dead margin and zero
+overflow — no page-level scrolling ever needed to see the rest of a
+"too tall" scaled result, unlike a naive width-only scale. Below 960px,
+or in portrait on any device, this is a complete no-op (`transform`/
+`width`/`height` all cleared) — phones are completely untouched.
+
+**Why nothing else in this file's own dock/snap/scroll math needed to
+change.** Every one of those mechanisms (`updateGateDockState()`,
+`snapCardUnderDock()`, the marquee wrap-boundary math, etc.) already
+relies on `getBoundingClientRect()` for real screen positions — which
+already reflects the real, POST-scale position under a CSS transform,
+standard browser behavior, not something this file has to account for.
+The internal layout-budget numbers (`clientHeight`/`scrollHeight`, used
+for things like `GATE_DOCKED_H`) report the PRE-scale "virtual" box
+instead — exactly what's wanted there too, since those only ever need
+to stay internally consistent with each other, never with real screen
+pixels. Wired into both `initLandscapeMode()`'s `matchMedia` change
+listener (recomputed before `activateLandscape()`/`deactivateLandscape()`
+run, since both measure shell-derived dimensions that are only correct
+once the scale is applied for the new orientation) and `initRolodex()`'s
+resize-listener registration, deliberately registered FIRST — same-event
+listeners fire in registration order, and every other resize handler on
+that list measures shell-derived dimensions too.
+
+**A real, embarrassing near-miss caught before shipping, worth keeping
+as its own lesson.** The first attempt at rebuilding the three bundles
+copied forward a `/tmp` backup taken before this session's branch was
+restarted from `origin/main` (per this file's own standard
+already-merged-PR restart protocol) — and that backup was stale
+relative to `origin/main`'s current `starter/app.ts`/`shared/prefs.ts`
+(other, unrelated work had landed on `main` in the meantime). Committing
+it would have silently reverted real, already-shipped functions
+(`buildTemplateFromExample`, `detectTickerInUrl`, `setCustomTemplate`,
+and more) out of `starter/app.js` — invisible in a routine review of
+just the new function's own diff, only surfaced by actually checking
+`git diff origin/main --stat` and noticing an 877-line deletion where a
+~20-line addition was expected. Fixed by discarding the stale bundle
+copies entirely and rebuilding all three fresh via `node
+esbuild.config.mjs` against the real, current source tree — the
+re-diffed result was the clean, expected ~22-line addition per bundle.
+**Lesson: after any branch restart from `origin/main`, verify a
+rebuilt bundle's diff SHAPE against `origin/main` before committing,
+not just that it compiles/typechecks/passes tests — a stale source
+file can produce a bundle that is internally consistent and fully
+green on every check while still silently reverting unrelated, already-
+merged work that happened to land on `main` in between.**
+
+**Verified two ways, not just dimensionally.** (1) Real headless-
+Chromium dimensional checks across phone landscape/portrait (both
+completely untouched — empty inline `transform`/`width`/`height`), a
+10" tablet (1280x800: shell visual rect exactly 1280x800, `scale
+(1.33333)`, virtual `960x600`), a Chromebook window (1366x768: exact
+fill, `scale(1.42292)`, virtual height `539.736px`), and a large
+desktop window (1920x1080: exact fill, `scale(2)`, virtual `960x540`)
+— zero page-level scroll needed and zero page errors in every case.
+(2) Interaction regression AT the scaled tablet dimensions, not just
+static layout — confirmed a real `.click()` on a landscape-ribbon item
+correctly selects that card (both the pane content and the ribbon's own
+`.active` class); confirmed the HUD sizes correctly with the
+Watchlist's real (uncapped, `.utility-pane`-scrolled) content;
+confirmed the Gate genuinely docks on a real wheel-scroll of `#scroller`
+(scrollTop actually moved, `.docked` class applied); confirmed a real
+pointer-drag swipe-to-delete (mouse down → moved 240px left over 15
+steps → up) correctly removes the swiped ticker from the Rolodex stack
+— all four resolving correctly against real, post-transform screen
+coordinates, exactly as `getBoundingClientRect()`/pointer-event
+semantics under CSS transforms are documented to behave, not something
+new this file had to work around.
+
+`npm test` (72/72) and `node --check` clean on all three bundles plus
+`server.js` (untouched — this is a pure frontend change); `tsc --noEmit`
+shows only the known baseline `?v=N` import-resolution errors, zero new;
+chunk-header grep confirms no duplicate-module regression across all
+three bundles (7/8/10 shared modules, matching the established
+baseline). `?v=` bumped on all three tiers' `<script>` tags (`index.html`
+92→93, `starter/index.html` 108→109, `pro/index.html` 54→55).
+
+**Not yet verified on a real physical tablet or Chromebook** — every
+check above is a headless-Chromium viewport simulation, not a real
+device with real touch input, real DPI, or a real on-screen keyboard
+that could resize the viewport mid-session. Spot-check on an actual 10"
+tablet or Chromebook once deployed, particularly around whether the
+zoomed touch-target sizes (pills, ribbon buttons, swipe gestures) feel
+right at real finger scale rather than just passing a synthetic
+pointer-coordinate check.
