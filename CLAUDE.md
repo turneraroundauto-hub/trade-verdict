@@ -8464,3 +8464,60 @@ matches its own card's `background-color` — confirming the mismatch is
 genuinely gone, not just visually covered up by coincidence. Confirmed
 `.ctx-hint`'s computed font-size now equals `.card-sub`'s (13px = 13px)
 via direct measurement, not eyeballed. `npm test` (72/72) unaffected.
+
+## Frontend: landscape HUD — ribbon and card pane now scroll independently (Sep 5, 2026, `trade-verdict` PR #311)
+
+Direct request: in landscape mode (the ribbon+pane consolidation
+documented above, "Landscape HUD"), the utility-card ribbon should
+scroll separately from the active card's pane — a short ribbon
+shouldn't force the pane's own, potentially much longer, content into a
+cramped scrollable area shared with it.
+
+**Real, confirmed bug, same class as this file's own repeated lesson
+about height-boundedness.** `snapLandscapeHudUnderDock()` only ever set
+`.utility-pane`'s own `max-height`, never `.landscape-hud` itself.
+`.landscape-hud` is a plain flex row with the default
+`align-items:stretch` — capping one child's `max-height` doesn't bound
+the *container*; the flex layout just stretches that child back up to
+match its sibling's (the ribbon's) taller natural height, and neither
+ever gets a real bounded box to scroll within. Confirmed live rather
+than reasoned about: `#scroller` (the whole page) was doing all the
+scrolling (`scrollHeight` 1471 vs `clientHeight` 321 in one real test),
+while both `.utility-ribbon` and `.utility-pane` individually reported
+`scrollHeight === their own height` — their already-declared
+`overflow-y:auto` had nothing to actually scroll. The exact "the
+ancestor chain must be height-constrained, not just min-height-floored"
+principle already documented at the top of every tier's `index.html`
+(and repeated in several sticky-header entries above), just never
+applied to the HUD's own box.
+
+**Fix, in `shared/rolodex.ts` (so it applies uniformly to all three
+tiers):** a new `sizeLandscapeHud()` computes the available height once
+— the same `dockOffsetFor()`-based math `snapCardUnderDock()`/
+`recapExpandedCards()` already use for portrait's card-snap — and
+applies it to `.landscape-hud` itself instead of the pane. Both
+children, already `overflow-y:auto`, now stretch to fill that bounded
+height and scroll independently for free — no change needed to either
+child's own CSS. Wired into three places: `activateLandscape()` (so the
+ribbon is scrollable immediately, before any card is ever tapped, not
+just after the first tap triggers `snapLandscapeHudUnderDock()`), the
+existing `window.addEventListener('resize', ...)` block (rotation/
+resize re-sizes it, matching `recapExpandedCards()`'s own pattern), and
+the pre-existing `snapLandscapeHudUnderDock()` call site itself (now
+calling the new function instead of duplicating the math inline).
+`deactivateLandscape()`'s cleanup updated to reset `hud.style.maxHeight`
+instead of the pane's, matching where the constraint now actually lives.
+
+**Verified via real headless Chromium in actual landscape dimensions
+(844x390), on both Pro and Free** (`shared/rolodex.ts` feeds all three
+bundles, so one fix covers all of them): with a genuinely tall
+Watchlist (35 overflow rows) and Glossary (90+ terms) open, confirmed
+both the ribbon and the pane are independently, internally scrollable;
+confirmed scrolling the ribbon to its end leaves the pane's on-screen
+position completely unaffected, and vice versa; confirmed `#scroller`
+is no longer the thing doing the scrolling for this content once a
+card with real height is open. `npx tsc --noEmit`/`esbuild` rebuild +
+chunk-header grep (no duplicate-module regression, same 7/8/10 shared-
+module counts as before) /`npm test` (72/72) all clean. `?v=` bumped on
+all three tiers' `<script>` tags (Free 90→91, Starter 106→107, Pro
+52→53).
