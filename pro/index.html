@@ -175,7 +175,7 @@
   .card-label{ font-size:13px; letter-spacing:.09em; text-transform:uppercase; font-weight:700; color:var(--purple); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .card-sub{ font-size:13px; color:var(--ink-dim); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .card-count-badge{ font-size:11px; font-weight:700; color:var(--ink); background:rgba(255,255,255,.06); border-radius:3px; padding:1px 7px; flex:none; }
-  .chevron{ flex:none; width:16px; height:16px; color:var(--ink-faint); transition:transform .2s ease; }
+  .chevron{ flex:none; width:17px; height:17px; color:var(--ink); transition:transform .2s ease; }
   .card.expanded .chevron{ transform:rotate(180deg); }
   .card-body{ display:grid; grid-template-rows:0fr; transition:grid-template-rows .22s ease; }
   .card.expanded .card-body{ grid-template-rows:1fr; }
@@ -413,8 +413,8 @@
   .nav-hint{ font-size:13px; color:var(--ink-dim); }
 
   /* ── PRO — Watchlist overflow (unlimited, beyond the 15-card window) ── */
-  .wl-overflow-hdr{ display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
-  .compact-sort-btn{ width:22px; height:22px; border:1px solid var(--border); border-radius:5px; background:var(--surface-2); color:var(--ink); font-size:12px; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; }
+  .wl-overflow-hdr{ display:flex; justify-content:space-between; align-items:center; gap:8px; row-gap:6px; margin-bottom:8px; flex-wrap:wrap; }
+  .compact-sort-btn{ width:24px; height:24px; border:1px solid var(--border); border-radius:5px; background:var(--surface-2); color:var(--ink); font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; }
   .compact-list{ display:flex; flex-direction:column; gap:6px; }
   .compact-row-wrap{ position:relative; }
   .compact-row-wrap.swiping{ user-select:none; -webkit-user-select:none; }
@@ -434,11 +434,11 @@
   .track-empty{ font-size:13px; color:var(--ink-dim); text-align:center; padding:16px 0; font-style:italic; }
 
   /* ── PRO — Proxy Resolution Explorer ────────────────────────────────── */
-  .proxy-sort-row{ display:flex; align-items:center; gap:8px; margin-bottom:8px; }
-  .sort-btn{ height:24px; border:1px solid var(--border); border-radius:4px; padding:0 8px; font-family:var(--mono); font-size:11px; font-weight:700; cursor:pointer; background:transparent; color:var(--ink-dim); display:flex; align-items:center; gap:4px; letter-spacing:.04em; }
+  .proxy-sort-row{ display:flex; align-items:center; gap:8px; row-gap:6px; margin-bottom:8px; flex-wrap:wrap; }
+  .sort-btn{ height:24px; border:1px solid var(--border); border-radius:4px; padding:0 8px; font-family:var(--mono); font-size:13px; font-weight:700; cursor:pointer; background:transparent; color:var(--ink-dim); display:flex; align-items:center; gap:4px; letter-spacing:.04em; }
   .sort-btn-active{ color:var(--purple); border-color:rgba(206,147,216,.4); background:var(--purple-dim); }
   .sort-arrow{ font-size:12px; }
-  .proxy-refresh-btn{ width:24px; height:24px; border:1px solid rgba(74,168,255,.4); border-radius:5px; background:var(--blue-dim); color:var(--blue); font-size:15px; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; margin-left:auto; }
+  .proxy-refresh-btn{ width:24px; height:24px; border:1px solid rgba(74,168,255,.4); border-radius:5px; background:var(--blue-dim); color:var(--blue); font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; margin-left:auto; }
   .proxy-item{ padding:10px 0; border-bottom:1px solid var(--border); }
   .proxy-item:last-child{ border-bottom:none; }
   .proxy-item-head{ display:flex; justify-content:space-between; align-items:center; gap:8px; }
@@ -454,7 +454,7 @@
   .proxy-shark-tease a{ font-family:var(--mono); font-size:11px; font-weight:700; color:var(--ink-dim); text-decoration:none; letter-spacing:.04em; }
 
   /* ── PRO — Sector Heat Map ──────────────────────────────────────────── */
-  .heat-section-lbl{ font-size:11px; font-weight:700; color:var(--ink-dim); letter-spacing:.1em; margin:10px 0 6px; }
+  .heat-section-lbl{ font-size:13px; font-weight:700; color:var(--ink-dim); letter-spacing:.1em; margin:10px 0 6px; }
   .heat-section-lbl:first-child{ margin-top:0; }
   .heat-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(72px,1fr)); gap:6px; }
   .heat-tile{ border:1px solid; border-radius:6px; padding:8px 6px; display:flex; flex-direction:column; align-items:center; gap:2px; transition:background .3s,border-color .3s; }
