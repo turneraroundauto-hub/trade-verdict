@@ -8193,3 +8193,39 @@ signal-breakdown extension itself hasn't been spot-checked against a
 live deploy yet. To confirm: type "xau" or "xag" into the Agitator on a
 live Pro account and confirm the full gauge + SIGNALS + RELATED render
 alongside the real spot price.
+
+**Follow-up, same day: XAG was still showing the SLV proxy live, real root
+cause found and fixed (`Tra` PR #100 / `trade-verdict` PR #299, both
+merged).** A real screenshot showed silver still falling back to the SLV
+tradable proxy after the deploy above. Checked live Render logs before
+guessing: XAU consistently resolves (`fetchCommodityPrice xau: resolved
+$4429.83`), but XAG consistently returns `fetchCommodityPrice xag:
+goldprice.dev 403` — including on a request sent minutes after this
+exact deploy, ruling out staleness/propagation. Confirmed via the
+provider's own documentation (not guessed): **goldprice.dev's free plan
+is XAU-only — silver and copper spot require their paid Pro tier.** A
+permanent plan gate, not a transient error or a code bug.
+
+Presented the real trade-off to the user via `AskUserQuestion` — upgrade
+goldprice.dev to Pro (real recurring cost), find a different free XAG
+source, or accept the SLV-proxy fallback as XAG's permanent behavior.
+**Chose: find a different free source.** `fetchCommodityPrice("xag")` now
+routes to a new `fetchSilverSpotFallback()` using **gold-api.com**, a
+keyless single-endpoint API whose free tier includes silver (confirmed
+via its own public docs) — XAU is completely unaffected, still goes
+through goldprice.dev exactly as before. Parsed defensively against
+several plausible field names and logs the raw response body on any
+shape mismatch, applying the goldprice.dev saga's own hard-won lesson
+directly: never let a shape mismatch return `null` with zero log trace,
+or the next report costs a second full guessing round instead of one log
+check.
+
+**Unverified against a live response** — gold-api.com is unreachable from
+this sandbox (egress-blocked), so the field-name guesses (`price`/`rate`/
+`value`) are reasoned from public write-ups describing it as a clean,
+single-endpoint JSON API, not confirmed against a real fetched response —
+same posture as every other integration in this file built this way. To
+confirm: check Render logs for `fetchSilverSpotFallback` after deploy —
+either `resolved $X` (shape matches) or `unexpected response shape: ...`
+(logged raw body tells you the real shape immediately, rather than
+needing a second live report to find out).
