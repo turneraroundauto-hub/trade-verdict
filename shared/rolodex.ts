@@ -492,14 +492,36 @@ export function isLandscapeMode(): boolean {
   return lsIsActive;
 }
 
+// Bounds the whole HUD (ribbon + pane), not just the pane -- confirmed
+// real (Sep 5, 2026): only capping .utility-pane's own max-height left
+// .landscape-hud itself unbounded, so the flex default (align-items:
+// stretch) just stretched the pane back up to match .utility-ribbon's
+// own taller natural height, and neither ever got a real bounded box to
+// scroll independently within -- the whole page (#scroller) scrolled as
+// one unit instead, confirmed directly (scroller.scrollHeight vastly
+// exceeding its clientHeight while both ribbon and pane individually
+// reported scrollHeight === their own height, i.e. their already-declared
+// overflow-y:auto had nothing to actually scroll). Exactly the "the
+// ancestor chain must be height-constrained, not just min-height-
+// floored" lesson already documented at the top of this file, applied
+// here to the HUD's own box -- once IT has a real max-height, both
+// children (each already overflow-y:auto) stretch to fill it and scroll
+// independently for free.
+function sizeLandscapeHud(): void {
+  if (!lsEls) return;
+  const roloIndexH = els.roloIndex.getBoundingClientRect().height;
+  const dockOffset = dockOffsetFor(lsEls.hud, roloIndexH);
+  const available = els.scroller.clientHeight - dockOffset - LANDSCAPE_HUD_BOTTOM_MARGIN;
+  lsEls.hud.style.maxHeight = Math.max(LANDSCAPE_HUD_MIN_HEIGHT, available) + 'px';
+}
+
 function snapLandscapeHudUnderDock(hudEl: HTMLElement): void {
   if (!lsEls) return;
   const roloIndexH = forceGateDockedSync();
   const dockOffset = dockOffsetFor(hudEl, roloIndexH);
   hudEl.style.scrollMarginTop = dockOffset + 'px';
   hudEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  const available = els.scroller.clientHeight - dockOffset - LANDSCAPE_HUD_BOTTOM_MARGIN;
-  lsEls.pane.style.maxHeight = Math.max(LANDSCAPE_HUD_MIN_HEIGHT, available) + 'px';
+  sizeLandscapeHud();
 }
 
 function buildLandscapeRibbon(cards: HTMLElement[]): void {
@@ -538,7 +560,7 @@ function activateLandscape(): void {
   if (!lsEls.ribbon.childElementCount) buildLandscapeRibbon(cards);
   lsIsActive = true;
   if (lsActiveCard) selectLandscapeCard(lsActiveCard);
-  else lsEls.empty.style.display = '';
+  else { lsEls.empty.style.display = ''; sizeLandscapeHud(); }
 }
 
 function deactivateLandscape(): void {
@@ -548,7 +570,7 @@ function deactivateLandscape(): void {
     if (anchor) anchor.parent.insertBefore(card, anchor.next);
     card.classList.remove('landscape-active');
   });
-  lsEls.pane.style.maxHeight = '';
+  lsEls.hud.style.maxHeight = '';
   lsIsActive = false;
 }
 
@@ -947,6 +969,7 @@ export function initRolodex(elements: RolodexElements, callbacks: RolodexCallbac
   window.addEventListener('resize', recapExpandedCards);
   window.addEventListener('resize', syncRoloStageHeight);
   window.addEventListener('resize', sizeRoloIndexOffset);
+  window.addEventListener('resize', sizeLandscapeHud);
 
   let gateTickingLocal = false;
   els.scroller.addEventListener('scroll', () => {
