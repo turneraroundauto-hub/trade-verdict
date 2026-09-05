@@ -2241,10 +2241,14 @@ const COMMODITY_CODES = {
 };
 // Real spot price via goldprice.dev's public /v1/prices endpoint -- mirror
 // of Tra, see that repo's own comment for the full rationale (a
-// purpose-built, keyless commodity spot-price API, replacing a Finnhub
-// forex quote that a live report confirmed was producing nothing).
-// UNVERIFIED AGAINST A LIVE RESPONSE -- parsed defensively, fails safe to
-// null on any shape mismatch or network error.
+// purpose-built commodity spot-price API, replacing a Finnhub forex quote
+// that a live report confirmed was producing nothing). Parsed defensively,
+// fails safe to null on any shape mismatch or network error.
+//
+// REQUIRES GOLDPRICE_API_KEY -- confirmed live (Sep 5, 2026) that
+// unauthenticated requests get a flat 403, contradicting the provider's
+// own "no API key required for basic access" docs this was first built
+// from. Sent as a Bearer token per the provider's documented auth scheme.
 const GOLDPRICE_SYMBOLS = { xau: "XAU-USD-SPOT", xag: "XAG-USD-SPOT" };
 const GOLDPRICE_MAX_AGE_MS = 2 * 60 * 1000;
 const goldpriceCache = new Map(); // code -> { result, time }
@@ -2253,12 +2257,14 @@ async function fetchCommodityPrice(code) {
   const entry = COMMODITY_CODES[code];
   const symbol = GOLDPRICE_SYMBOLS[code];
   if (!entry || !symbol) return null;
+  const apiKey = process.env.GOLDPRICE_API_KEY;
+  if (!apiKey) { console.error(`fetchCommodityPrice ${code}: no GOLDPRICE_API_KEY set`); return null; }
   const cached = goldpriceCache.get(code);
   if (cached && Date.now() - cached.time < GOLDPRICE_MAX_AGE_MS) return cached.result;
   try {
     const res = await fetchWithTimeout(
       `https://api.goldprice.dev/v1/prices?symbol=${encodeURIComponent(symbol)}`,
-      { headers: { "User-Agent": "TradeTribunal/4.0" } }, 8000
+      { headers: { "User-Agent": "TradeTribunal/4.0", "Authorization": `Bearer ${apiKey}` } }, 8000
     );
     if (!res.ok) throw new Error(`goldprice.dev ${res.status}`);
     const data = await res.json();
@@ -5105,6 +5111,7 @@ app.listen(PORT, async () => {
   console.log(`Supabase:    ${!!supabase}`);
   console.log(`Stripe WH:   ${!!process.env.STRIPE_WEBHOOK_SECRET}`);
   console.log(`Neo4j:       ${kg.isConfigured()}`);
+  console.log(`Goldprice:   ${!!process.env.GOLDPRICE_API_KEY}`);
 
   // Company/Industry Knowledge Graph (Phase 1) — idempotent, never thrown
   // into boot: a Neo4j outage/misconfig at startup must not take the API
