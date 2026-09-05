@@ -2239,6 +2239,22 @@ const COMMODITY_CODES = {
   xau: { name: "Gold", unit: "oz t", url: "https://www.investing.com/currencies/xau-usd", proxyTicker: "GLD" },
   xag: { name: "Silver", unit: "oz t", url: "https://www.investing.com/currencies/xag-usd", proxyTicker: "SLV" },
 };
+// Mirror of Tra -- guaranteed-real backfill for the commodity RELATED
+// section (CLAUDE.md, "every query gets a news article + 2-3
+// recommendations, EVERY TIME"). Each metal's own tradable proxy is
+// excluded here since it's already shown in its own line.
+const COMMODITY_RELATED_FALLBACK = {
+  xau: [
+    { symbol: "GDX", name: "VanEck Gold Miners ETF" },
+    { symbol: "NEM", name: "Newmont Corporation" },
+    { symbol: "SLV", name: "iShares Silver Trust" },
+  ],
+  xag: [
+    { symbol: "SIL", name: "Global X Silver Miners ETF" },
+    { symbol: "PAAS", name: "Pan American Silver Corp." },
+    { symbol: "GLD", name: "SPDR Gold Shares" },
+  ],
+};
 // Real spot price via goldprice.dev's public /v1/prices endpoint -- mirror
 // of Tra, see that repo's own comment for the full rationale (a
 // purpose-built commodity spot-price API, replacing a Finnhub forex quote
@@ -3414,10 +3430,39 @@ app.get("/agitator", async (req, res) => {
   const commodityEntry = COMMODITY_CODES[raw.toLowerCase()];
   if (commodityEntry) {
     const commodityCode = raw.toLowerCase();
-    const [spot, proxyQuote] = await Promise.all([
+    // Same isFull gate Path B uses (req.tierConfig?.tracker, true for
+    // Pro/Shark) -- kept consistent across every Agitator result shape.
+    const isFullCommodity = !!req.tierConfig?.tracker;
+    // Mirror of Tra -- mandatory rule (CLAUDE.md, Sep 5 2026): every
+    // Agitator query, commodities included, gets a real cited news
+    // article and 2-3 real recommendations, reusing
+    // computeTopicalFallback() rather than a second parallel mechanism.
+    const [spot, proxyQuote, topical] = await Promise.all([
       fetchCommodityPrice(commodityCode),
       fetchQuote(commodityEntry.proxyTicker),
+      computeTopicalFallback(commodityEntry.name, new Set()),
     ]);
+    const relatedSymbols = [];
+    const seenRelated = new Set([commodityEntry.proxyTicker]);
+    for (const c of (topical?.companies || [])) {
+      if (relatedSymbols.length >= 3) break;
+      if (seenRelated.has(c.symbol)) continue;
+      seenRelated.add(c.symbol);
+      relatedSymbols.push(c.symbol);
+    }
+    for (const c of (COMMODITY_RELATED_FALLBACK[commodityCode] || [])) {
+      if (relatedSymbols.length >= 3) break;
+      if (seenRelated.has(c.symbol)) continue;
+      seenRelated.add(c.symbol);
+      relatedSymbols.push(c.symbol);
+    }
+    const relatedQuotes = await Promise.all(relatedSymbols.map(s => fetchQuote(s)));
+    const related = relatedSymbols.map((symbol, i) => {
+      const q = relatedQuotes[i];
+      const known = COMMODITY_RELATED_FALLBACK[commodityCode]?.find(c => c.symbol === symbol);
+      const fromTopical = topical?.companies?.find(c => c.symbol === symbol);
+      return { symbol, name: known?.name || fromTopical?.name || symbol, price: q ? q.price : null, change: q ? q.change : null, direction: q ? q.direction : "flat" };
+    });
     return res.json({
       resolved: false,
       query: raw,
@@ -3430,6 +3475,12 @@ app.get("/agitator", async (req, res) => {
         proxyTicker: commodityEntry.proxyTicker,
         proxyPrice: proxyQuote ? proxyQuote.price : null,
         proxyChange: proxyQuote ? proxyQuote.change : null,
+        news: topical ? { headline: topical.headline, url: topical.url, source: topical.source, sentiment: topical.sentiment, summary: topical.summary } : null,
+        related,
+        // Mirror of Tra -- computeTopicalFallback() already computes
+        // this, previously discarded here rather than forwarded.
+        composite: topical ? topical.composite : null,
+        factors: (topical && isFullCommodity) ? topical.factors : undefined,
       },
     });
   }
