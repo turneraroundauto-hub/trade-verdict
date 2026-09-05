@@ -8285,3 +8285,44 @@ every backend change in this file. To confirm: type "oil", "copper", or
 the SPOT PRICE card with its tradable proxy, a real cited article, 2-3
 RELATED recommendations, and a composite score — the same treatment
 gold/silver already get.
+
+**Follow-up, same day: gauge copy fixed on direct feedback against a live
+screenshot (`trade-verdict` PR #303, merged, frontend-only — no `Tra`
+change needed).** The Sep 5, 2026 screenshot that surfaced the XAG spot-
+price bug (now fixed via gold-api.com, see above) also showed two real
+copy/UI problems once the spot price itself started working correctly:
+
+1. **The gauge row's ticker slot showed a plain "---" for every
+   commodity result**, even though a real, tradable proxy ticker (SLV/
+   GLD/USO/etc.) already exists and is exactly what the score is
+   grading. Direct feedback: "the tradable proxy should be what is
+   being graded — where the dashes are." Fixed by replacing the "---"
+   with a real hyperlink to the proxy ticker itself
+   (`tickerHref(cm.proxyTicker)`) — matching the mandatory "every
+   ticker symbol is a hyperlink" rule and the same ticker already shown
+   in the proxy line and RELATED section directly above/below it.
+2. **The disclaimer's trailing clause contradicted the proxy shown right
+   above it.** "not a company, so no Gate breakdown or watchlist entry
+   applies here" is true of the abstract commodity itself, but reads as
+   false and disjointed sitting directly under a real, watchlist-
+   eligible ticker (SLV) — direct feedback: "it seems disjointed the
+   way the jargon is written since slv is tradable." Removed the clause
+   entirely per direct instruction; the disclaimer now just states
+   whether the spot price is live or proxy-only, nothing else.
+
+**Left deliberately untouched:** the topical-fallback path's own "---"
+gauge label (a genuinely unresolved query with no company and no
+tradable proxy at all) — that one is correct as-is, since there's
+truly no ticker to show there. Confirmed by reading the code that this
+is a structurally different code path (`tGaugeHTML`, not `cmGaugeHTML`)
+before touching anything, so the fix couldn't accidentally spread to
+the one case where dashes are actually the right answer.
+
+**Verified via real headless Chromium** (mocked `/agitator`, Free tier,
+same Service-Worker-blocking technique this file's own testing notes
+already prescribe): confirmed the gauge row renders a real hyperlinked
+`SLV` in place of the old dashes, confirmed the "not a company" clause
+is completely absent from the rendered disclaimer, zero page errors.
+`tsc`/`esbuild`+chunk-header-grep/`npm test` (72/72) all clean across
+all three tiers. `?v=` bumped on all three tiers' `<script>` tags (Free
+88→89, Starter 104→105, Pro 50→51).
