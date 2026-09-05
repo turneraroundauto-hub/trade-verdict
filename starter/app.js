@@ -1201,6 +1201,7 @@ function snapCardUnderDock(cardEl) {
   body.style.gridTemplateRows = "";
 }
 function recapExpandedCards() {
+  if (isLandscapeMode()) return;
   const roloIndexH = els.roloIndex.getBoundingClientRect().height;
   document.querySelectorAll(".card.expanded[data-card]").forEach((cardEl) => {
     capCardBodyHeight(cardEl, dockOffsetFor(cardEl, roloIndexH));
@@ -1250,7 +1251,10 @@ function selectLandscapeCard(card) {
     c.classList.toggle("landscape-active", c === card);
   });
   Array.from(lsEls.ribbon.children).forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.card === card.dataset.card);
+    const el = btn;
+    const active = el.dataset.card === card.dataset.card;
+    el.classList.toggle("active", active);
+    if (active) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
   });
   if (lsOnSelect) lsOnSelect(card);
   snapLandscapeHudUnderDock(lsEls.hud);
@@ -1260,6 +1264,8 @@ function activateLandscape() {
   const cards = Array.from(document.querySelectorAll(".card[data-card]"));
   cards.forEach((card) => {
     if (!lsAnchors.has(card)) lsAnchors.set(card, { parent: card.parentNode, next: card.nextSibling });
+    const pad = card.querySelector(".card-body-pad");
+    if (pad) pad.style.maxHeight = "";
     lsEls.pane.appendChild(card);
   });
   if (!lsEls.ribbon.childElementCount) buildLandscapeRibbon(cards);
