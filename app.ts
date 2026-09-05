@@ -841,7 +841,16 @@ async function runAgitatorCheck(): Promise<void> {
         var sentColor = topical.sentiment === 'BULLISH' ? 'var(--green)' : topical.sentiment === 'BEARISH' ? 'var(--red)' : 'var(--amber)';
         var tComp = topical.composite;
         var tGaugeColor = !tComp ? 'var(--ink-dim)' : tComp.level === 'HIGH' ? 'var(--red)' : tComp.level === 'MEDIUM' ? 'var(--amber)' : 'var(--green)';
-        var tGaugeHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span style="width:8px;height:8px;border-radius:50%;flex:none;display:inline-block;background:' + sentColor + '"></span><span class="trigger-lbl">---</span></span>'
+        // Same fix as the commodity gauge above: "---" only stands in when
+        // there's genuinely no tradable correlation at all. When the
+        // topical fallback DID validate a real company mentioned in the
+        // article (topical.companies, already the same real, hyperlinked
+        // tickers the RELATED list below shows), the first/most relevant
+        // one is what's actually being scored -- show it, don't hide it
+        // behind dashes.
+        var tPrimary = (topical.companies && topical.companies.length) ? topical.companies[0] : null;
+        var tTickerLabel = tPrimary ? '<a href="' + tickerHref(tPrimary.symbol) + '" target="_blank">' + tPrimary.symbol + '</a>' : '---';
+        var tGaugeHTML = '<div class="trigger-row"><span class="trigger-lbl-wrap"><span style="width:8px;height:8px;border-radius:50%;flex:none;display:inline-block;background:' + sentColor + '"></span><span class="trigger-lbl">' + tTickerLabel + '</span></span>'
           + '<span class="trigger-val-wrap"><span class="trigger-val" style="color:' + tGaugeColor + '">' + (tComp ? tComp.level : 'N/A') + '</span>'
           + '<button type="button" class="help-btn" data-help="agitator-score" aria-label="What is this?">?</button></span>'
           + '<span class="trigger-sub">' + topical.sentiment + (tComp ? ' · ' + Math.round(tComp.score / 10) + '/10' : '') + '</span></div>';
