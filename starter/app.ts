@@ -1208,6 +1208,18 @@ async function runAgitatorCheck(): Promise<void> {
     if (res.status === 403) { out.innerHTML = '<div class="track-empty">Agitator Gauge not available on this tier yet.</div>'; return; }
     if (res.status === 429) { out.innerHTML = '<div class="track-empty">Too many checks this hour — try again later.</div>'; return; }
     var data = await res.json();
+    // Commodity/currency spot codes (xau/xag) are their own distinct
+    // result -- checked before the resolved/topical branches below, since
+    // a commodity response also carries resolved:false but needs a
+    // completely different render (a live spot price, not a company: no
+    // gauge score, no comps, no Gate data, none of which apply to a metal).
+    if (data.commodity) {
+      var cm = data.commodity;
+      out.innerHTML = '<div class="track-log-title">SPOT PRICE</div>'
+        + '<div class="headline" style="margin-top:8px">' + cm.name + ' (' + cm.code + ') — <a href="' + cm.url + '" target="_blank">$' + cm.price.toFixed(2) + ' / ' + cm.unit + '</a></div>'
+        + '<div class="track-empty" style="margin-top:6px">Live commodity spot price — not a company, so no Gate breakdown or watchlist entry applies here.</div>';
+      return;
+    }
     if (!data.resolved) {
       // Fix 1: a 'partial' match (e.g. "Summit" vs "Summit Therapeutics")
       // is never auto-accepted -- surfaced as a one-tap "Did you mean"
