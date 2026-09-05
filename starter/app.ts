@@ -1240,7 +1240,7 @@ async function runAgitatorCheck(): Promise<void> {
       // different one with a spot price prepended.
       var cmComp = cm.composite;
       var cmGaugeColor = !cmComp ? 'var(--ink-dim)' : cmComp.level === 'HIGH' ? 'var(--red)' : cmComp.level === 'MEDIUM' ? 'var(--amber)' : 'var(--green)';
-      var cmGaugeHTML = '<div class="trigger-row" style="margin-top:8px"><span class="trigger-lbl-wrap"><span class="trigger-lbl">---</span></span>'
+      var cmGaugeHTML = '<div class="trigger-row" style="margin-top:8px"><span class="trigger-lbl-wrap"><span class="trigger-lbl"><a href="' + tickerHref(cm.proxyTicker) + '" target="_blank">' + cm.proxyTicker + '</a></span></span>'
         + '<span class="trigger-val-wrap"><span class="trigger-val" style="color:' + cmGaugeColor + '">' + (cmComp ? cmComp.level : 'N/A') + '</span>'
         + '<button type="button" class="help-btn" data-help="agitator-score" aria-label="What is this?">?</button></span>'
         + '<span class="trigger-sub">' + (cmComp ? Math.round(cmComp.score / 10) + '/10' : 'no data') + '</span></div>';
@@ -1262,7 +1262,7 @@ async function runAgitatorCheck(): Promise<void> {
             ? '<div class="compact-list">' + cm.related.map(relatedRowHTML).join('') + '</div>'
             : '<div class="track-empty">No related companies found.</div>');
       out.innerHTML = '<div class="track-log-title">SPOT PRICE</div>' + spotHTML + proxyHTML
-        + '<div class="track-empty" style="margin-top:6px">' + (spotHTML ? 'Live commodity spot price' : cm.name + ' spot price unavailable — showing its tradable proxy instead') + ' — not a company, so no Gate breakdown or watchlist entry applies here.</div>'
+        + '<div class="track-empty" style="margin-top:6px">' + (spotHTML ? 'Live commodity spot price.' : cm.name + ' spot price unavailable — showing its tradable proxy instead.') + '</div>'
         + cmGaugeHTML + cmNewsHTML + cmFactorsHTML + cmRelatedHTML;
       wireAgitatorAddButtons(out);
       if (!rolodex.isLandscapeMode()) rolodex.snapCardUnderDock(document.getElementById('card-agitator') as HTMLElement);
