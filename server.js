@@ -2232,24 +2232,43 @@ async function resolveCompanyEntity(query, knownSymbols) {
 // XAG are ISO 4217 currency codes, not companies or tradable tickers, so
 // there's no company to "figure out" for them -- this is a real live spot
 // price instead, not a company match).
-// proxyTicker (GLD/SLV) added after a live report confirmed the forex spot-
-// price fetch below fails on this Finnhub key (plausibly a free-tier forex-
-// entitlement gap) -- see Tra's own comment for the full rationale. GLD/SLV
-// are real, reliably-quotable ETPs via the same fetchQuote() every other
-// ticker here uses, so they're the guaranteed fallback the spot price never
-// was -- always labeled "tradable proxy," never presented as the same
-// instrument as the metal itself.
+// proxyTicker (GLD/SLV) via the same fetchQuote() every other ticker here
+// uses -- kept alongside the real spot price below (not just a fallback
+// for it), never presented as the same instrument as the metal itself.
 const COMMODITY_CODES = {
-  xau: { name: "Gold", forexSymbol: "OANDA:XAU_USD", unit: "oz t", url: "https://www.investing.com/currencies/xau-usd", proxyTicker: "GLD" },
-  xag: { name: "Silver", forexSymbol: "OANDA:XAG_USD", unit: "oz t", url: "https://www.investing.com/currencies/xag-usd", proxyTicker: "SLV" },
+  xau: { name: "Gold", unit: "oz t", url: "https://www.investing.com/currencies/xau-usd", proxyTicker: "GLD" },
+  xag: { name: "Silver", unit: "oz t", url: "https://www.investing.com/currencies/xag-usd", proxyTicker: "SLV" },
 };
+// Real spot price via goldprice.dev's public /v1/prices endpoint -- mirror
+// of Tra, see that repo's own comment for the full rationale (a
+// purpose-built, keyless commodity spot-price API, replacing a Finnhub
+// forex quote that a live report confirmed was producing nothing).
+// UNVERIFIED AGAINST A LIVE RESPONSE -- parsed defensively, fails safe to
+// null on any shape mismatch or network error.
+const GOLDPRICE_SYMBOLS = { xau: "XAU-USD-SPOT", xag: "XAG-USD-SPOT" };
+const GOLDPRICE_MAX_AGE_MS = 2 * 60 * 1000;
+const goldpriceCache = new Map(); // code -> { result, time }
+
 async function fetchCommodityPrice(code) {
   const entry = COMMODITY_CODES[code];
-  if (!entry) return null;
+  const symbol = GOLDPRICE_SYMBOLS[code];
+  if (!entry || !symbol) return null;
+  const cached = goldpriceCache.get(code);
+  if (cached && Date.now() - cached.time < GOLDPRICE_MAX_AGE_MS) return cached.result;
   try {
-    const data = await finnhubGet(`/quote?symbol=${encodeURIComponent(entry.forexSymbol)}`);
-    if (!data || typeof data.c !== "number" || data.c <= 0) return null;
-    return { name: entry.name, code: code.toUpperCase(), price: data.c, unit: entry.unit, url: entry.url };
+    const res = await fetchWithTimeout(
+      `https://api.goldprice.dev/v1/prices?symbol=${encodeURIComponent(symbol)}`,
+      { headers: { "User-Agent": "TradeTribunal/4.0" } }, 8000
+    );
+    if (!res.ok) throw new Error(`goldprice.dev ${res.status}`);
+    const data = await res.json();
+    const raw = typeof data?.price === "number" ? data.price
+      : (typeof data?.bid === "number" && typeof data?.ask === "number") ? (data.bid + data.ask) / 2
+      : null;
+    if (raw == null || raw <= 0) return null;
+    const result = { name: entry.name, code: code.toUpperCase(), price: raw, unit: entry.unit, url: entry.url };
+    goldpriceCache.set(code, { result, time: Date.now() });
+    return result;
   } catch (e) {
     console.error(`fetchCommodityPrice ${code}:`, e.message);
     return null;
