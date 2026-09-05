@@ -2232,9 +2232,16 @@ async function resolveCompanyEntity(query, knownSymbols) {
 // XAG are ISO 4217 currency codes, not companies or tradable tickers, so
 // there's no company to "figure out" for them -- this is a real live spot
 // price instead, not a company match).
+// proxyTicker (GLD/SLV) added after a live report confirmed the forex spot-
+// price fetch below fails on this Finnhub key (plausibly a free-tier forex-
+// entitlement gap) -- see Tra's own comment for the full rationale. GLD/SLV
+// are real, reliably-quotable ETPs via the same fetchQuote() every other
+// ticker here uses, so they're the guaranteed fallback the spot price never
+// was -- always labeled "tradable proxy," never presented as the same
+// instrument as the metal itself.
 const COMMODITY_CODES = {
-  xau: { name: "Gold", forexSymbol: "OANDA:XAU_USD", unit: "oz t", url: "https://www.investing.com/currencies/xau-usd" },
-  xag: { name: "Silver", forexSymbol: "OANDA:XAG_USD", unit: "oz t", url: "https://www.investing.com/currencies/xag-usd" },
+  xau: { name: "Gold", forexSymbol: "OANDA:XAU_USD", unit: "oz t", url: "https://www.investing.com/currencies/xau-usd", proxyTicker: "GLD" },
+  xag: { name: "Silver", forexSymbol: "OANDA:XAG_USD", unit: "oz t", url: "https://www.investing.com/currencies/xag-usd", proxyTicker: "SLV" },
 };
 async function fetchCommodityPrice(code) {
   const entry = COMMODITY_CODES[code];
@@ -3359,13 +3366,34 @@ app.get("/agitator", async (req, res) => {
   let headlineOverride = req.query.headline ? String(req.query.headline).trim() : null;
 
   // Commodity/currency spot code (xau/xag) -- mirror of Tra, see that
-  // repo's own comment for the full rationale. Checked first, short-
-  // circuits entirely on success; falls through to the normal flow
-  // (which correctly finds no company) on any failure.
+  // repo's own comment for the full rationale. Always returns its own
+  // commodity result now (never falls through to company resolution) --
+  // a live report confirmed the old fall-through produced an unrelated
+  // Benzinga article once the forex spot-price fetch failed. Builds the
+  // result from the spot price and/or the proxy ticker's own live quote,
+  // whichever succeeded -- the proxy quote (GLD/SLV via fetchQuote()) is
+  // the guaranteed half.
   const commodityEntry = COMMODITY_CODES[raw.toLowerCase()];
   if (commodityEntry) {
-    const commodity = await fetchCommodityPrice(raw.toLowerCase());
-    if (commodity) return res.json({ resolved: false, query: raw, commodity });
+    const commodityCode = raw.toLowerCase();
+    const [spot, proxyQuote] = await Promise.all([
+      fetchCommodityPrice(commodityCode),
+      fetchQuote(commodityEntry.proxyTicker),
+    ]);
+    return res.json({
+      resolved: false,
+      query: raw,
+      commodity: {
+        name: commodityEntry.name,
+        code: commodityCode.toUpperCase(),
+        price: spot ? spot.price : null,
+        unit: commodityEntry.unit,
+        url: commodityEntry.url,
+        proxyTicker: commodityEntry.proxyTicker,
+        proxyPrice: proxyQuote ? proxyQuote.price : null,
+        proxyChange: proxyQuote ? proxyQuote.change : null,
+      },
+    });
   }
 
   try {
