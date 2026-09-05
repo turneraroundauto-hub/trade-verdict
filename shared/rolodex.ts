@@ -463,6 +463,65 @@ function recapExpandedCards(): void {
   });
 }
 
+// ── Responsive scale-to-fit for wide landscape screens ──────────────────
+// The whole app is a fixed-max-width single column (960px in landscape) --
+// correct for a rotated phone, but on a real 10" tablet, Chromebook, or
+// desktop browser window it used to just sit centered with growing dead
+// margin on both sides while every element (ribbon, pills, text) stayed
+// pixel-locked at its phone-tuned size. Direct request: "the framing
+// [should] zoom [and] maintain aspect ratio and keep font sizes... behave
+// like a normal app that adapts naturally for all different screens" --
+// i.e. scale the whole design up uniformly to fill a wider screen, not a
+// responsive reflow into a different (e.g. multi-column) layout.
+//
+// Implementation: CSS transform:scale() on .app-shell, computed from real
+// viewport width vs REFERENCE_WIDTH. The one real subtlety: scale()
+// changes what an element LOOKS like, not the layout box it occupies --
+// naively scaling up a height:100dvh element makes its rendered height
+// grow right along with its width (a 1.33x-wider screen scaled 1.33x also
+// renders 1.33x TALLER), overflowing the real viewport vertically. Fixed
+// by feeding .app-shell an explicit height of (real viewport height /
+// scale) instead of 100dvh -- rendering the app as if the device were
+// exactly REFERENCE_WIDTH wide with a proportionally shorter "virtual"
+// height, then scaling the whole rendered result back up to real screen
+// pixels. The scale-up exactly cancels the height shrink, so the visual
+// result fills the real viewport in both dimensions with zero dead margin
+// and zero overflow -- no page-level scrolling ever needed to see the
+// rest of a "too tall" scaled result, unlike a naive width-only scale.
+//
+// Everything else in this file keeps working unmodified: descendant
+// getBoundingClientRect() calls already reflect the real, POST-scale
+// screen position (standard browser behavior, not something this file
+// has to account for) -- which is what virtually all of this file's own
+// dock/snap/scroll math already uses. clientHeight/scrollHeight (used for
+// internal layout budgets like GATE_DOCKED_H) report the PRE-scale
+// "virtual" box instead, which is exactly what's wanted there too --
+// those numbers only ever need to stay internally consistent with each
+// other, never with real screen pixels. Only applies in landscape, and
+// only once the real viewport is wider than REFERENCE_WIDTH -- a phone in
+// landscape (already <= 960px) or portrait on any device renders exactly
+// as it always has, completely untouched.
+const APP_SCALE_REFERENCE_WIDTH = 960;
+
+function updateResponsiveScale(): void {
+  const shell = document.querySelector<HTMLElement>('.app-shell');
+  if (!shell) return;
+  const isLandscape = window.matchMedia('(orientation: landscape)').matches;
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  if (!isLandscape || w <= APP_SCALE_REFERENCE_WIDTH) {
+    shell.style.transform = '';
+    shell.style.width = '';
+    shell.style.height = '';
+    return;
+  }
+  const scale = w / APP_SCALE_REFERENCE_WIDTH;
+  shell.style.width = APP_SCALE_REFERENCE_WIDTH + 'px';
+  shell.style.height = (h / scale) + 'px';
+  shell.style.transform = `scale(${scale})`;
+  shell.style.transformOrigin = 'top center';
+}
+
 // ── Landscape "HUD" mode ─────────────────────────────────────────────────
 // In portrait, utility cards (Pulse/Agitator/Import/Watchlist/Proxy/etc.)
 // stack vertically as independent accordions -- fine when there's plenty
@@ -616,7 +675,11 @@ export function initLandscapeMode(landscapeElements: LandscapeElements, onSelect
   lsEls = landscapeElements;
   lsOnSelect = onSelect;
   const mq = window.matchMedia('(orientation: landscape)');
-  const apply = () => { if (mq.matches) activateLandscape(); else deactivateLandscape(); };
+  // Scale must be corrected BEFORE activate/deactivate run -- they (and
+  // everything they trigger, e.g. sizeLandscapeHud()) measure the shell's
+  // real dimensions, which only reflect the new orientation once
+  // updateResponsiveScale() has applied the right virtual height for it.
+  const apply = () => { updateResponsiveScale(); if (mq.matches) activateLandscape(); else deactivateLandscape(); };
   mq.addEventListener('change', apply);
   apply();
 }
@@ -996,7 +1059,13 @@ export function initRolodex(elements: RolodexElements, callbacks: RolodexCallbac
   dockThreshold = contentEl ? parseFloat(getComputedStyle(contentEl).paddingTop) || 0 : 0;
 
   sizeRoloIndexOffset();
+  updateResponsiveScale();
 
+  // Registered first -- everything else on this list measures the shell's
+  // real dimensions, which are only correct once this has applied the
+  // right scale/virtual-height for the current viewport. Listeners on the
+  // same event fire in registration order.
+  window.addEventListener('resize', updateResponsiveScale);
   window.addEventListener('resize', sizeGateMarquee);
   window.addEventListener('resize', sizeGateSpacer);
   window.addEventListener('resize', sizeRoloMarquee);
