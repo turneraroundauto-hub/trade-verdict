@@ -8521,3 +8521,62 @@ chunk-header grep (no duplicate-module regression, same 7/8/10 shared-
 module counts as before) /`npm test` (72/72) all clean. `?v=` bumped on
 all three tiers' `<script>` tags (Free 90→91, Starter 106→107, Pro
 52→53).
+
+## Frontend: landscape HUD — stale card-height cap after rotation, ribbon selection made to scroll deliberately (Sep 5, 2026, `trade-verdict` PR #313)
+
+Direct live report against the independent-scroll fix above: "the ribbon
+buttons are not snapping to on click. and those cards are still not tall
+enough they're not feeling [filling] the panel screen." Both root-caused
+by direct measurement, not guessed at.
+
+**Bug 1 — ribbon "snapping" was never deliberate.** `selectLandscapeCard()`
+toggled the active ribbon button's class but never explicitly scrolled it
+into view within `.utility-ribbon`'s own scroll box — a first headless
+test happened to show scrolling occur anyway, which turned out to be the
+browser's own native "scroll focused element into view" behavior kicking
+in, not this app's own code. That's exactly the class of behavior this
+file has already learned not to build on (the ticker-pill marquee needed
+an explicit `preventDefault()` for the identical inconsistency). Fixed
+with a deliberate `btn.scrollIntoView({behavior:'smooth', block:'nearest'})`
+call, so the ribbon reliably reveals whichever item was just tapped
+regardless of native browser quirks.
+
+**Bug 2 — a real, measured strangled-card bug, found by reproducing a
+real user flow (expand in portrait, then rotate), not by staring at the
+already-shipped fix.** The prior PR correctly bounded `.landscape-hud`
+itself so the outer ribbon+pane box fills available space — but a card
+expanded once in **portrait** carries an inline `max-height` on its own
+`.card-body-pad`, set by `capCardBodyHeight()`. Nothing clears that value
+when the card gets moved into the landscape pane, and `recapExpandedCards()`
+(already wired to the shared resize listener, which fires on rotation)
+doesn't check whether a card is currently in landscape mode before
+re-matching `.card.expanded[data-card]` and re-capping it — it recomputed
+a NEW, wrong, smaller cap using portrait-only `dockOffsetFor()` math that
+assumes the card sits in normal page flow, not inside `.utility-pane`.
+Confirmed directly: a card's real cap went from 602px (portrait) to 148px
+(after rotating to landscape) — the outer HUD/pane were correctly sized
+the whole time, but the card's own inner content was separately strangled
+by a stale, wrong-context measurement nobody had cleared.
+
+**Fixed two ways, not just the one that happened to be visible:**
+`recapExpandedCards()` now returns immediately while `isLandscapeMode()`
+is true — landscape has its own HUD-level sizing mechanism entirely
+(`sizeLandscapeHud()`), and portrait's per-card capping was never meant
+to apply to any card while landscape governs its container instead, not
+just the ones that happened to get caught scrolling. `activateLandscape()`
+also clears any leftover inline `max-height` on a card's `.card-body-pad`
+the instant it's moved into the pane, so a stale portrait-session value
+can't linger even for the brief window before the next resize event would
+otherwise have cleared it.
+
+**Verified via real headless Chromium, reproducing the exact reported
+sequence:** expanded Watchlist in portrait (confirmed a real 602px cap
+set), rotated to landscape, confirmed `.card-body-pad`'s inline
+`max-height` is now empty and the card shows its full real content
+(previously stuck at 148px); confirmed tapping an off-screen ribbon item
+(Glossary, scrolled out of the visible ribbon) now measurably scrolls it
+into view via `getBoundingClientRect()` comparison, not just a `scrollTop`
+change that could be coincidental; confirmed the HUD/pane still fill
+available space correctly, unaffected by this pass. `npm test` (72/72)
+and `node --check` clean; `tsc`/`esbuild` chunk-header grep confirm no
+duplicate-module regression (7/8/10 shared modules, unchanged).
