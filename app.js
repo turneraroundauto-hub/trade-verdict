@@ -977,14 +977,20 @@ var lsAnchors = /* @__PURE__ */ new Map();
 function isLandscapeMode() {
   return lsIsActive;
 }
+function sizeLandscapeHud() {
+  if (!lsEls) return;
+  const roloIndexH = els.roloIndex.getBoundingClientRect().height;
+  const dockOffset = dockOffsetFor(lsEls.hud, roloIndexH);
+  const available = els.scroller.clientHeight - dockOffset - LANDSCAPE_HUD_BOTTOM_MARGIN;
+  lsEls.hud.style.maxHeight = Math.max(LANDSCAPE_HUD_MIN_HEIGHT, available) + "px";
+}
 function snapLandscapeHudUnderDock(hudEl) {
   if (!lsEls) return;
   const roloIndexH = forceGateDockedSync();
   const dockOffset = dockOffsetFor(hudEl, roloIndexH);
   hudEl.style.scrollMarginTop = dockOffset + "px";
   hudEl.scrollIntoView({ behavior: "smooth", block: "start" });
-  const available = els.scroller.clientHeight - dockOffset - LANDSCAPE_HUD_BOTTOM_MARGIN;
-  lsEls.pane.style.maxHeight = Math.max(LANDSCAPE_HUD_MIN_HEIGHT, available) + "px";
+  sizeLandscapeHud();
 }
 function buildLandscapeRibbon(cards) {
   if (!lsEls) return;
@@ -1020,7 +1026,10 @@ function activateLandscape() {
   if (!lsEls.ribbon.childElementCount) buildLandscapeRibbon(cards);
   lsIsActive = true;
   if (lsActiveCard) selectLandscapeCard(lsActiveCard);
-  else lsEls.empty.style.display = "";
+  else {
+    lsEls.empty.style.display = "";
+    sizeLandscapeHud();
+  }
 }
 function deactivateLandscape() {
   if (!lsEls) return;
@@ -1029,7 +1038,7 @@ function deactivateLandscape() {
     if (anchor) anchor.parent.insertBefore(card, anchor.next);
     card.classList.remove("landscape-active");
   });
-  lsEls.pane.style.maxHeight = "";
+  lsEls.hud.style.maxHeight = "";
   lsIsActive = false;
 }
 function initLandscapeMode(landscapeElements, onSelect) {
@@ -1316,6 +1325,7 @@ function initRolodex(elements, callbacks) {
   window.addEventListener("resize", recapExpandedCards);
   window.addEventListener("resize", syncRoloStageHeight);
   window.addEventListener("resize", sizeRoloIndexOffset);
+  window.addEventListener("resize", sizeLandscapeHud);
   let gateTickingLocal = false;
   els.scroller.addEventListener("scroll", () => {
     if (gateTickingLocal) return;
