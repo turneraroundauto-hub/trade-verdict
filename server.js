@@ -2205,7 +2205,17 @@ async function resolveCompanyEntity(query, knownSymbols) {
     // classifyEntityMatch; first hit that isn't 'none' wins.
     const tradable = hits.filter(h => typeof h.symbol === "string" && /^[A-Z]{1,5}$/.test(h.symbol)
       && (h.type === "Common Stock" || h.type === "ETP"));
+    // A query that IS a real ticker, just not typed in the exact-caps form
+    // parseTickers() requires client-side (e.g. "iau" for the real IAU
+    // ETF), never resolved here before: classifyEntityMatch only ever
+    // compared the query against the candidate's NAME ("ISHARES GOLD
+    // TRUST"), and a bare ticker string is never a literal word within a
+    // company's own registered name -- so a perfectly correct Finnhub hit
+    // was silently discarded regardless of the name-matching logic. Mirror
+    // of Tra -- see that repo's own comment for the full incident.
+    const qUpper = query.trim().toUpperCase();
     for (const hit of tradable) {
+      if (hit.symbol === qUpper) { result = { symbol: hit.symbol, companyName: hit.description, matchType: "exact" }; break; }
       const matchType = classifyEntityMatch(query, hit.description || "");
       if (matchType !== "none") { result = { symbol: hit.symbol, companyName: hit.description, matchType }; break; }
     }
