@@ -8405,3 +8405,62 @@ was added, since none was previously built or specified. If a real
 ticker-filter search box is wanted for this card (mirroring the
 Glossary card's own search), that's a distinct feature request, not
 implied by this fix.
+
+## Frontend: every utility-card controls row pinned; a wrong background caused a black band (Sep 5, 2026, `trade-verdict` PR #309)
+
+Direct follow-up on real screenshots, same day as the fix above: a
+black band had appeared above the Watchlist sort row, its text still
+read as "too small, should be the same size not smaller," and the
+identical scroll-away problem existed on Proxy Resolution Explorer's
+SORT row and the Glossary card's search box — "all means all. settings.
+should. be. in. frame." Both complaints were real, confirmed bugs, not
+one thing restated.
+
+**Black-band root cause.** The prior fix's sticky background was
+`var(--bg)` (`#080c12`, the page root's background) instead of
+`var(--surface)` (`#121a24`, the card's OWN background) — a visibly
+mismatched dark rectangle painted across the sticky area against the
+card's real surface color. Every card in this app is `var(--surface)`,
+one shade lighter than the page root, so using the wrong token here was
+the whole bug. Fixed by switching to `var(--surface)`.
+
+**Text-size root cause, a real measurement error, not an illusion.**
+The prior fix set `.ctx-hint` to this app's generic 11px secondary-text
+convention (the Aug 16, 2026 typography rule) without checking THIS
+card's actual surrounding sizes first. Measured directly and confirmed
+a real mismatch: `.card-sub` ("Beyond top 15," two lines above it) and
+`.sort-btn`/`.compact-pct` (the row values right below it) are all
+13px, not 11px — the generic convention doesn't apply uniformly to
+every secondary-text instance in this app, and this card's own
+prevailing size is 13px. Fixed to 13px, confirmed via computed style
+that it now exactly equals `.card-sub`'s. **Lesson: when fixing a
+text-size mismatch, measure the actual surrounding elements in that
+specific card before reaching for a general convention — a rule that's
+correct elsewhere in the app isn't automatically correct here.**
+
+**Audited proactively for the same gap, not just reactively fixed where
+reported.** Applied the identical sticky-controls-row treatment
+(`position:sticky; top:0; background:var(--surface)`) to two more
+places with the same scroll-away pattern: Proxy Resolution Explorer's
+`.proxy-sort-row` (Pro only), and Glossary's `.glossary-search-wrap`
+(all three tiers — Free, Starter, Pro all share this card, confirmed
+byte-identical CSS across all three before editing all three).
+Checked Heat Map and Track Record too and found neither needs this:
+Heat Map's refresh button lives in the card-head, never in the
+scrollable body; Track Record's only control is a one-off CLEAR ALL
+action, not a list-navigation aid a user needs to keep looking at while
+scrolling past it.
+
+Pure CSS change across all three tiers' `index.html` — no `.ts`/`.js`
+touched, no `esbuild` rebuild or `?v=` bump needed.
+
+**Verified via real headless Chromium, all three fixed cards, with
+genuinely long lists forcing real scroll distances** (Watchlist
+1188px, Proxy Resolution Explorer 1499px, Glossary ~14,700px on both
+Pro and Free): each control row's on-screen position
+(`getBoundingClientRect().top`) stayed identical before and after
+scrolling, and each one's computed `background-color` now exactly
+matches its own card's `background-color` — confirming the mismatch is
+genuinely gone, not just visually covered up by coincidence. Confirmed
+`.ctx-hint`'s computed font-size now equals `.card-sub`'s (13px = 13px)
+via direct measurement, not eyeballed. `npm test` (72/72) unaffected.
