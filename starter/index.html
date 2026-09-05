@@ -424,7 +424,11 @@
   .rolo-nav{ display:flex; justify-content:center; align-items:center; padding:2px 4px; }
   .nav-hint{ font-size:13px; color:var(--ink-dim); }
 
-  .glossary-search-wrap{ padding:10px 0; border-bottom:1px solid var(--border); }
+  /* Sticky so the search box stays visible while the term list scrolls
+     beneath it inside .card-body-pad's own capped overflow -- same fix
+     as the Watchlist/Proxy sticky-controls-row pattern, background is
+     the card's own var(--surface) so scrolled terms can't show through. */
+  .glossary-search-wrap{ padding:10px 0; border-bottom:1px solid var(--border); position:sticky; top:0; z-index:2; background:var(--surface); }
   .glossary-search{ width:100%; background:var(--surface-2); border:1px solid var(--border); border-radius:5px; padding:7px 12px; color:var(--ink); font-family:var(--mono); font-size:13px; }
   .glossary-search::placeholder{ color:var(--ink-dim); }
   .glossary-cat{ padding:8px 0 4px; font-size:13px; font-weight:700; color:var(--purple); letter-spacing:.1em; border-bottom:1px solid var(--border); }
