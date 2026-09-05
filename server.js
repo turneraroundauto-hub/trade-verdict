@@ -2271,8 +2271,16 @@ async function fetchCommodityPrice(code) {
     const raw = typeof data?.price === "number" ? data.price
       : (typeof data?.bid === "number" && typeof data?.ask === "number") ? (data.bid + data.ask) / 2
       : null;
-    if (raw == null || raw <= 0) return null;
+    // Mirror of Tra -- a shape mismatch used to fail silently (zero log
+    // either way), confirmed live to be indistinguishable from "nothing
+    // to report." Logging the raw body here is how the real shape gets
+    // confirmed instead of guessed at again.
+    if (raw == null || raw <= 0) {
+      console.error(`fetchCommodityPrice ${code}: unexpected response shape:`, JSON.stringify(data).slice(0, 500));
+      return null;
+    }
     const result = { name: entry.name, code: code.toUpperCase(), price: raw, unit: entry.unit, url: entry.url };
+    console.log(`fetchCommodityPrice ${code}: resolved $${raw}`);
     goldpriceCache.set(code, { result, time: Date.now() });
     return result;
   } catch (e) {
