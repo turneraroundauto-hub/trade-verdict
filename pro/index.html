@@ -413,7 +413,12 @@
   .nav-hint{ font-size:13px; color:var(--ink-dim); }
 
   /* ── PRO — Watchlist overflow (unlimited, beyond the 15-card window) ── */
-  .wl-overflow-hdr{ display:flex; justify-content:space-between; align-items:center; gap:8px; row-gap:6px; margin-bottom:8px; flex-wrap:wrap; }
+  /* Sticky so the sort control stays visible while the row list scrolls
+     beneath it inside .card-body-pad's own capped overflow -- padding
+     (not margin) is what's pinned, so the opaque background actually
+     covers the gap and no list content peeks through as it scrolls under. */
+  .wl-overflow-hdr{ display:flex; justify-content:space-between; align-items:center; gap:8px; row-gap:6px; padding-bottom:8px; flex-wrap:wrap; position:sticky; top:0; z-index:2; background:var(--bg); }
+  .ctx-hint{ color:var(--ink-dim); font-size:11px; }
   .compact-sort-btn{ width:24px; height:24px; border:1px solid var(--border); border-radius:5px; background:var(--surface-2); color:var(--ink); font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; }
   .compact-list{ display:flex; flex-direction:column; gap:6px; }
   .compact-row-wrap{ position:relative; }
