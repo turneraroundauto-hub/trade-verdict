@@ -1354,6 +1354,25 @@ function recapExpandedCards() {
     capCardBodyHeight(cardEl, dockOffsetFor(cardEl, roloIndexH));
   });
 }
+var APP_SCALE_REFERENCE_WIDTH = 960;
+function updateResponsiveScale() {
+  const shell = document.querySelector(".app-shell");
+  if (!shell) return;
+  const isLandscape = window.matchMedia("(orientation: landscape)").matches;
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  if (!isLandscape || w <= APP_SCALE_REFERENCE_WIDTH) {
+    shell.style.transform = "";
+    shell.style.width = "";
+    shell.style.height = "";
+    return;
+  }
+  const scale = w / APP_SCALE_REFERENCE_WIDTH;
+  shell.style.width = APP_SCALE_REFERENCE_WIDTH + "px";
+  shell.style.height = h / scale + "px";
+  shell.style.transform = `scale(${scale})`;
+  shell.style.transformOrigin = "top center";
+}
 var LANDSCAPE_HUD_MIN_HEIGHT = 160;
 var LANDSCAPE_HUD_BOTTOM_MARGIN = 16;
 var lsEls = null;
@@ -1438,6 +1457,7 @@ function initLandscapeMode(landscapeElements, onSelect) {
   lsOnSelect = onSelect;
   const mq = window.matchMedia("(orientation: landscape)");
   const apply = () => {
+    updateResponsiveScale();
     if (mq.matches) activateLandscape();
     else deactivateLandscape();
   };
@@ -1711,6 +1731,8 @@ function initRolodex(elements, callbacks) {
   const contentEl = document.querySelector(".content");
   dockThreshold = contentEl ? parseFloat(getComputedStyle(contentEl).paddingTop) || 0 : 0;
   sizeRoloIndexOffset();
+  updateResponsiveScale();
+  window.addEventListener("resize", updateResponsiveScale);
   window.addEventListener("resize", sizeGateMarquee);
   window.addEventListener("resize", sizeGateSpacer);
   window.addEventListener("resize", sizeRoloMarquee);
