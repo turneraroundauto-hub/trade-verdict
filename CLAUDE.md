@@ -8229,3 +8229,59 @@ confirm: check Render logs for `fetchSilverSpotFallback` after deploy —
 either `resolved $X` (shape matches) or `unexpected response shape: ...`
 (logged raw body tells you the real shape immediately, rather than
 needing a second live report to find out).
+
+**Follow-up, same day: audit for missing commodity coverage — a real word-
+matching bug found, five more metals/energy commodities added (`Tra`
+PR #101 / `trade-verdict` PR #301, both merged).** Asked directly to check
+whether any commodity that should be wired into the Agitator was missing.
+
+**Real bug, confirmed by reading the code, not guessed:** the commodity
+match has always been a bare `COMMODITY_CODES[raw.toLowerCase()]` lookup
+— matches only the literal ISO-style code strings ("xau"/"xag"), never
+the actual word a normal user types ("gold", "silver"). Typing "gold"
+never reached the dedicated SPOT PRICE card at all — it fell through to
+normal ticker/topical resolution instead, which for a bare precious-metal
+word produces at best a fuzzy, unconfirmed result. Fixed with
+`resolveCommodityCode()`/`COMMODITY_ALIASES`, matched against the
+**entire** trimmed/lowercased query, never a substring inside a longer
+phrase — so this is purely additive: "gas prices surge" still falls
+through to normal resolution untouched, verified directly (not assumed)
+via a 23-case standalone simulation covering both the new aliases and
+the non-regression cases.
+
+**Scope audit for additional commodities, researched before adding
+anything:** goldprice.dev's own docs confirm its maximum coverage, even
+on paid Pro, is XAU/XAG/copper (HG) only — no platinum or palladium on
+any tier, so paying for that vendor wouldn't unlock more metals anyway.
+gold-api.com (the XAG keyless fallback) markets itself as gold/silver/
+crypto only. **No confirmed free real-spot vendor exists for oil, natural
+gas, copper, platinum, or palladium.** Presented this to Mr. T directly
+rather than guessing at scope — confirmed adding all three remaining
+categories (energy: oil + natural gas; copper; platinum + palladium) as
+**proxy-only** entries, same honest "tradable proxy" pattern already
+built for gold/silver, via real, liquid US-tradable ETF tickers (USO,
+UNG, CPER, PPLT, PALL) through the already-reliable `fetchQuote()` path
+— no new vendor risk, since `fetchCommodityPrice()` needed zero code
+changes for these: they have no `GOLDPRICE_SYMBOLS` entry, so the
+existing `if (!symbol) return null` guard already routes them straight
+to the proxy display with no wasted vendor call or misleading log.
+
+Each new commodity got its own hand-picked, guaranteed-real RELATED-
+section backfill (own tradable proxy excluded, matching the existing
+gold/silver convention): oil → XOM/CVX/OXY, natural gas → LNG/EQT/RRC,
+copper → FCX/SCCO/COPX, platinum → SBSW/PLG/GLD, palladium →
+SBSW/PLG/SLV.
+
+**Verified:** `node --check`/`npm test` (72/72, unaffected) in both
+repos; the 23-case `resolveCommodityCode()` simulation described above.
+Confirmed the frontend needed zero changes — the commodity card render
+is fully generic off the response object's fields (`name`/`code`/
+`price`/`unit`/`url`/`proxyTicker`/`news`/`related`/`composite`/
+`factors`), no hardcoded xau/xag anywhere in any tier's `app.ts`.
+
+**Not yet verified against a live deploy** — same standing posture as
+every backend change in this file. To confirm: type "oil", "copper", or
+"platinum" into the Agitator on a live account and confirm each renders
+the SPOT PRICE card with its tradable proxy, a real cited article, 2-3
+RELATED recommendations, and a composite score — the same treatment
+gold/silver already get.
