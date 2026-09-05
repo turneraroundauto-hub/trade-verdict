@@ -416,9 +416,19 @@
   /* Sticky so the sort control stays visible while the row list scrolls
      beneath it inside .card-body-pad's own capped overflow -- padding
      (not margin) is what's pinned, so the opaque background actually
-     covers the gap and no list content peeks through as it scrolls under. */
-  .wl-overflow-hdr{ display:flex; justify-content:space-between; align-items:center; gap:8px; row-gap:6px; padding-bottom:8px; flex-wrap:wrap; position:sticky; top:0; z-index:2; background:var(--bg); }
-  .ctx-hint{ color:var(--ink-dim); font-size:11px; }
+     covers the gap and no list content peeks through as it scrolls under.
+     background is var(--surface) -- the card's OWN background -- not
+     var(--bg) (the page root's, one shade darker): using --bg here painted
+     a visibly mismatched dark band across the sticky area against the
+     card's actual surface color. */
+  .wl-overflow-hdr{ display:flex; justify-content:space-between; align-items:center; gap:8px; row-gap:6px; padding-bottom:8px; flex-wrap:wrap; position:sticky; top:0; z-index:2; background:var(--surface); }
+  /* 13px, not 11px -- matches .card-sub ("Beyond top 15", 2 lines above)
+     and .sort-btn/.compact-pct (the row values right below it), the
+     actual prevailing size in this card. A first pass used this app's
+     generic 11px secondary-text convention without checking THIS card's
+     real surrounding sizes first -- confirmed mismatched directly
+     (13px vs 11px, not just a color-contrast illusion) once measured. */
+  .ctx-hint{ color:var(--ink-dim); font-size:13px; }
   .compact-sort-btn{ width:24px; height:24px; border:1px solid var(--border); border-radius:5px; background:var(--surface-2); color:var(--ink); font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; }
   .compact-list{ display:flex; flex-direction:column; gap:6px; }
   .compact-row-wrap{ position:relative; }
@@ -439,7 +449,10 @@
   .track-empty{ font-size:13px; color:var(--ink-dim); text-align:center; padding:16px 0; font-style:italic; }
 
   /* ── PRO — Proxy Resolution Explorer ────────────────────────────────── */
-  .proxy-sort-row{ display:flex; align-items:center; gap:8px; row-gap:6px; margin-bottom:8px; flex-wrap:wrap; }
+  /* Same sticky-controls-row fix as .wl-overflow-hdr above -- pinned to
+     the top of .card-body-pad's own scrollable body, background is the
+     card's own var(--surface) so scrolled content can't show through. */
+  .proxy-sort-row{ display:flex; align-items:center; gap:8px; row-gap:6px; padding-bottom:8px; flex-wrap:wrap; position:sticky; top:0; z-index:2; background:var(--surface); }
   .sort-btn{ height:24px; border:1px solid var(--border); border-radius:4px; padding:0 8px; font-family:var(--mono); font-size:13px; font-weight:700; cursor:pointer; background:transparent; color:var(--ink-dim); display:flex; align-items:center; gap:4px; letter-spacing:.04em; }
   .sort-btn-active{ color:var(--purple); border-color:rgba(206,147,216,.4); background:var(--purple-dim); }
   .sort-arrow{ font-size:12px; }
@@ -518,7 +531,11 @@
   .dial-label-item{ flex:1; text-align:center; font-family:var(--mono); font-size:10px; letter-spacing:.03em; color:var(--ink-dim); cursor:pointer; padding:0 2px; }
   .dial-label-item.active{ color:var(--amber); font-weight:700; }
 
-  .glossary-search-wrap{ padding:10px 0; border-bottom:1px solid var(--border); }
+  /* Sticky so the search box stays visible while the term list scrolls
+     beneath it inside .card-body-pad's own capped overflow -- same fix
+     as the Watchlist/Proxy sticky-controls-row pattern, background is
+     the card's own var(--surface) so scrolled terms can't show through. */
+  .glossary-search-wrap{ padding:10px 0; border-bottom:1px solid var(--border); position:sticky; top:0; z-index:2; background:var(--surface); }
   .glossary-search{ width:100%; background:var(--surface-2); border:1px solid var(--border); border-radius:5px; padding:7px 12px; color:var(--ink); font-family:var(--mono); font-size:13px; }
   .glossary-search::placeholder{ color:var(--ink-dim); }
   .glossary-cat{ padding:8px 0 4px; font-size:13px; font-weight:700; color:var(--purple); letter-spacing:.1em; border-bottom:1px solid var(--border); }
