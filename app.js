@@ -1929,7 +1929,13 @@ async function runAgitatorCheck() {
     var data = await res.json();
     if (data.commodity) {
       var cm = data.commodity;
-      out.innerHTML = '<div class="track-log-title">SPOT PRICE</div><div class="headline" style="margin-top:8px">' + cm.name + " (" + cm.code + ') \u2014 <a href="' + cm.url + '" target="_blank">$' + cm.price.toFixed(2) + " / " + cm.unit + '</a></div><div class="track-empty" style="margin-top:6px">Live commodity spot price \u2014 not a company, so no Gate breakdown or watchlist entry applies here.</div>';
+      var spotHTML = typeof cm.price === "number" ? '<div class="headline" style="margin-top:8px">' + cm.name + " (" + cm.code + ') \u2014 <a href="' + cm.url + '" target="_blank">$' + cm.price.toFixed(2) + " / " + cm.unit + "</a></div>" : "";
+      var proxyHTML = cm.proxyPrice != null ? '<div class="headline" style="margin-top:' + (spotHTML ? "4px" : "8px") + '">Tradable proxy: <a href="' + tickerHref2(cm.proxyTicker) + '" target="_blank">' + cm.proxyTicker + "</a> $" + cm.proxyPrice + (cm.proxyChange ? " (" + cm.proxyChange + ")" : "") + "</div>" : "";
+      if (!spotHTML && !proxyHTML) {
+        out.innerHTML = '<div class="track-empty">Live price for ' + cm.name + " is unavailable right now.</div>";
+        return;
+      }
+      out.innerHTML = '<div class="track-log-title">SPOT PRICE</div>' + spotHTML + proxyHTML + '<div class="track-empty" style="margin-top:6px">' + (spotHTML ? "Live commodity spot price" : cm.name + " spot price unavailable \u2014 showing its tradable proxy instead") + " \u2014 not a company, so no Gate breakdown or watchlist entry applies here.</div>";
       return;
     }
     if (!data.resolved) {
