@@ -2226,6 +2226,29 @@ async function resolveCompanyEntity(query, knownSymbols) {
   return result;
 }
 
+// ─── AGITATOR GAUGE — commodity/currency spot codes (Sep 2026) ────────────
+// Mirror of Tra -- see that repo's own comment for the full rationale (a
+// deliberately separate mechanism from KNOWN_BRAND_TICKER_OVERRIDES: XAU/
+// XAG are ISO 4217 currency codes, not companies or tradable tickers, so
+// there's no company to "figure out" for them -- this is a real live spot
+// price instead, not a company match).
+const COMMODITY_CODES = {
+  xau: { name: "Gold", forexSymbol: "OANDA:XAU_USD", unit: "oz t", url: "https://www.investing.com/currencies/xau-usd" },
+  xag: { name: "Silver", forexSymbol: "OANDA:XAG_USD", unit: "oz t", url: "https://www.investing.com/currencies/xag-usd" },
+};
+async function fetchCommodityPrice(code) {
+  const entry = COMMODITY_CODES[code];
+  if (!entry) return null;
+  try {
+    const data = await finnhubGet(`/quote?symbol=${encodeURIComponent(entry.forexSymbol)}`);
+    if (!data || typeof data.c !== "number" || data.c <= 0) return null;
+    return { name: entry.name, code: code.toUpperCase(), price: data.c, unit: entry.unit, url: entry.url };
+  } catch (e) {
+    console.error(`fetchCommodityPrice ${code}:`, e.message);
+    return null;
+  }
+}
+
 // ─── AGITATOR GAUGE — no-company topical sentiment fallback (Aug 31, 2026) ───
 // Mirror of Tra -- see that repo's own comment for the full rationale (why
 // this doesn't keyword-match the query's literal words, and why the model
@@ -3334,6 +3357,16 @@ app.get("/agitator", async (req, res) => {
   const raw = String(req.query.q || "").trim();
   if (!raw) return res.status(400).json({ error: "q is required" });
   let headlineOverride = req.query.headline ? String(req.query.headline).trim() : null;
+
+  // Commodity/currency spot code (xau/xag) -- mirror of Tra, see that
+  // repo's own comment for the full rationale. Checked first, short-
+  // circuits entirely on success; falls through to the normal flow
+  // (which correctly finds no company) on any failure.
+  const commodityEntry = COMMODITY_CODES[raw.toLowerCase()];
+  if (commodityEntry) {
+    const commodity = await fetchCommodityPrice(raw.toLowerCase());
+    if (commodity) return res.json({ resolved: false, query: raw, commodity });
+  }
 
   try {
     // Fix 1 known-ticker shortcut inputs -- mirror-only, see Tra's

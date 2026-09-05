@@ -1927,6 +1927,11 @@ async function runAgitatorCheck() {
       return;
     }
     var data = await res.json();
+    if (data.commodity) {
+      var cm = data.commodity;
+      out.innerHTML = '<div class="track-log-title">SPOT PRICE</div><div class="headline" style="margin-top:8px">' + cm.name + " (" + cm.code + ') \u2014 <a href="' + cm.url + '" target="_blank">$' + cm.price.toFixed(2) + " / " + cm.unit + '</a></div><div class="track-empty" style="margin-top:6px">Live commodity spot price \u2014 not a company, so no Gate breakdown or watchlist entry applies here.</div>';
+      return;
+    }
     if (!data.resolved) {
       var suggestionHTML = "";
       if (data.suggestion) {
