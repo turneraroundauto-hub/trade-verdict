@@ -8067,3 +8067,28 @@ every backend-dependent feature in this file. To confirm: check a real
 analyzed ticker's card for a `TRACK RECORD` line once it has 5+ graded
 verdicts, and confirm the Scorecard card no longer shows a `BY TICKER`
 section at all.
+
+## Agitator Gauge — mandatory rule: every query gets a news article + 2-3 recommendations (Sep 5, 2026)
+
+**Permanent, standing product rule — read this before touching the
+Agitator Gauge again, do not make the user re-state it:** every single
+query typed into the Agitator, with zero exceptions for query type, must
+produce (1) at least one real, cited news article and (2) 2-3 related
+recommendations. This applies uniformly across all three current result
+shapes — a resolved company/ticker match, the no-company topical
+fallback, and a commodity/currency spot-code match (xau/xag today) — the
+commodity path is not a lesser or different case, it gets the exact same
+two things.
+
+**Concretely, for the commodity path specifically (the gap flagged live,
+Sep 5, 2026, right after the goldprice.dev spot-price fix finally
+worked):** the XAU/XAG result correctly shows a real spot price and a
+tradable-proxy ticker (GLD/SLV), but shipped with no news headline and
+no related-recommendations section at all — inconsistent with every
+other Agitator result type, and flagged directly as something not to
+keep needing a reminder about.
+
+**Do not treat this as optional polish or something to re-litigate per
+request.** If a future change to the Agitator would leave any result
+type without a real article + 2-3 recommendations, that is a regression
+against this rule, not a design choice to reconsider from scratch.

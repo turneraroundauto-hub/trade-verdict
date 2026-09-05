@@ -1231,8 +1231,23 @@ async function runAgitatorCheck(): Promise<void> {
         out.innerHTML = '<div class="track-empty">Live price for ' + cm.name + ' is unavailable right now.</div>';
         return;
       }
+      // Mandatory rule (CLAUDE.md, Sep 5 2026): every Agitator query,
+      // commodities included, gets a real news article + 2-3
+      // recommendations -- same headline/RELATED shape as the resolved-
+      // ticker path below, reusing relatedRowHTML/addTickerBtnHTML
+      // verbatim rather than a third rendering pattern.
+      var cmNewsHTML = '<div class="headline" style="margin-top:8px">' + (cm.news
+        ? (cm.news.url ? '<a href="' + cm.news.url + '" target="_blank">' + cm.news.headline + '</a>' : cm.news.headline)
+        : '<span style="opacity:.6">No recent related news found.</span>') + '</div>';
+      var cmRelatedHTML = '<div class="track-log-title" style="margin-top:10px">RELATED</div>'
+        + ((cm.related && cm.related.length)
+            ? '<div class="compact-list">' + cm.related.map(relatedRowHTML).join('') + '</div>'
+            : '<div class="track-empty">No related companies found.</div>');
       out.innerHTML = '<div class="track-log-title">SPOT PRICE</div>' + spotHTML + proxyHTML
-        + '<div class="track-empty" style="margin-top:6px">' + (spotHTML ? 'Live commodity spot price' : cm.name + ' spot price unavailable — showing its tradable proxy instead') + ' — not a company, so no Gate breakdown or watchlist entry applies here.</div>';
+        + '<div class="track-empty" style="margin-top:6px">' + (spotHTML ? 'Live commodity spot price' : cm.name + ' spot price unavailable — showing its tradable proxy instead') + ' — not a company, so no Gate breakdown or watchlist entry applies here.</div>'
+        + cmNewsHTML + cmRelatedHTML;
+      wireAgitatorAddButtons(out);
+      if (!rolodex.isLandscapeMode()) rolodex.snapCardUnderDock(document.getElementById('card-agitator') as HTMLElement);
       return;
     }
     if (!data.resolved) {
