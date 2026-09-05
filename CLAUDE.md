@@ -8354,3 +8354,54 @@ with zero validated companies still correctly falls back to dashes.
 `tsc`/`esbuild`+chunk-header-grep/`npm test` (72/72) all clean across all
 three tiers, zero page errors in either case. `?v=` bumped again on all
 three tiers (Free 89→90, Starter 105→106, Pro 51→52).
+
+## Frontend: Pro Watchlist card — sort control pinned, oversized text fixed (Sep 5, 2026, `trade-verdict` PR #307)
+
+Direct report: "the watchlist frame is not including the sorting
+feature. And the Sorting by text is too large, should be same size as
+the other text in the frame... the sorting/searching features should
+not scroll with cards, they should be included in the frame." Both
+turned out to be real, confirmed bugs in the Watchlist overflow
+accordion (`data-card="watchlist"`), not one issue described two ways.
+
+**Bug 1 — `.ctx-hint` (the "Sorted by % change" label) had no CSS rule
+anywhere in the file.** Grepped every tier to confirm — the class is
+used exactly once, only in `pro/index.html`, and was never given a
+`font-size`/`color` at all, so it rendered at the browser's default
+size instead of this app's mandatory 11px/`var(--ink-dim)` convention
+for secondary text (see the Aug 16, 2026 typography-convention entry
+above). Fixed with the missing rule.
+
+**Bug 2 — `.wl-overflow-hdr` (the row holding that label + the sort
+button) had no sticky positioning**, so it scrolled away with the
+ticker rows inside `.card-body-pad`'s own capped, scrollable body (the
+Aug 18, 2026 card-height-cap fix) — reading exactly like "not included
+in the frame" once scrolled past, and explaining both halves of the
+report as the same root cause. Fixed with `position:sticky; top:0` plus
+an opaque `background:var(--bg)`, switching its bottom spacing from
+`margin-bottom` to `padding-bottom` so the sticky element's own painted
+background actually covers that gap — a margin isn't part of an
+element's own painted box, so list content would otherwise peek through
+underneath it as it scrolled past, the same lesson this file's own
+`#roloIndex` sticky-pill-strip work already learned.
+
+Pure CSS change, no `.ts`/`.js` touched — no `esbuild` rebuild or `?v=`
+bump needed.
+
+**Verified via real headless Chromium, not a superficial check — a
+genuinely long (35-row) overflow watchlist forcing real scrolling
+(confirmed `scrollTop` actually moved 1188px, not stayed at 0):** the
+header's on-screen position (`getBoundingClientRect().top`) was
+identical before and after the scroll, confirming it's genuinely
+pinned rather than just visually static because nothing moved.
+Confirmed the label's computed style is exactly `11px` /
+`rgb(152,161,173)` (`--ink-dim`). `npm test` (72/72) unaffected.
+
+**No search feature exists in this card at all** — confirmed via grep
+before assuming otherwise. The report's "sorting/searching" phrasing is
+read here as describing the header-controls region generically (the
+only literal control in it is the sort toggle); no search/filter input
+was added, since none was previously built or specified. If a real
+ticker-filter search box is wanted for this card (mirroring the
+Glossary card's own search), that's a distinct feature request, not
+implied by this fix.
