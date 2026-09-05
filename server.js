@@ -3430,6 +3430,9 @@ app.get("/agitator", async (req, res) => {
   const commodityEntry = COMMODITY_CODES[raw.toLowerCase()];
   if (commodityEntry) {
     const commodityCode = raw.toLowerCase();
+    // Same isFull gate Path B uses (req.tierConfig?.tracker, true for
+    // Pro/Shark) -- kept consistent across every Agitator result shape.
+    const isFullCommodity = !!req.tierConfig?.tracker;
     // Mirror of Tra -- mandatory rule (CLAUDE.md, Sep 5 2026): every
     // Agitator query, commodities included, gets a real cited news
     // article and 2-3 real recommendations, reusing
@@ -3474,6 +3477,10 @@ app.get("/agitator", async (req, res) => {
         proxyChange: proxyQuote ? proxyQuote.change : null,
         news: topical ? { headline: topical.headline, url: topical.url, source: topical.source, sentiment: topical.sentiment, summary: topical.summary } : null,
         related,
+        // Mirror of Tra -- computeTopicalFallback() already computes
+        // this, previously discarded here rather than forwarded.
+        composite: topical ? topical.composite : null,
+        factors: (topical && isFullCommodity) ? topical.factors : undefined,
       },
     });
   }

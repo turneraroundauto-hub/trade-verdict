@@ -1233,9 +1233,27 @@ async function runAgitatorCheck(): Promise<void> {
       }
       // Mandatory rule (CLAUDE.md, Sep 5 2026): every Agitator query,
       // commodities included, gets a real news article + 2-3
-      // recommendations -- same headline/RELATED shape as the resolved-
-      // ticker path below, reusing relatedRowHTML/addTickerBtnHTML
-      // verbatim rather than a third rendering pattern.
+      // recommendations, AND the same signal breakdown as every other
+      // unresolved query -- reuses the exact gauge/factors/related shape
+      // Path B (topical, below) already renders, so a commodity query
+      // isn't a lesser version of an unresolved-query result, just a
+      // different one with a spot price prepended.
+      var cmComp = cm.composite;
+      var cmGaugeColor = !cmComp ? 'var(--ink-dim)' : cmComp.level === 'HIGH' ? 'var(--red)' : cmComp.level === 'MEDIUM' ? 'var(--amber)' : 'var(--green)';
+      var cmGaugeHTML = '<div class="trigger-row" style="margin-top:8px"><span class="trigger-lbl-wrap"><span class="trigger-lbl">---</span></span>'
+        + '<span class="trigger-val-wrap"><span class="trigger-val" style="color:' + cmGaugeColor + '">' + (cmComp ? cmComp.level : 'N/A') + '</span>'
+        + '<button type="button" class="help-btn" data-help="agitator-score" aria-label="What is this?">?</button></span>'
+        + '<span class="trigger-sub">' + (cmComp ? Math.round(cmComp.score / 10) + '/10' : 'no data') + '</span></div>';
+      var cmf = cm.factors;
+      var cmFactorsHTML = cmf
+        ? '<div class="track-log-title" style="margin-top:10px">SIGNALS</div>'
+          + agitatorFactorRow('Surprise', 'agitator-surprise', cmf.surprise ?? null)
+          + agitatorFactorRow('Uncertainty', 'agitator-uncertainty', cmf.uncertainty ?? null)
+          + agitatorFactorRow('Freshness', 'agitator-freshness', cmf.freshness ?? null)
+          + agitatorFactorRow('Ripple Effect', 'agitator-ripple', cmf.rippleEffect ?? null)
+          + agitatorFactorRow('Swing Risk', 'agitator-swing', cmf.swingRisk ?? null)
+          + agitatorFactorRow('Expected Move', 'agitator-expected-move', cmf.expectedMove ?? null)
+        : '';
       var cmNewsHTML = '<div class="headline" style="margin-top:8px">' + (cm.news
         ? (cm.news.url ? '<a href="' + cm.news.url + '" target="_blank">' + cm.news.headline + '</a>' : cm.news.headline)
         : '<span style="opacity:.6">No recent related news found.</span>') + '</div>';
@@ -1245,7 +1263,7 @@ async function runAgitatorCheck(): Promise<void> {
             : '<div class="track-empty">No related companies found.</div>');
       out.innerHTML = '<div class="track-log-title">SPOT PRICE</div>' + spotHTML + proxyHTML
         + '<div class="track-empty" style="margin-top:6px">' + (spotHTML ? 'Live commodity spot price' : cm.name + ' spot price unavailable — showing its tradable proxy instead') + ' — not a company, so no Gate breakdown or watchlist entry applies here.</div>'
-        + cmNewsHTML + cmRelatedHTML;
+        + cmGaugeHTML + cmNewsHTML + cmFactorsHTML + cmRelatedHTML;
       wireAgitatorAddButtons(out);
       if (!rolodex.isLandscapeMode()) rolodex.snapCardUnderDock(document.getElementById('card-agitator') as HTMLElement);
       return;

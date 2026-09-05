@@ -2656,9 +2656,14 @@ async function runAgitatorCheck() {
         out.innerHTML = '<div class="track-empty">Live price for ' + cm.name + " is unavailable right now.</div>";
         return;
       }
+      var cmComp = cm.composite;
+      var cmGaugeColor = !cmComp ? "var(--ink-dim)" : cmComp.level === "HIGH" ? "var(--red)" : cmComp.level === "MEDIUM" ? "var(--amber)" : "var(--green)";
+      var cmGaugeHTML = '<div class="trigger-row" style="margin-top:8px"><span class="trigger-lbl-wrap"><span class="trigger-lbl">---</span></span><span class="trigger-val-wrap"><span class="trigger-val" style="color:' + cmGaugeColor + '">' + (cmComp ? cmComp.level : "N/A") + '</span><button type="button" class="help-btn" data-help="agitator-score" aria-label="What is this?">?</button></span><span class="trigger-sub">' + (cmComp ? Math.round(cmComp.score / 10) + "/10" : "no data") + "</span></div>";
+      var cmf = cm.factors;
+      var cmFactorsHTML = cmf ? '<div class="track-log-title" style="margin-top:10px">SIGNALS</div>' + agitatorFactorRow("Surprise", "agitator-surprise", cmf.surprise ?? null) + agitatorFactorRow("Uncertainty", "agitator-uncertainty", cmf.uncertainty ?? null) + agitatorFactorRow("Freshness", "agitator-freshness", cmf.freshness ?? null) + agitatorFactorRow("Ripple Effect", "agitator-ripple", cmf.rippleEffect ?? null) + agitatorFactorRow("Swing Risk", "agitator-swing", cmf.swingRisk ?? null) + agitatorFactorRow("Expected Move", "agitator-expected-move", cmf.expectedMove ?? null) : "";
       var cmNewsHTML = '<div class="headline" style="margin-top:8px">' + (cm.news ? cm.news.url ? '<a href="' + cm.news.url + '" target="_blank">' + cm.news.headline + "</a>" : cm.news.headline : '<span style="opacity:.6">No recent related news found.</span>') + "</div>";
       var cmRelatedHTML = '<div class="track-log-title" style="margin-top:10px">RELATED</div>' + (cm.related && cm.related.length ? '<div class="compact-list">' + cm.related.map(relatedRowHTML).join("") + "</div>" : '<div class="track-empty">No related companies found.</div>');
-      out.innerHTML = '<div class="track-log-title">SPOT PRICE</div>' + spotHTML + proxyHTML + '<div class="track-empty" style="margin-top:6px">' + (spotHTML ? "Live commodity spot price" : cm.name + " spot price unavailable \u2014 showing its tradable proxy instead") + " \u2014 not a company, so no Gate breakdown or watchlist entry applies here.</div>" + cmNewsHTML + cmRelatedHTML;
+      out.innerHTML = '<div class="track-log-title">SPOT PRICE</div>' + spotHTML + proxyHTML + '<div class="track-empty" style="margin-top:6px">' + (spotHTML ? "Live commodity spot price" : cm.name + " spot price unavailable \u2014 showing its tradable proxy instead") + " \u2014 not a company, so no Gate breakdown or watchlist entry applies here.</div>" + cmGaugeHTML + cmNewsHTML + cmFactorsHTML + cmRelatedHTML;
       wireAgitatorAddButtons(out);
       if (!isLandscapeMode()) snapCardUnderDock(document.getElementById("card-agitator"));
       return;

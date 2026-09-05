@@ -8092,3 +8092,23 @@ keep needing a reminder about.
 request.** If a future change to the Agitator would leave any result
 type without a real article + 2-3 recommendations, that is a regression
 against this rule, not a design choice to reconsider from scratch.
+
+**Extended the same day: the signal breakdown is part of this rule too,
+not just the article + recommendations.** Direct follow-up confirmed the
+mental model this app should match: every Agitator query, symbol/company/
+headline/rumor/commodity alike, gets resolved through the same real
+connections (Finnhub, Alpaca, Marketaux, goldprice.dev) and an AI
+decision that produces a genuine related article, 2-3 recommendations,
+**and** a composite signal score — with Pro additionally seeing the full
+per-factor SIGNALS breakdown of how it's likely affecting/affected. The
+commodity path's `computeTopicalFallback()` reuse already computed
+`factors`/`composite` internally the whole time (it's the same function
+Path B uses) — it was being discarded before reaching the response
+instead of forwarded. Fixed: the commodity response now includes
+`composite` (all tiers) and `factors` (Pro/Shark only, same
+`req.tierConfig?.tracker` gate Path B already uses), and all three
+tiers' frontend renders the identical gauge/SIGNALS/RELATED shape for a
+commodity result as it does for any other unresolved query. **Keep this
+symmetry whenever any of these three paths changes** — a fix to Path A/B
+that isn't mirrored into the commodity path (or vice versa) reopens
+exactly the inconsistency this rule exists to prevent.
