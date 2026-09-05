@@ -439,7 +439,24 @@ export function snapCardUnderDock(cardEl: HTMLElement): void {
 // Re-caps every currently-expanded card's body on resize (rotation, a
 // desktop window resize) -- the available-height math above is a snapshot
 // of the viewport at expand time and doesn't self-update otherwise.
+//
+// Skips entirely while landscape mode is active (confirmed real, Sep 5
+// 2026): a card moved into the landscape pane keeps its portrait
+// `.expanded` class (nothing clears it), so this query still matched it
+// and recomputed capCardBodyHeight() using dockOffsetFor()'s PORTRAIT
+// assumption that the card sits in normal page flow after/before the
+// pill strip -- wrong once the card is actually sitting inside
+// .utility-pane. That recompute fired on every rotation (this function
+// is on the shared resize listener), overwriting the already-correct
+// landscape sizing with a small, wrong cap (confirmed: a real device
+// rotation left a card capped to 148px, strangling its content even
+// though the outer .landscape-hud/.utility-pane were themselves sized
+// correctly by sizeLandscapeHud()). Landscape has its own sizing
+// mechanism entirely (the HUD's own bounded max-height, both children
+// already overflow-y:auto) -- portrait's per-card capping doesn't apply
+// to any card while it's active, not just the ones visibly affected so far.
 function recapExpandedCards(): void {
+  if (isLandscapeMode()) return;
   const roloIndexH = els.roloIndex.getBoundingClientRect().height;
   document.querySelectorAll<HTMLElement>('.card.expanded[data-card]').forEach((cardEl) => {
     capCardBodyHeight(cardEl, dockOffsetFor(cardEl, roloIndexH));
@@ -543,8 +560,18 @@ function selectLandscapeCard(card: HTMLElement): void {
   Array.from(lsEls.pane.querySelectorAll<HTMLElement>('.card[data-card]')).forEach((c) => {
     c.classList.toggle('landscape-active', c === card);
   });
+  // Scrolls the tapped/active ribbon button into view within its own
+  // .utility-ribbon scroll box -- deliberate, not relied on as a side
+  // effect of the browser's own native "scroll focused element into
+  // view" behavior, which this codebase has already learned not to trust
+  // for anything user-facing (the ticker-pill marquee needed an explicit
+  // preventDefault() for exactly this reason -- native focus-scroll is
+  // inconsistent across browsers/conditions, not something to build on).
   Array.from(lsEls.ribbon.children).forEach((btn) => {
-    (btn as HTMLElement).classList.toggle('active', (btn as HTMLElement).dataset.card === card.dataset.card);
+    const el = btn as HTMLElement;
+    const active = el.dataset.card === card.dataset.card;
+    el.classList.toggle('active', active);
+    if (active) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   });
   if (lsOnSelect) lsOnSelect(card);
   snapLandscapeHudUnderDock(lsEls.hud);
@@ -555,6 +582,13 @@ function activateLandscape(): void {
   const cards = Array.from(document.querySelectorAll<HTMLElement>('.card[data-card]'));
   cards.forEach((card) => {
     if (!lsAnchors.has(card)) lsAnchors.set(card, { parent: card.parentNode as Node, next: card.nextSibling as ChildNode | null });
+    // Clears any inline max-height capCardBodyHeight() left on this card's
+    // .card-body-pad from an earlier PORTRAIT expand -- confirmed real: a
+    // card expanded once in portrait, then rotated to landscape, kept that
+    // stale (wrong-context) cap, strangling its content inside the pane
+    // even though the pane itself is correctly sized by sizeLandscapeHud().
+    const pad = card.querySelector<HTMLElement>('.card-body-pad');
+    if (pad) pad.style.maxHeight = '';
     lsEls!.pane.appendChild(card);
   });
   if (!lsEls.ribbon.childElementCount) buildLandscapeRibbon(cards);
