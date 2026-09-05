@@ -2268,14 +2268,19 @@ async function fetchCommodityPrice(code) {
     );
     if (!res.ok) throw new Error(`goldprice.dev ${res.status}`);
     const data = await res.json();
-    const raw = typeof data?.price === "number" ? data.price
-      : (typeof data?.bid === "number" && typeof data?.ask === "number") ? (data.bid + data.ask) / 2
-      : null;
-    // Mirror of Tra -- a shape mismatch used to fail silently (zero log
-    // either way), confirmed live to be indistinguishable from "nothing
-    // to report." Logging the raw body here is how the real shape gets
-    // confirmed instead of guessed at again.
-    if (raw == null || raw <= 0) {
+    // Mirror of Tra -- real shape confirmed live: `{ symbols: [ { symbol,
+    // price, bid, ask, ... } ] }`, nested under a `symbols` array with
+    // price/bid/ask all STRINGS, not the top-level numeric fields
+    // originally assumed.
+    const sym0 = Array.isArray(data?.symbols) ? data.symbols[0] : null;
+    const raw = sym0 && sym0.price != null ? Number(sym0.price)
+      : sym0 && sym0.bid != null && sym0.ask != null ? (Number(sym0.bid) + Number(sym0.ask)) / 2
+      : NaN;
+    // A shape mismatch used to fail silently (zero log either way),
+    // confirmed live to be indistinguishable from "nothing to report."
+    // Logging the raw body here is how the real shape gets confirmed
+    // instead of guessed at again.
+    if (!Number.isFinite(raw) || raw <= 0) {
       console.error(`fetchCommodityPrice ${code}: unexpected response shape:`, JSON.stringify(data).slice(0, 500));
       return null;
     }
