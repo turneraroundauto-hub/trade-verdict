@@ -2265,14 +2265,58 @@ const COMMODITY_RELATED_FALLBACK = {
 // unauthenticated requests get a flat 403, contradicting the provider's
 // own "no API key required for basic access" docs this was first built
 // from. Sent as a Bearer token per the provider's documented auth scheme.
-const GOLDPRICE_SYMBOLS = { xau: "XAU-USD-SPOT", xag: "XAG-USD-SPOT" };
+// Mirror of Tra -- XAG (silver) routed to a separate keyless source
+// instead of goldprice.dev: confirmed live that goldprice.dev's free
+// plan does NOT include silver/copper spot at all (a permanent plan
+// gate -- "Silver (XAG) and copper (HG) spot need Pro tier access" per
+// the provider's own docs), not a transient error.
+const GOLDPRICE_SYMBOLS = { xau: "XAU-USD-SPOT" };
 const GOLDPRICE_MAX_AGE_MS = 2 * 60 * 1000;
 const goldpriceCache = new Map(); // code -> { result, time }
 
+// Mirror of Tra -- gold-api.com, a keyless single-endpoint free gold/
+// silver/crypto price API (includes silver on its free tier, unlike
+// goldprice.dev). UNVERIFIED AGAINST A LIVE RESPONSE -- gold-api.com is
+// unreachable from this sandbox; shape reasoned from public docs, parsed
+// defensively against several plausible field names, logs the raw body
+// on any mismatch (learning directly from the goldprice.dev silent-
+// shape-mismatch bug), fails safe to null on any error.
+const SILVER_FALLBACK_MAX_AGE_MS = 2 * 60 * 1000;
+let silverFallbackCache = { result: null, time: 0 };
+
+async function fetchSilverSpotFallback() {
+  if (silverFallbackCache.result && Date.now() - silverFallbackCache.time < SILVER_FALLBACK_MAX_AGE_MS) {
+    return silverFallbackCache.result;
+  }
+  const entry = COMMODITY_CODES.xag;
+  try {
+    const res = await fetchWithTimeout(
+      "https://api.gold-api.com/price/XAG",
+      { headers: { "User-Agent": "TradeTribunal/4.0" } }, 8000
+    );
+    if (!res.ok) throw new Error(`gold-api.com ${res.status}`);
+    const data = await res.json();
+    const raw = Number(data?.price ?? data?.rate ?? data?.value ?? NaN);
+    if (!Number.isFinite(raw) || raw <= 0) {
+      console.error(`fetchSilverSpotFallback: unexpected response shape:`, JSON.stringify(data).slice(0, 500));
+      return null;
+    }
+    const result = { name: entry.name, code: "XAG", price: raw, unit: entry.unit, url: entry.url };
+    console.log(`fetchSilverSpotFallback: resolved $${raw}`);
+    silverFallbackCache = { result, time: Date.now() };
+    return result;
+  } catch (e) {
+    console.error(`fetchSilverSpotFallback:`, e.message);
+    return null;
+  }
+}
+
 async function fetchCommodityPrice(code) {
   const entry = COMMODITY_CODES[code];
+  if (!entry) return null;
+  if (code === "xag") return fetchSilverSpotFallback();
   const symbol = GOLDPRICE_SYMBOLS[code];
-  if (!entry || !symbol) return null;
+  if (!symbol) return null;
   const apiKey = process.env.GOLDPRICE_API_KEY;
   if (!apiKey) { console.error(`fetchCommodityPrice ${code}: no GOLDPRICE_API_KEY set`); return null; }
   const cached = goldpriceCache.get(code);
