@@ -696,11 +696,21 @@ function selectLandscapeCard(card: HTMLElement): void {
   // for anything user-facing (the ticker-pill marquee needed an explicit
   // preventDefault() for exactly this reason -- native focus-scroll is
   // inconsistent across browsers/conditions, not something to build on).
+  //
+  // `block:'start'`, not `'nearest'` (Sep 6, 2026, direct report: "the
+  // ribbon didn't advance towards the top when I tapped watchlist so I
+  // can't tell there's another button below") -- 'nearest' is a no-op
+  // the moment the tapped button is already fully visible, which is
+  // exactly the common case for a button that isn't right at the very
+  // bottom of the ribbon's own scroll box. Advancing the tapped button
+  // to the TOP of the ribbon's visible area instead means anything
+  // after it that was previously below the fold gets pulled into view,
+  // which is the actual signal a user needs that the list continues.
   Array.from(lsEls.ribbon.children).forEach((btn) => {
     const el = btn as HTMLElement;
     const active = el.dataset.card === card.dataset.card;
     el.classList.toggle('active', active);
-    if (active) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    if (active) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
   if (lsOnSelect) lsOnSelect(card);
   snapLandscapeHudUnderDock(lsEls.hud);
@@ -722,6 +732,20 @@ function activateLandscape(): void {
   });
   if (!lsEls.ribbon.childElementCount) buildLandscapeRibbon(cards);
   lsIsActive = true;
+  // A portrait accordion card may already be open (the .expanded class,
+  // set by each tier's own wireAccordionHead()) the very first time
+  // landscape ever activates -- rotating a device while genuinely
+  // viewing that card's content, not a hypothetical. lsActiveCard is
+  // otherwise only ever set by tapping a ribbon item WHILE ALREADY in
+  // landscape, so without this fallback the first activation had no way
+  // to know a card was already open and silently dropped into the empty
+  // "tap a card" placeholder instead -- confirmed real (Sep 6, 2026):
+  // rotating out of an expanded, scrolled-into Watchlist card landed on
+  // a blank HUD with no active card and no ribbon selection at all.
+  if (!lsActiveCard) {
+    const alreadyExpanded = cards.find((c) => c.classList.contains('expanded'));
+    if (alreadyExpanded) lsActiveCard = alreadyExpanded;
+  }
   if (lsActiveCard) selectLandscapeCard(lsActiveCard);
   else { lsEls.empty.style.display = ''; sizeLandscapeHud(); }
 }
