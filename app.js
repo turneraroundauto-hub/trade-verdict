@@ -1040,7 +1040,7 @@ function selectLandscapeCard(card) {
     const el = btn;
     const active = el.dataset.card === card.dataset.card;
     el.classList.toggle("active", active);
-    if (active) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    if (active) el.scrollIntoView({ behavior: "smooth", block: "start" });
   });
   if (lsOnSelect) lsOnSelect(card);
   snapLandscapeHudUnderDock(lsEls.hud);
@@ -1056,6 +1056,10 @@ function activateLandscape() {
   });
   if (!lsEls.ribbon.childElementCount) buildLandscapeRibbon(cards);
   lsIsActive = true;
+  if (!lsActiveCard) {
+    const alreadyExpanded = cards.find((c) => c.classList.contains("expanded"));
+    if (alreadyExpanded) lsActiveCard = alreadyExpanded;
+  }
   if (lsActiveCard) selectLandscapeCard(lsActiveCard);
   else {
     lsEls.empty.style.display = "";

@@ -206,10 +206,38 @@
       flex:1; min-width:0; overflow-y:auto; padding:10px;
       touch-action:pan-y; -webkit-overflow-scrolling:touch;
     }
-    .utility-pane .card[data-card]{ display:none; border:none; border-radius:0; }
+    /* .card, .card-body-inner, and .card-body-pad each carry their own
+       unconditional overflow:hidden/auto in the base (portrait) rules
+       (rounded-corner clipping on .card; the 0fr/1fr accordion-collapse
+       trick on .card-body-inner; the Aug 18, 2026 card-height cap on
+       .card-body-pad) -- and ANY ancestor with an overflow value other
+       than visible counts as a valid position:sticky containing block,
+       whether or not it actually ends up scrolling anything. Glossary's
+       sticky search bar (real report, Sep 6, 2026: "the sort/filter/
+       search bar isn't holding to the frame") was resolving its
+       containing block to the nearest of these three instead of
+       .utility-pane -- the ancestor that ACTUALLY scrolls in landscape
+       -- and a non-scrolling containing block means the "sticky"
+       element just sits in its normal document position and scrolls
+       away like anything else. Confirmed by walking the real computed
+       ancestor chain, not guessed on the first attempt: an earlier pass
+       only cleared two of these three and the bar still didn't stick.
+       All three are safe to clear here: rounded corners are already
+       reset (border-radius:0, just above) so there's nothing left to
+       clip; the accordion-collapse trick doesn't run in landscape at
+       all (cards show/hide via display:none/block on the card itself);
+       and capCardBodyHeight() never runs in landscape either
+       (recapExpandedCards() explicitly skips while isLandscapeMode()). */
+    .utility-pane .card[data-card]{ display:none; border:none; border-radius:0; overflow:visible; }
     .utility-pane .card[data-card].landscape-active{ display:block; }
     .utility-pane .card[data-card] > .card-head{ display:none; }
     .utility-pane .card[data-card] .card-body{ display:grid; grid-template-rows:1fr; }
+    .utility-pane .card[data-card] .card-body-inner{ overflow:visible; }
+    .utility-pane .card[data-card] .card-body-pad{ overflow:visible; }
+    /* Tightened while in landscape (same report: "will need to be
+       framed really tight to save room") -- far less vertical room
+       here than in portrait, and this row works fine smaller. */
+    .utility-pane .glossary-search-wrap{ padding:4px 0; }
     .utility-empty{ padding:24px 10px; text-align:center; color:var(--ink-dim); font-size:13px; }
 
     /* Header collapse, landscape-only -- driven by rolodex.ts's
