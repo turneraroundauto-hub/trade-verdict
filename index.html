@@ -23,6 +23,7 @@
     --surface-3: #212c3b;
     --border:    rgba(255,255,255,.08);
     --border-2:  rgba(255,255,255,.14);
+    --border-3:  rgba(255,255,255,.32);
     --ink:       #e9edf3;
     --ink-dim:   #98a1ad;
     --ink-faint: #4c5563;
@@ -189,12 +190,12 @@
     }
     .utility-ribbon{
       flex:none; width:72px; display:flex; flex-direction:column;
-      overflow-y:auto; background:var(--bg-raise); border-right:1px solid var(--border);
+      overflow-y:auto; background:var(--bg-raise); border-right:1px solid var(--border-3);
       touch-action:pan-y; -webkit-overflow-scrolling:touch;
     }
     .ribbon-item{
       flex:none; display:flex; flex-direction:column; align-items:center; gap:3px;
-      padding:10px 3px; background:none; border:none; border-bottom:1px solid var(--border);
+      padding:10px 3px; background:none; border:none; border-bottom:1px solid var(--border-3);
       color:var(--ink-dim); cursor:pointer; font-family:var(--mono);
     }
     .ribbon-item:last-child{ border-bottom:none; }
@@ -278,7 +279,7 @@
   .agitator-clear-btn{ position:absolute; right:6px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--ink-dim); font-size:15px; line-height:1; cursor:pointer; padding:6px; }
   .agitator-clear-btn:hover{ color:var(--ink); }
   .track-log-title{ font-size:11px; color:var(--ink-dim); letter-spacing:.08em; margin-bottom:6px; }
-  .trigger-row{ display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid var(--border); font-size:13px; }
+  .trigger-row{ display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid var(--border-3); font-size:13px; }
   .trigger-row:last-child{ border-bottom:none; }
   .trigger-lbl{ font-size:13px; color:var(--ink); flex:1; }
   .trigger-lbl-wrap{ display:flex; align-items:center; gap:4px; flex:1; }
@@ -435,8 +436,8 @@
   .glossary-search-wrap{ padding:10px 0; border-bottom:1px solid var(--border); position:sticky; top:0; z-index:2; background:var(--surface); }
   .glossary-search{ width:100%; background:var(--surface-2); border:1px solid var(--border); border-radius:5px; padding:7px 12px; color:var(--ink); font-family:var(--mono); font-size:13px; }
   .glossary-search::placeholder{ color:var(--ink-dim); }
-  .glossary-cat{ padding:8px 0 4px; font-size:13px; font-weight:700; color:var(--purple); letter-spacing:.1em; border-bottom:1px solid var(--border); }
-  .glossary-term{ padding:9px 0; border-bottom:1px solid rgba(255,255,255,.05); display:none; }
+  .glossary-cat{ padding:8px 0 4px; font-size:13px; font-weight:700; color:var(--purple); letter-spacing:.1em; border-bottom:1px solid var(--border-3); }
+  .glossary-term{ padding:9px 0; border-bottom:1px solid var(--border-3); display:none; }
   .glossary-term.visible{ display:block; }
   @keyframes glossaryFlash{ 0%{ background:var(--blue-dim); } 100%{ background:transparent; } }
   .glossary-term.glossary-flash{ animation:glossaryFlash 1.6s ease; }
