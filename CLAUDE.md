@@ -8701,3 +8701,116 @@ tablet or Chromebook once deployed, particularly around whether the
 zoomed touch-target sizes (pills, ribbon buttons, swipe gestures) feel
 right at real finger scale rather than just passing a synthetic
 pointer-coordinate check.
+
+## Frontend: landscape HUD polish — bottom-edge height, white dividers, ribbon-click scroll reset; a real scale-mismatch bug found along the way (Sep 6, 2026, `trade-verdict` PR #317)
+
+Three direct fixes from a live phone-landscape screenshot: "make the
+panel a little taller to come to the bottom edge of the screen. make
+the boarders between the ribbon and card, as well as between different
+proxy tickers and term, white, so theres clear division. check for
+anything else that could use deliniation. when clicking a button
+ribbon, scroll prompt up so you can see further down the list."
+
+**1. Bottom-edge height — two real causes, not one.** `sizeLandscapeHud()`
+was only ever setting `max-height`, not `height` — correct for capping
+how TALL the box is allowed to grow, but a flex container with content
+naturally shorter than that budget (a 15-ticker Watchlist with no
+overflow rows, the exact case in the reported screenshot) just shrinks
+to fit its content instead of stretching to fill the reserved space, so
+the box was landing well short of the bottom edge regardless of how much
+room was actually reserved for it. Fixed by setting a real `height`
+instead — the box now always occupies exactly the computed available
+space, with taller content still scrolling correctly inside it via each
+child's own existing `overflow-y:auto`. `LANDSCAPE_HUD_BOTTOM_MARGIN`
+(the only genuine slack in the calc) was also trimmed from 16 to 4.
+
+**2. Faint dividers, everywhere in the HUD.** Every divider between
+stacked items inside the HUD — the ribbon-to-pane border, between ribbon
+buttons, between Proxy Resolution Explorer ticker items, between
+Glossary terms/categories, between Agitator SIGNALS rows, between
+Track Record log rows — was at 5-8% white opacity (`--border` at 8%,
+and `.glossary-term`'s own even-fainter hardcoded 5%), reading as barely
+any division at all on a real screen. Added a new `--border-3` token
+(32% white) to all three tiers' `:root` and applied it to every one of
+these selectors — the explicitly-named "ribbon and card" and "proxy
+tickers and term" dividers, plus the Agitator/Track-Record rows found by
+auditing every other faint-line-between-stacked-items pattern in the
+same HUD area, per the "check for anything else" ask.
+
+**3. Ribbon-click scroll reset.** `.utility-pane` is one shared scroll
+box for whichever card is currently active — switching cards via the
+ribbon while scrolled deep into the PREVIOUS card's content used to
+leave the newly-selected card already scrolled partway down, hiding its
+own top and cutting into how much of it was visible without an extra
+manual scroll first. `selectLandscapeCard()` now resets
+`lsEls.pane.scrollTop = 0` on every ribbon click.
+
+**A real, separate bug found and fixed while investigating (1), not
+part of the original three asks.** `dockOffsetFor()` and several sibling
+functions (`listHeadHeight`, `currentGateFullHeight`, `capCardBodyHeight`,
+`capRoloCardHeight`, `forceGateDockedSync`, `recapExpandedCards`) all
+read `getBoundingClientRect().height` and combined it directly with
+`scroller.clientHeight`/`GATE_DOCKED_H`/`style.height` assignments. Since
+the Sep 5, 2026 responsive-scale feature (the previous entry above)
+applies a CSS `transform:scale()` to `.app-shell` on any landscape screen
+wider than 960px, `getBoundingClientRect()` on a descendant now returns
+REAL, post-transform screen pixels, while `clientHeight`/CSS-constant
+values/`style.height` all operate in the SAME pre-transform "virtual"
+pixel space `.app-shell` is laid out in — a genuine unit mismatch,
+invisible at scale=1 (a phone, or any landscape width at or under the
+reference — the case in the actual reported screenshot, and the only
+case fully verified and fixed here) but present the moment a real
+tablet/Chromebook/desktop window engages the scale transform. Confirmed
+directly: at scale=1.333 (a 10" tablet), the HUD-to-bottom gap measured
+~96-116px instead of the intended ~5px, and reading the un-normalized
+`roloIndexH` back out showed it was inflated by almost exactly the scale
+factor. Added `currentAppScale()` (mirrors `updateResponsiveScale()`'s
+own landscape-and-width condition) and divided every one of those
+`getBoundingClientRect()` height reads by it before using them in a
+virtual-unit calculation.
+
+**A second, deeper issue surfaced chasing that fix, correctly scoped
+out rather than chased further.** Even after normalizing every read
+above, a residual gap (~90-350px, scaling non-linearly with the scale
+factor) remained at scale != 1 specifically. Traced as far as confirming
+it's not a "not enough scrollable content yet" clamp (reordering
+`snapLandscapeHudUnderDock()` to call `sizeLandscapeHud()` before
+`scrollIntoView()` — matching this file's own established "settle the
+real final layout before computing a scroll target" discipline — is a
+correctness improvement kept in this PR, but didn't close the gap) —
+the remaining discrepancy looks like `scrollIntoView()` combined with
+`scroll-margin-top` not fully reconciling against an ancestor's
+`transform:scale()` at the browser level, a plausible but unconfirmed
+theory. **Deliberately not chased further in this pass**: it only
+affects the wide-screen scale-to-fit feature (itself less than a day
+old, and not what was reported here), the core mechanism still works
+functionally at every scale (ribbon selection, Gate dock/undock, and
+swipe-to-delete were all re-verified clean, including in isolation at
+tablet scale), and fully root-causing a `scrollIntoView`-under-transform
+browser interaction would be a much larger, separate investigation than
+this HUD-polish pass warranted. **Flagged here as a known, open follow-
+up**: on a real tablet/Chromebook/wide desktop window, expect the
+landscape HUD panel to still fall noticeably short of the bottom edge
+even after this PR, whereas a phone-width landscape screen is fully
+fixed. Revisit with the same live-evidence discipline as everything else
+in this file if it's ever reported as an actual live complaint (nobody
+has hit the scale-to-fit feature long enough yet for that to have
+happened) — start from a real `scrollIntoView`/`scroll-margin-top`-under-
+`transform` repro rather than another guess.
+
+**Verified via headless Chromium at real phone-landscape dimensions,
+matching the reported screenshot exactly:** HUD-to-bottom gap measures
+4.0px; all three divider colors confirmed via computed style
+(`rgba(255,255,255,0.32)`); the pane's `scrollTop` reliably resets to 0
+after a ribbon click even when previously forced to 2000px deep into a
+different (genuinely scrollable — Glossary) card's content. Re-ran the
+existing ribbon-select/Gate-dock/swipe-to-delete regression suite — all
+still pass, including in isolation at tablet scale (an initial swipe
+test that opened the Watchlist card first, then tried to swipe the
+active ticker card, returned a false negative from the exact card-
+overlap-after-opening-a-different-card artifact this file's own ZA-pill
+testing lesson already documents — not a real regression, confirmed by
+re-running the swipe check in isolation).
+
+`npm test` (72/72) and `node --check` clean; `tsc --noEmit` shows only
+the known baseline `?v=N` import-resolution errors, zero new.
