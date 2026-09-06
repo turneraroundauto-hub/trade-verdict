@@ -1053,6 +1053,7 @@ function settleGateSpacerHeightSync() {
   els.gateSpacer.style.transition = prevTransition;
 }
 function snapFirstCardUnderGateDock() {
+  if (isLandscapeMode()) return;
   if (!els.gateCard.classList.contains("docked")) return;
   settleGateSpacerHeightSync();
   const card = document.querySelector(".content")?.firstElementChild;
@@ -1160,12 +1161,18 @@ function forceGateDockedSync() {
   }
   return els.roloIndex.getBoundingClientRect().height / currentAppScale();
 }
+function scrollToUnderDock(el, dockOffset) {
+  const elRect = el.getBoundingClientRect();
+  const scrollerRect = els.scroller.getBoundingClientRect();
+  const scale = currentAppScale();
+  const virtualDocTop = (elRect.top - scrollerRect.top) / scale + els.scroller.scrollTop;
+  els.scroller.scrollTo({ top: virtualDocTop - dockOffset, behavior: "smooth" });
+}
 function scrollToActiveCard() {
   const wrap = els.roloStage.closest(".rolo-wrap");
   if (!wrap) return;
   const roloIndexH = forceGateDockedSync();
-  wrap.style.scrollMarginTop = GATE_DOCKED_H + listHeadHeight() + roloIndexH + "px";
-  wrap.scrollIntoView({ behavior: "smooth", block: "start" });
+  scrollToUnderDock(wrap, GATE_DOCKED_H + listHeadHeight() + roloIndexH);
 }
 var CARD_BODY_MIN_HEIGHT = 120;
 var CARD_BODY_BOTTOM_MARGIN = 16;
@@ -1252,9 +1259,8 @@ function snapLandscapeHudUnderDock(hudEl) {
   if (!lsEls) return;
   const roloIndexH = forceGateDockedSync();
   const dockOffset = dockOffsetFor(hudEl, roloIndexH);
-  hudEl.style.scrollMarginTop = dockOffset + "px";
   sizeLandscapeHud();
-  hudEl.scrollIntoView({ behavior: "smooth", block: "start" });
+  scrollToUnderDock(hudEl, dockOffset);
 }
 function buildLandscapeRibbon(cards) {
   if (!lsEls) return;

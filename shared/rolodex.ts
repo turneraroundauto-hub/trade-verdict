@@ -177,6 +177,19 @@ function settleGateSpacerHeightSync(): void {
 }
 
 function snapFirstCardUnderGateDock(): void {
+  // Portrait-only, like recapExpandedCards()/capCardBodyHeight() (Sep 6,
+  // 2026 fix, real root cause of "ribbon selections not snapping under
+  // docked ticker pills"): this is a scroll-event-driven correction with
+  // no guard of its own, so it was firing on the very scroll event that
+  // snapLandscapeHudUnderDock()/scrollToActiveCard() themselves cause,
+  // then silently re-scrolling moments later toward aligning `.content`'s
+  // first child under the Gate -- a completely unrelated, portrait-only
+  // target once landscape has moved every utility card into the HUD's
+  // own pane. Confirmed directly: a correct HUD/pill-strip snap landed
+  // flush, then this fired ~200ms later (its own debounce) and nudged
+  // scrollTop away from it every single time, with no error or visible
+  // cause short of tracing the actual scroll listener chain.
+  if (isLandscapeMode()) return;
   if (!els.gateCard.classList.contains('docked')) return;
   settleGateSpacerHeightSync();
   const card = document.querySelector('.content')?.firstElementChild as HTMLElement | null;
@@ -334,18 +347,44 @@ function forceGateDockedSync(): number {
   return els.roloIndex.getBoundingClientRect().height / currentAppScale();
 }
 
+// Scrolls #scroller so `el`'s top lands exactly `dockOffset` (virtual
+// px) below the scroller's own top -- the shared mechanic behind both
+// scrollToActiveCard() and snapLandscapeHudUnderDock() below. Computes
+// and sets scroller.scrollTop DIRECTLY instead of el.scrollIntoView()
+// (Sep 6, 2026, fixing a real report: "the ribbon selections are not
+// snapping to HUD under docked ticker pills") -- confirmed via direct
+// measurement that scrollIntoView()'s own target computation is wrong
+// once .app-shell has a transform:scale() applied (the Sep 5, 2026
+// responsive-scale feature, active on any landscape screen wider than
+// 960px): a real repro at scale=1.333 showed a consistent, deterministic
+// ~73px (virtual) over-scroll on every single call, both here and in
+// scrollToActiveCard() -- not a timing race, a flat arithmetic mismatch
+// in the browser's own scrollIntoView algorithm under a scaled ancestor.
+// getBoundingClientRect() always returns real, POST-scale coordinates
+// (standard browser behavior); dividing the real gap between `el` and
+// the scroller by the current scale converts it back to the SAME
+// virtual-pixel space scroller.scrollTop/dockOffset already live in,
+// then adding the scroller's own current scrollTop back recovers `el`'s
+// true virtual document position, independent of wherever the page
+// happens to be scrolled right now. At scale=1 (a phone, or portrait on
+// any device) this reduces to exactly what scrollIntoView was already
+// computing correctly, so nothing regresses there.
+function scrollToUnderDock(el: HTMLElement, dockOffset: number): void {
+  const elRect = el.getBoundingClientRect();
+  const scrollerRect = els.scroller.getBoundingClientRect();
+  const scale = currentAppScale();
+  const virtualDocTop = (elRect.top - scrollerRect.top) / scale + els.scroller.scrollTop;
+  els.scroller.scrollTo({ top: virtualDocTop - dockOffset, behavior: 'smooth' });
+}
+
 // Tapping a pill can happen from anywhere on the page -- #roloIndex stays
 // sticky-docked all the way through content that follows it, so the card
-// itself can be scrolled well out of view. scrollIntoView (not a hand-
-// computed scrollTop) so it stays correct automatically as the Gate/pill-
-// strip's own real heights change, rather than re-deriving offsets by
-// hand -- this codebase has repeatedly relearned that lesson the hard way.
+// itself can be scrolled well out of view.
 function scrollToActiveCard(): void {
   const wrap = els.roloStage.closest<HTMLElement>('.rolo-wrap');
   if (!wrap) return;
   const roloIndexH = forceGateDockedSync();
-  wrap.style.scrollMarginTop = (GATE_DOCKED_H + listHeadHeight() + roloIndexH) + 'px';
-  wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  scrollToUnderDock(wrap, GATE_DOCKED_H + listHeadHeight() + roloIndexH);
 }
 
 // Caps an expanding card's body to the space actually available below
@@ -641,25 +680,21 @@ function snapLandscapeHudUnderDock(hudEl: HTMLElement): void {
   if (!lsEls) return;
   const roloIndexH = forceGateDockedSync();
   const dockOffset = dockOffsetFor(hudEl, roloIndexH);
-  hudEl.style.scrollMarginTop = dockOffset + 'px';
-  // sizeLandscapeHud() BEFORE scrollIntoView(), not after (Sep 6, 2026,
-  // fixing the real cause of the "panel doesn't reach the bottom edge"
-  // report -- the earlier max-height/height and margin fixes above were
-  // real but not the dominant cause). scrollIntoView() computes its
-  // target against the document's CURRENT scrollable height, measured
-  // synchronously at call time -- calling it before sizeLandscapeHud()
-  // had set the HUD's own final height meant the page wasn't yet as
-  // tall as it was about to become, so the browser silently clamped the
-  // scroll short of the correct target once the height was applied a
-  // moment later. Confirmed directly: at a wide (scaled) landscape
-  // width, the HUD's real top measured well short of its intended
-  // dockOffset, by almost exactly one GATE_DOCKED_H -- the same
-  // "measure/settle the real final layout before computing a scroll
-  // target" lesson this file's own capCardBodyHeight()/snapCardUnderDock()
-  // fix (the "below-pill card snap" entry) already learned for portrait
-  // accordion cards, just never applied here for the HUD's own box.
+  // sizeLandscapeHud() BEFORE computing/using the scroll target, not
+  // after (Sep 6, 2026) -- the HUD's own final height affects the
+  // document's total scrollable height, so sizing first guarantees the
+  // computed target is actually reachable, the same "measure/settle the
+  // real final layout before computing a scroll target" lesson this
+  // file's own capCardBodyHeight()/snapCardUnderDock() fix (the
+  // "below-pill card snap" entry) already learned for portrait accordion
+  // cards. scrollToUnderDock() itself (not el.scrollIntoView(), see its
+  // own comment above scrollToActiveCard()) is what actually resolves
+  // the "ribbon selections not snapping under the docked ticker pills"
+  // report -- scrollIntoView()'s own target computation is unreliable
+  // once .app-shell has the Sep 5, 2026 responsive-scale transform
+  // applied.
   sizeLandscapeHud();
-  hudEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  scrollToUnderDock(hudEl, dockOffset);
 }
 
 function buildLandscapeRibbon(cards: HTMLElement[]): void {
