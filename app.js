@@ -774,7 +774,7 @@ var spacerHeight = 0;
 var dockThreshold = 0;
 var gateDockedLast = false;
 function currentGateFullHeight() {
-  return Math.max(0, els.gateFullOverlay.getBoundingClientRect().height - GATE_DOCKED_H);
+  return Math.max(0, els.gateFullOverlay.getBoundingClientRect().height / currentAppScale() - GATE_DOCKED_H);
 }
 function sizeGateSpacer() {
   spacerHeight = currentGateFullHeight();
@@ -784,7 +784,7 @@ function sizeGateSpacer() {
   sizeRoloIndexOffset();
 }
 function listHeadHeight() {
-  return els.listHead.getBoundingClientRect().height;
+  return els.listHead.getBoundingClientRect().height / currentAppScale();
 }
 function sizeRoloIndexOffset() {
   els.roloIndex.style.top = GATE_DOCKED_H + listHeadHeight() + "px";
@@ -863,7 +863,7 @@ function getRoloCurrent() {
 var ROLO_CARD_MIN_HEIGHT = 160;
 var ROLO_CARD_BOTTOM_MARGIN = 16;
 function capRoloCardHeight(activeCard) {
-  const roloIndexH = els.roloIndex.getBoundingClientRect().height;
+  const roloIndexH = els.roloIndex.getBoundingClientRect().height / currentAppScale();
   const available = els.scroller.clientHeight - GATE_DOCKED_H - listHeadHeight() - roloIndexH - ROLO_CARD_BOTTOM_MARGIN;
   const cap = Math.max(ROLO_CARD_MIN_HEIGHT, available);
   if (activeCard.scrollHeight > cap) {
@@ -919,7 +919,7 @@ function forceGateDockedSync() {
     gateDockedLast = true;
     if (cb.onGateDockChange) cb.onGateDockChange(true);
   }
-  return els.roloIndex.getBoundingClientRect().height;
+  return els.roloIndex.getBoundingClientRect().height / currentAppScale();
 }
 function scrollToActiveCard() {
   const wrap = els.roloStage.closest(".rolo-wrap");
@@ -934,7 +934,7 @@ function capCardBodyHeight(cardEl, dockOffset) {
   const pad = cardEl.querySelector(".card-body-pad");
   const head = cardEl.querySelector(".card-head");
   if (!pad || !head) return;
-  const available = els.scroller.clientHeight - dockOffset - head.getBoundingClientRect().height - CARD_BODY_BOTTOM_MARGIN;
+  const available = els.scroller.clientHeight - dockOffset - head.getBoundingClientRect().height / currentAppScale() - CARD_BODY_BOTTOM_MARGIN;
   pad.style.maxHeight = Math.max(CARD_BODY_MIN_HEIGHT, available) + "px";
 }
 function dockOffsetFor(cardEl, roloIndexH) {
@@ -963,12 +963,17 @@ function snapCardUnderDock(cardEl) {
 }
 function recapExpandedCards() {
   if (isLandscapeMode()) return;
-  const roloIndexH = els.roloIndex.getBoundingClientRect().height;
+  const roloIndexH = els.roloIndex.getBoundingClientRect().height / currentAppScale();
   document.querySelectorAll(".card.expanded[data-card]").forEach((cardEl) => {
     capCardBodyHeight(cardEl, dockOffsetFor(cardEl, roloIndexH));
   });
 }
 var APP_SCALE_REFERENCE_WIDTH = 960;
+function currentAppScale() {
+  const isLandscape = window.matchMedia("(orientation: landscape)").matches;
+  const w = window.innerWidth;
+  return isLandscape && w > APP_SCALE_REFERENCE_WIDTH ? w / APP_SCALE_REFERENCE_WIDTH : 1;
+}
 function updateResponsiveScale() {
   const shell = document.querySelector(".app-shell");
   if (!shell) return;
@@ -988,7 +993,7 @@ function updateResponsiveScale() {
   shell.style.transformOrigin = "top center";
 }
 var LANDSCAPE_HUD_MIN_HEIGHT = 160;
-var LANDSCAPE_HUD_BOTTOM_MARGIN = 16;
+var LANDSCAPE_HUD_BOTTOM_MARGIN = 4;
 var lsEls = null;
 var lsOnSelect = null;
 var lsIsActive = false;
@@ -999,18 +1004,18 @@ function isLandscapeMode() {
 }
 function sizeLandscapeHud() {
   if (!lsEls) return;
-  const roloIndexH = els.roloIndex.getBoundingClientRect().height;
+  const roloIndexH = els.roloIndex.getBoundingClientRect().height / currentAppScale();
   const dockOffset = dockOffsetFor(lsEls.hud, roloIndexH);
   const available = els.scroller.clientHeight - dockOffset - LANDSCAPE_HUD_BOTTOM_MARGIN;
-  lsEls.hud.style.maxHeight = Math.max(LANDSCAPE_HUD_MIN_HEIGHT, available) + "px";
+  lsEls.hud.style.height = Math.max(LANDSCAPE_HUD_MIN_HEIGHT, available) + "px";
 }
 function snapLandscapeHudUnderDock(hudEl) {
   if (!lsEls) return;
   const roloIndexH = forceGateDockedSync();
   const dockOffset = dockOffsetFor(hudEl, roloIndexH);
   hudEl.style.scrollMarginTop = dockOffset + "px";
-  hudEl.scrollIntoView({ behavior: "smooth", block: "start" });
   sizeLandscapeHud();
+  hudEl.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 function buildLandscapeRibbon(cards) {
   if (!lsEls) return;
@@ -1030,6 +1035,7 @@ function selectLandscapeCard(card) {
   Array.from(lsEls.pane.querySelectorAll(".card[data-card]")).forEach((c) => {
     c.classList.toggle("landscape-active", c === card);
   });
+  lsEls.pane.scrollTop = 0;
   Array.from(lsEls.ribbon.children).forEach((btn) => {
     const el = btn;
     const active = el.dataset.card === card.dataset.card;

@@ -74,7 +74,7 @@ let gateDockedLast = false;
 let gateTicking = false;
 
 function currentGateFullHeight(): number {
-  return Math.max(0, els.gateFullOverlay.getBoundingClientRect().height - GATE_DOCKED_H);
+  return Math.max(0, els.gateFullOverlay.getBoundingClientRect().height / currentAppScale() - GATE_DOCKED_H);
 }
 
 export function sizeGateSpacer(): void {
@@ -99,7 +99,7 @@ export function sizeGateSpacer(): void {
 // height is real rendered text + padding, not a fixed control like the
 // Gate's own docked bar.
 function listHeadHeight(): number {
-  return els.listHead.getBoundingClientRect().height;
+  return els.listHead.getBoundingClientRect().height / currentAppScale();
 }
 
 function sizeRoloIndexOffset(): void {
@@ -248,7 +248,7 @@ const ROLO_CARD_MIN_HEIGHT = 160;
 const ROLO_CARD_BOTTOM_MARGIN = 16;
 
 function capRoloCardHeight(activeCard: HTMLElement): void {
-  const roloIndexH = els.roloIndex.getBoundingClientRect().height;
+  const roloIndexH = els.roloIndex.getBoundingClientRect().height / currentAppScale();
   const available = els.scroller.clientHeight - GATE_DOCKED_H - listHeadHeight() - roloIndexH - ROLO_CARD_BOTTOM_MARGIN;
   const cap = Math.max(ROLO_CARD_MIN_HEIGHT, available);
   if (activeCard.scrollHeight > cap) {
@@ -331,7 +331,7 @@ function forceGateDockedSync(): number {
     gateDockedLast = true;
     if (cb.onGateDockChange) cb.onGateDockChange(true);
   }
-  return els.roloIndex.getBoundingClientRect().height;
+  return els.roloIndex.getBoundingClientRect().height / currentAppScale();
 }
 
 // Tapping a pill can happen from anywhere on the page -- #roloIndex stays
@@ -365,7 +365,7 @@ function capCardBodyHeight(cardEl: HTMLElement, dockOffset: number): void {
   const pad = cardEl.querySelector<HTMLElement>('.card-body-pad');
   const head = cardEl.querySelector<HTMLElement>('.card-head');
   if (!pad || !head) return;
-  const available = els.scroller.clientHeight - dockOffset - head.getBoundingClientRect().height - CARD_BODY_BOTTOM_MARGIN;
+  const available = els.scroller.clientHeight - dockOffset - head.getBoundingClientRect().height / currentAppScale() - CARD_BODY_BOTTOM_MARGIN;
   pad.style.maxHeight = Math.max(CARD_BODY_MIN_HEIGHT, available) + 'px';
 }
 
@@ -457,7 +457,7 @@ export function snapCardUnderDock(cardEl: HTMLElement): void {
 // to any card while it's active, not just the ones visibly affected so far.
 function recapExpandedCards(): void {
   if (isLandscapeMode()) return;
-  const roloIndexH = els.roloIndex.getBoundingClientRect().height;
+  const roloIndexH = els.roloIndex.getBoundingClientRect().height / currentAppScale();
   document.querySelectorAll<HTMLElement>('.card.expanded[data-card]').forEach((cardEl) => {
     capCardBodyHeight(cardEl, dockOffsetFor(cardEl, roloIndexH));
   });
@@ -502,6 +502,33 @@ function recapExpandedCards(): void {
 // landscape (already <= 960px) or portrait on any device renders exactly
 // as it always has, completely untouched.
 const APP_SCALE_REFERENCE_WIDTH = 960;
+
+// Real screen coordinates (getBoundingClientRect(), pointer events) are
+// always POST-transform once updateResponsiveScale() below applies its
+// transform:scale() to .app-shell -- but every dock/snap/height budget
+// elsewhere in this file (scroller.clientHeight, GATE_DOCKED_H, and every
+// style.height/style.top/style.maxHeight it assigns) operates in the SAME
+// PRE-transform "virtual" coordinate space .app-shell is laid out in.
+// Confirmed real, not theoretical (Sep 6, 2026): at scale=1.333 (a 10"
+// tablet), dockOffsetFor()'s roloIndexH -- a raw getBoundingClientRect()
+// read -- came back ~33% too large relative to the rest of its own
+// formula, and the identical mismatch fed sizeLandscapeHud()'s
+// bottom-edge calc, sizeRoloIndexOffset()'s sticky `top`, and
+// gateSpacer's own reserved height, each independently -- a real,
+// measured ~100px error. Invisible at scale=1 (a phone, or any
+// landscape width <= the reference), which is why the earlier scale-to-
+// fit PR's own interaction regression suite (real device widths only)
+// never caught it -- it only surfaces once a wide screen actually
+// engages the transform. Every getBoundingClientRect() height/width read
+// that feeds one of those virtual-space budgets divides by this scale to
+// convert back to virtual units first; declared as a function (not
+// const) so it hoists and stays callable from the several such reads
+// defined earlier in this file.
+function currentAppScale(): number {
+  const isLandscape = window.matchMedia('(orientation: landscape)').matches;
+  const w = window.innerWidth;
+  return (isLandscape && w > APP_SCALE_REFERENCE_WIDTH) ? w / APP_SCALE_REFERENCE_WIDTH : 1;
+}
 
 function updateResponsiveScale(): void {
   const shell = document.querySelector<HTMLElement>('.app-shell');
@@ -551,7 +578,12 @@ export interface LandscapeElements {
 }
 
 const LANDSCAPE_HUD_MIN_HEIGHT = 160;
-const LANDSCAPE_HUD_BOTTOM_MARGIN = 16;
+// Trimmed from 16 (Sep 6, 2026, direct request: "make the panel a little
+// taller to come to the bottom edge of the screen") -- this is the only
+// slack sizeLandscapeHud() reserves below the HUD box that isn't already
+// real content/dock height, so shrinking it directly recovers height at
+// the bottom edge without touching the dockOffset math above it.
+const LANDSCAPE_HUD_BOTTOM_MARGIN = 4;
 
 let lsEls: LandscapeElements | null = null;
 let lsOnSelect: ((card: HTMLElement) => void) | null = null;
@@ -583,12 +615,26 @@ export function isLandscapeMode(): boolean {
 // here to the HUD's own box -- once IT has a real max-height, both
 // children (each already overflow-y:auto) stretch to fill it and scroll
 // independently for free.
+//
+// Sets a real `height`, not `max-height` (Sep 6, 2026, direct request:
+// "make the panel a little taller to come to the bottom edge of the
+// screen") -- confirmed real via measurement, not assumed: a card with
+// short content (e.g. a 15-ticker Watchlist with no overflow rows) is
+// naturally shorter than the full available budget, and `max-height`
+// only ever caps how tall the box is ALLOWED to grow -- it doesn't force
+// a flex container to actually grow to fill that budget when its own
+// content is shorter, so the box was shrinking to fit its content and
+// leaving a real, measured ~100px gap above the screen's bottom edge
+// instead of reaching it. A fixed `height` makes the HUD always occupy
+// exactly the computed available space regardless of content length;
+// taller content still scrolls correctly within it, since both children
+// already have their own overflow-y:auto.
 function sizeLandscapeHud(): void {
   if (!lsEls) return;
-  const roloIndexH = els.roloIndex.getBoundingClientRect().height;
+  const roloIndexH = els.roloIndex.getBoundingClientRect().height / currentAppScale();
   const dockOffset = dockOffsetFor(lsEls.hud, roloIndexH);
   const available = els.scroller.clientHeight - dockOffset - LANDSCAPE_HUD_BOTTOM_MARGIN;
-  lsEls.hud.style.maxHeight = Math.max(LANDSCAPE_HUD_MIN_HEIGHT, available) + 'px';
+  lsEls.hud.style.height = Math.max(LANDSCAPE_HUD_MIN_HEIGHT, available) + 'px';
 }
 
 function snapLandscapeHudUnderDock(hudEl: HTMLElement): void {
@@ -596,8 +642,24 @@ function snapLandscapeHudUnderDock(hudEl: HTMLElement): void {
   const roloIndexH = forceGateDockedSync();
   const dockOffset = dockOffsetFor(hudEl, roloIndexH);
   hudEl.style.scrollMarginTop = dockOffset + 'px';
-  hudEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // sizeLandscapeHud() BEFORE scrollIntoView(), not after (Sep 6, 2026,
+  // fixing the real cause of the "panel doesn't reach the bottom edge"
+  // report -- the earlier max-height/height and margin fixes above were
+  // real but not the dominant cause). scrollIntoView() computes its
+  // target against the document's CURRENT scrollable height, measured
+  // synchronously at call time -- calling it before sizeLandscapeHud()
+  // had set the HUD's own final height meant the page wasn't yet as
+  // tall as it was about to become, so the browser silently clamped the
+  // scroll short of the correct target once the height was applied a
+  // moment later. Confirmed directly: at a wide (scaled) landscape
+  // width, the HUD's real top measured well short of its intended
+  // dockOffset, by almost exactly one GATE_DOCKED_H -- the same
+  // "measure/settle the real final layout before computing a scroll
+  // target" lesson this file's own capCardBodyHeight()/snapCardUnderDock()
+  // fix (the "below-pill card snap" entry) already learned for portrait
+  // accordion cards, just never applied here for the HUD's own box.
   sizeLandscapeHud();
+  hudEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function buildLandscapeRibbon(cards: HTMLElement[]): void {
@@ -619,6 +681,14 @@ function selectLandscapeCard(card: HTMLElement): void {
   Array.from(lsEls.pane.querySelectorAll<HTMLElement>('.card[data-card]')).forEach((c) => {
     c.classList.toggle('landscape-active', c === card);
   });
+  // Resets the pane's own scroll position back to its top on every ribbon
+  // click (Sep 6, 2026, direct request: "scroll prompt up so you can see
+  // further down the list") -- .utility-pane is one shared scroll box for
+  // whichever card is currently active, so switching cards while scrolled
+  // deep into the PREVIOUS one's content used to land the newly-selected
+  // card already scrolled partway down, hiding its own top and cutting
+  // into how much of it was visible without an extra manual scroll first.
+  lsEls.pane.scrollTop = 0;
   // Scrolls the tapped/active ribbon button into view within its own
   // .utility-ribbon scroll box -- deliberate, not relied on as a side
   // effect of the browser's own native "scroll focused element into
