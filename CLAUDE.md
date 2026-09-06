@@ -8814,3 +8814,101 @@ re-running the swipe check in isolation).
 
 `npm test` (72/72) and `node --check` clean; `tsc --noEmit` shows only
 the known baseline `?v=N` import-resolution errors, zero new.
+
+## Frontend: landscape HUD round 2 — ribbon-tap advance, sticky control rows, rotate-from-portrait fix (Sep 6, 2026, `trade-verdict` PR #319)
+
+Three more direct fixes on the same landscape HUD, same day: "for
+instance, the ribbon didn't advance towards the top when I tapped
+watchlist so I can't tell there's another button below. also just
+realized the frame isn't holding the sort/filter/search bar isn't
+holding to the frame but will need to be framed really tight to save
+room. also the HUD breaks when you go from portrait to landscape when
+you rotate from within one of the drop-downs from portrait."
+
+**1. Ribbon-tap now advances toward the top, not just "into view."**
+`selectLandscapeCard()`'s ribbon-scroll used `block:'nearest'` — a
+no-op the instant the tapped item is already fully visible, which is
+the common case for anything not right at the very bottom of the
+ribbon's own scroll box. Switched to `block:'start'`, so the tapped
+item always moves to the top of the ribbon's visible area, pulling
+whatever follows it into view too — the actual signal a user needs
+that the list continues below the fold.
+
+**2. Sticky sort/search rows weren't actually sticking in landscape —
+root-caused by walking the real computed ancestor chain, not guessed.**
+Watchlist's `.wl-overflow-hdr`, Proxy Resolution Explorer's
+`.proxy-sort-row`, and Glossary's `.glossary-search-wrap` are all
+`position:sticky; top:0`, correctly stuck to `.utility-pane` in
+portrait (each card's own `.card-body-pad` gets a JS-driven
+`overflow-y:auto` there) but silently NOT sticking once moved into the
+landscape HUD. `getComputedStyle` on the real ancestor chain (from the
+sticky element up to `#utilityPane`) showed the actual cause: `.card`,
+`.card-body-inner`, and `.card-body-pad` each carry their own
+UNCONDITIONAL `overflow:hidden`/`auto` in the base portrait rules
+(rounded-corner clipping on `.card`; the 0fr/1fr accordion-collapse
+trick on `.card-body-inner`; the Aug 18, 2026 card-height cap on
+`.card-body-pad`) — and per spec, ANY ancestor with an overflow value
+other than `visible` counts as a valid `position:sticky` containing
+block, whether or not it actually scrolls anything. So these rows were
+resolving their sticky containing block against one of these three
+non-scrolling ancestors instead of `.utility-pane` (the one that
+genuinely scrolls in landscape), and a non-scrolling containing block
+means "sticky" just sits in its normal document position and scrolls
+away like anything else. **Took two attempts to find all three, not
+one**: a first pass cleared only `.card-body-inner` and
+`.card-body-pad`, confirmed via the same before/after-scroll
+`getBoundingClientRect()` check that the bar still didn't stick, then
+found `.card` itself was the third (outermost) interceptor. All three
+are safe to override to `overflow:visible` in landscape: rounded
+corners are already reset (`border-radius:0`, the existing landscape
+override right next to it), the accordion-collapse trick never runs in
+landscape (cards show/hide via `display:none`/`block` on the card
+itself, not the grid trick), and `capCardBodyHeight()` never runs in
+landscape either (`recapExpandedCards()` explicitly skips while
+`isLandscapeMode()`). Also tightened these three rows' own padding
+while in landscape, per the same report ("will need to be framed
+really tight to save room") — landscape has far less vertical room
+than portrait and these rows work fine smaller.
+
+**3. Rotating from within an already-expanded portrait card used to
+drop into the HUD's empty placeholder, discarding context.** Confirmed
+real via a headless test that expanded Watchlist in portrait, scrolled
+into its content, then resized the viewport to landscape dimensions:
+the resulting HUD showed `activeCards: []` and the empty "tap a card"
+placeholder, even though Watchlist was the card the user was actively
+viewing a moment before. Root cause: `lsActiveCard` (the module-level
+variable `activateLandscape()` checks to decide which card to show) is
+otherwise only ever set by tapping a ribbon item WHILE ALREADY in
+landscape — the very first activation, coming from portrait, had no
+way to know a card was already open via the portrait `.expanded` class,
+a completely different mechanism. Fixed: `activateLandscape()` now
+falls back to whichever card already carries `.expanded` when
+`lsActiveCard` is still unset, before deciding between "select it" and
+"show the empty placeholder."
+
+**Verified via headless Chromium:** rotating out of an expanded,
+scrolled-into Watchlist card now lands on Watchlist active in both the
+`.utility-pane` and the ribbon's own `.active` class; all three sticky
+rows confirmed holding their exact position (`getBoundingClientRect().top`
+identical before and after scrolling the pane 150-500px, not just
+"has `position:sticky` in the CSS"); tapping a ribbon item measurably
+advances the ribbon's own `scrollTop` toward the top. Re-ran the full
+existing regression suite from the prior PR (HUD-to-bottom-edge gap
+still ~4px, Gate dock/undock, ribbon-click pane-scroll-reset,
+swipe-to-delete) — all still pass. **A real testing-methodology lesson
+worth keeping, distinct from the ZA-pill one already documented above:**
+an initial swipe-to-delete check in this same pass returned a false
+"failure" after a rotation — traced to `document.elementFromPoint()` at
+the guessed swipe coordinates returning `null`, meaning the ticker
+card's real computed rect placed it partially BELOW the short (390px)
+landscape viewport at that point in the test, not actually visible at
+all. Not a real regression: switched from a hand-guessed
+`mouse.wheel()` scroll amount to the app's own pill-tap-to-scroll
+mechanism (which correctly computes and settles the right scroll
+position via `scrollToActiveCard()`), and the swipe worked correctly.
+**When a headless check needs an element to be on-screen, verify its
+real rect is actually within the viewport bounds before interacting
+with it, rather than assuming a scroll gesture landed where intended.**
+
+`npm test` (72/72) and `node --check` clean; `tsc --noEmit` shows only
+the known baseline `?v=N` import-resolution errors, zero new.
