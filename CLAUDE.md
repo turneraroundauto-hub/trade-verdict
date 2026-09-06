@@ -8912,3 +8912,82 @@ with it, rather than assuming a scroll gesture landed where intended.**
 
 `npm test` (72/72) and `node --check` clean; `tsc --noEmit` shows only
 the known baseline `?v=N` import-resolution errors, zero new.
+
+## Frontend: landscape HUD/pill-tap snap fixed for real — the earlier scale-mismatch fix wasn't the whole story (Sep 6, 2026, `trade-verdict` PR #321)
+
+Direct report: "the ribbon selections are not snapping to HUD under
+docked ticker pills." This is the exact residual issue flagged as a
+known, deliberately-not-chased-further follow-up in the "landscape HUD
+polish" entry above — reproduced this time, cleanly and deterministically
+(a real, consistent gap on every single ribbon tap at a wide/scaled
+landscape width, not a timing flake), so it got the full root-cause
+treatment this time instead of staying deferred.
+
+**Bug 1, confirmed real via direct measurement, not assumed.**
+`hudEl.scrollIntoView()`/`wrap.scrollIntoView()` (used by
+`snapLandscapeHudUnderDock()` and `scrollToActiveCard()`) genuinely
+miscompute their own scroll target once `.app-shell` has the Sep 5, 2026
+responsive-scale `transform:scale()` applied — confirmed by manually
+computing the mathematically-correct `scrollTop` via a from-scratch
+formula and comparing it against what `scrollIntoView` actually
+produced: a consistent ~73px (virtual) over-scroll, the same on every
+call. Fixed by adding `scrollToUnderDock(el, dockOffset)` — a small
+helper that measures the real (post-scale) gap between `el` and the
+scroller, divides by the current scale to recover the true virtual
+position, and sets `scroller.scrollTop` directly via `scrollTo()`
+instead of asking the browser's own (apparently confused-by-the-
+transform) `scrollIntoView` to find the target itself. At scale=1 (a
+phone, or portrait on any device) this reduces to exactly the same
+behavior `scrollIntoView` already produced correctly there, so nothing
+regresses.
+
+**Bug 2 — this alone only reduced the gap (from ~97px to ~60px real),
+it didn't close it, which is what forced tracing it further instead of
+declaring it fixed on the first improvement.** Measured precisely: the
+`dockOffset` value `scrollToUnderDock()` was being *given* was itself
+wrong (68 virtual px instead of the correct, independently-confirmed
+113), even though every individual piece that's supposed to sum to
+113 (`GATE_DOCKED_H`=44, `listHeadHeight()`=23, `roloIndexH`=46, all
+already correctly scale-normalized) checked out fine when read fresh.
+That contradiction — right inputs, wrong result — pointed at something
+ELSE moving the scroll position *after* the correct value had already
+been set, not a bad computation. Confirmed directly: manually setting
+`scroller.scrollTop` to a hand-computed, verified-correct value (bypassing
+the app's own code entirely) still didn't stick — it drifted to a
+different value moments later. Traced to `snapFirstCardUnderGateDock()`
+(the portrait-only Sector-Pulse-under-the-docked-Gate soft-snap
+correction, see the Aug 18, 2026 entry earlier in this file) — it has no
+`isLandscapeMode()` guard at all, unlike its sibling functions
+(`recapExpandedCards()`, `capCardBodyHeight()`), and it's wired to
+*every* `#scroller` scroll event via a 200ms-debounced check. The scroll
+that `snapLandscapeHudUnderDock()`/`scrollToActiveCard()` themselves
+cause is itself a scroll event — so ~200ms after landing correctly, this
+completely unrelated portrait mechanism fired, read `.content`'s first
+child (whatever that resolves to once landscape has moved every utility
+card into the HUD's own pane), and silently re-adjusted `scrollTop`
+toward aligning *that* under the Gate — a target with nothing to do with
+where the ribbon/pill snap was trying to go. Fixed with the missing
+guard.
+
+**Verified via headless Chromium, waiting well past the 200ms debounce
+window specifically to catch the delayed-override bug, not just the
+immediate result:** at tablet scale (1280x800), every ribbon tap
+(watchlist/proxy/heatmap/pulse/glossary) and a ticker-pill tap now land
+with an exact 0.0px gap under the docked pill strip, holding there after
+a 1200ms wait — not just landing correctly for a moment before drifting.
+Phone scale (844x390) reconfirmed unaffected, still 0.0px. Portrait's own
+`snapFirstCardUnderGateDock()` behavior reconfirmed working normally
+(the new guard is a no-op there, since `isLandscapeMode()` is false).
+
+**The methodology worth keeping from this one:** the first fix (the
+`scrollIntoView` replacement) was real and necessary, but stopping there
+because the gap *shrank* would have shipped a half-fix and probably
+generated a second, confusing follow-up report ("it's better but still
+off"). Measuring the ACTUAL dockOffset value in effect — not just the
+resulting gap — and finding it didn't match what every individual input
+correctly summed to is what surfaced that a second, unrelated mechanism
+was interfering, rather than assuming the first fix's math just needed
+another tweak.
+
+`npm test` (72/72) and `node --check` clean; `tsc --noEmit` shows only
+the known baseline `?v=N` import-resolution errors, zero new.
