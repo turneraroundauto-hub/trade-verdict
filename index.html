@@ -218,9 +218,25 @@
     .ribbon-icon{ font-size:18px; line-height:1; }
     .ribbon-label{ font-size:9px; line-height:1.2; text-align:center; }
     .utility-pane{
-      flex:1; min-width:0; overflow-y:auto; padding:10px;
+      flex:1; min-width:0; overflow-y:auto; overflow-x:hidden; padding:10px;
       touch-action:pan-y; -webkit-overflow-scrolling:touch;
     }
+    /* overflow-x:hidden explicit, not left to its "auto" default (Sep 7,
+       2026, real report: "the watchlist in landscape is falling outside
+       right side, there's a horizontal scroll bar that doesn't work") --
+       .card/.card-body-inner/.card-body-pad were all deliberately set to
+       overflow:visible above (see their own comment) so position:sticky
+       resolves against THIS element instead of one of them; the tradeoff
+       is that .utility-pane is now genuinely the first ancestor that
+       clips overflow at all, and it was left at overflow-y:auto's own
+       default overflow-x (auto, per the CSS rule that any non-visible
+       axis forces the other to compute non-visible too) -- so a row
+       wider than the pane silently gained a real, scrollable-but-
+       untouchable horizontal scrollbar instead of being contained.
+       overflow-x:hidden here doesn't reopen the sticky bug those three
+       elements' own overflow:visible fixed -- .utility-pane is supposed
+       to be their sticky containing block regardless of which axis of
+       ITS OWN overflow is non-visible. */
     /* .card, .card-body-inner, and .card-body-pad each carry their own
        unconditional overflow:hidden/auto in the base (portrait) rules
        (rounded-corner clipping on .card; the 0fr/1fr accordion-collapse
@@ -352,7 +368,19 @@
   .compact-row-wrap{ position:relative; }
   .compact-row{ position:relative; background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:8px 10px; display:flex; align-items:center; gap:8px; }
   .compact-row-main{ flex:1; min-width:0; }
-  .compact-row-top{ display:flex; align-items:baseline; gap:8px; }
+  /* min-width:0 + flex-wrap (Sep 7, 2026, same report as .utility-pane's
+     overflow-x:hidden above): ticker+price+%chg had no way to shrink
+     below their own combined natural width, so on a narrower landscape
+     pane (shared with the ribbon) this row itself could be wider than
+     its flex parent (.compact-row-main, which already has min-width:0)
+     -- a block-level parent doesn't auto-shrink a wider flex-row child,
+     so the overflow propagated all the way up. Wrapping (the pct badge
+     dropping to its own line if needed) keeps every value fully visible
+     instead of either clipping it or relying on a scrollbar -- same
+     pattern already used by .wl-overflow-hdr/.proxy-sort-row's own
+     flex-wrap+row-gap. Not landscape-scoped -- a row that doesn't fit is
+     equally worth wrapping in portrait, this just makes it unconditional. */
+  .compact-row-top{ display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; row-gap:2px; min-width:0; }
   .compact-ticker{ font-family:var(--mono); font-size:15px; font-weight:700; color:var(--ink); }
   .compact-price{ font-family:var(--mono); font-size:15px; font-weight:700; color:var(--ink); }
   .compact-pct{ font-family:var(--mono); font-size:13px; font-weight:700; margin-left:auto; }
