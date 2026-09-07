@@ -1891,13 +1891,45 @@ var API_URL2 = "https://tra-zacg.onrender.com";
 var CARD_CAP = 15;
 var market = null;
 var lastAnalysis = {};
+var MARKET_HOLIDAYS = /* @__PURE__ */ new Set([
+  "2026-01-01",
+  "2026-01-19",
+  "2026-02-16",
+  "2026-04-03",
+  "2026-05-25",
+  "2026-06-19",
+  "2026-07-03",
+  "2026-09-07",
+  "2026-11-26",
+  "2026-12-25",
+  "2027-01-01",
+  "2027-01-18",
+  "2027-02-15",
+  "2027-03-26",
+  "2027-05-31",
+  "2027-06-18",
+  "2027-07-05",
+  "2027-09-06",
+  "2027-11-25",
+  "2027-12-24"
+]);
+var MARKET_EARLY_CLOSE_DAYS = /* @__PURE__ */ new Set(["2026-11-27", "2026-12-24", "2027-11-26"]);
+function etDateStr(d) {
+  var y = d.getFullYear();
+  var m = String(d.getMonth() + 1).padStart(2, "0");
+  var day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 function isMarketClosed() {
   var now = /* @__PURE__ */ new Date();
   var et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
   var day = et.getDay();
   if (day === 0 || day === 6) return true;
+  var dateStr = etDateStr(et);
+  if (MARKET_HOLIDAYS.has(dateStr)) return true;
   var mins = et.getHours() * 60 + et.getMinutes();
-  return mins < 570 || mins >= 960;
+  var closeMins = MARKET_EARLY_CLOSE_DAYS.has(dateStr) ? 780 : 960;
+  return mins < 570 || mins >= closeMins;
 }
 function canVibrate() {
   return typeof navigator !== "undefined" && typeof navigator.vibrate === "function";
