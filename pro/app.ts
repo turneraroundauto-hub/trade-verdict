@@ -100,6 +100,16 @@ function isMarketClosed(): boolean {
   return mins < 570 || mins >= 960;
 }
 
+// Proposal 8, Phase 1 -- a short, uniform haptic tap on swipe-confirm,
+// ANALYZE, and verdict-received. Android Chrome/TWA only -- iOS Safari
+// has no Vibration API at all, so this silently no-ops there rather than
+// needing a platform check at every call site. Tier-owned (not in
+// shared/rolodex.ts) so this ships to Pro alone in this pass without
+// touching Free/Starter's own bundles.
+function vibrateShort(): void {
+  if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') navigator.vibrate(15);
+}
+
 function sigColor(s: string): string { return ({ GREEN: 'var(--green)', RED: 'var(--red)', YELLOW: 'var(--amber)', 'N/A': 'var(--ink-dim)' } as Record<string, string>)[s] || 'var(--ink-dim)'; }
 function dirClass(d: string): string { return d === 'green' ? 'up' : d === 'red' ? 'down' : d === 'flat' ? 'flat' : 'neutral'; }
 function pctColor(p: number): string { return p > 0 ? 'var(--green)' : p < 0 ? 'var(--red)' : 'var(--ink-dim)'; }
@@ -176,7 +186,7 @@ function renderPulse(): void {
   var pulseEl = document.getElementById('pulse-text');
   if (!pulseEl) return;
   if (market && market.pulse) { pulseEl.className = 'pulse-text'; pulseEl.textContent = market.pulse; }
-  else if (market) { pulseEl.className = 'pulse-loading'; pulseEl.textContent = 'Generating pulse...'; }
+  else if (market) { pulseEl.className = 'pulse-loading text-pulse'; pulseEl.textContent = 'Generating pulse...'; }
   else { pulseEl.className = 'pulse-loading'; pulseEl.textContent = 'Unavailable'; }
 }
 
@@ -500,8 +510,14 @@ function roloCardHTML(sym: string, state: TickerState): string {
   const analyzing = state.analyzing;
   const result = state.result;
   const dir = priceDirClass(td);
+  // Proposal 8, Phase 1 -- pulse the placeholder text (price/headline/
+  // meta values) while a ticker's first fetch is still in flight, rather
+  // than a full skeleton-shaped placeholder. Stops the moment td resolves
+  // (even to "no news"/"?" -- those become real, confirmed values then).
+  const noData = !td;
+  const pulseCls = noData ? ' text-pulse' : '';
   return `<div class="ticker-row">`
-    + `<div class="ticker-left"><span class="ticker-sym ${dir}"><a href="${tickerHref(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}">${price}</span>`
+    + `<div class="ticker-left"><span class="ticker-sym ${dir}"><a href="${tickerHref(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}${pulseCls}">${price}</span>`
     + '<div class="ticker-swipe-hint">← Swipe to delete</div></div>'
     + '<div class="ticker-action">'
     + (result ? verdictAreaHTML(sym, result)
@@ -510,8 +526,8 @@ function roloCardHTML(sym: string, state: TickerState): string {
     + `</div>`
     + pregateStripHTML(result)
     + earningsBlockedRetryHTML(sym, result)
-    + `<div class="headline">${wrapHeadlineLinks(sym, headline)} <span class="age">${age}</span></div>`
-    + `<div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>β <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span>${decayHTML}</div>`
+    + `<div class="headline${pulseCls}">${wrapHeadlineLinks(sym, headline)} <span class="age">${age}</span></div>`
+    + `<div class="meta-row"><span>52W <b class="${pulseCls}">${w52}</b></span><span>PHASE <b class="${pulseCls}">${phase}</b></span><span>β <b class="${pulseCls}">${beta}</b></span><span>PROXY <b style="color:var(--blue)" class="${pulseCls}">${proxyHTML}</b></span>${decayHTML}</div>`
     + badgesHTML(result)
     + gateListHTML(sym, result, td && td.historicalReaction)
     + analystViewHTML(sym, result, td)
@@ -520,7 +536,7 @@ function roloCardHTML(sym: string, state: TickerState): string {
 
 function wireCardButtons(card: HTMLElement, sym: string): void {
   const btn = card.querySelector('[data-analyze]');
-  if (btn) btn.addEventListener('click', () => analyzeOne(sym));
+  if (btn) btn.addEventListener('click', () => { vibrateShort(); analyzeOne(sym); });
   const resetEl = card.querySelector('[data-reset]');
   if (resetEl) resetEl.addEventListener('click', () => resetTicker(sym));
   const analystToggle = card.querySelector('[data-toggle-analyst]');
@@ -577,6 +593,7 @@ function renderPill(sym: string): void {
 }
 
 function deleteActiveTicker(sym: string): void {
+  vibrateShort();
   tickerState.delete(sym);
   removeTicker(sym); // shared/watchlist.ts: persists, syncs, shows its own undo toast
 }
@@ -802,6 +819,7 @@ async function analyzeOne(sym: string, holdThroughEarnings?: boolean): Promise<v
     cacheVerdict(sym, _r);
     lastAnalysis[sym] = _r;
     state.result = _r; state.analyzing = false;
+    vibrateShort();
     renderRoloCard(sym); renderPill(sym);
     fetchCreditStatus();
   } catch (e: any) {
@@ -867,7 +885,7 @@ async function renderOverflowList(): Promise<void> {
   var countEl = document.getElementById('compact-count');
   if (countEl) countEl.textContent = String(overflow.length);
   if (!overflow.length) { el.innerHTML = '<div class="track-empty">Everything tracked fits in the top ' + CARD_CAP + ' cards.</div>'; return; }
-  el.innerHTML = '<div class="track-empty">Loading watchlist…</div>';
+  el.innerHTML = '<div class="track-empty text-pulse">Loading watchlist…</div>';
   var rows = await Promise.all(overflow.map(async function (t) {
     var td = await fetchTickerData(t);
     return { ticker: t, price: td && td.metrics && td.metrics.price != null ? td.metrics.price : null, pct: td && td.metrics && typeof td.metrics.pct === 'number' ? td.metrics.pct : null, news: td && td.news };
@@ -1023,7 +1041,7 @@ var proxyExplorerGen = 0;
 export async function renderProxyExplorer(force?: boolean): Promise<void> {
   var body = document.getElementById('proxy-explorer-body'); if (!body) return;
   if (!watchlist.length) { body.innerHTML = '<div class="track-empty">Watchlist is empty.</div>'; return; }
-  body.innerHTML = '<div class="track-empty">Loading proxy resolutions…</div>';
+  body.innerHTML = '<div class="track-empty text-pulse">Loading proxy resolutions…</div>';
 
   await pillHydrationDone;
   if (!watchlist.length) return;
@@ -1080,7 +1098,7 @@ export async function renderProxyExplorer(force?: boolean): Promise<void> {
         + coherenceHtml
         + '</div>';
     }).join('')
-      + (rest.length && rows.length < watchlist.length ? `<div class="track-empty">Loading ${watchlist.length - rows.length} more…</div>` : '')
+      + (rest.length && rows.length < watchlist.length ? `<div class="track-empty text-pulse">Loading ${watchlist.length - rows.length} more…</div>` : '')
       + '<div class="proxy-shark-tease"><a href="../shark/coming-soon.html">&#9889; SHARK &mdash; real-time Alpaca data &amp; deeper proxy analytics &rarr;</a></div>';
   }
 
@@ -1130,7 +1148,7 @@ function refreshTrackRecordCard(): void { renderTrackRecord(); renderGateAttribu
 // rather than assuming access.
 async function renderScorecardCard(): Promise<void> {
   var el = document.getElementById('scorecard-body'); if (!el) return;
-  el.innerHTML = '<div class="track-empty">Loading...</div>';
+  el.innerHTML = '<div class="track-empty text-pulse">Loading...</div>';
   try {
     var res = await fetch(addSecret(API_URL + '/scorecard'), { headers: authH() });
     if (res.status === 403) { el.innerHTML = '<div class="track-empty">Scorecard not available on this tier yet.</div>'; return; }
@@ -1285,7 +1303,7 @@ async function runAgitatorCheck(): Promise<void> {
   if (!q) { out.innerHTML = '<div class="track-empty">Type a ticker, company name, or paste a headline first.</div>'; return; }
 
   btn.disabled = true; btn.classList.add('btn-running'); btn.textContent = 'CHECKING…';
-  out.innerHTML = '<div class="track-empty">Loading...</div>';
+  out.innerHTML = '<div class="track-empty text-pulse">Loading...</div>';
   try {
     // Fix 1 (Notion "Proposal 5 — Amendment," Sep 1 2026): the known-ticker
     // shortcut is a backend optimization for every tier, including

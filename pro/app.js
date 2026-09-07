@@ -1799,6 +1799,9 @@ function isMarketClosed() {
   var mins = et.getHours() * 60 + et.getMinutes();
   return mins < 570 || mins >= 960;
 }
+function vibrateShort() {
+  if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") navigator.vibrate(15);
+}
 function sigColor(s) {
   return { GREEN: "var(--green)", RED: "var(--red)", YELLOW: "var(--amber)", "N/A": "var(--ink-dim)" }[s] || "var(--ink-dim)";
 }
@@ -2018,7 +2021,7 @@ function renderPulse() {
     pulseEl.className = "pulse-text";
     pulseEl.textContent = market.pulse;
   } else if (market) {
-    pulseEl.className = "pulse-loading";
+    pulseEl.className = "pulse-loading text-pulse";
     pulseEl.textContent = "Generating pulse...";
   } else {
     pulseEl.className = "pulse-loading";
@@ -2257,11 +2260,16 @@ function roloCardHTML(sym, state) {
   const analyzing = state.analyzing;
   const result = state.result;
   const dir = priceDirClass(td);
-  return `<div class="ticker-row"><div class="ticker-left"><span class="ticker-sym ${dir}"><a href="${tickerHref(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}">${price}</span><div class="ticker-swipe-hint">\u2190 Swipe to delete</div></div><div class="ticker-action">` + (result ? verdictAreaHTML(sym, result) : `<button class="btn btn-blue btn-compact${analyzing ? " btn-running" : ""}" data-analyze="${sym}" ${analyzing ? "disabled" : ""}>${analyzing ? "RUNNING\u2026" : "ANALYZE"}</button>`) + `</div></div>` + pregateStripHTML(result) + earningsBlockedRetryHTML(sym, result) + `<div class="headline">${wrapHeadlineLinks(sym, headline)} <span class="age">${age}</span></div><div class="meta-row"><span>52W <b>${w52}</b></span><span>PHASE <b>${phase}</b></span><span>\u03B2 <b>${beta}</b></span><span>PROXY <b style="color:var(--blue)">${proxyHTML}</b></span>${decayHTML}</div>` + badgesHTML(result) + gateListHTML(sym, result, td && td.historicalReaction) + analystViewHTML(sym, result, td) + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : "");
+  const noData = !td;
+  const pulseCls = noData ? " text-pulse" : "";
+  return `<div class="ticker-row"><div class="ticker-left"><span class="ticker-sym ${dir}"><a href="${tickerHref(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}${pulseCls}">${price}</span><div class="ticker-swipe-hint">\u2190 Swipe to delete</div></div><div class="ticker-action">` + (result ? verdictAreaHTML(sym, result) : `<button class="btn btn-blue btn-compact${analyzing ? " btn-running" : ""}" data-analyze="${sym}" ${analyzing ? "disabled" : ""}>${analyzing ? "RUNNING\u2026" : "ANALYZE"}</button>`) + `</div></div>` + pregateStripHTML(result) + earningsBlockedRetryHTML(sym, result) + `<div class="headline${pulseCls}">${wrapHeadlineLinks(sym, headline)} <span class="age">${age}</span></div><div class="meta-row"><span>52W <b class="${pulseCls}">${w52}</b></span><span>PHASE <b class="${pulseCls}">${phase}</b></span><span>\u03B2 <b class="${pulseCls}">${beta}</b></span><span>PROXY <b style="color:var(--blue)" class="${pulseCls}">${proxyHTML}</b></span>${decayHTML}</div>` + badgesHTML(result) + gateListHTML(sym, result, td && td.historicalReaction) + analystViewHTML(sym, result, td) + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : "");
 }
 function wireCardButtons(card, sym) {
   const btn = card.querySelector("[data-analyze]");
-  if (btn) btn.addEventListener("click", () => analyzeOne(sym));
+  if (btn) btn.addEventListener("click", () => {
+    vibrateShort();
+    analyzeOne(sym);
+  });
   const resetEl = card.querySelector("[data-reset]");
   if (resetEl) resetEl.addEventListener("click", () => resetTicker(sym));
   const analystToggle = card.querySelector("[data-toggle-analyst]");
@@ -2317,6 +2325,7 @@ function renderPill(sym) {
   });
 }
 function deleteActiveTicker(sym) {
+  vibrateShort();
   tickerState.delete(sym);
   removeTicker(sym);
 }
@@ -2519,6 +2528,7 @@ async function analyzeOne(sym, holdThroughEarnings) {
     lastAnalysis[sym] = _r;
     state.result = _r;
     state.analyzing = false;
+    vibrateShort();
     renderRoloCard(sym);
     renderPill(sym);
     fetchCreditStatus();
@@ -2577,7 +2587,7 @@ async function renderOverflowList() {
     el.innerHTML = '<div class="track-empty">Everything tracked fits in the top ' + CARD_CAP + " cards.</div>";
     return;
   }
-  el.innerHTML = '<div class="track-empty">Loading watchlist\u2026</div>';
+  el.innerHTML = '<div class="track-empty text-pulse">Loading watchlist\u2026</div>';
   var rows = await Promise.all(overflow.map(async function(t) {
     var td = await fetchTickerData(t);
     return { ticker: t, price: td && td.metrics && td.metrics.price != null ? td.metrics.price : null, pct: td && td.metrics && typeof td.metrics.pct === "number" ? td.metrics.pct : null, news: td && td.news };
@@ -2745,7 +2755,7 @@ async function renderProxyExplorer(force) {
     body.innerHTML = '<div class="track-empty">Watchlist is empty.</div>';
     return;
   }
-  body.innerHTML = '<div class="track-empty">Loading proxy resolutions\u2026</div>';
+  body.innerHTML = '<div class="track-empty text-pulse">Loading proxy resolutions\u2026</div>';
   await pillHydrationDone;
   if (!watchlist.length) return;
   var myGen = ++proxyExplorerGen;
@@ -2787,7 +2797,7 @@ async function renderProxyExplorer(force) {
         coherenceHtml = `<div class="proxy-coherence"><div class="analyst-row" style="padding:0"><span class="analyst-lbl">LIVE COHERENCE</span><span class="proxy-tier-badge" style="color:${r.coherence.color};border-color:${r.coherence.color}55;background:${r.coherence.color}11">${r.coherence.label}</span></div><div class="proxy-live-row"><span class="proxy-live-chip">${tickerLink(r.ticker)} <b style="color:${pctColor(r.tickerPct)}">${fmtPct(r.tickerPct)}</b></span>${chips}</div></div>`;
       }
       return `<div class="proxy-item"><div class="proxy-item-head"><span class="proxy-ticker">${tickerLink(r.ticker)}</span><span class="proxy-tier-badge" style="color:${tc};border-color:${tc}55;background:${tc}11">${tier.toUpperCase().replace(/-/g, " ")}</span></div><div class="proxy-detail">${r.rule.proxy.name}</div><div class="proxy-detail" style="color:var(--ink-dim)">${r.rule.category || ""}${r.rule.dynamicallyResolved ? " \xB7 dynamically resolved (quarterly recompute)" : " \xB7 fixed sector proxy"}</div>` + (r.rule.proxy.rationale ? `<div class="proxy-detail">${r.rule.proxy.rationale}</div>` : "") + `<div class="proxy-verify-row"><span class="analyst-lbl">VERIFY</span>${verifyLinks}</div>` + coherenceHtml + "</div>";
-    }).join("") + (rest.length && rows.length < watchlist.length ? `<div class="track-empty">Loading ${watchlist.length - rows.length} more\u2026</div>` : "") + '<div class="proxy-shark-tease"><a href="../shark/coming-soon.html">&#9889; SHARK &mdash; real-time Alpaca data &amp; deeper proxy analytics &rarr;</a></div>';
+    }).join("") + (rest.length && rows.length < watchlist.length ? `<div class="track-empty text-pulse">Loading ${watchlist.length - rows.length} more\u2026</div>` : "") + '<div class="proxy-shark-tease"><a href="../shark/coming-soon.html">&#9889; SHARK &mdash; real-time Alpaca data &amp; deeper proxy analytics &rarr;</a></div>';
   }
   await Promise.all(priority.map(async (t) => {
     resultsByTicker[t] = await buildRow(t);
@@ -2856,7 +2866,7 @@ function refreshTrackRecordCard() {
 async function renderScorecardCard() {
   var el = document.getElementById("scorecard-body");
   if (!el) return;
-  el.innerHTML = '<div class="track-empty">Loading...</div>';
+  el.innerHTML = '<div class="track-empty text-pulse">Loading...</div>';
   try {
     var res = await fetch(addSecret2(API_URL2 + "/scorecard"), { headers: authH2() });
     if (res.status === 403) {
@@ -2944,7 +2954,7 @@ async function runAgitatorCheck() {
   btn.disabled = true;
   btn.classList.add("btn-running");
   btn.textContent = "CHECKING\u2026";
-  out.innerHTML = '<div class="track-empty">Loading...</div>';
+  out.innerHTML = '<div class="track-empty text-pulse">Loading...</div>';
   try {
     var url = API_URL2 + "/agitator?q=" + encodeURIComponent(q) + "&watchlist=" + encodeURIComponent(watchlist.join(","));
     var res = await fetch(addSecret2(url), { headers: authH2() });
