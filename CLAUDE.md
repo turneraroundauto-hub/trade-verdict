@@ -5355,10 +5355,36 @@ that recall no longer matters, and worth revisiting once there's a real
 signal that something genuinely distressed is being missed, using the
 same live-evidence discipline this whole saga has converged on.
 
-**Not yet reconfirmed against a live deploy** — same standing posture as
-every fix in this file. Next real test: re-check STWD (should finally go
-GREEN) and re-check BALY (should still be RED, since `"substantial
-doubt"` was never touched).
+**STWD side confirmed against live production, Sep 7, 2026 — via Render
+logs and Supabase, not a live browser test (this sandbox still can't
+reach the real site directly).** Pulled the real `[PRE-GATE]` Render
+logs for a genuine STWD check that ran on the live backend
+(`srv-d9c6gdvavr4c73af40p0`) at 2026-09-07 04:39:38 UTC: the three
+per-category `searchEdgarFilings` requests it actually fired show the
+query strings no longer contain `"insolvent"`/`"going concern"` at all
+(confirming the keyword-trim landed as described), and all three
+categories — solvency, dilution, guidance-cut — came back `0 hit(s),
+companies: (none)` for STWD's CIK. Cross-checked against Supabase:
+`verdict_log` shows five separate real `/analyze` calls on STWD from
+Sep 3–7, every one recording `pre_gate_state: "GREEN"`, and
+`pre_gate_triggers` has zero rows for STWD ever. Three independent
+signals, one conclusion — STWD is genuinely, consistently GREEN in
+production, not just in a synthetic test.
+
+**BALY side still unconfirmed** — no real BALY check has run in the last
+week (checked the same Render log window, found none), so there's
+nothing live to point at yet. Same expectation as before: BALY should
+still come back RED, since `"substantial doubt"` (the phrase its own
+real going-concern warning uses) was never touched by any of this
+saga's trims. Re-check once a real BALY analysis runs again.
+
+Separately, still genuinely open: this STWD check never exercised the
+exhibit-`file_type` filter (`isExhibit()`, see below) at all — all three
+categories returned 0 hits at the search-query level before that filter
+would even get a chance to apply. That fix's own live-firing status
+(watching for a real `excluded N exhibit-only hit(s)` log line) remains
+unverified; STWD going GREEN here is fully explained by the keyword trim
+alone.
 
 **Research follow-up, same day: the real fix for the false-positive class
 itself, not just another keyword trim (`Tra` PR pending / `trade-verdict`
