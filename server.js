@@ -38,10 +38,18 @@ const supabase = process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY
 // among-2/3/4 sizing exception).
 const CRF_VERSION = "2026-08-22";
 
-// Fixed default until Proposal 6 (Aggression Dial) ships its own dial
-// position -- 3 trading days is this app's own de facto holding-period
-// assumption today.
-const DEFAULT_GRADING_WINDOW_TRADING_DAYS = 3;
+// Grading windows -- redesigned Sep 7, 2026 from a single 3-trading-day
+// check to two independent checks per verdict: PRIMARY (24 real hours
+// after issue, feeds directionalPct) and SECONDARY (a fixed 5 trading
+// days later -- always the same weekday the following week regardless of
+// issue day, feeds strictPct only, and only once both checks agree). Real
+// change lands in Tra; this file is the cosmetic/historical mirror.
+const PRIMARY_GRADING_WINDOW_HOURS = 24;
+const SECONDARY_GRADING_WINDOW_TRADING_DAYS = 5;
+
+function addHours(date, hours) {
+  return new Date(date.getTime() + hours * 60 * 60 * 1000);
+}
 
 function addTradingDays(date, n) {
   const d = new Date(date.getTime());
@@ -3078,7 +3086,8 @@ async function logVerdict(fields) {
   if (!supabase) return;
   try {
     const issuedAt = new Date();
-    const dueAt = addTradingDays(issuedAt, fields.gradingWindowDays);
+    const dueAtPrimary = addHours(issuedAt, PRIMARY_GRADING_WINDOW_HOURS);
+    const dueAtSecondary = addTradingDays(issuedAt, SECONDARY_GRADING_WINDOW_TRADING_DAYS);
     await supabase.from("verdict_log").insert({
       ticker:                    fields.ticker,
       issued_at:                 issuedAt.toISOString(),
@@ -3091,8 +3100,9 @@ async function logVerdict(fields) {
       gate0_read:                fields.gate0Read || null,
       gate2_corroboration_state: fields.gate2CorroborationState || null,
       dial_position:             fields.dialPosition || null,
-      grading_window_days:       fields.gradingWindowDays,
-      grade_due_at:              dueAt.toISOString(),
+      grading_window_days:       1, // informational only as of Sep 7, 2026
+      grade_due_at:              dueAtPrimary.toISOString(),
+      grade_due_at_secondary:    dueAtSecondary.toISOString(),
       user_email:                fields.userEmail || null,
       tier:                      fields.tier,
     });
@@ -3147,36 +3157,43 @@ function classifyVerdictReturn(verdict, r) {
 }
 
 const GRADING_BATCH_SIZE = 50;
+async function gradeDueRows(dueColumn, gradeColumn, returnColumn, gradedAtColumn) {
+  const nowIso = new Date().toISOString();
+  const { data: due, error } = await supabase
+    .from("verdict_log")
+    .select("id, ticker, verdict, issued_price")
+    .is(gradedAtColumn, null)
+    .lte(dueColumn, nowIso)
+    .limit(GRADING_BATCH_SIZE);
+  if (error) { console.error(`runVerdictGradingSweep query (${dueColumn}):`, error.message); return 0; }
+  if (!due || !due.length) return 0;
+
+  for (const row of due) {
+    if (row.issued_price == null) {
+      await supabase.from("verdict_log").update({ [gradedAtColumn]: new Date().toISOString() }).eq("id", row.id);
+      continue;
+    }
+    const quote = await fetchQuote(row.ticker);
+    if (!quote) continue;
+    const actualPrice = parseFloat(quote.price);
+    const r = (actualPrice - row.issued_price) / row.issued_price * 100;
+    const grade = classifyVerdictReturn(row.verdict, r);
+    await supabase.from("verdict_log").update({
+      [returnColumn]: r,
+      [gradeColumn]: grade,
+      [gradedAtColumn]: new Date().toISOString(),
+    }).eq("id", row.id);
+  }
+  return due.length;
+}
 async function runVerdictGradingSweep() {
   if (!supabase) return;
   try {
-    const nowIso = new Date().toISOString();
-    const { data: due, error } = await supabase
-      .from("verdict_log")
-      .select("id, ticker, verdict, issued_price")
-      .is("graded_at", null)
-      .lte("grade_due_at", nowIso)
-      .limit(GRADING_BATCH_SIZE);
-    if (error) { console.error("runVerdictGradingSweep query:", error.message); return; }
-    if (!due || !due.length) return;
-
-    for (const row of due) {
-      if (row.issued_price == null) {
-        await supabase.from("verdict_log").update({ graded_at: new Date().toISOString() }).eq("id", row.id);
-        continue;
-      }
-      const quote = await fetchQuote(row.ticker);
-      if (!quote) continue;
-      const actualPrice = parseFloat(quote.price);
-      const r = (actualPrice - row.issued_price) / row.issued_price * 100;
-      const grade = classifyVerdictReturn(row.verdict, r);
-      await supabase.from("verdict_log").update({
-        actual_return_pct: r,
-        grade,
-        graded_at: new Date().toISOString(),
-      }).eq("id", row.id);
+    const primaryCount = await gradeDueRows("grade_due_at", "grade", "actual_return_pct", "graded_at");
+    const secondaryCount = await gradeDueRows("grade_due_at_secondary", "grade_secondary", "actual_return_pct_secondary", "graded_at_secondary");
+    if (primaryCount || secondaryCount) {
+      console.log(`Verdict grading sweep: ${primaryCount} primary, ${secondaryCount} secondary row(s) processed.`);
     }
-    console.log(`Verdict grading sweep: ${due.length} row(s) processed.`);
   } catch (e) {
     console.error("runVerdictGradingSweep:", e.message);
   }
@@ -3882,14 +3899,19 @@ const SCORECARD_MIN_GRADED = 20;
 // same reasoning as SCORECARD_MIN_GRADED itself, just scaled to the
 // smaller sample size this narrower breakdown actually sees.
 const SCORECARD_TICKER_MIN_GRADED = 5;
+// Strict now requires both the primary (24h) and secondary (5 trading
+// day) checks to agree -- rows with no secondary grade yet aren't
+// counted in the strict denominator; directionalPct is unaffected.
 function computeAccuracyStats(rows) {
   const total = rows.length;
   if (!total) return { gradedCount: 0, strictPct: null, directionalPct: null };
   const trueCount     = rows.filter(r => r.grade === "TRUE").length;
   const marginalCount = rows.filter(r => r.grade === "MARGINAL").length;
+  const secondaryGraded = rows.filter(r => r.grade_secondary != null);
+  const strictTrueCount = secondaryGraded.filter(r => r.grade === "TRUE" && r.grade_secondary === "TRUE").length;
   return {
     gradedCount:    total,
-    strictPct:      +(trueCount / total * 100).toFixed(1),
+    strictPct:      secondaryGraded.length ? +(strictTrueCount / secondaryGraded.length * 100).toFixed(1) : null,
     directionalPct: +((trueCount + marginalCount) / total * 100).toFixed(1),
   };
 }
@@ -3919,7 +3941,7 @@ app.get("/scorecard", async (req, res) => {
     const email = req.userEmail.trim().toLowerCase();
     const { data, error } = await supabase
       .from("verdict_log")
-      .select("grade, ticker, pre_gate_state, gate1_branch, gate0_read, gate2_corroboration_state")
+      .select("grade, grade_secondary, ticker, pre_gate_state, gate1_branch, gate0_read, gate2_corroboration_state")
       .eq("user_email", email).not("graded_at", "is", null);
     if (error) { console.error("GET /scorecard:", error.message); return res.json({ insufficientData: true, gradedCount: 0 }); }
     const rows  = data || [];
@@ -4880,7 +4902,6 @@ Return only JSON.
         gate0Read: gate0Reported,
         gate2CorroborationState: `${contextCorroboration.corroborated ? "GATE2-CORROBORATED" : "UNCORROBORATED"} (${contextCorroboration.matchCount}/2)`,
         dialPosition: req.tierConfig?.dial ? effectiveDialPosition : null,
-        gradingWindowDays: DEFAULT_GRADING_WINDOW_TRADING_DAYS,
         userEmail: req.userEmail, tier: req.userTier,
       });
       res.json(result);
