@@ -100,15 +100,22 @@ function isMarketClosed(): boolean {
   return mins < 570 || mins >= 960;
 }
 
-// Proposal 8, Phase 1 -- a short, uniform haptic tap on swipe-confirm,
-// ANALYZE, and verdict-received. Android Chrome/TWA only -- iOS Safari
-// has no Vibration API at all, so this silently no-ops there rather than
-// needing a platform check at every call site. Tier-owned (not in
-// shared/rolodex.ts) so this ships to Pro alone in this pass without
-// touching Free/Starter's own bundles.
-function vibrateShort(): void {
-  if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') navigator.vibrate(15);
-}
+// Proposal 8, Phase 1 -- haptics, two distinct feels so a tap and a
+// produced result don't feel identical. Android Chrome/TWA only -- iOS
+// Safari has no Vibration API at all, so both silently no-op there
+// rather than needing a platform check at every call site. Tier-owned
+// (not in shared/rolodex.ts) so this ships to Pro alone in this pass
+// without touching Free/Starter's own bundles.
+function canVibrate(): boolean { return typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function'; }
+// A single short buzz -- a plain button tap or confirm action (ANALYZE
+// tap, the Agitator's CHECK tap, swipe-to-delete confirm) with no output
+// of its own yet.
+function vibrateTap(): void { if (canVibrate()) navigator.vibrate(15); }
+// Two buzzes, the second longer -- reserved for the moment a tap actually
+// produces something: a verdict landing on a ticker card, or a real
+// Agitator Gauge result. Distinguishes "acknowledged" from "here's your
+// answer" without needing a different UI element to convey it.
+function vibrateResult(): void { if (canVibrate()) navigator.vibrate([15, 60, 40]); }
 
 function sigColor(s: string): string { return ({ GREEN: 'var(--green)', RED: 'var(--red)', YELLOW: 'var(--amber)', 'N/A': 'var(--ink-dim)' } as Record<string, string>)[s] || 'var(--ink-dim)'; }
 function dirClass(d: string): string { return d === 'green' ? 'up' : d === 'red' ? 'down' : d === 'flat' ? 'flat' : 'neutral'; }
@@ -536,7 +543,7 @@ function roloCardHTML(sym: string, state: TickerState): string {
 
 function wireCardButtons(card: HTMLElement, sym: string): void {
   const btn = card.querySelector('[data-analyze]');
-  if (btn) btn.addEventListener('click', () => { vibrateShort(); analyzeOne(sym); });
+  if (btn) btn.addEventListener('click', () => { vibrateTap(); analyzeOne(sym); });
   const resetEl = card.querySelector('[data-reset]');
   if (resetEl) resetEl.addEventListener('click', () => resetTicker(sym));
   const analystToggle = card.querySelector('[data-toggle-analyst]');
@@ -593,7 +600,7 @@ function renderPill(sym: string): void {
 }
 
 function deleteActiveTicker(sym: string): void {
-  vibrateShort();
+  vibrateTap();
   tickerState.delete(sym);
   removeTicker(sym); // shared/watchlist.ts: persists, syncs, shows its own undo toast
 }
@@ -819,7 +826,7 @@ async function analyzeOne(sym: string, holdThroughEarnings?: boolean): Promise<v
     cacheVerdict(sym, _r);
     lastAnalysis[sym] = _r;
     state.result = _r; state.analyzing = false;
-    vibrateShort();
+    vibrateResult();
     renderRoloCard(sym); renderPill(sym);
     fetchCreditStatus();
   } catch (e: any) {
@@ -1296,6 +1303,7 @@ function topicalCompanyRowHTML(c: { symbol: string; name: string; reactionPct: n
     + '</div></div>';
 }
 async function runAgitatorCheck(): Promise<void> {
+  vibrateTap(); // covers the CHECK button tap, Enter, and the "Did you mean... Yes" re-run alike
   var qEl = document.getElementById('agitator-query') as HTMLInputElement;
   var btn = document.getElementById('agitatorCheckBtn') as HTMLButtonElement;
   var out = document.getElementById('agitator-body'); if (!out) return;
@@ -1370,6 +1378,7 @@ async function runAgitatorCheck(): Promise<void> {
       out.innerHTML = '<div class="track-log-title">SPOT PRICE</div>' + spotHTML + proxyHTML
         + '<div class="track-empty" style="margin-top:6px">' + (spotHTML ? 'Live commodity spot price.' : cm.name + ' spot price unavailable — showing its tradable proxy instead.') + '</div>'
         + cmGaugeHTML + cmNewsHTML + cmFactorsHTML + cmRelatedHTML;
+      vibrateResult();
       wireAgitatorAddButtons(out);
       rolodex.snapCardUnderDock(document.getElementById('card-agitator') as HTMLElement);
       return;
@@ -1431,6 +1440,7 @@ async function runAgitatorCheck(): Promise<void> {
         topicalHTML = '<div class="track-empty">Couldn’t find a company for "' + q + '".</div>';
       }
       out.innerHTML = suggestionHTML + topicalHTML;
+      vibrateResult();
       var yesBtn = document.getElementById('agitatorSuggestYes');
       if (yesBtn) yesBtn.addEventListener('click', function () {
         qEl.value = (yesBtn as HTMLElement).dataset.ticker || '';
@@ -1499,6 +1509,7 @@ async function runAgitatorCheck(): Promise<void> {
           : '<div class="track-empty">No related companies found.</div>');
 
     out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML;
+    vibrateResult();
     wireAgitatorAddButtons(out);
     rolodex.snapCardUnderDock(document.getElementById('card-agitator') as HTMLElement);
   } catch (e) {

@@ -1799,8 +1799,14 @@ function isMarketClosed() {
   var mins = et.getHours() * 60 + et.getMinutes();
   return mins < 570 || mins >= 960;
 }
-function vibrateShort() {
-  if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") navigator.vibrate(15);
+function canVibrate() {
+  return typeof navigator !== "undefined" && typeof navigator.vibrate === "function";
+}
+function vibrateTap() {
+  if (canVibrate()) navigator.vibrate(15);
+}
+function vibrateResult() {
+  if (canVibrate()) navigator.vibrate([15, 60, 40]);
 }
 function sigColor(s) {
   return { GREEN: "var(--green)", RED: "var(--red)", YELLOW: "var(--amber)", "N/A": "var(--ink-dim)" }[s] || "var(--ink-dim)";
@@ -2267,7 +2273,7 @@ function roloCardHTML(sym, state) {
 function wireCardButtons(card, sym) {
   const btn = card.querySelector("[data-analyze]");
   if (btn) btn.addEventListener("click", () => {
-    vibrateShort();
+    vibrateTap();
     analyzeOne(sym);
   });
   const resetEl = card.querySelector("[data-reset]");
@@ -2325,7 +2331,7 @@ function renderPill(sym) {
   });
 }
 function deleteActiveTicker(sym) {
-  vibrateShort();
+  vibrateTap();
   tickerState.delete(sym);
   removeTicker(sym);
 }
@@ -2528,7 +2534,7 @@ async function analyzeOne(sym, holdThroughEarnings) {
     lastAnalysis[sym] = _r;
     state.result = _r;
     state.analyzing = false;
-    vibrateShort();
+    vibrateResult();
     renderRoloCard(sym);
     renderPill(sym);
     fetchCreditStatus();
@@ -2942,6 +2948,7 @@ function topicalCompanyRowHTML(c) {
   return '<div class="compact-row-wrap" data-ticker="' + c.symbol + '"><div class="compact-row"><div class="compact-row-main"><div class="compact-row-top"><span class="compact-ticker" style="color:' + color + '"><a class="ticker-a" href="' + tickerHref(c.symbol) + '" target="_blank">' + c.symbol + '</a></span><span class="compact-pct" style="color:' + color + '">' + pctLabel + "</span></div></div>" + addTickerBtnHTML(c.symbol) + "</div></div>";
 }
 async function runAgitatorCheck() {
+  vibrateTap();
   var qEl = document.getElementById("agitator-query");
   var btn = document.getElementById("agitatorCheckBtn");
   var out = document.getElementById("agitator-body");
@@ -2983,6 +2990,7 @@ async function runAgitatorCheck() {
       var cmNewsHTML = '<div class="headline" style="margin-top:8px">' + (cm.news ? cm.news.url ? '<a href="' + cm.news.url + '" target="_blank">' + cm.news.headline + "</a>" : cm.news.headline : '<span style="opacity:.6">No recent related news found.</span>') + "</div>";
       var cmRelatedHTML = '<div class="track-log-title" style="margin-top:10px">RELATED</div>' + (cm.related && cm.related.length ? '<div class="compact-list">' + cm.related.map(relatedRowHTML).join("") + "</div>" : '<div class="track-empty">No related companies found.</div>');
       out.innerHTML = '<div class="track-log-title">SPOT PRICE</div>' + spotHTML + proxyHTML + '<div class="track-empty" style="margin-top:6px">' + (spotHTML ? "Live commodity spot price." : cm.name + " spot price unavailable \u2014 showing its tradable proxy instead.") + "</div>" + cmGaugeHTML + cmNewsHTML + cmFactorsHTML + cmRelatedHTML;
+      vibrateResult();
       wireAgitatorAddButtons(out);
       snapCardUnderDock(document.getElementById("card-agitator"));
       return;
@@ -3010,6 +3018,7 @@ async function runAgitatorCheck() {
         topicalHTML = '<div class="track-empty">Couldn\u2019t find a company for "' + q + '".</div>';
       }
       out.innerHTML = suggestionHTML + topicalHTML;
+      vibrateResult();
       var yesBtn = document.getElementById("agitatorSuggestYes");
       if (yesBtn) yesBtn.addEventListener("click", function() {
         qEl.value = yesBtn.dataset.ticker || "";
@@ -3034,6 +3043,7 @@ async function runAgitatorCheck() {
     var headlineHTML = '<div class="headline" style="margin-top:8px">' + (data.headlineUsed ? data.headlineUsedUrl ? '<a href="' + data.headlineUsedUrl + '" target="_blank">' + data.headlineUsed + "</a>" : data.headlineUsed : '<span style="opacity:.6">No recent related news found.</span>') + "</div>";
     var compsHTML = '<div class="track-log-title" style="margin-top:10px">RELATED</div>' + (data.comps && data.comps.length ? '<div class="compact-list">' + data.comps.map(relatedRowHTML).join("") + "</div>" : '<div class="track-empty">No related companies found.</div>');
     out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML;
+    vibrateResult();
     wireAgitatorAddButtons(out);
     snapCardUnderDock(document.getElementById("card-agitator"));
   } catch (e) {
