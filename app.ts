@@ -1389,11 +1389,38 @@ function tutorialCard(id: string): HTMLElement {
 }
 function tutorialExpand(id: string): void {
   const card = tutorialCard(id);
-  if (card && !card.classList.contains('expanded')) expandCard(card);
+  if (!card) return;
+  if (!card.classList.contains('expanded')) expandCard(card);
+  // Landscape mode positions a utility card via its own ribbon+pane
+  // selection (selectLandscapeCard) -- a completely separate mechanism
+  // from expandCard()'s portrait-only snapCardUnderDock(), which it
+  // deliberately skips while landscape is active. Without this, the
+  // tutorial's balloon anchor sits inside a card that's still
+  // display:none (never made .landscape-active, never selected in the
+  // ribbon).
+  if (rolodex.isLandscapeMode()) rolodex.selectLandscapeCard(card);
 }
 function tutorialActiveCardEl(): HTMLElement | null {
   const cards = Array.from(roloStage.querySelectorAll<HTMLElement>('.rolo-card'));
   return cards[rolodex.getRoloCurrent()] || null;
+}
+// A utility card's own (?) button lives inside its .card-head -- and
+// .card-head is unconditionally display:none while landscape mode is
+// active (the ribbon replaces it as the navigation), so every one of
+// those anchors resolves to a real, present-in-the-DOM element with a
+// permanent 0x0 rect there. Falls back to the card's own ribbon button
+// (genuinely visible, and exactly what the user just tapped/sees
+// highlighted) whenever landscape is active.
+function tutorialAnchor(cardKind: string, helpId: string): HTMLElement | null {
+  if (rolodex.isLandscapeMode()) return document.querySelector<HTMLElement>(`.ribbon-item[data-card="${cardKind}"]`);
+  return document.querySelector<HTMLElement>(`[data-help="${helpId}"]`);
+}
+// Same reasoning as tutorialAnchor() above -- #glossary-header IS the
+// Glossary's own .card-head element, so it's the hidden one in landscape,
+// not just a child of it.
+function tutorialGlossaryAnchor(): HTMLElement | null {
+  if (rolodex.isLandscapeMode()) return document.querySelector<HTMLElement>('.ribbon-item[data-card="glossary"]');
+  return document.getElementById('glossary-header');
 }
 
 const TUTORIAL_STEPS: TutorialStep[] = [
@@ -1419,22 +1446,22 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     html: HELP_CONTENT.pulse,
-    getAnchor: () => document.querySelector<HTMLElement>('[data-help="pulse"]'),
+    getAnchor: () => tutorialAnchor('pulse', 'pulse'),
     before: () => tutorialExpand('card-pulse'),
   },
   {
     html: HELP_CONTENT.agitator,
-    getAnchor: () => document.querySelector<HTMLElement>('[data-help="agitator"]'),
+    getAnchor: () => tutorialAnchor('agitator', 'agitator'),
     before: () => tutorialExpand('card-agitator'),
   },
   {
     html: HELP_CONTENT.io,
-    getAnchor: () => document.querySelector<HTMLElement>('[data-help="io"]'),
+    getAnchor: () => tutorialAnchor('io', 'io'),
     before: () => tutorialExpand('card-io'),
   },
   {
     html: 'That’s the app. Tap a pill, hit ANALYZE, and let the gates do the work — everything else here just supports that call. Come back to <b>▶ Run Tutorial</b>, right here in the Glossary, anytime you want to see this again.',
-    getAnchor: () => document.getElementById('glossary-header'),
+    getAnchor: () => tutorialGlossaryAnchor(),
     before: () => tutorialExpand('card-glossary'),
   },
 ];

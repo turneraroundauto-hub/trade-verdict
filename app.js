@@ -2543,11 +2543,21 @@ function tutorialCard(id) {
 }
 function tutorialExpand(id) {
   const card = tutorialCard(id);
-  if (card && !card.classList.contains("expanded")) expandCard(card);
+  if (!card) return;
+  if (!card.classList.contains("expanded")) expandCard(card);
+  if (isLandscapeMode()) selectLandscapeCard(card);
 }
 function tutorialActiveCardEl() {
   const cards = Array.from(roloStage.querySelectorAll(".rolo-card"));
   return cards[getRoloCurrent()] || null;
+}
+function tutorialAnchor(cardKind, helpId) {
+  if (isLandscapeMode()) return document.querySelector(`.ribbon-item[data-card="${cardKind}"]`);
+  return document.querySelector(`[data-help="${helpId}"]`);
+}
+function tutorialGlossaryAnchor() {
+  if (isLandscapeMode()) return document.querySelector('.ribbon-item[data-card="glossary"]');
+  return document.getElementById("glossary-header");
 }
 var TUTORIAL_STEPS = [
   {
@@ -2578,22 +2588,22 @@ var TUTORIAL_STEPS = [
   },
   {
     html: HELP_CONTENT.pulse,
-    getAnchor: () => document.querySelector('[data-help="pulse"]'),
+    getAnchor: () => tutorialAnchor("pulse", "pulse"),
     before: () => tutorialExpand("card-pulse")
   },
   {
     html: HELP_CONTENT.agitator,
-    getAnchor: () => document.querySelector('[data-help="agitator"]'),
+    getAnchor: () => tutorialAnchor("agitator", "agitator"),
     before: () => tutorialExpand("card-agitator")
   },
   {
     html: HELP_CONTENT.io,
-    getAnchor: () => document.querySelector('[data-help="io"]'),
+    getAnchor: () => tutorialAnchor("io", "io"),
     before: () => tutorialExpand("card-io")
   },
   {
     html: "That\u2019s the app. Tap a pill, hit ANALYZE, and let the gates do the work \u2014 everything else here just supports that call. Come back to <b>\u25B6 Run Tutorial</b>, right here in the Glossary, anytime you want to see this again.",
-    getAnchor: () => document.getElementById("glossary-header"),
+    getAnchor: () => tutorialGlossaryAnchor(),
     before: () => tutorialExpand("card-glossary")
   }
 ];
