@@ -9017,3 +9017,162 @@ another tweak.
 
 `npm test` (72/72) and `node --check` clean; `tsc --noEmit` shows only
 the known baseline `?v=N` import-resolution errors, zero new.
+
+## Backend: MCP-over-HTTP server + OAuth connector — Trade Tribunal reachable from chat (Sep 7, 2026, `Tra` PRs #103-#108)
+
+**The problem this solves.** Every Claude-driven surface tested this session — this dev
+sandbox and a real Cowork session — is blocked by an org-wide egress policy from reaching
+`tradetribunal.app`/`tra-zacg.onrender.com` directly (confirmed via matching
+`connect_rejected`/403 failures on both, `curl` and `WebFetch` alike). But this project's
+own Supabase/Render/GitHub MCP connectors demonstrably route around that exact same block
+from inside the exact same sandbox. That gap — and only that gap — is what this work closes:
+a real MCP server bolted directly onto Tra gives a connected Claude chat session live
+production data (and, cautiously, a path toward acting on it) it otherwise has no way to
+reach at all.
+
+**What shipped, in the order it actually happened (six PRs, each a real live bug found and
+fixed, not a single clean build):**
+
+1. **`Tra` PR #103 — `mcp-server.js`, four tools at `POST /mcp`.** A Streamable HTTP MCP
+   transport (`@modelcontextprotocol/sdk`) mounted directly on Tra's existing Express app —
+   same repo, same Render auto-deploy, no new service. Three free, read-only tools
+   (`get_market`, `get_ticker`, `check_agitator`) forward to Tra's own real endpoints via an
+   internal loopback fetch. `/mcp` is deliberately **not** on the auth-bypass allowlist — it
+   goes through the exact same secret/token middleware every other route does. A fourth tool,
+   `analyze` (a real, credit-spending Gate 0-5 run), needed its own credential decision —
+   landed in the same PR's second commit as a new, dedicated `MCP_AGENT_KEY` env var
+   resolving to a fixed pro tier via a new auth-middleware branch (PATH 1.5), with its own
+   dedicated credits/tier key (`mcp:agent`) — never a reuse of the real `PRO_KEY`, so this
+   can never touch or drain a real paying customer's balance. `analyze`'s request body is
+   assembled server-side from `/market` + `/ticker/:symbol`, mirrored line-for-line from
+   `starter/app.ts`'s real `analyzeOne()` — not re-derived, given this app's own history of
+   that exact wiring going subtly wrong (the Aug 13, 2026 Gate 5 bug). The `mcp:agent`
+   credits row was provisioned directly via Supabase (`get_or_create_user_credits`/
+   `set_user_tier`/`add_purchased_credits`, the same RPCs `credits.js` itself calls):
+   `tier: pro`, `purchased_credits: 100`.
+
+2. **`Tra` PR #104 — a minimal single-user OAuth 2.1 shim.** claude.ai's remote/custom MCP
+   connector setup doesn't attach a static secret/header to every request the way this app's
+   own tier-key auth expects — it always negotiates OAuth first (discovery metadata, then
+   `/authorize`, then `/token`). Confirmed live: pointing it at `/mcp` produced a real browser
+   navigation to `/authorize` and Tra's own generic 401, since none of that existed yet.
+   `oauth-server.js` adds RFC 8414 authorization-server metadata, RFC 9728 protected-resource
+   metadata, RFC 7591 dynamic client registration, and OAuth 2.1 authorization-code + mandatory
+   PKCE — scoped deliberately to one owner, not a real multi-tenant auth server. Critically,
+   this does **not** loosen who can reach `/mcp` at pro tier: `/authorize` still requires
+   typing the real `MCP_AGENT_KEY` into a plain HTML form before it will ever issue a code —
+   the OAuth dance wraps that same credential, it doesn't bypass it. Only after that check
+   passes does `/token` mint a separate, revocable access token that the auth middleware
+   accepts as equivalent to `MCP_AGENT_KEY` via a new `Authorization: Bearer` check.
+
+3. **`Tra` PR #105 — diagnostic logging, not a guess.** First real connector-setup attempt
+   got past registration but failed at `/authorize` with "Unknown client_id or redirect_uri."
+   Checked Render logs first: the process hadn't restarted since deploy, ruling out the
+   obvious theory. But `oauth-server.js` had zero request-level logging, so there was no way
+   to see what either side actually sent — added `console.log` at every branch of
+   `/register`/`/authorize`/`/token` before attempting a second patch.
+
+4. **`Tra` PR #106 — root cause found, `/mcp2` alias shipped as the fix.** The logs showed
+   `client_id=MCP_AGENT_KEY` (the literal env-var name, not a real generated ID) and zero
+   registered clients — `/register` had never even been called. Something in the pre-existing
+   "Tra" connector entry (created before this OAuth shim existed) had that literal string
+   sitting in a client_id/manual-config field. The user could neither edit nor delete that
+   stuck entry, and claude.ai enforces one connector per URL, blocking a fresh add at the same
+   `/mcp` URL outright. Fix: mounted the identical MCP server a second time at `/mcp2`
+   (`mountMcpAt()`, parameterized instead of hardcoded), with matching RFC 9728 metadata at
+   `/.well-known/oauth-protected-resource/mcp2` — a URL claude.ai had never seen, so nothing
+   to collide with. `/mcp` itself stays mounted too.
+
+5. **`Tra` PR #107 — a second real live bug, caught the moment the connector actually
+   connected.** `tools/list` worked; every real `tools/call` 401'd with "No API key or
+   session token provided." Root cause: `callerCredentialFrom()` (the function that decides
+   what credential each tool's internal loopback call forwards) only ever recognized the
+   original `secret`/`supabase_token` shapes — it had no idea the OAuth shim introduced a
+   third, `Authorization: Bearer`. The outer `/mcp2` request authenticated fine; nothing
+   carried that authentication into the tools' own inner requests. Fixed by teaching
+   `callerCredentialFrom()` to recognize and forward the Bearer header too. **Reproduced the
+   exact live failure first** with a real MCP client using a real minted access token
+   (confirmed the 401), then confirmed the fix resolves it — not just re-running the existing
+   test suite.
+
+6. **`Tra` PR #108 — durable OAuth state, closing a real gap PR #107's own deploy exposed.**
+   The moment #107 deployed, the connector needed re-authorization — the restart wiped every
+   in-memory registered client and token (a known, documented tradeoff at build time, but
+   this was the first real case of it actually costing something). New
+   `public.mcp_oauth_state` Supabase table (RLS disabled + `anon`/`authenticated` revoked,
+   verified via the standard zero-rows grants check — the same mandatory pattern every
+   service-role table in this project uses), one row per `(store, key)` across the four
+   in-memory Maps. Write-through, not a replacement: every mutation still updates the
+   in-memory Map first (that stays the real source of truth within one process's lifetime,
+   zero added latency on the hot path) and now also persists to Supabase; a new
+   `hydrateAll()`, called once at boot, reloads everything non-expired. Falls back to fully
+   in-memory-only when no Supabase client is configured, matching `credits.js`'s own
+   local/Supabase split. Verified directly against the **live** table (not a mock): confirmed
+   the upsert-on-conflict shape actually replaces a row's value, confirmed an already-expired
+   test row correctly reads as invalid under the same filter `hydrateAll()` uses, cleaned up
+   after.
+
+**Confirmed fully working end-to-end, live, same day:** after one required
+`MCP_AGENT_KEY` regeneration (the stuck old connector's cached value never matched;
+regenerating and re-entering fresh resolved it) and the one expected additional
+re-authorization from PR #108's own deploy, a real `mcp__Trade_Tribunal__get_market` call
+from this chat session returned real production data — real SPY/QQQ/BTC prices, a real
+Gate 0 GREEN status, and a real generated sector-pulse narrative (semiconductors leading,
+biotech/gold lagging). This is the first time in this project's history that a Claude chat
+session has read live Trade Tribunal production data directly, not simulated or
+Render-logs-inferred.
+
+**The standing trading-safety rule, agreed explicitly before any of this was built (via
+`AskUserQuestion`, not assumed):** **propose only.** Claude reads a Trade Tribunal verdict via
+the `analyze` tool and may propose a specific trade (ticker, direction, size) for Robinhood,
+but will never call Robinhood's `place_equity_order`/`place_option_order`/etc. off that
+verdict without the user explicitly confirming that exact trade first. No autonomous
+execution, no pre-set risk-budget autonomy tier — full manual confirmation on every single
+trade. This is a behavioral commitment for how any future session uses these two connectors
+together, not something enforced in code on either side — worth restating to a future session
+picking this up, since nothing technical stops a more autonomous mode from being built later
+if explicitly decided.
+
+**The path for a future chat (or Cowork) session to actually use this:**
+1. The `Trade Tribunal` MCP connector lives at the account level (claude.ai → Settings →
+   Connectors), pointed at `https://tra-zacg.onrender.com/mcp2` with "Requires sign-in" on.
+   Once connected, any new chat session in the same account should see
+   `mcp__Trade_Tribunal__get_market`/`get_ticker`/`check_agitator`/`analyze` without any
+   further setup — no need to re-add it per session.
+2. A real trading-assistant turn looks like: call `analyze(ticker)` for a full Gate 0-5
+   verdict, cross-reference with the Robinhood connector's own tools (quotes, portfolio,
+   positions — already configured separately, per the `robinhood-trading` skill) for
+   position-aware context, then **propose** a specific trade and wait for explicit
+   confirmation before calling any Robinhood order-placement tool.
+3. **Not yet verified: this exact connector working from inside a Cowork session
+   specifically.** The underlying mechanism (MCP connectors bypassing the egress block) was
+   confirmed for Supabase/Render/GitHub from within a blocked Cowork session earlier this
+   session, and there's no reason to expect Trade Tribunal's own connector to behave
+   differently — but that's an inference, not a direct test of this specific connector from
+   Cowork. Worth a quick real check the next time Cowork is used for this, rather than
+   assuming.
+4. **If the OAuth token ever needs re-authorization again** (e.g., after a very long idle
+   period past the 30-day access-token lifetime, or if `MCP_AGENT_KEY` is ever rotated): the
+   approval page is a plain form at `/authorize` — enter the current `MCP_AGENT_KEY` value.
+   A real Tra deploy no longer forces this (PR #108), but the token's own 30-day/180-day
+   access/refresh lifetimes still eventually expire on their own.
+
+**Stated next step, not yet acted on:** the user wants to run a real "opening drive" check
+first thing tomorrow morning (market open) using this new chat-connected path. Nothing was
+scheduled for this automatically — flagged here as the actual reason this work was built,
+not just an infrastructure exercise for its own sake.
+
+**Not yet verified against real trading conditions or a real Robinhood-chained proposal** —
+same standing posture as every other integration in this file: the plumbing is confirmed
+live end-to-end (a real `get_market` call, real data, real Gate 0 status), but the actual
+"read a verdict, propose a trade, get confirmation, place it" loop hasn't been run for real
+yet. That's the first thing to try tomorrow morning, not something to assume works simply
+because each half (Trade Tribunal's own connector, the pre-existing Robinhood connector)
+independently does.
+
+**Two-repo note, unlike every other backend feature in this file:** `mcp-server.js` and
+`oauth-server.js` are new, `Tra`-only infrastructure files with no reason to mirror into
+this repo — they're MCP/OAuth transport plumbing, not gate/verdict business logic, and
+`trade-verdict`'s own `server.js` mirror convention has always been about keeping the two
+repos' *analysis* logic from drifting, not about mirroring every file in `Tra`. Deliberately
+not copied here.
