@@ -100,15 +100,22 @@ function isMarketClosed(): boolean {
   return mins < 570 || mins >= 960;
 }
 
-// Proposal 8, Phase 1 -- a short, uniform haptic tap on swipe-confirm,
-// ANALYZE, and verdict-received. Android Chrome/TWA only -- iOS Safari
-// has no Vibration API at all, so this silently no-ops there rather than
-// needing a platform check at every call site. Tier-owned (not in
-// shared/rolodex.ts) so this ships to Pro alone in this pass without
-// touching Free/Starter's own bundles.
-function vibrateShort(): void {
-  if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') navigator.vibrate(15);
-}
+// Proposal 8, Phase 1 -- haptics, two distinct feels so a tap and a
+// produced result don't feel identical. Android Chrome/TWA only -- iOS
+// Safari has no Vibration API at all, so both silently no-op there
+// rather than needing a platform check at every call site. Tier-owned
+// (not in shared/rolodex.ts) so this ships to Pro alone in this pass
+// without touching Free/Starter's own bundles.
+function canVibrate(): boolean { return typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function'; }
+// A single short buzz -- a plain button tap or confirm action (ANALYZE
+// tap, the Agitator's CHECK tap, swipe-to-delete confirm) with no output
+// of its own yet.
+function vibrateTap(): void { if (canVibrate()) navigator.vibrate(15); }
+// Two buzzes, the second longer -- reserved for the moment a tap actually
+// produces something: a verdict landing on a ticker card, or a real
+// Agitator Gauge result. Distinguishes "acknowledged" from "here's your
+// answer" without needing a different UI element to convey it.
+function vibrateResult(): void { if (canVibrate()) navigator.vibrate([15, 60, 40]); }
 
 function sigColor(s: string): string { return ({ GREEN: 'var(--green)', RED: 'var(--red)', YELLOW: 'var(--amber)', 'N/A': 'var(--ink-dim)' } as Record<string, string>)[s] || 'var(--ink-dim)'; }
 function dirClass(d: string): string { return d === 'green' ? 'up' : d === 'red' ? 'down' : d === 'flat' ? 'flat' : 'neutral'; }
@@ -307,6 +314,7 @@ document.querySelectorAll('.card[data-card] > .card-head').forEach(wireAccordion
 // persisted, only the pill strip's own source array is sliced. ────────
 const roloStage = document.getElementById('roloStage') as HTMLElement;
 const roloIndex = document.getElementById('roloIndex') as HTMLElement;
+const scroller = document.getElementById('scroller') as HTMLElement;
 
 interface TickerState { td: TickerData | null; result: AnalyzeResponse | null; analyzing: boolean; error: string | null; }
 const tickerState = new Map<string, TickerState>();
@@ -536,7 +544,7 @@ function roloCardHTML(sym: string, state: TickerState): string {
 
 function wireCardButtons(card: HTMLElement, sym: string): void {
   const btn = card.querySelector('[data-analyze]');
-  if (btn) btn.addEventListener('click', () => { vibrateShort(); analyzeOne(sym); });
+  if (btn) btn.addEventListener('click', () => { vibrateTap(); analyzeOne(sym); });
   const resetEl = card.querySelector('[data-reset]');
   if (resetEl) resetEl.addEventListener('click', () => resetTicker(sym));
   const analystToggle = card.querySelector('[data-toggle-analyst]');
@@ -593,7 +601,7 @@ function renderPill(sym: string): void {
 }
 
 function deleteActiveTicker(sym: string): void {
-  vibrateShort();
+  vibrateTap();
   tickerState.delete(sym);
   removeTicker(sym); // shared/watchlist.ts: persists, syncs, shows its own undo toast
 }
@@ -653,6 +661,128 @@ function refreshRoloCards(): void {
   cardWindow().forEach((sym) => { if (tickerState.has(sym)) renderRoloCard(sym); });
   renderOverflowListIfOpen();
 }
+
+// ── Proposal 8, Phase 2 -- pull-to-refresh ──────────────────────────────
+// A drag-down-at-the-top gesture wired to the exact same refresh paths
+// this app already has -- fetchMarket(true) (the Gate's own existing
+// force-refresh, `?force=true` to /market) and fetchTickerData(sym, true)
+// (ticker-cache.ts's own existing force flag, bypassing both its resolved
+// cache and its in-flight de-dupe). No new fetch mechanism. Every ticker
+// in the FULL watchlist gets force-refreshed via a plain Promise.all --
+// this codebase's own current convention (a client-side batching helper,
+// mapBatched(), existed once but was deliberately removed Aug 4, 2026 once
+// Tra's server-side Finnhub/Alpaca throttle queues made client batching
+// redundant; re-adding one here would be fighting today's actual
+// architecture, not matching it). Tier-owned (not shared/rolodex.ts), same
+// reasoning as Phase 1's haptics -- this can't leak into Free/Starter's
+// bundles before they're reviewed and ported separately.
+//
+// Scope boundary, disclosed rather than silently assumed: only arms in
+// portrait (rolodex.isLandscapeMode() is a hard bail) -- landscape's HUD
+// has its own separately-scrollable ribbon/pane, and this gesture was
+// never verified against that split scroll surface.
+const PULL_TRIGGER_PX = 64;
+const PULL_MAX_PX = 96;
+const PULL_RESISTANCE = 0.5;
+let pullPointerId: number | null = null;
+let pullStartY = 0;
+let pullTracking = false; // a real drag that started at scrollTop 0 and is moving down
+let pullRefreshing = false;
+
+function pullIndicatorEl(): HTMLElement | null { return document.getElementById('pullRefreshIndicator'); }
+
+function setPullHeight(px: number, settle?: boolean): void {
+  const el = pullIndicatorEl(); if (!el) return;
+  el.classList.toggle('settling', !!settle);
+  el.style.height = px + 'px';
+}
+
+function setPullLabel(text: string): void {
+  const el = pullIndicatorEl();
+  const lbl = el ? el.querySelector('.pull-refresh-label') : null;
+  if (lbl) lbl.textContent = text;
+}
+
+function resetPull(): void {
+  pullTracking = false;
+  setPullHeight(0, true);
+  const el = pullIndicatorEl(); if (el) el.classList.remove('pull-ready');
+}
+
+function onScrollerPointerDown(e: PointerEvent): void {
+  // Same pointerType posture as the existing swipe-to-delete gesture
+  // (shared/rolodex.ts) -- not touch-restricted, just a left-click-only
+  // guard for mouse. A mouse drag-down from the very top of the page is a
+  // deliberate action (mousedown+move+up), not something an incidental
+  // wheel-scroll could ever trigger, so there's no real conflict to guard
+  // against by excluding it.
+  if (pullRefreshing || (e.pointerType === 'mouse' && e.button !== 0) || rolodex.isLandscapeMode()) return;
+  if (scroller.scrollTop > 0) return;
+  pullPointerId = e.pointerId; pullStartY = e.clientY; pullTracking = false;
+}
+
+function onScrollerPointerMove(e: PointerEvent): void {
+  if (pullPointerId === null || e.pointerId !== pullPointerId || pullRefreshing) return;
+  if (scroller.scrollTop > 0) { if (pullTracking) resetPull(); return; }
+  const rawDy = e.clientY - pullStartY;
+  if (rawDy <= 0) { if (pullTracking) resetPull(); return; }
+  pullTracking = true;
+  e.preventDefault(); // this IS the gesture -- don't let native rubber-band fight it
+  const dy = Math.min(rawDy * PULL_RESISTANCE, PULL_MAX_PX);
+  setPullHeight(dy);
+  const ready = dy >= PULL_TRIGGER_PX;
+  const el = pullIndicatorEl(); if (el) el.classList.toggle('pull-ready', ready);
+  setPullLabel(ready ? 'Release to refresh' : 'Pull to refresh');
+}
+
+function onScrollerPointerUp(e: PointerEvent): void {
+  if (pullPointerId === null || e.pointerId !== pullPointerId) return;
+  pullPointerId = null;
+  if (!pullTracking) return;
+  const el = pullIndicatorEl();
+  const dy = el ? parseFloat(el.style.height || '0') : 0;
+  pullTracking = false;
+  if (dy >= PULL_TRIGGER_PX) doPullToRefresh();
+  else resetPull();
+}
+
+async function doPullToRefresh(): Promise<void> {
+  pullRefreshing = true;
+  vibrateTap();
+  setPullHeight(PULL_TRIGGER_PX, true);
+  const el = pullIndicatorEl();
+  if (el) { el.classList.add('refreshing'); el.classList.remove('pull-ready'); }
+  setPullLabel('Refreshing…');
+  try {
+    await Promise.all([
+      fetchMarket(true),
+      ...watchlist.map(async (sym) => {
+        const td = await fetchTickerData(sym, true);
+        const state = tickerState.get(sym);
+        if (state) state.td = td; // real/analyzing/error stay untouched -- this refreshes price/news, not verdicts
+      }),
+    ]);
+    // Repaint only what's actually on screen -- same scope as the
+    // existing 4-min setInterval auto-refresh (fetchMarket() + Proxy/Heat
+    // Map only if their accordion is expanded).
+    cardWindow().forEach((sym) => { renderRoloCard(sym); renderPill(sym); });
+    renderOverflowListIfOpen();
+    const proxyCard = document.querySelector('.card[data-card="proxy"]');
+    if (proxyCard && proxyCard.classList.contains('expanded')) renderProxyExplorer();
+    const heatCard = document.querySelector('.card[data-card="heatmap"]');
+    if (heatCard && heatCard.classList.contains('expanded')) renderHeatMap();
+    vibrateResult();
+  } finally {
+    pullRefreshing = false;
+    if (el) el.classList.remove('refreshing');
+    setPullHeight(0, true);
+  }
+}
+
+scroller.addEventListener('pointerdown', onScrollerPointerDown);
+scroller.addEventListener('pointermove', onScrollerPointerMove, { passive: false });
+scroller.addEventListener('pointerup', onScrollerPointerUp);
+scroller.addEventListener('pointercancel', onScrollerPointerUp);
 
 // ── PROPOSAL 6 — Aggression Dial (Aug 26, 2026) ─────────────────────
 // Client-only display metadata -- only sizingCeiling is actually
@@ -819,7 +949,7 @@ async function analyzeOne(sym: string, holdThroughEarnings?: boolean): Promise<v
     cacheVerdict(sym, _r);
     lastAnalysis[sym] = _r;
     state.result = _r; state.analyzing = false;
-    vibrateShort();
+    vibrateResult();
     renderRoloCard(sym); renderPill(sym);
     fetchCreditStatus();
   } catch (e: any) {
@@ -1296,6 +1426,7 @@ function topicalCompanyRowHTML(c: { symbol: string; name: string; reactionPct: n
     + '</div></div>';
 }
 async function runAgitatorCheck(): Promise<void> {
+  vibrateTap(); // covers the CHECK button tap, Enter, and the "Did you mean... Yes" re-run alike
   var qEl = document.getElementById('agitator-query') as HTMLInputElement;
   var btn = document.getElementById('agitatorCheckBtn') as HTMLButtonElement;
   var out = document.getElementById('agitator-body'); if (!out) return;
@@ -1370,6 +1501,7 @@ async function runAgitatorCheck(): Promise<void> {
       out.innerHTML = '<div class="track-log-title">SPOT PRICE</div>' + spotHTML + proxyHTML
         + '<div class="track-empty" style="margin-top:6px">' + (spotHTML ? 'Live commodity spot price.' : cm.name + ' spot price unavailable — showing its tradable proxy instead.') + '</div>'
         + cmGaugeHTML + cmNewsHTML + cmFactorsHTML + cmRelatedHTML;
+      vibrateResult();
       wireAgitatorAddButtons(out);
       rolodex.snapCardUnderDock(document.getElementById('card-agitator') as HTMLElement);
       return;
@@ -1431,6 +1563,7 @@ async function runAgitatorCheck(): Promise<void> {
         topicalHTML = '<div class="track-empty">Couldn’t find a company for "' + q + '".</div>';
       }
       out.innerHTML = suggestionHTML + topicalHTML;
+      vibrateResult();
       var yesBtn = document.getElementById('agitatorSuggestYes');
       if (yesBtn) yesBtn.addEventListener('click', function () {
         qEl.value = (yesBtn as HTMLElement).dataset.ticker || '';
@@ -1499,6 +1632,7 @@ async function runAgitatorCheck(): Promise<void> {
           : '<div class="track-empty">No related companies found.</div>');
 
     out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML;
+    vibrateResult();
     wireAgitatorAddButtons(out);
     rolodex.snapCardUnderDock(document.getElementById('card-agitator') as HTMLElement);
   } catch (e) {
@@ -1980,7 +2114,7 @@ initWatchlist({ defaultTickers: ['SMMT', 'VCYT', 'TWST', 'IMVT', 'IREN', 'ALAB',
 initTickerCache({ API_URL: API_URL, authH: authH, addSecret: addSecret });
 
 rolodex.initRolodex({
-  scroller: document.getElementById('scroller') as HTMLElement,
+  scroller: scroller,
   gateCard: document.getElementById('gateCard') as HTMLElement,
   gateFullOverlay: document.getElementById('gateFullOverlay') as HTMLElement,
   gateSpacer: document.getElementById('gateSpacer') as HTMLElement,

@@ -1799,8 +1799,14 @@ function isMarketClosed() {
   var mins = et.getHours() * 60 + et.getMinutes();
   return mins < 570 || mins >= 960;
 }
-function vibrateShort() {
-  if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") navigator.vibrate(15);
+function canVibrate() {
+  return typeof navigator !== "undefined" && typeof navigator.vibrate === "function";
+}
+function vibrateTap() {
+  if (canVibrate()) navigator.vibrate(15);
+}
+function vibrateResult() {
+  if (canVibrate()) navigator.vibrate([15, 60, 40]);
 }
 function sigColor(s) {
   return { GREEN: "var(--green)", RED: "var(--red)", YELLOW: "var(--amber)", "N/A": "var(--ink-dim)" }[s] || "var(--ink-dim)";
@@ -2110,6 +2116,7 @@ function wireAccordionHead(head) {
 document.querySelectorAll(".card[data-card] > .card-head").forEach(wireAccordionHead);
 var roloStage = document.getElementById("roloStage");
 var roloIndex = document.getElementById("roloIndex");
+var scroller = document.getElementById("scroller");
 var tickerState = /* @__PURE__ */ new Map();
 var TYPE_COLOR = { CANARY: "var(--amber)", SENTIMENT: "var(--blue)", FLOW: "var(--green)" };
 var SIZING_LABEL = { FULL: "Full", HALF: "Half", QUARTER: "\xBC size" };
@@ -2267,7 +2274,7 @@ function roloCardHTML(sym, state) {
 function wireCardButtons(card, sym) {
   const btn = card.querySelector("[data-analyze]");
   if (btn) btn.addEventListener("click", () => {
-    vibrateShort();
+    vibrateTap();
     analyzeOne(sym);
   });
   const resetEl = card.querySelector("[data-reset]");
@@ -2325,7 +2332,7 @@ function renderPill(sym) {
   });
 }
 function deleteActiveTicker(sym) {
-  vibrateShort();
+  vibrateTap();
   tickerState.delete(sym);
   removeTicker(sym);
 }
@@ -2388,6 +2395,109 @@ function refreshRoloCards() {
   });
   renderOverflowListIfOpen();
 }
+var PULL_TRIGGER_PX = 64;
+var PULL_MAX_PX = 96;
+var PULL_RESISTANCE = 0.5;
+var pullPointerId = null;
+var pullStartY = 0;
+var pullTracking = false;
+var pullRefreshing = false;
+function pullIndicatorEl() {
+  return document.getElementById("pullRefreshIndicator");
+}
+function setPullHeight(px, settle) {
+  const el = pullIndicatorEl();
+  if (!el) return;
+  el.classList.toggle("settling", !!settle);
+  el.style.height = px + "px";
+}
+function setPullLabel(text) {
+  const el = pullIndicatorEl();
+  const lbl = el ? el.querySelector(".pull-refresh-label") : null;
+  if (lbl) lbl.textContent = text;
+}
+function resetPull() {
+  pullTracking = false;
+  setPullHeight(0, true);
+  const el = pullIndicatorEl();
+  if (el) el.classList.remove("pull-ready");
+}
+function onScrollerPointerDown(e) {
+  if (pullRefreshing || e.pointerType === "mouse" && e.button !== 0 || isLandscapeMode()) return;
+  if (scroller.scrollTop > 0) return;
+  pullPointerId = e.pointerId;
+  pullStartY = e.clientY;
+  pullTracking = false;
+}
+function onScrollerPointerMove(e) {
+  if (pullPointerId === null || e.pointerId !== pullPointerId || pullRefreshing) return;
+  if (scroller.scrollTop > 0) {
+    if (pullTracking) resetPull();
+    return;
+  }
+  const rawDy = e.clientY - pullStartY;
+  if (rawDy <= 0) {
+    if (pullTracking) resetPull();
+    return;
+  }
+  pullTracking = true;
+  e.preventDefault();
+  const dy = Math.min(rawDy * PULL_RESISTANCE, PULL_MAX_PX);
+  setPullHeight(dy);
+  const ready = dy >= PULL_TRIGGER_PX;
+  const el = pullIndicatorEl();
+  if (el) el.classList.toggle("pull-ready", ready);
+  setPullLabel(ready ? "Release to refresh" : "Pull to refresh");
+}
+function onScrollerPointerUp(e) {
+  if (pullPointerId === null || e.pointerId !== pullPointerId) return;
+  pullPointerId = null;
+  if (!pullTracking) return;
+  const el = pullIndicatorEl();
+  const dy = el ? parseFloat(el.style.height || "0") : 0;
+  pullTracking = false;
+  if (dy >= PULL_TRIGGER_PX) doPullToRefresh();
+  else resetPull();
+}
+async function doPullToRefresh() {
+  pullRefreshing = true;
+  vibrateTap();
+  setPullHeight(PULL_TRIGGER_PX, true);
+  const el = pullIndicatorEl();
+  if (el) {
+    el.classList.add("refreshing");
+    el.classList.remove("pull-ready");
+  }
+  setPullLabel("Refreshing\u2026");
+  try {
+    await Promise.all([
+      fetchMarket(true),
+      ...watchlist.map(async (sym) => {
+        const td = await fetchTickerData(sym, true);
+        const state = tickerState.get(sym);
+        if (state) state.td = td;
+      })
+    ]);
+    cardWindow().forEach((sym) => {
+      renderRoloCard(sym);
+      renderPill(sym);
+    });
+    renderOverflowListIfOpen();
+    const proxyCard = document.querySelector('.card[data-card="proxy"]');
+    if (proxyCard && proxyCard.classList.contains("expanded")) renderProxyExplorer();
+    const heatCard = document.querySelector('.card[data-card="heatmap"]');
+    if (heatCard && heatCard.classList.contains("expanded")) renderHeatMap();
+    vibrateResult();
+  } finally {
+    pullRefreshing = false;
+    if (el) el.classList.remove("refreshing");
+    setPullHeight(0, true);
+  }
+}
+scroller.addEventListener("pointerdown", onScrollerPointerDown);
+scroller.addEventListener("pointermove", onScrollerPointerMove, { passive: false });
+scroller.addEventListener("pointerup", onScrollerPointerUp);
+scroller.addEventListener("pointercancel", onScrollerPointerUp);
 var DIAL_POSITIONS = {
   ACTIVE_SWING: { label: "Aggressive", cadence: "Session-by-session", entries: "Opening Drive, Pre-Catalyst Buildup, post-flush", stops: "Tight (+4% / -1%)", recheck: "Every session", sizing: "Smaller, capped at HALF" },
   ACTIVE_LEAN: { label: "Light Aggressive", cadence: "Daily", entries: "Pre-Catalyst Buildup, post-flush (no Opening Drive)", stops: "Standard (+4% / -3%)", recheck: "Daily", sizing: "Standard" },
@@ -2528,7 +2638,7 @@ async function analyzeOne(sym, holdThroughEarnings) {
     lastAnalysis[sym] = _r;
     state.result = _r;
     state.analyzing = false;
-    vibrateShort();
+    vibrateResult();
     renderRoloCard(sym);
     renderPill(sym);
     fetchCreditStatus();
@@ -2942,6 +3052,7 @@ function topicalCompanyRowHTML(c) {
   return '<div class="compact-row-wrap" data-ticker="' + c.symbol + '"><div class="compact-row"><div class="compact-row-main"><div class="compact-row-top"><span class="compact-ticker" style="color:' + color + '"><a class="ticker-a" href="' + tickerHref(c.symbol) + '" target="_blank">' + c.symbol + '</a></span><span class="compact-pct" style="color:' + color + '">' + pctLabel + "</span></div></div>" + addTickerBtnHTML(c.symbol) + "</div></div>";
 }
 async function runAgitatorCheck() {
+  vibrateTap();
   var qEl = document.getElementById("agitator-query");
   var btn = document.getElementById("agitatorCheckBtn");
   var out = document.getElementById("agitator-body");
@@ -2983,6 +3094,7 @@ async function runAgitatorCheck() {
       var cmNewsHTML = '<div class="headline" style="margin-top:8px">' + (cm.news ? cm.news.url ? '<a href="' + cm.news.url + '" target="_blank">' + cm.news.headline + "</a>" : cm.news.headline : '<span style="opacity:.6">No recent related news found.</span>') + "</div>";
       var cmRelatedHTML = '<div class="track-log-title" style="margin-top:10px">RELATED</div>' + (cm.related && cm.related.length ? '<div class="compact-list">' + cm.related.map(relatedRowHTML).join("") + "</div>" : '<div class="track-empty">No related companies found.</div>');
       out.innerHTML = '<div class="track-log-title">SPOT PRICE</div>' + spotHTML + proxyHTML + '<div class="track-empty" style="margin-top:6px">' + (spotHTML ? "Live commodity spot price." : cm.name + " spot price unavailable \u2014 showing its tradable proxy instead.") + "</div>" + cmGaugeHTML + cmNewsHTML + cmFactorsHTML + cmRelatedHTML;
+      vibrateResult();
       wireAgitatorAddButtons(out);
       snapCardUnderDock(document.getElementById("card-agitator"));
       return;
@@ -3010,6 +3122,7 @@ async function runAgitatorCheck() {
         topicalHTML = '<div class="track-empty">Couldn\u2019t find a company for "' + q + '".</div>';
       }
       out.innerHTML = suggestionHTML + topicalHTML;
+      vibrateResult();
       var yesBtn = document.getElementById("agitatorSuggestYes");
       if (yesBtn) yesBtn.addEventListener("click", function() {
         qEl.value = yesBtn.dataset.ticker || "";
@@ -3034,6 +3147,7 @@ async function runAgitatorCheck() {
     var headlineHTML = '<div class="headline" style="margin-top:8px">' + (data.headlineUsed ? data.headlineUsedUrl ? '<a href="' + data.headlineUsedUrl + '" target="_blank">' + data.headlineUsed + "</a>" : data.headlineUsed : '<span style="opacity:.6">No recent related news found.</span>') + "</div>";
     var compsHTML = '<div class="track-log-title" style="margin-top:10px">RELATED</div>' + (data.comps && data.comps.length ? '<div class="compact-list">' + data.comps.map(relatedRowHTML).join("") + "</div>" : '<div class="track-empty">No related companies found.</div>');
     out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML;
+    vibrateResult();
     wireAgitatorAddButtons(out);
     snapCardUnderDock(document.getElementById("card-agitator"));
   } catch (e) {
@@ -3501,7 +3615,7 @@ async function checkAuth() {
 initWatchlist({ defaultTickers: ["SMMT", "VCYT", "TWST", "IMVT", "IREN", "ALAB", "MU"], maxTickers: 999, upgradeMessage: "Pro supports unlimited tickers already \u2014 this cap should never be hit." });
 initTickerCache({ API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
 initRolodex({
-  scroller: document.getElementById("scroller"),
+  scroller,
   gateCard: document.getElementById("gateCard"),
   gateFullOverlay: document.getElementById("gateFullOverlay"),
   gateSpacer: document.getElementById("gateSpacer"),

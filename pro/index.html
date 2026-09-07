@@ -121,6 +121,21 @@
 
   .app-scroll{ flex:1; overflow-y:auto; overflow-x:hidden; }
 
+  /* Proposal 8, Phase 2 -- pull-to-refresh. Height is driven directly by
+     JS during the drag (no transition, so it tracks the finger 1:1); the
+     .settling class turns transitions on only for the release/refreshing/
+     collapse steps, matching the same "instant during gesture, animated
+     on state change" discipline this file already uses for the Gate's own
+     spacer collapse. A plain, non-sticky block sitting before #gateCard --
+     growing its height simply pushes #gateCard (still in normal flow at
+     scrollTop 0) down, no transform tricks needed. */
+  .pull-refresh-indicator{ height:0; overflow:hidden; display:flex; align-items:center; justify-content:center; gap:6px; color:var(--ink-dim); font-size:12px; background:var(--bg); }
+  .pull-refresh-indicator.settling{ transition:height .18s ease; }
+  .pull-refresh-indicator.pull-ready{ color:var(--blue); }
+  .pull-refresh-indicator .pull-refresh-spinner{ display:inline-block; }
+  .pull-refresh-indicator.refreshing .pull-refresh-spinner{ animation:pullSpin .7s linear infinite; }
+  @keyframes pullSpin{ to{ transform:rotate(360deg); } }
+
   /* ── GATE: fixed-height sticky bar; full detail is an absolutely
      positioned overlay, opacity-crossfaded on dock state; a plain spacer
      reserves scroll room. Never changes the sticky box's own layout
@@ -672,6 +687,10 @@
 
   <div class="app-scroll" id="scroller">
 
+    <div id="pullRefreshIndicator" class="pull-refresh-indicator" aria-hidden="true">
+      <span class="pull-refresh-spinner">&#8635;</span><span class="pull-refresh-label">Pull to refresh</span>
+    </div>
+
     <div id="gateCard" tabindex="0" role="button" aria-expanded="true" aria-label="Gate status">
       <div class="gate-mini-row">
         <span class="dot" id="gateMiniDot"></span>
@@ -913,6 +932,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=56"></script>
+<script type="module" src="./app.js?v=57"></script>
 </body>
 </html>
