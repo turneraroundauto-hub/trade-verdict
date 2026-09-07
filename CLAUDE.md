@@ -9242,3 +9242,74 @@ identical before/after scrolling the pane) to confirm the `overflow-x`
 addition didn't reopen that fix. `npm test` (72/72) and `node --check`
 clean — pure CSS change, no `.ts`/`.js` touched, no `esbuild` rebuild or
 `?v=` bump needed.
+
+## Backend: isMarketOpen() had zero US market holiday awareness (Sep 7, 2026, `Tra` PR #109 / `trade-verdict` PR #333)
+
+Direct report, same message as the landscape Watchlist overflow bug above:
+"today is Labor Day, the app doesn't recognize that its closed market
+holiday." Confirmed live, not just from reading the code, via the MCP
+connector's `get_market` tool — a real call to the deployed `/market`
+endpoint returned `marketOpen: true` on Labor Day (Sep 7, 2026).
+
+**Root cause.** `isMarketOpen()` (the function behind Gate 0's `marketOpen`
+flag, and every other consumer of the same boolean) only ever checked
+weekday (Sat/Sun) and time-of-day (9:30am-4:00pm ET) — zero concept of a
+US market holiday calendar. Every full-day NYSE/NASDAQ closure that falls
+on a weekday (all ten of them) read as a normal open trading day.
+
+**Fix, both repos, same function names/pattern per the two-repo rule
+(`Tra` is the real fix; `trade-verdict`'s `server.js` is the
+cosmetic/historical mirror, confirmed byte-identical via `diff` before
+committing):** added `MARKET_HOLIDAYS`, a hand-computed set of full-day
+closure dates (keyed by ET calendar date, `YYYY-MM-DD`) for 2026 and 2027,
+plus `MARKET_EARLY_CLOSE_DAYS` for the two 1:00pm-ET half-day closures
+(day after Thanksgiving, Christmas Eve) — both checked via a new
+`etDateStr()` helper against the same `et` Date `isMarketOpen()` already
+computes, so no new timezone-conversion code was introduced. No other
+call site needed touching — every consumer of `isMarketOpen()`'s boolean
+(Gate 0's flag, the market-cache warm pass, etc.) benefits automatically.
+
+**A real mistake caught before shipping, worth keeping as its own
+lesson.** The holiday dates weren't just hand-calculated from calendar
+rules and trusted — they were cross-checked via `WebSearch` against NYSE
+Group's own published 2025/2026/2027 holiday announcement first. Good
+thing: a hand calculation of 2027's Good Friday (working backward from a
+hand-derived Easter date) came out to March 26, but an initial search
+result's AI-generated summary claimed April 16 — a real, direct
+contradiction between two "sources." Rather than trust either blindly,
+searched specifically for Easter 2027's actual date (Farmers Almanac:
+March 28, 2027) and derived Good Friday from that (March 26) — which
+confirmed the hand calculation was right and the April 16 answer was a
+web-search-summary hallucination (the summary itself admitted "the search
+results don't provide the specific Good Friday date" in the same
+sentence it then invented one, a strong tell). Every other 2026/2027 date
+in the list was independently confirmed against real search results
+before being added (New Year's/MLK/Presidents Day/Memorial Day/
+Juneteenth/Independence Day/Labor Day/Thanksgiving/Christmas, plus both
+years' weekend-observed-date shifts). **Lesson: for anything with a
+real, checkable external ground truth, don't ship a hand calculation
+without cross-checking it — especially a date that depends on Easter,
+which has no simple closed-form formula and is exactly the kind of thing
+easy to get subtly wrong by hand.**
+
+**Verified via a 16-case standalone Node simulation** of the extracted
+logic (not reimplemented from scratch, the actual shipped code) — the
+real reported bug (Labor Day 2026, mid-day), regular weekday open/closed
+boundaries, a weekend day, Christmas and Good Friday for both 2026 and
+2027, both early-close days' exact 1:00pm boundary for both years, and a
+future year (2028) with no holiday data on file (confirms this fails
+safe to normal weekday/time-of-day behavior rather than throwing) — all
+16 pass. Also `node --check` clean, `npm test` (72/72, unaffected — this
+doesn't touch `gates-extended.ts`/`analyze-helpers.ts`) in both repos,
+and a real local boot test (`require('./server.js')` with dummy env
+vars) in `Tra` — clean start, zero crashes.
+
+**Not yet verified against a live deploy** — same standing posture as
+every backend change in this file. To confirm: check `marketOpen` via
+the MCP `get_market` tool (or a direct `/market` call) once `Tra`
+redeploys and confirm it now reads `false` today, and again on the next
+real holiday. **Needs a manual update for 2028+** — the holiday set only
+covers 2026/2027; re-derive and re-cross-check (per the lesson above,
+especially Good Friday) against NYSE's own published schedule
+(nyse.com/trade/hours-calendars) before extending it, rather than
+hand-calculating a third year cold.
