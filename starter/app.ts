@@ -62,6 +62,22 @@ function isMarketClosed(): boolean {
   return mins < 570 || mins >= 960;
 }
 
+// Proposal 8, Phase 1 -- haptics, two distinct feels so a tap and a
+// produced result don't feel identical. Android Chrome/TWA only -- iOS
+// Safari has no Vibration API at all, so both silently no-op there
+// rather than needing a platform check at every call site. Tier-owned
+// (not in shared/rolodex.ts) so this ships per tier deliberately.
+function canVibrate(): boolean { return typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function'; }
+// A single short buzz -- a plain button tap or confirm action (ANALYZE
+// tap, the Agitator's CHECK tap, swipe-to-delete confirm) with no output
+// of its own yet.
+function vibrateTap(): void { if (canVibrate()) navigator.vibrate(15); }
+// Two buzzes, the second longer -- reserved for the moment a tap actually
+// produces something: a verdict landing on a ticker card, or a real
+// Agitator Gauge result. Distinguishes "acknowledged" from "here's your
+// answer" without needing a different UI element to convey it.
+function vibrateResult(): void { if (canVibrate()) navigator.vibrate([15, 60, 40]); }
+
 function sigColor(s: string): string { return ({ GREEN: 'var(--green)', RED: 'var(--red)', YELLOW: 'var(--amber)', 'N/A': 'var(--ink-dim)' } as Record<string, string>)[s] || 'var(--ink-dim)'; }
 function dirClass(d: string): string { return d === 'green' ? 'up' : d === 'red' ? 'down' : d === 'flat' ? 'flat' : 'neutral'; }
 
@@ -141,7 +157,7 @@ function renderPulse(): void {
   var pulseEl = document.getElementById('pulse-text');
   if (!pulseEl) return;
   if (market && market.pulse) { pulseEl.className = 'pulse-text'; pulseEl.textContent = market.pulse; }
-  else if (market) { pulseEl.className = 'pulse-loading'; pulseEl.textContent = 'Generating pulse...'; }
+  else if (market) { pulseEl.className = 'pulse-loading text-pulse'; pulseEl.textContent = 'Generating pulse...'; }
   else { pulseEl.className = 'pulse-loading'; pulseEl.textContent = 'Unavailable'; }
 }
 
@@ -253,6 +269,7 @@ document.querySelectorAll('.card[data-card] > .card-head').forEach(wireAccordion
 // ── Rolodex: real ticker data, real /analyze ─────────────────────────
 const roloStage = document.getElementById('roloStage') as HTMLElement;
 const roloIndex = document.getElementById('roloIndex') as HTMLElement;
+const scroller = document.getElementById('scroller') as HTMLElement;
 
 interface TickerState { td: TickerData | null; result: AnalyzeResponse | null; analyzing: boolean; error: string | null; }
 /** ticker -> { td, result, analyzing, error } */
@@ -412,7 +429,7 @@ function renderRoloCard(sym: string): void {
   card.innerHTML = roloCardHTML(sym, state);
   card.classList.remove('verdict-up', 'verdict-down');
   const btn = card.querySelector('[data-analyze]');
-  if (btn) btn.addEventListener('click', () => analyzeOne(sym));
+  if (btn) btn.addEventListener('click', () => { vibrateTap(); analyzeOne(sym); });
   const resetEl = card.querySelector('[data-reset]');
   if (resetEl) resetEl.addEventListener('click', () => resetTicker(sym));
   if (state.result && !isMarketClosed()) {
@@ -443,6 +460,7 @@ function renderPill(sym: string): void {
 }
 
 function deleteActiveTicker(sym: string): void {
+  vibrateTap();
   tickerState.delete(sym);
   removeTicker(sym); // shared/watchlist.ts: persists, syncs, shows its own undo toast
 }
@@ -492,6 +510,106 @@ async function renderRolodexFromWatchlist(): Promise<void> {
 function refreshRoloCards(): void {
   watchlist.forEach((sym) => { if (tickerState.has(sym)) renderRoloCard(sym); });
 }
+
+// ── Proposal 8, Phase 2 -- pull-to-refresh. Ported from Pro's own build,
+// same reasoning: a drag-down-at-the-top gesture wired to the exact same
+// refresh paths this app already has -- fetchMarket(true) and
+// fetchTickerData(sym, true) -- no new fetch mechanism. Starter has no
+// card/overflow split (its whole watchlist IS the pill strip, capped at
+// 7), so the repaint scope here is simply every ticker, not a windowed
+// subset. Tier-owned (not shared/rolodex.ts), same as Phase 1's haptics.
+//
+// Scope boundary, same as Pro's: only arms in portrait
+// (rolodex.isLandscapeMode() is a hard bail) -- landscape's HUD has its
+// own separately-scrollable ribbon/pane, never verified against this.
+const PULL_TRIGGER_PX = 64;
+const PULL_MAX_PX = 96;
+const PULL_RESISTANCE = 0.5;
+let pullPointerId: number | null = null;
+let pullStartY = 0;
+let pullTracking = false; // a real drag that started at scrollTop 0 and is moving down
+let pullRefreshing = false;
+
+function pullIndicatorEl(): HTMLElement | null { return document.getElementById('pullRefreshIndicator'); }
+
+function setPullHeight(px: number, settle?: boolean): void {
+  const el = pullIndicatorEl(); if (!el) return;
+  el.classList.toggle('settling', !!settle);
+  el.style.height = px + 'px';
+}
+
+function setPullLabel(text: string): void {
+  const el = pullIndicatorEl();
+  const lbl = el ? el.querySelector('.pull-refresh-label') : null;
+  if (lbl) lbl.textContent = text;
+}
+
+function resetPull(): void {
+  pullTracking = false;
+  setPullHeight(0, true);
+  const el = pullIndicatorEl(); if (el) el.classList.remove('pull-ready');
+}
+
+function onScrollerPointerDown(e: PointerEvent): void {
+  if (pullRefreshing || (e.pointerType === 'mouse' && e.button !== 0) || rolodex.isLandscapeMode()) return;
+  if (scroller.scrollTop > 0) return;
+  pullPointerId = e.pointerId; pullStartY = e.clientY; pullTracking = false;
+}
+
+function onScrollerPointerMove(e: PointerEvent): void {
+  if (pullPointerId === null || e.pointerId !== pullPointerId || pullRefreshing) return;
+  if (scroller.scrollTop > 0) { if (pullTracking) resetPull(); return; }
+  const rawDy = e.clientY - pullStartY;
+  if (rawDy <= 0) { if (pullTracking) resetPull(); return; }
+  pullTracking = true;
+  e.preventDefault(); // this IS the gesture -- don't let native rubber-band fight it
+  const dy = Math.min(rawDy * PULL_RESISTANCE, PULL_MAX_PX);
+  setPullHeight(dy);
+  const ready = dy >= PULL_TRIGGER_PX;
+  const el = pullIndicatorEl(); if (el) el.classList.toggle('pull-ready', ready);
+  setPullLabel(ready ? 'Release to refresh' : 'Pull to refresh');
+}
+
+function onScrollerPointerUp(e: PointerEvent): void {
+  if (pullPointerId === null || e.pointerId !== pullPointerId) return;
+  pullPointerId = null;
+  if (!pullTracking) return;
+  const el = pullIndicatorEl();
+  const dy = el ? parseFloat(el.style.height || '0') : 0;
+  pullTracking = false;
+  if (dy >= PULL_TRIGGER_PX) doPullToRefresh();
+  else resetPull();
+}
+
+async function doPullToRefresh(): Promise<void> {
+  pullRefreshing = true;
+  vibrateTap();
+  setPullHeight(PULL_TRIGGER_PX, true);
+  const el = pullIndicatorEl();
+  if (el) { el.classList.add('refreshing'); el.classList.remove('pull-ready'); }
+  setPullLabel('Refreshing…');
+  try {
+    await Promise.all([
+      fetchMarket(true),
+      ...watchlist.map(async (sym) => {
+        const td = await fetchTickerData(sym, true);
+        const state = tickerState.get(sym);
+        if (state) state.td = td; // real/analyzing/error stay untouched -- this refreshes price/news, not verdicts
+      }),
+    ]);
+    watchlist.forEach((sym) => { renderRoloCard(sym); renderPill(sym); });
+    vibrateResult();
+  } finally {
+    pullRefreshing = false;
+    if (el) el.classList.remove('refreshing');
+    setPullHeight(0, true);
+  }
+}
+
+scroller.addEventListener('pointerdown', onScrollerPointerDown);
+scroller.addEventListener('pointermove', onScrollerPointerMove, { passive: false });
+scroller.addEventListener('pointerup', onScrollerPointerUp);
+scroller.addEventListener('pointercancel', onScrollerPointerUp);
 
 // ── PROPOSAL 6 — Aggression Dial (Aug 26, 2026) ─────────────────────
 // Client-only display metadata -- only sizingCeiling is actually
@@ -664,6 +782,7 @@ async function analyzeOne(sym: string, holdThroughEarnings?: boolean): Promise<v
     var _r = await res.json();
     cacheVerdict(sym, _r);
     state.result = _r; state.analyzing = false;
+    vibrateResult();
     renderRoloCard(sym); renderPill(sym);
     fetchCreditStatus();
   } catch (e: any) {
@@ -1043,7 +1162,7 @@ document.getElementById('glossary-search')!.addEventListener('input', (e) => fil
 // /scorecard's own server-side code already applies).
 async function renderScorecardCard(): Promise<void> {
   var el = document.getElementById('scorecard-body'); if (!el) return;
-  el.innerHTML = '<div class="track-empty">Loading...</div>';
+  el.innerHTML = '<div class="track-empty text-pulse">Loading...</div>';
   try {
     var res = await fetch(addSecret(API_URL + '/scorecard'), { headers: authH() });
     if (res.status === 403) { el.innerHTML = '<div class="track-empty">Scorecard not available on this tier yet.</div>'; return; }
@@ -1190,6 +1309,7 @@ function topicalCompanyRowHTML(c: { symbol: string; name: string; reactionPct: n
     + '</div></div>';
 }
 async function runAgitatorCheck(): Promise<void> {
+  vibrateTap(); // covers the CHECK button tap, Enter, and the "Did you mean... Yes" re-run alike
   var qEl = document.getElementById('agitator-query') as HTMLInputElement;
   var btn = document.getElementById('agitatorCheckBtn') as HTMLButtonElement;
   var out = document.getElementById('agitator-body'); if (!out) return;
@@ -1197,7 +1317,7 @@ async function runAgitatorCheck(): Promise<void> {
   if (!q) { out.innerHTML = '<div class="track-empty">Type a ticker, company name, or paste a headline first.</div>'; return; }
 
   btn.disabled = true; btn.classList.add('btn-running'); btn.textContent = 'CHECKING…';
-  out.innerHTML = '<div class="track-empty">Loading...</div>';
+  out.innerHTML = '<div class="track-empty text-pulse">Loading...</div>';
   try {
     // Fix 1 (Notion "Proposal 5 — Amendment," Sep 1 2026): the known-ticker
     // shortcut is a backend optimization for every tier, including
@@ -1264,6 +1384,7 @@ async function runAgitatorCheck(): Promise<void> {
       out.innerHTML = '<div class="track-log-title">SPOT PRICE</div>' + spotHTML + proxyHTML
         + '<div class="track-empty" style="margin-top:6px">' + (spotHTML ? 'Live commodity spot price.' : cm.name + ' spot price unavailable — showing its tradable proxy instead.') + '</div>'
         + cmGaugeHTML + cmNewsHTML + cmFactorsHTML + cmRelatedHTML;
+      vibrateResult();
       wireAgitatorAddButtons(out);
       if (!rolodex.isLandscapeMode()) rolodex.snapCardUnderDock(document.getElementById('card-agitator') as HTMLElement);
       return;
@@ -1323,6 +1444,7 @@ async function runAgitatorCheck(): Promise<void> {
         topicalHTML = '<div class="track-empty">Couldn’t find a company for "' + q + '".</div>';
       }
       out.innerHTML = suggestionHTML + topicalHTML;
+      vibrateResult();
       var yesBtn = document.getElementById('agitatorSuggestYes');
       if (yesBtn) yesBtn.addEventListener('click', function () {
         qEl.value = (yesBtn as HTMLElement).dataset.ticker || '';
@@ -1393,6 +1515,7 @@ async function runAgitatorCheck(): Promise<void> {
           : '<div class="track-empty">No related companies found.</div>');
 
     out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML;
+    vibrateResult();
     wireAgitatorAddButtons(out);
     if (!rolodex.isLandscapeMode()) rolodex.snapCardUnderDock(document.getElementById('card-agitator') as HTMLElement);
   } catch (e) {
@@ -1407,12 +1530,12 @@ async function runAgitatorCheck(): Promise<void> {
 // data-help id in starter/index.html). Heavy terminology inside links
 // straight to the matching Glossary entry via roloGlossaryJump() below.
 const HELP_CONTENT: Record<string, string> = {
+  pills: 'Tap any pill above to open its ticker card, then hit ANALYZE to run it through all 6 gates and get a real UP/DOWN/FLAT verdict — this is the whole point of the app. Swipe a card left to remove it from your watchlist, or right to jump to the next ticker and analyze it automatically.',
   gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against — feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read — tap the docked bar to jump back to top. Pre/post-market prices are IEX-only and may vary from the full consolidated tape; built for regular-session (9:30am–4pm ET) analysis.',
-  pulse: 'A quick AI-written read on today’s overall market mood and <a class="help-glossary-link" href="#" data-term="sector rotation">sector rotation</a> — informational only, doesn’t change any gate.',
-  context: 'Real news or catalysts you already know — auto-included in every analysis and checked against headlines. 2 of 3 matching signals marks it CONTEXT-CORROBORATED for Gate 2.',
-  io: 'Paste or type <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names, one per line or comma-separated, to add them to your watchlist. Type a ticker in caps (AAPL) or a name any other way (Tesla) — either resolves to the right symbol.',
+  pulse: 'A quick, AI-written summary of today’s market mood and which <a class="help-glossary-link" href="#" data-term="sector rotation">sectors</a> are leading or lagging. For your information only — it never changes a gate or a verdict.',
+  io: 'Type or paste <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names — one per line, or separated by commas. All caps (AAPL) adds a ticker directly; type it any other way (Tesla) and it resolves to the right symbol. Analyze All runs your full watchlist, up to 7 credits.',
   scorecard: 'Real, server-graded accuracy — every verdict is automatically checked against the actual price move ~3 trading days later, no manual logging needed. Suppressed until at least 20 verdicts have been graded.',
-  agitator: 'A standalone discovery tool for proofing a new stock interest or a media rumor BEFORE it enters your watchlist — free, no credit cost. Type a ticker, a company name, or paste a full headline/rumor — one box handles all three — and get a LOW/MEDIUM/HIGH read across 6 real signals, plus a few real related companies to also check. Past Reactions isn’t tracked yet, so it’s shown but never scored.',
+  agitator: 'Check out a new stock idea or a rumor before it earns a spot on your watchlist — always free. Type a ticker, a company name, or paste a headline, and get one LOW/MEDIUM/HIGH read built from 6 real signals, plus a few related companies worth a look.',
   'agitator-score': 'One overall number, 0-10, averaging the 6 signals below it — a quick read on how big a deal this news might be for the stock, not a precise measurement.',
   'agitator-surprise': 'How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.',
   'agitator-uncertainty': 'How unclear it still is to everyone how big a deal this actually is. High means the market hasn’t figured out how to react yet.',
@@ -1423,6 +1546,133 @@ const HELP_CONTENT: Record<string, string> = {
   'agitator-past': 'How reliably this app’s past verdicts on this ticker have graded out. Shows n/a until enough real graded history exists.',
   dial: 'Sets your monitoring cadence and holding-period posture — Starter offers Light Aggressive, CRF Default, and Light Passive; Pro adds the full-strength Aggressive position above and the full-strength Passive position below. CRF Default behaves exactly like every other tier. Light Aggressive never inflates sizing beyond what your gates already earned. A real earnings print always blocks new entries first, at every position, unless you explicitly hold through it for that one check. Monitoring cadence, entry guidance, stop guidance, and recheck interval are informational — this app doesn’t place real stop orders or send reminders yet.',
 };
+
+// ── Proposal 8, Phase 3 -- new-user tutorial, ported from Pro's build.
+// Same sticky-balloon-advances-in-succession mechanic (shared/rolodex.ts's
+// tutorial state), adapted to Starter's own smaller card set (no
+// Watchlist-overflow/Proxy/Heatmap/Track -- those are Pro-exclusive) and
+// its own tier-scoped storage flag so a Starter user who later upgrades to
+// Pro still sees Pro's own walkthrough once, independent of this one.
+interface TutorialStep {
+  html: string;
+  getAnchor: () => HTMLElement | null;
+  before?: () => void | Promise<void>;
+}
+
+const TUTORIAL_STEP_SETTLE_MS = 450;
+
+function tutorialCard(id: string): HTMLElement {
+  return document.getElementById(id) as HTMLElement;
+}
+function tutorialExpand(id: string): void {
+  const card = tutorialCard(id);
+  if (!card) return;
+  if (!card.classList.contains('expanded')) expandCard(card);
+  // Landscape mode positions a utility card via its own ribbon+pane
+  // selection (selectLandscapeCard) -- a completely separate mechanism
+  // from expandCard()'s portrait-only snapCardUnderDock(), which it
+  // deliberately skips while landscape is active. Without this, the
+  // tutorial's balloon anchor sits inside a card that's still
+  // display:none (never made .landscape-active, never selected in the
+  // ribbon).
+  if (rolodex.isLandscapeMode()) rolodex.selectLandscapeCard(card);
+}
+function tutorialActiveCardEl(): HTMLElement | null {
+  const cards = Array.from(roloStage.querySelectorAll<HTMLElement>('.rolo-card'));
+  return cards[rolodex.getRoloCurrent()] || null;
+}
+// A utility card's own (?) button lives inside its .card-head -- and
+// .card-head is unconditionally display:none while landscape mode is
+// active (the ribbon replaces it as the navigation), so every one of
+// those anchors resolves to a real, present-in-the-DOM element with a
+// permanent 0x0 rect there. Falls back to the card's own ribbon button
+// (genuinely visible, and exactly what the user just tapped/sees
+// highlighted) whenever landscape is active.
+function tutorialAnchor(cardKind: string, helpId: string): HTMLElement | null {
+  if (rolodex.isLandscapeMode()) return document.querySelector<HTMLElement>(`.ribbon-item[data-card="${cardKind}"]`);
+  return document.querySelector<HTMLElement>(`[data-help="${helpId}"]`);
+}
+// Same reasoning as tutorialAnchor() above -- #glossary-header IS the
+// Glossary's own .card-head element, so it's the hidden one in landscape,
+// not just a child of it.
+function tutorialGlossaryAnchor(): HTMLElement | null {
+  if (rolodex.isLandscapeMode()) return document.querySelector<HTMLElement>('.ribbon-item[data-card="glossary"]');
+  return document.getElementById('glossary-header');
+}
+
+const TUTORIAL_STEPS: TutorialStep[] = [
+  {
+    html: HELP_CONTENT.pills,
+    getAnchor: () => document.querySelector<HTMLElement>('[data-help="pills"]'),
+    before: () => rolodex.scrollToActiveCard(),
+  },
+  {
+    html: 'This is <b>swipe-to-delete</b> — swipe any card left anytime to remove that ticker from your watchlist.',
+    getAnchor: () => tutorialActiveCardEl(),
+    before: () => rolodex.simulateSwipeDemo('left'),
+  },
+  {
+    html: 'Swipe right to jump to the <b>next ticker</b> in your watchlist and analyze it automatically.',
+    getAnchor: () => tutorialActiveCardEl(),
+    before: () => { rolodex.resetSwipeDemoCard(); return rolodex.simulateSwipeDemo('right'); },
+  },
+  {
+    html: HELP_CONTENT.gate,
+    getAnchor: () => document.querySelector<HTMLElement>('[data-help="gate"]'),
+    before: () => { rolodex.resetSwipeDemoCard(); rolodex.jumpToTop(); },
+  },
+  {
+    html: 'Set your Aggression Dial before you analyze — it shapes how big a position size your verdicts can suggest.',
+    getAnchor: () => tutorialAnchor('dial', 'dial'),
+    before: () => tutorialExpand('card-dial'),
+  },
+  {
+    html: HELP_CONTENT.pulse,
+    getAnchor: () => tutorialAnchor('pulse', 'pulse'),
+    before: () => tutorialExpand('card-pulse'),
+  },
+  {
+    html: HELP_CONTENT.agitator,
+    getAnchor: () => tutorialAnchor('agitator', 'agitator'),
+    before: () => tutorialExpand('card-agitator'),
+  },
+  {
+    html: HELP_CONTENT.io,
+    getAnchor: () => tutorialAnchor('io', 'io'),
+    before: () => tutorialExpand('card-io'),
+  },
+  {
+    html: HELP_CONTENT.scorecard,
+    getAnchor: () => tutorialAnchor('scorecard', 'scorecard'),
+    before: () => tutorialExpand('card-scorecard'),
+  },
+  {
+    html: 'That’s the app. Tap a pill, hit ANALYZE, and let the gates do the work — everything else here just supports that call. Come back to <b>▶ Run Tutorial</b>, right here in the Glossary, anytime you want to see this again.',
+    getAnchor: () => tutorialGlossaryAnchor(),
+    before: () => tutorialExpand('card-glossary'),
+  },
+];
+
+async function runTutorialStep(index: number): Promise<void> {
+  if (index >= TUTORIAL_STEPS.length) { rolodex.endTutorial(); return; }
+  const step = TUTORIAL_STEPS[index];
+  if (step.before) await step.before();
+  await new Promise((r) => setTimeout(r, TUTORIAL_STEP_SETTLE_MS));
+  const anchor = step.getAnchor();
+  if (!anchor) { runTutorialStep(index + 1); return; }
+  rolodex.openTutorialBalloon(
+    anchor,
+    step.html,
+    () => { runTutorialStep(index + 1); },
+    () => { rolodex.resetSwipeDemoCard(); },
+  );
+}
+
+function startTutorial(): void {
+  localStorage.setItem('tv_tutorial_seen_starter', '1');
+  runTutorialStep(0);
+}
+(window as any).startTutorial = startTutorial;
 
 // ── init ────────────────────────────────────────────────────────────
 function initApp(): void {
@@ -1438,6 +1688,11 @@ function initApp(): void {
   renderRolodexFromWatchlist();
   renderDialCard();
   setTimeout(fetchCreditStatus, 2000);
+  // New-user tutorial -- fires once per browser (a tier-scoped flag, so a
+  // Free user who upgrades to Starter still sees Starter's own walkthrough
+  // even if they already saw Free's). Delayed to give the initial
+  // card/gate render a moment to settle before anchoring the first balloon.
+  setTimeout(function () { if (!localStorage.getItem('tv_tutorial_seen_starter')) startTutorial(); }, 900);
   setInterval(function () { fetchMarket(); }, 4 * 60 * 1000);
   enforceMarketState();
   setInterval(enforceMarketState, 60 * 1000);
@@ -1501,7 +1756,7 @@ initWatchlist({ defaultTickers: ['SMMT', 'VCYT', 'TWST', 'IMVT', 'IREN', 'ALAB',
 initTickerCache({ API_URL: API_URL, authH: authH, addSecret: addSecret });
 
 rolodex.initRolodex({
-  scroller: document.getElementById('scroller') as HTMLElement,
+  scroller: scroller,
   gateCard: document.getElementById('gateCard') as HTMLElement,
   gateFullOverlay: document.getElementById('gateFullOverlay') as HTMLElement,
   gateSpacer: document.getElementById('gateSpacer') as HTMLElement,

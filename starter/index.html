@@ -118,6 +118,21 @@
 
   .app-scroll{ flex:1; overflow-y:auto; overflow-x:hidden; }
 
+  /* Proposal 8, Phase 2 -- pull-to-refresh. Height is driven directly by
+     JS during the drag (no transition, so it tracks the finger 1:1); the
+     .settling class turns transitions on only for the release/refreshing/
+     collapse steps, matching the same "instant during gesture, animated
+     on state change" discipline this file already uses for the Gate's own
+     spacer collapse. A plain, non-sticky block sitting before #gateCard --
+     growing its height simply pushes #gateCard (still in normal flow at
+     scrollTop 0) down, no transform tricks needed. */
+  .pull-refresh-indicator{ height:0; overflow:hidden; display:flex; align-items:center; justify-content:center; gap:6px; color:var(--ink-dim); font-size:12px; background:var(--bg); }
+  .pull-refresh-indicator.settling{ transition:height .18s ease; }
+  .pull-refresh-indicator.pull-ready{ color:var(--blue); }
+  .pull-refresh-indicator .pull-refresh-spinner{ display:inline-block; }
+  .pull-refresh-indicator.refreshing .pull-refresh-spinner{ animation:pullSpin .7s linear infinite; }
+  @keyframes pullSpin{ to{ transform:rotate(360deg); } }
+
   /* ── GATE: fixed-height sticky bar; full detail is an absolutely
      positioned overlay, opacity-crossfaded on dock state; a plain spacer
      reserves scroll room. Never changes the sticky box's own layout
@@ -273,13 +288,21 @@
   .gate-full-label .help-btn{ margin-left:2px; }
   .help-balloon{
     position:fixed; z-index:250; max-width:250px; padding:10px 12px;
-    background:var(--surface-2); border:1px solid var(--border-2); border-radius:10px;
+    background:var(--surface-2); border:1px solid #fff; border-radius:10px;
     box-shadow:0 10px 28px rgba(0,0,0,.5);
     font-size:13px; line-height:1.5; color:var(--ink-dim);
     opacity:0; transform:translateY(-4px); pointer-events:none;
     transition:opacity .15s ease, transform .15s ease;
   }
-  .help-balloon.open{ opacity:1; transform:translateY(0); pointer-events:auto; }
+  .help-balloon.open{ opacity:1; transform:translateY(0); pointer-events:auto; animation:balloonWaveGlow 2.4s ease-in-out infinite; }
+  /* A soft, breathing glow around the balloon's white border -- draws the
+     eye to whatever topic is currently open, on top of the plain drop
+     shadow (kept as the first layer so the balloon still lifts off the
+     page underneath it). */
+  @keyframes balloonWaveGlow{
+    0%, 100%{ box-shadow:0 10px 28px rgba(0,0,0,.5), 0 0 0 0 rgba(255,255,255,.45); }
+    50%{ box-shadow:0 10px 28px rgba(0,0,0,.5), 0 0 16px 4px rgba(255,255,255,.4); }
+  }
   .help-balloon a.help-glossary-link{ color:var(--blue); text-decoration:underline; cursor:pointer; }
   @media (prefers-reduced-motion: reduce){
     .card-body, .chevron, .app-scroll, .gate-mini-row, .gate-full-overlay, #gateCard{ transition:none !important; }
@@ -303,6 +326,10 @@
   @keyframes runPulse{0%{box-shadow:0 0 0 0 rgba(74,168,255,.55)}70%{box-shadow:0 0 0 8px rgba(74,168,255,0)}100%{box-shadow:0 0 0 0 rgba(74,168,255,0)}}
   .btn-blue.btn-running:disabled{ opacity:1; animation:runPulse 1.2s ease-in-out infinite; }
   .btn-purple.btn-running:disabled{ opacity:1; animation:runPulse 1.2s ease-in-out infinite; }
+  /* Proposal 8, Phase 1 -- pulsing placeholder text in place of a plain
+     "Loading…" string, wherever a fetch/gate/card is still in flight. */
+  @keyframes textPulse{0%{opacity:1}50%{opacity:.4}100%{opacity:1}}
+  .text-pulse{ animation:textPulse 1.4s ease-in-out infinite; }
 
   .list-head{
     display:flex; align-items:center; justify-content:space-between; font-size:13px; color:var(--ink-dim); letter-spacing:.08em; text-transform:uppercase;
@@ -464,6 +491,8 @@
      beneath it inside .card-body-pad's own capped overflow -- same fix
      as the Watchlist/Proxy sticky-controls-row pattern, background is
      the card's own var(--surface) so scrolled terms can't show through. */
+  .glossary-tutorial-cta{ display:block; font-size:13px; font-weight:700; color:var(--blue); text-align:left; cursor:pointer; padding:9px 0; border-bottom:1px solid var(--border-3); }
+  .glossary-tutorial-cta:hover{ text-decoration:underline; }
   .glossary-search-wrap{ padding:10px 0; border-bottom:1px solid var(--border); position:sticky; top:0; z-index:2; background:var(--surface); }
   .glossary-search{ width:100%; background:var(--surface-2); border:1px solid var(--border); border-radius:5px; padding:7px 12px; color:var(--ink); font-family:var(--mono); font-size:13px; }
   .glossary-search::placeholder{ color:var(--ink-dim); }
@@ -570,6 +599,10 @@
 
   <div class="app-scroll" id="scroller">
 
+    <div id="pullRefreshIndicator" class="pull-refresh-indicator" aria-hidden="true">
+      <span class="pull-refresh-spinner">&#8635;</span><span class="pull-refresh-label">Pull to refresh</span>
+    </div>
+
     <div id="gateCard" tabindex="0" role="button" aria-expanded="true" aria-label="Gate status">
       <div class="gate-mini-row">
         <span class="dot" id="gateMiniDot"></span>
@@ -654,7 +687,7 @@
         </div></div></div>
       </div>
 
-      <div class="list-head" id="listHead"><span class="list-head-cta">Tap Pills to Analyze</span></div>
+      <div class="list-head" id="listHead"><span style="display:flex;align-items:center;gap:6px"><span class="list-head-cta">Tap Pills to Analyze</span><button type="button" class="help-btn" data-help="pills" aria-label="What is this?">?</button></span></div>
 
       <!-- #roloIndex is a direct child of .content (not nested in
            .rolo-wrap) so its sticky "stuck" range spans through the
@@ -703,6 +736,7 @@
           <svg class="chevron" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
         <div class="card-body"><div class="card-body-inner"><div class="card-body-pad">
+          <div class="glossary-tutorial-cta" id="glossaryTutorialCta" onclick="startTutorial()">▶ Run Tutorial</div>
           <div class="glossary-search-wrap">
             <input class="glossary-search" id="glossary-search" placeholder="Search 89 terms — greeks, CRF, sector, trading...">
           </div>
@@ -736,6 +770,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=110"></script>
+<script type="module" src="./app.js?v=111"></script>
 </body>
 </html>

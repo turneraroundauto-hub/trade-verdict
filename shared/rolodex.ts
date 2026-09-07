@@ -714,7 +714,7 @@ function buildLandscapeRibbon(cards: HTMLElement[]): void {
   });
 }
 
-function selectLandscapeCard(card: HTMLElement): void {
+export function selectLandscapeCard(card: HTMLElement): void {
   if (!lsEls) return;
   lsActiveCard = card;
   lsEls.empty.style.display = 'none';
