@@ -1495,7 +1495,7 @@ function clampRoloCurrent() {
   roloCurrent = Math.min(roloCurrent, Math.max(0, watchlist2.length - 1));
 }
 var roloSwipe = null;
-function roloDeleteThreshold(card) {
+function roloSwipeThreshold(card) {
   return Math.min(120, card.getBoundingClientRect().width * 0.35);
 }
 function ensureRoloSwipeBg() {
@@ -1503,10 +1503,22 @@ function ensureRoloSwipeBg() {
   if (!bg) {
     bg = document.createElement("div");
     bg.className = "rolo-swipe-bg";
-    bg.innerHTML = '<span class="swipe-icon">\u{1F5D1}</span><span class="swipe-label">DELETE</span>';
     els.roloStage.insertBefore(bg, els.roloStage.firstChild);
   }
   return bg;
+}
+function updateRoloSwipeBg(bg, dx, progress) {
+  const dir = dx < 0 ? "left" : "right";
+  if (bg.dataset.dir !== dir) {
+    bg.dataset.dir = dir;
+    bg.classList.toggle("rolo-swipe-bg-next", dir === "right");
+    bg.innerHTML = dir === "left" ? '<span class="swipe-icon">\u{1F5D1}</span><span class="swipe-label">DELETE</span>' : '<span class="swipe-label">NEXT</span><span class="swipe-icon">\u2192</span>';
+  }
+  bg.style.opacity = String(progress);
+}
+function activeRoloCardEl() {
+  const cards = Array.from(els.roloStage.querySelectorAll(".rolo-card"));
+  return cards[roloCurrent] || null;
 }
 function onRoloPointerDown(e) {
   if (roloSwipe) return;
@@ -1537,11 +1549,12 @@ function onRoloPointerMove(e) {
   }
   if (g.mode === "swipe") {
     e.preventDefault();
-    const clamped = Math.min(0, Math.max(dx, -g.card.getBoundingClientRect().width));
+    const w = g.card.getBoundingClientRect().width;
+    const clamped = Math.max(-w, Math.min(dx, w));
     g.card.style.transform = "translateY(0) scale(1) translateX(" + clamped + "px)";
     const bg = ensureRoloSwipeBg();
-    const progress = Math.min(Math.abs(clamped) / roloDeleteThreshold(g.card), 1);
-    bg.style.opacity = String(progress);
+    const progress = Math.min(Math.abs(clamped) / roloSwipeThreshold(g.card), 1);
+    updateRoloSwipeBg(bg, clamped, progress);
     g.pendingDx = clamped;
   }
 }
@@ -1552,9 +1565,9 @@ function onRoloPointerUp(e) {
   endRoloSwipe();
 }
 function finishRoloSwipe(g) {
-  const threshold = roloDeleteThreshold(g.card);
+  const threshold = roloSwipeThreshold(g.card);
   const bg = ensureRoloSwipeBg();
-  if (Math.abs(g.pendingDx) >= threshold) {
+  if (g.pendingDx <= -threshold) {
     const w = g.card.getBoundingClientRect().width;
     g.card.style.transition = "transform .18s ease-in, opacity .18s ease-in";
     g.card.style.transform = "translateX(-" + (w + 40) + "px)";
@@ -1564,10 +1577,49 @@ function finishRoloSwipe(g) {
       bg.style.opacity = "0";
       if (sym) cb.onDeleteConfirmed(sym);
     }, 180);
+  } else if (g.pendingDx >= threshold) {
+    const watchlist2 = cb.getWatchlist();
+    bg.style.opacity = "0";
+    if (roloCurrent < watchlist2.length - 1) {
+      g.card.style.transition = "";
+      goRolo(roloCurrent + 1);
+    } else {
+      g.card.style.transition = "transform .18s ease";
+      g.card.style.transform = "translateY(0) scale(1)";
+    }
   } else {
     g.card.style.transition = "transform .18s ease";
     g.card.style.transform = "translateY(0) scale(1)";
     bg.style.opacity = "0";
+  }
+}
+var demoBgEl = null;
+function simulateSwipeDemo(direction) {
+  return new Promise((resolve) => {
+    const card = activeRoloCardEl();
+    if (!card) {
+      resolve();
+      return;
+    }
+    const w = card.getBoundingClientRect().width;
+    const dx = direction === "left" ? -w * 0.42 : w * 0.42;
+    const bg = ensureRoloSwipeBg();
+    updateRoloSwipeBg(bg, dx, 1);
+    demoBgEl = bg;
+    card.style.transition = "transform .32s cubic-bezier(.2,.7,.2,1)";
+    card.style.transform = "translateY(0) scale(1) translateX(" + dx + "px)";
+    setTimeout(resolve, 340);
+  });
+}
+function resetSwipeDemoCard() {
+  const card = activeRoloCardEl();
+  if (card) {
+    card.style.transition = "transform .22s ease";
+    card.style.transform = "translateY(0) scale(1)";
+  }
+  if (demoBgEl) {
+    demoBgEl.style.opacity = "0";
+    demoBgEl = null;
   }
 }
 function endRoloSwipe() {
@@ -1705,9 +1757,45 @@ function openHelpBalloon(btn, key) {
   const duration = Math.ceil(lines / 4) * HELP_BALLOON_MS_PER_4_LINES;
   helpTimer = setTimeout(closeHelpBalloon, duration);
 }
+var tutorialActive = false;
+var tutorialAdvanceCb = null;
+var tutorialExitCb = null;
+function openTutorialBalloon(anchor, html, onAdvance, onExit) {
+  tutorialActive = true;
+  tutorialAdvanceCb = onAdvance;
+  tutorialExitCb = onExit;
+  if (helpTimer) {
+    clearTimeout(helpTimer);
+    helpTimer = null;
+  }
+  const el = ensureHelpEl();
+  el.classList.remove("open");
+  el.innerHTML = html;
+  positionHelpBalloon(anchor, el);
+  requestAnimationFrame(() => el.classList.add("open"));
+  helpOpenKey = "__tutorial__";
+  helpOpenedAt = Date.now();
+}
+function endTutorial() {
+  tutorialActive = false;
+  tutorialAdvanceCb = null;
+  tutorialExitCb = null;
+  closeHelpBalloon();
+}
 function initHelpBalloons(content, onGlossaryJump) {
   helpContent = content;
   document.addEventListener("click", (e) => {
+    if (tutorialActive) {
+      e.preventDefault();
+      e.stopPropagation();
+      const advance = tutorialAdvanceCb;
+      tutorialActive = false;
+      tutorialAdvanceCb = null;
+      tutorialExitCb = null;
+      closeHelpBalloon();
+      if (advance) advance();
+      return;
+    }
     const target = e.target;
     const link = target.closest(".help-glossary-link");
     if (link) {
@@ -1727,6 +1815,15 @@ function initHelpBalloons(content, onGlossaryJump) {
     if (helpEl && helpEl.classList.contains("open") && !helpEl.contains(target)) closeHelpBalloon();
   }, true);
   document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && tutorialActive) {
+      const exit = tutorialExitCb;
+      tutorialActive = false;
+      tutorialAdvanceCb = null;
+      tutorialExitCb = null;
+      closeHelpBalloon();
+      if (exit) exit();
+      return;
+    }
     const target = e.target;
     if ((e.key === "Enter" || e.key === " ") && (target.closest("[data-help]") || target.closest(".help-glossary-link"))) {
       e.stopPropagation();
@@ -1735,10 +1832,13 @@ function initHelpBalloons(content, onGlossaryJump) {
     }
   }, true);
   els.scroller.addEventListener("scroll", () => {
+    if (tutorialActive) return;
     if (Date.now() - helpOpenedAt < HELP_SCROLL_GRACE_MS) return;
     closeHelpBalloon();
   });
-  window.addEventListener("resize", closeHelpBalloon);
+  window.addEventListener("resize", () => {
+    if (!tutorialActive) closeHelpBalloon();
+  });
 }
 function initRolodex(elements, callbacks) {
   els = elements;
@@ -3499,17 +3599,17 @@ function filterGlossary(query) {
 }
 document.getElementById("glossary-search").addEventListener("input", (e) => filterGlossary(e.target.value));
 var HELP_CONTENT = {
-  gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against \u2014 feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read \u2014 tap the docked bar to jump back to top. Pre/post-market prices are IEX-only and may vary from the full consolidated tape; built for regular-session (9:30am\u20134pm ET) analysis.',
-  pulse: 'A quick AI-written read on today\u2019s overall market mood and <a class="help-glossary-link" href="#" data-term="sector rotation">sector rotation</a> \u2014 informational only, doesn\u2019t change any gate.',
-  context: "Real news or catalysts you already know \u2014 auto-included in every analysis and checked against headlines. 2 of 3 matching signals marks it CONTEXT-CORROBORATED for Gate 2. Analyze All runs the top 15 cards, up to 5 credits.",
-  io: 'Paste or type <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names, one per line or comma-separated, to add them to your watchlist \u2014 unlimited on Pro. Type a ticker in caps (AAPL) or a name any other way (Tesla) \u2014 either resolves to the right symbol.',
-  watchlist: 'Every <a class="help-glossary-link" href="#" data-term="ticker">ticker</a> beyond your top 15 pill cards. Tap + on any row to promote it into the main card window.',
-  proxy: 'Which sector proxy each ticker is being checked against for <a class="help-glossary-link" href="#" data-term="gate 5">Gate 5</a>, and whether the two are still moving together right now.',
-  heatmap: "A color-coded snapshot of fixed sectors plus every ticker in your watchlist, sorted by % change.",
-  track: "Your logged verdict history \u2014 hit rate by gate trigger and by ticker. Log \u2713 RIGHT / \u2717 WRONG after the session closes to build a real accuracy record.",
-  scorecard: "Real, server-graded accuracy \u2014 every verdict is automatically checked against the actual price move ~3 trading days later, no manual logging needed. Suppressed until at least 20 verdicts have been graded.",
-  agitator: "A standalone discovery tool for proofing a new stock interest or a media rumor BEFORE it enters your watchlist \u2014 free, no credit cost. Type a ticker, a company name, or paste a full headline/rumor \u2014 one box handles all three \u2014 and get a LOW/MEDIUM/HIGH read across 6 real signals, plus a few real related companies to also check. Past Reactions isn\u2019t tracked yet, so it\u2019s shown but never scored.",
-  "agitator-score": "One overall number, 0-10, averaging the 6 signals below it \u2014 a quick read on how big a deal this news might be for the stock, not a precise measurement.",
+  pills: "Tap any pill above to open its ticker card, then hit ANALYZE to run it through all 6 gates and get a real UP/DOWN/FLAT verdict \u2014 this is the whole point of the app. Swipe a card left to remove it from your watchlist, or right to jump to the next ticker and analyze it automatically.",
+  gate: 'Live market mood for SPY, QQQ, and other key indices \u2014 this becomes <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> on every ticker you analyze. Every verdict also shows a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> level. Tap this bar anytime to jump back to the top. Pre-market and after-hours prices come from a smaller data feed and can differ slightly from regular trading hours (9:30am\u20134pm ET).',
+  pulse: 'A quick, AI-written summary of today\u2019s market mood and which <a class="help-glossary-link" href="#" data-term="sector rotation">sectors</a> are leading or lagging. For your information only \u2014 it never changes a gate or a verdict.',
+  io: 'Type or paste <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names \u2014 one per line, or separated by commas. Pro has no limit. All caps (AAPL) adds a ticker directly; type it any other way (Tesla) and it resolves to the right symbol. Analyze All runs your top 15 cards, up to 5 credits.',
+  watchlist: 'Every <a class="help-glossary-link" href="#" data-term="ticker">ticker</a> beyond your top 15 cards lives here. Tap + on any row to move it up into your main list.',
+  proxy: 'Shows which sector or stock each ticker is compared against for <a class="help-glossary-link" href="#" data-term="gate 5">Gate 5</a>, and whether they\u2019re still moving together right now.',
+  heatmap: "A color-coded snapshot of major sectors and every ticker in your watchlist, sorted by today\u2019s % change.",
+  track: "Your own logged verdict history. Tap \u2713 RIGHT or \u2717 WRONG after the session closes to build a real accuracy record, broken down by gate and by ticker.",
+  scorecard: "Automatic accuracy tracking \u2014 every verdict is checked against the real price move about 3 trading days later, nothing for you to log. Stays hidden until at least 20 verdicts are graded.",
+  agitator: "Check out a new stock idea or a rumor before it earns a spot on your watchlist \u2014 always free. Type a ticker, a company name, or paste a headline, and get one LOW/MEDIUM/HIGH read built from 6 real signals, plus a few related companies worth a look.",
+  "agitator-score": "One overall score, 0\u201310, averaging the 6 signals below \u2014 a fast read on how big a deal this news might be, not an exact measurement.",
   "agitator-surprise": "How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.",
   "agitator-uncertainty": "How unclear it still is to everyone how big a deal this actually is. High means the market hasn\u2019t figured out how to react yet.",
   "agitator-freshness": "Is this brand-new information nobody has reacted to yet (high), or something already known and priced in days ago (low)?",
@@ -3517,8 +3617,129 @@ var HELP_CONTENT = {
   "agitator-swing": "How easily this stock\u2019s price can be pushed around. Smaller, thinly-traded stocks swing more on the same amount of buying or selling.",
   "agitator-expected-move": "How much price movement the options market is already betting on for this stock, right now.",
   "agitator-past": "How reliably this app\u2019s past verdicts on this ticker have graded out. Shows n/a until enough real graded history exists.",
-  dial: "Sets your monitoring cadence and holding-period posture \u2014 Aggressive (watching the tape) through Passive (check in occasionally). CRF Default behaves exactly like every other tier. Aggressive caps position sizing at HALF; nothing on this dial ever inflates a sizing your gates didn\u2019t already earn. A real earnings print always blocks new entries first, at every position, unless you explicitly hold through it for that one check. Monitoring cadence, entry guidance, stop guidance, and recheck interval are informational \u2014 this app doesn\u2019t place real stop orders or send reminders yet."
+  dial: "Sets how actively you plan to trade \u2014 from Aggressive (watching closely) to Passive (checking in occasionally). CRF Default behaves just like every other tier. Aggressive can allow up to HALF position size, never more than your gates actually earned. A real earnings report always blocks new entries first, unless you choose to hold through it. Everything else here \u2014 timing, entries, stops \u2014 is guidance only; this app doesn\u2019t place real orders or send reminders."
 };
+var TUTORIAL_STEP_SETTLE_MS = 450;
+function tutorialCard(id) {
+  return document.getElementById(id);
+}
+function tutorialExpand(id) {
+  const card = tutorialCard(id);
+  if (card && !card.classList.contains("expanded")) expandCard(card);
+}
+function tutorialActiveCardEl() {
+  const cards = Array.from(roloStage.querySelectorAll(".rolo-card"));
+  return cards[getRoloCurrent()] || null;
+}
+var TUTORIAL_STEPS = [
+  {
+    // The centerpiece -- no accordion, anchors straight to the new pills
+    // help button next to "Tap Pills to Analyze."
+    html: HELP_CONTENT.pills,
+    getAnchor: () => document.querySelector('[data-help="pills"]'),
+    before: () => scrollToActiveCard()
+  },
+  {
+    html: "This is <b>swipe-to-delete</b> \u2014 swipe any card left anytime to remove that ticker from your watchlist.",
+    getAnchor: () => tutorialActiveCardEl(),
+    before: () => simulateSwipeDemo("left")
+  },
+  {
+    html: "Swipe right to jump to the <b>next ticker</b> in your watchlist and analyze it automatically.",
+    getAnchor: () => tutorialActiveCardEl(),
+    before: () => {
+      resetSwipeDemoCard();
+      return simulateSwipeDemo("right");
+    }
+  },
+  {
+    html: HELP_CONTENT.gate,
+    getAnchor: () => document.querySelector('[data-help="gate"]'),
+    before: () => {
+      resetSwipeDemoCard();
+      jumpToTop();
+    }
+  },
+  {
+    html: "Set your Aggression Dial before you analyze \u2014 it shapes how big a position size your verdicts can suggest, from Aggressive to Passive.",
+    getAnchor: () => document.querySelector('[data-help="dial"]'),
+    before: () => tutorialExpand("card-dial")
+  },
+  {
+    html: HELP_CONTENT.pulse,
+    getAnchor: () => document.querySelector('[data-help="pulse"]'),
+    before: () => tutorialExpand("card-pulse")
+  },
+  {
+    html: HELP_CONTENT.agitator,
+    getAnchor: () => document.querySelector('[data-help="agitator"]'),
+    before: () => tutorialExpand("card-agitator")
+  },
+  {
+    html: HELP_CONTENT.io,
+    getAnchor: () => document.querySelector('[data-help="io"]'),
+    before: () => tutorialExpand("card-io")
+  },
+  {
+    html: HELP_CONTENT.watchlist,
+    getAnchor: () => document.querySelector('[data-help="watchlist"]'),
+    before: () => tutorialExpand("card-watchlist")
+  },
+  {
+    html: HELP_CONTENT.proxy,
+    getAnchor: () => document.querySelector('[data-help="proxy"]'),
+    before: () => tutorialExpand("card-proxy")
+  },
+  {
+    html: HELP_CONTENT.heatmap,
+    getAnchor: () => document.querySelector('[data-help="heatmap"]'),
+    before: () => tutorialExpand("card-heatmap")
+  },
+  {
+    html: HELP_CONTENT.track,
+    getAnchor: () => document.querySelector('[data-help="track"]'),
+    before: () => tutorialExpand("card-track")
+  },
+  {
+    html: HELP_CONTENT.scorecard,
+    getAnchor: () => document.querySelector('[data-help="scorecard"]'),
+    before: () => tutorialExpand("card-scorecard")
+  },
+  {
+    html: "That\u2019s the app. Tap a pill, hit ANALYZE, and let the gates do the work \u2014 everything else here just supports that call. Come back to <b>\u25B6 Run Tutorial</b>, right here in the Glossary, anytime you want to see this again.",
+    getAnchor: () => document.getElementById("glossary-header"),
+    before: () => tutorialExpand("card-glossary")
+  }
+];
+async function runTutorialStep(index) {
+  if (index >= TUTORIAL_STEPS.length) {
+    endTutorial();
+    return;
+  }
+  const step = TUTORIAL_STEPS[index];
+  if (step.before) await step.before();
+  await new Promise((r) => setTimeout(r, TUTORIAL_STEP_SETTLE_MS));
+  const anchor = step.getAnchor();
+  if (!anchor) {
+    runTutorialStep(index + 1);
+    return;
+  }
+  openTutorialBalloon(
+    anchor,
+    step.html,
+    () => {
+      runTutorialStep(index + 1);
+    },
+    () => {
+      resetSwipeDemoCard();
+    }
+  );
+}
+function startTutorial() {
+  localStorage.setItem("tv_tutorial_seen_pro", "1");
+  runTutorialStep(0);
+}
+window.startTutorial = startTutorial;
 function initApp() {
   cleanLS();
   document.getElementById("ticker-count").textContent = "CRF \xB7 " + watchlist.length + " TICKERS";
@@ -3534,6 +3755,9 @@ function initApp() {
   refreshTrackRecordCard();
   renderDialCard();
   setTimeout(fetchCreditStatus, 2e3);
+  setTimeout(function() {
+    if (!localStorage.getItem("tv_tutorial_seen_pro")) startTutorial();
+  }, 900);
   setInterval(function() {
     fetchMarket();
     var proxyCard = document.querySelector('.card[data-card="proxy"]');

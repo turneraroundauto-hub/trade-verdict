@@ -2006,18 +2006,29 @@ document.getElementById('glossary-search')!.addEventListener('input', (e) => fil
 // Short, keep-it-to-a-glance copy per "(?)" button (keyed by its
 // data-help id in pro/index.html). Heavy terminology inside links
 // straight to the matching Glossary entry via jumpToGlossaryTerm() above.
+// Audited Sep 2026 -- simplified language throughout (heaviest on
+// Agitator, per direct request), a dead `context` entry removed (Session
+// Context was retired by the Agitator Gauge itself, Aug 26-27 2026 --
+// there's no data-help="context" button left anywhere to open this), and
+// a stale claim fixed: the old agitator text said Past Reactions "is
+// shown but never scored," which stopped being true once it was actually
+// activated (Sep 1 2026) -- its own sub-entry below already says the
+// accurate thing ("shows n/a until enough graded history exists"), so
+// the main entry no longer duplicates (and contradicts) it. The Analyze
+// All credit-cost note that used to live in the dead `context` entry
+// moved to `io`, where the real Analyze All button lives now.
 const HELP_CONTENT: Record<string, string> = {
-  gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against — feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read — tap the docked bar to jump back to top. Pre/post-market prices are IEX-only and may vary from the full consolidated tape; built for regular-session (9:30am–4pm ET) analysis.',
-  pulse: 'A quick AI-written read on today’s overall market mood and <a class="help-glossary-link" href="#" data-term="sector rotation">sector rotation</a> — informational only, doesn’t change any gate.',
-  context: 'Real news or catalysts you already know — auto-included in every analysis and checked against headlines. 2 of 3 matching signals marks it CONTEXT-CORROBORATED for Gate 2. Analyze All runs the top 15 cards, up to 5 credits.',
-  io: 'Paste or type <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names, one per line or comma-separated, to add them to your watchlist — unlimited on Pro. Type a ticker in caps (AAPL) or a name any other way (Tesla) — either resolves to the right symbol.',
-  watchlist: 'Every <a class="help-glossary-link" href="#" data-term="ticker">ticker</a> beyond your top 15 pill cards. Tap + on any row to promote it into the main card window.',
-  proxy: 'Which sector proxy each ticker is being checked against for <a class="help-glossary-link" href="#" data-term="gate 5">Gate 5</a>, and whether the two are still moving together right now.',
-  heatmap: 'A color-coded snapshot of fixed sectors plus every ticker in your watchlist, sorted by % change.',
-  track: 'Your logged verdict history — hit rate by gate trigger and by ticker. Log ✓ RIGHT / ✗ WRONG after the session closes to build a real accuracy record.',
-  scorecard: 'Real, server-graded accuracy — every verdict is automatically checked against the actual price move ~3 trading days later, no manual logging needed. Suppressed until at least 20 verdicts have been graded.',
-  agitator: 'A standalone discovery tool for proofing a new stock interest or a media rumor BEFORE it enters your watchlist — free, no credit cost. Type a ticker, a company name, or paste a full headline/rumor — one box handles all three — and get a LOW/MEDIUM/HIGH read across 6 real signals, plus a few real related companies to also check. Past Reactions isn’t tracked yet, so it’s shown but never scored.',
-  'agitator-score': 'One overall number, 0-10, averaging the 6 signals below it — a quick read on how big a deal this news might be for the stock, not a precise measurement.',
+  pills: 'Tap any pill above to open its ticker card, then hit ANALYZE to run it through all 6 gates and get a real UP/DOWN/FLAT verdict — this is the whole point of the app. Swipe a card left to remove it from your watchlist, or right to jump to the next ticker and analyze it automatically.',
+  gate: 'Live market mood for SPY, QQQ, and other key indices — this becomes <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> on every ticker you analyze. Every verdict also shows a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> level. Tap this bar anytime to jump back to the top. Pre-market and after-hours prices come from a smaller data feed and can differ slightly from regular trading hours (9:30am–4pm ET).',
+  pulse: 'A quick, AI-written summary of today’s market mood and which <a class="help-glossary-link" href="#" data-term="sector rotation">sectors</a> are leading or lagging. For your information only — it never changes a gate or a verdict.',
+  io: 'Type or paste <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names — one per line, or separated by commas. Pro has no limit. All caps (AAPL) adds a ticker directly; type it any other way (Tesla) and it resolves to the right symbol. Analyze All runs your top 15 cards, up to 5 credits.',
+  watchlist: 'Every <a class="help-glossary-link" href="#" data-term="ticker">ticker</a> beyond your top 15 cards lives here. Tap + on any row to move it up into your main list.',
+  proxy: 'Shows which sector or stock each ticker is compared against for <a class="help-glossary-link" href="#" data-term="gate 5">Gate 5</a>, and whether they’re still moving together right now.',
+  heatmap: 'A color-coded snapshot of major sectors and every ticker in your watchlist, sorted by today’s % change.',
+  track: 'Your own logged verdict history. Tap ✓ RIGHT or ✗ WRONG after the session closes to build a real accuracy record, broken down by gate and by ticker.',
+  scorecard: 'Automatic accuracy tracking — every verdict is checked against the real price move about 3 trading days later, nothing for you to log. Stays hidden until at least 20 verdicts are graded.',
+  agitator: 'Check out a new stock idea or a rumor before it earns a spot on your watchlist — always free. Type a ticker, a company name, or paste a headline, and get one LOW/MEDIUM/HIGH read built from 6 real signals, plus a few related companies worth a look.',
+  'agitator-score': 'One overall score, 0–10, averaging the 6 signals below — a fast read on how big a deal this news might be, not an exact measurement.',
   'agitator-surprise': 'How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.',
   'agitator-uncertainty': 'How unclear it still is to everyone how big a deal this actually is. High means the market hasn’t figured out how to react yet.',
   'agitator-freshness': 'Is this brand-new information nobody has reacted to yet (high), or something already known and priced in days ago (low)?',
@@ -2025,8 +2036,145 @@ const HELP_CONTENT: Record<string, string> = {
   'agitator-swing': 'How easily this stock’s price can be pushed around. Smaller, thinly-traded stocks swing more on the same amount of buying or selling.',
   'agitator-expected-move': 'How much price movement the options market is already betting on for this stock, right now.',
   'agitator-past': 'How reliably this app’s past verdicts on this ticker have graded out. Shows n/a until enough real graded history exists.',
-  dial: 'Sets your monitoring cadence and holding-period posture — Aggressive (watching the tape) through Passive (check in occasionally). CRF Default behaves exactly like every other tier. Aggressive caps position sizing at HALF; nothing on this dial ever inflates a sizing your gates didn’t already earn. A real earnings print always blocks new entries first, at every position, unless you explicitly hold through it for that one check. Monitoring cadence, entry guidance, stop guidance, and recheck interval are informational — this app doesn’t place real stop orders or send reminders yet.',
+  dial: 'Sets how actively you plan to trade — from Aggressive (watching closely) to Passive (checking in occasionally). CRF Default behaves just like every other tier. Aggressive can allow up to HALF position size, never more than your gates actually earned. A real earnings report always blocks new entries first, unless you choose to hold through it. Everything else here — timing, entries, stops — is guidance only; this app doesn’t place real orders or send reminders.',
 };
+
+// ── New-user tutorial walkthrough (Sep 2026) ────────────────────────────
+// Fires once automatically on a brand-new Pro session, and stays reachable
+// afterward via the "Run Tutorial" entry at the top of the Glossary card.
+// Centers on ticker analysis (tap a pill, hit ANALYZE) as the actual point
+// of the app, per direct instruction, then frames every other card as
+// supporting that one action -- not an equally-weighted feature tour.
+//
+// Mechanics (sticky balloon, advance-on-any-tap, Escape-to-exit) live in
+// shared/rolodex.ts; this step list, and which card to expand for each
+// one, is tier-owned, same "mechanics shared / content+sequencing here"
+// split the rest of this module already uses for card-header help.
+interface TutorialStep {
+  html: string;
+  getAnchor: () => HTMLElement | null;
+  // Navigates to/reveals the step's anchor -- expands its accordion card
+  // (which also handles the real snap-to-HUD dock via expandCard()'s own
+  // existing rolodex.snapCardUnderDock() call), jumps to top for the
+  // Gate, or scrolls the active ticker card into view for the pill/demo
+  // steps. Async so a step can await a demo animation before its own
+  // balloon opens.
+  before?: () => void | Promise<void>;
+}
+
+// Time to let expandCard()'s accordion-open transition + scroll-into-view
+// settle before measuring the anchor's real position -- matches this
+// module's own .32s/.28s card transition timings elsewhere in the file;
+// there's no promise/callback from expandCard() itself to await instead.
+const TUTORIAL_STEP_SETTLE_MS = 450;
+
+function tutorialCard(id: string): HTMLElement {
+  return document.getElementById(id) as HTMLElement;
+}
+function tutorialExpand(id: string): void {
+  const card = tutorialCard(id);
+  if (card && !card.classList.contains('expanded')) expandCard(card);
+}
+function tutorialActiveCardEl(): HTMLElement | null {
+  const cards = Array.from(roloStage.querySelectorAll<HTMLElement>('.rolo-card'));
+  return cards[rolodex.getRoloCurrent()] || null;
+}
+
+const TUTORIAL_STEPS: TutorialStep[] = [
+  {
+    // The centerpiece -- no accordion, anchors straight to the new pills
+    // help button next to "Tap Pills to Analyze."
+    html: HELP_CONTENT.pills,
+    getAnchor: () => document.querySelector<HTMLElement>('[data-help="pills"]'),
+    before: () => rolodex.scrollToActiveCard(),
+  },
+  {
+    html: 'This is <b>swipe-to-delete</b> — swipe any card left anytime to remove that ticker from your watchlist.',
+    getAnchor: () => tutorialActiveCardEl(),
+    before: () => rolodex.simulateSwipeDemo('left'),
+  },
+  {
+    html: 'Swipe right to jump to the <b>next ticker</b> in your watchlist and analyze it automatically.',
+    getAnchor: () => tutorialActiveCardEl(),
+    before: () => { rolodex.resetSwipeDemoCard(); return rolodex.simulateSwipeDemo('right'); },
+  },
+  {
+    html: HELP_CONTENT.gate,
+    getAnchor: () => document.querySelector<HTMLElement>('[data-help="gate"]'),
+    before: () => { rolodex.resetSwipeDemoCard(); rolodex.jumpToTop(); },
+  },
+  {
+    html: 'Set your Aggression Dial before you analyze — it shapes how big a position size your verdicts can suggest, from Aggressive to Passive.',
+    getAnchor: () => document.querySelector<HTMLElement>('[data-help="dial"]'),
+    before: () => tutorialExpand('card-dial'),
+  },
+  {
+    html: HELP_CONTENT.pulse,
+    getAnchor: () => document.querySelector<HTMLElement>('[data-help="pulse"]'),
+    before: () => tutorialExpand('card-pulse'),
+  },
+  {
+    html: HELP_CONTENT.agitator,
+    getAnchor: () => document.querySelector<HTMLElement>('[data-help="agitator"]'),
+    before: () => tutorialExpand('card-agitator'),
+  },
+  {
+    html: HELP_CONTENT.io,
+    getAnchor: () => document.querySelector<HTMLElement>('[data-help="io"]'),
+    before: () => tutorialExpand('card-io'),
+  },
+  {
+    html: HELP_CONTENT.watchlist,
+    getAnchor: () => document.querySelector<HTMLElement>('[data-help="watchlist"]'),
+    before: () => tutorialExpand('card-watchlist'),
+  },
+  {
+    html: HELP_CONTENT.proxy,
+    getAnchor: () => document.querySelector<HTMLElement>('[data-help="proxy"]'),
+    before: () => tutorialExpand('card-proxy'),
+  },
+  {
+    html: HELP_CONTENT.heatmap,
+    getAnchor: () => document.querySelector<HTMLElement>('[data-help="heatmap"]'),
+    before: () => tutorialExpand('card-heatmap'),
+  },
+  {
+    html: HELP_CONTENT.track,
+    getAnchor: () => document.querySelector<HTMLElement>('[data-help="track"]'),
+    before: () => tutorialExpand('card-track'),
+  },
+  {
+    html: HELP_CONTENT.scorecard,
+    getAnchor: () => document.querySelector<HTMLElement>('[data-help="scorecard"]'),
+    before: () => tutorialExpand('card-scorecard'),
+  },
+  {
+    html: 'That’s the app. Tap a pill, hit ANALYZE, and let the gates do the work — everything else here just supports that call. Come back to <b>▶ Run Tutorial</b>, right here in the Glossary, anytime you want to see this again.',
+    getAnchor: () => document.getElementById('glossary-header'),
+    before: () => tutorialExpand('card-glossary'),
+  },
+];
+
+async function runTutorialStep(index: number): Promise<void> {
+  if (index >= TUTORIAL_STEPS.length) { rolodex.endTutorial(); return; }
+  const step = TUTORIAL_STEPS[index];
+  if (step.before) await step.before();
+  await new Promise((r) => setTimeout(r, TUTORIAL_STEP_SETTLE_MS));
+  const anchor = step.getAnchor();
+  if (!anchor) { runTutorialStep(index + 1); return; } // robustness: skip a step whose anchor isn't on screen for some reason
+  rolodex.openTutorialBalloon(
+    anchor,
+    step.html,
+    () => { runTutorialStep(index + 1); },
+    () => { rolodex.resetSwipeDemoCard(); },
+  );
+}
+
+function startTutorial(): void {
+  localStorage.setItem('tv_tutorial_seen_pro', '1');
+  runTutorialStep(0);
+}
+(window as any).startTutorial = startTutorial;
 
 // ── init ────────────────────────────────────────────────────────────
 function initApp(): void {
@@ -2043,6 +2191,11 @@ function initApp(): void {
   refreshTrackRecordCard();
   renderDialCard();
   setTimeout(fetchCreditStatus, 2000);
+  // New-user tutorial -- fires once per browser (a tier-scoped flag, so a
+  // Starter user who upgrades to Pro still sees Pro's own walkthrough even
+  // if they already saw Starter's). Delayed to give the initial card/gate
+  // render a moment to settle before anchoring the first balloon.
+  setTimeout(function () { if (!localStorage.getItem('tv_tutorial_seen_pro')) startTutorial(); }, 900);
   setInterval(function () {
     fetchMarket();
     var proxyCard = document.querySelector('.card[data-card="proxy"]');

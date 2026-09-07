@@ -380,7 +380,12 @@ function scrollToUnderDock(el: HTMLElement, dockOffset: number): void {
 // Tapping a pill can happen from anywhere on the page -- #roloIndex stays
 // sticky-docked all the way through content that follows it, so the card
 // itself can be scrolled well out of view.
-function scrollToActiveCard(): void {
+// Exported for the new-user tutorial (pro/app.ts) -- it needs to bring the
+// active card into view before anchoring a balloon to it, without going
+// through goRolo() (which would re-fire onActivate/analyzeOne() on the
+// current ticker, a real credit spend, just from re-selecting the same
+// index to scroll it into view).
+export function scrollToActiveCard(): void {
   const wrap = els.roloStage.closest<HTMLElement>('.rolo-wrap');
   if (!wrap) return;
   const roloIndexH = forceGateDockedSync();
@@ -844,7 +849,9 @@ interface SwipeState {
 }
 let roloSwipe: SwipeState | null = null;
 
-function roloDeleteThreshold(card: HTMLElement): number {
+// Renamed from roloDeleteThreshold -- now shared by both swipe directions
+// (left = delete, right = next ticker), same distance either way.
+function roloSwipeThreshold(card: HTMLElement): number {
   return Math.min(120, card.getBoundingClientRect().width * 0.35);
 }
 
@@ -853,10 +860,30 @@ function ensureRoloSwipeBg(): HTMLElement {
   if (!bg) {
     bg = document.createElement('div');
     bg.className = 'rolo-swipe-bg';
-    bg.innerHTML = '<span class="swipe-icon">🗑</span><span class="swipe-label">DELETE</span>';
     els.roloStage.insertBefore(bg, els.roloStage.firstChild);
   }
   return bg;
+}
+
+// Content/color depend on drag direction -- left reveals DELETE (red) from
+// the right edge as the card slides left, right reveals NEXT (blue) from
+// the left edge as the card slides right. Only rewrites the DOM when the
+// direction actually flips, not on every move event.
+function updateRoloSwipeBg(bg: HTMLElement, dx: number, progress: number): void {
+  const dir = dx < 0 ? 'left' : 'right';
+  if (bg.dataset.dir !== dir) {
+    bg.dataset.dir = dir;
+    bg.classList.toggle('rolo-swipe-bg-next', dir === 'right');
+    bg.innerHTML = dir === 'left'
+      ? '<span class="swipe-icon">\u{1F5D1}</span><span class="swipe-label">DELETE</span>'
+      : '<span class="swipe-label">NEXT</span><span class="swipe-icon">→</span>';
+  }
+  bg.style.opacity = String(progress);
+}
+
+function activeRoloCardEl(): HTMLElement | null {
+  const cards = Array.from(els.roloStage.querySelectorAll<HTMLElement>('.rolo-card'));
+  return cards[roloCurrent] || null;
 }
 
 function onRoloPointerDown(e: PointerEvent): void {
@@ -885,11 +912,14 @@ function onRoloPointerMove(e: PointerEvent): void {
   }
   if (g.mode === 'swipe') {
     e.preventDefault();
-    const clamped = Math.min(0, Math.max(dx, -g.card.getBoundingClientRect().width));
+    const w = g.card.getBoundingClientRect().width;
+    // Bidirectional now -- left still clamps toward delete, right clamps
+    // toward "jump to next ticker," both capped at the card's own width.
+    const clamped = Math.max(-w, Math.min(dx, w));
     g.card.style.transform = 'translateY(0) scale(1) translateX(' + clamped + 'px)';
     const bg = ensureRoloSwipeBg();
-    const progress = Math.min(Math.abs(clamped) / roloDeleteThreshold(g.card), 1);
-    bg.style.opacity = String(progress);
+    const progress = Math.min(Math.abs(clamped) / roloSwipeThreshold(g.card), 1);
+    updateRoloSwipeBg(bg, clamped, progress);
     g.pendingDx = clamped;
   }
 }
@@ -901,20 +931,74 @@ function onRoloPointerUp(e: PointerEvent): void {
 }
 
 function finishRoloSwipe(g: SwipeState): void {
-  const threshold = roloDeleteThreshold(g.card);
+  const threshold = roloSwipeThreshold(g.card);
   const bg = ensureRoloSwipeBg();
-  if (Math.abs(g.pendingDx) >= threshold) {
+  if (g.pendingDx <= -threshold) {
+    // Swipe left, past threshold -- delete (unchanged from before this
+    // gesture became bidirectional).
     const w = g.card.getBoundingClientRect().width;
     g.card.style.transition = 'transform .18s ease-in, opacity .18s ease-in';
     g.card.style.transform = 'translateX(-' + (w + 40) + 'px)';
     g.card.style.opacity = '0';
     const sym = cb.getWatchlist()[roloCurrent];
     setTimeout(() => { bg.style.opacity = '0'; if (sym) cb.onDeleteConfirmed(sym); }, 180);
+  } else if (g.pendingDx >= threshold) {
+    // Swipe right, past threshold -- jump to the next ticker (auto-
+    // analyzing it, same as a pill tap, via goRolo()'s own onActivate
+    // call). Deliberately does NOT wrap past the last ticker -- springs
+    // back instead, same as an under-threshold release.
+    const watchlist = cb.getWatchlist();
+    bg.style.opacity = '0';
+    if (roloCurrent < watchlist.length - 1) {
+      // Restore the base CSS transition (cleared to 'none' at drag-start)
+      // WITHOUT resetting the transform first -- goRolo()'s own
+      // positionRoloStack() call is what sets the new transform, and
+      // leaving the current (dragged) transform in place lets the
+      // now-active transition animate smoothly from there, instead of
+      // snapping to identity for a frame first.
+      g.card.style.transition = '';
+      goRolo(roloCurrent + 1);
+    } else {
+      g.card.style.transition = 'transform .18s ease';
+      g.card.style.transform = 'translateY(0) scale(1)';
+    }
   } else {
     g.card.style.transition = 'transform .18s ease';
     g.card.style.transform = 'translateY(0) scale(1)';
     bg.style.opacity = '0';
   }
+}
+
+// ── New-user tutorial demo animations (Sep 2026) ────────────────────────
+// Plays the exact same visual reveal as a real swipe, on the active card,
+// WITHOUT ever calling onDeleteConfirmed or goRolo -- purely illustrative,
+// always reversible via resetSwipeDemoCard(). Used only by the tutorial
+// walkthrough (pro/app.ts) so a first-time user can watch both gestures
+// demonstrated rather than being asked to perform them blind.
+let demoBgEl: HTMLElement | null = null;
+
+export function simulateSwipeDemo(direction: 'left' | 'right'): Promise<void> {
+  return new Promise((resolve) => {
+    const card = activeRoloCardEl();
+    if (!card) { resolve(); return; }
+    const w = card.getBoundingClientRect().width;
+    const dx = direction === 'left' ? -w * 0.42 : w * 0.42;
+    const bg = ensureRoloSwipeBg();
+    updateRoloSwipeBg(bg, dx, 1);
+    demoBgEl = bg;
+    card.style.transition = 'transform .32s cubic-bezier(.2,.7,.2,1)';
+    card.style.transform = 'translateY(0) scale(1) translateX(' + dx + 'px)';
+    setTimeout(resolve, 340);
+  });
+}
+
+export function resetSwipeDemoCard(): void {
+  const card = activeRoloCardEl();
+  if (card) {
+    card.style.transition = 'transform .22s ease';
+    card.style.transform = 'translateY(0) scale(1)';
+  }
+  if (demoBgEl) { demoBgEl.style.opacity = '0'; demoBgEl = null; }
 }
 
 function endRoloSwipe(): void {
@@ -1108,6 +1192,44 @@ function openHelpBalloon(btn: HTMLElement, key: string): void {
   helpTimer = setTimeout(closeHelpBalloon, duration);
 }
 
+// ── New-user tutorial walkthrough (Sep 2026) ────────────────────────────
+// Reuses the same shared balloon element/positioning as the ad-hoc "(?)"
+// system above, but in "sticky" mode: no auto-dismiss timer, and ANY click
+// (not just a click on the SAME button, or outside) advances to the next
+// step instead of just closing. Escape exits the tour entirely rather than
+// advancing. The step sequence itself, which card to expand, and the
+// tutorial-specific copy are all tier-owned (pro/app.ts) -- this module
+// only owns the sticky/advance-on-tap MECHANIC, same "mechanics here,
+// content/sequencing in the tier" split as everything else here.
+let tutorialActive = false;
+let tutorialAdvanceCb: (() => void) | null = null;
+let tutorialExitCb: (() => void) | null = null;
+
+export function isTutorialActive(): boolean {
+  return tutorialActive;
+}
+
+export function openTutorialBalloon(anchor: HTMLElement, html: string, onAdvance: () => void, onExit: () => void): void {
+  tutorialActive = true;
+  tutorialAdvanceCb = onAdvance;
+  tutorialExitCb = onExit;
+  if (helpTimer) { clearTimeout(helpTimer); helpTimer = null; }
+  const el = ensureHelpEl();
+  el.classList.remove('open');
+  el.innerHTML = html;
+  positionHelpBalloon(anchor, el);
+  requestAnimationFrame(() => el.classList.add('open'));
+  helpOpenKey = '__tutorial__';
+  helpOpenedAt = Date.now();
+}
+
+export function endTutorial(): void {
+  tutorialActive = false;
+  tutorialAdvanceCb = null;
+  tutorialExitCb = null;
+  closeHelpBalloon();
+}
+
 // Delegated at the document level, in the CAPTURE phase, so a "(?)"
 // button or a glossary link nested inside an existing clickable header
 // (.card-head's own accordion-toggle listener, #gateCard's own tap-to-
@@ -1128,6 +1250,20 @@ function openHelpBalloon(btn: HTMLElement, key: string): void {
 export function initHelpBalloons(content: Record<string, string>, onGlossaryJump: (term: string) => void): void {
   helpContent = content;
   document.addEventListener('click', (e) => {
+    // While a tutorial is running, ANY click advances to the next step --
+    // this is the whole "sticky till tap, then the next step's balloon"
+    // mechanic. Takes priority over every other branch below (a tutorial
+    // balloon's own glossary links, if any, aren't wired as jump links --
+    // tutorial copy is plain text) so a tap can't both advance the tour
+    // AND fire some unrelated (?) button's normal open/close behavior.
+    if (tutorialActive) {
+      e.preventDefault(); e.stopPropagation();
+      const advance = tutorialAdvanceCb;
+      tutorialActive = false; tutorialAdvanceCb = null; tutorialExitCb = null;
+      closeHelpBalloon();
+      if (advance) advance();
+      return;
+    }
     const target = e.target as HTMLElement;
     const link = target.closest<HTMLElement>('.help-glossary-link');
     if (link) {
@@ -1145,6 +1281,16 @@ export function initHelpBalloons(content: Record<string, string>, onGlossaryJump
     if (helpEl && helpEl.classList.contains('open') && !helpEl.contains(target)) closeHelpBalloon();
   }, true);
   document.addEventListener('keydown', (e) => {
+    // Escape exits the tour entirely -- distinct from a tap, which
+    // advances. Checked first, same priority reasoning as the click
+    // handler above.
+    if (e.key === 'Escape' && tutorialActive) {
+      const exit = tutorialExitCb;
+      tutorialActive = false; tutorialAdvanceCb = null; tutorialExitCb = null;
+      closeHelpBalloon();
+      if (exit) exit();
+      return;
+    }
     const target = e.target as HTMLElement;
     if ((e.key === 'Enter' || e.key === ' ') && (target.closest('[data-help]') || target.closest('.help-glossary-link'))) {
       e.stopPropagation();
@@ -1169,10 +1315,14 @@ export function initHelpBalloons(content: Record<string, string>, onGlossaryJump
   // (real user scroll, or a real programmatic jump like
   // scrollToActiveCard()/jumpToTop()).
   els.scroller.addEventListener('scroll', () => {
+    // Tutorial steps deliberately scroll/dock cards programmatically
+    // (expandCard(), jumpToTop(), scrollToActiveCard()) before opening
+    // their own balloon -- those aren't "the user scrolled away."
+    if (tutorialActive) return;
     if (Date.now() - helpOpenedAt < HELP_SCROLL_GRACE_MS) return;
     closeHelpBalloon();
   });
-  window.addEventListener('resize', closeHelpBalloon);
+  window.addEventListener('resize', () => { if (!tutorialActive) closeHelpBalloon(); });
 }
 
 // ── Init ─────────────────────────────────────────────────────────────

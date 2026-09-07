@@ -460,6 +460,9 @@
   }
   .rolo-swipe-bg .swipe-icon{ font-size:17px; }
   .rolo-swipe-bg .swipe-label{ font-family:var(--mono); font-size:13px; font-weight:700; color:var(--ink); letter-spacing:.08em; }
+  /* Swipe RIGHT now jumps to the next ticker (Sep 2026) -- reveals from
+     the left edge instead of the right, blue instead of red. */
+  .rolo-swipe-bg-next{ background:var(--blue); justify-content:flex-start; }
   .rolo-nav{ display:flex; justify-content:center; align-items:center; padding:2px 4px; }
   .nav-hint{ font-size:13px; color:var(--ink-dim); }
 
@@ -586,6 +589,11 @@
      beneath it inside .card-body-pad's own capped overflow -- same fix
      as the Watchlist/Proxy sticky-controls-row pattern, background is
      the card's own var(--surface) so scrolled terms can't show through. */
+  /* New-user tutorial replay entry (Sep 2026) -- bold, blue, first thing
+     in the card so it's easy to find whether you're brand new or just
+     want to see it again. */
+  .glossary-tutorial-cta{ font-weight:700; color:var(--blue); background:var(--blue-dim); border:1px solid rgba(74,168,255,.4); border-radius:8px; padding:9px 12px; text-align:center; cursor:pointer; margin-bottom:10px; font-size:13px; }
+  .glossary-tutorial-cta:hover{ background:rgba(74,168,255,.18); }
   .glossary-search-wrap{ padding:10px 0; border-bottom:1px solid var(--border); position:sticky; top:0; z-index:2; background:var(--surface); }
   .glossary-search{ width:100%; background:var(--surface-2); border:1px solid var(--border); border-radius:5px; padding:7px 12px; color:var(--ink); font-family:var(--mono); font-size:13px; }
   .glossary-search::placeholder{ color:var(--ink-dim); }
@@ -775,7 +783,7 @@
         </div></div></div>
       </div>
 
-      <div class="list-head" id="listHead"><span class="list-head-cta">Tap Pills to Analyze</span><span class="list-head-badge" id="card-count">0/15</span></div>
+      <div class="list-head" id="listHead"><span style="display:flex;align-items:center;gap:6px"><span class="list-head-cta">Tap Pills to Analyze</span><button type="button" class="help-btn" data-help="pills" aria-label="What is this?">?</button></span><span class="list-head-badge" id="card-count">0/15</span></div>
 
       <!-- #roloIndex is a direct child of .content (not nested in
            .rolo-wrap) so its sticky "stuck" range spans through the
@@ -907,6 +915,7 @@
           <svg class="chevron" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
         <div class="card-body"><div class="card-body-inner"><div class="card-body-pad">
+          <div class="glossary-tutorial-cta" id="glossaryTutorialCta" onclick="startTutorial()">▶ Run Tutorial</div>
           <div class="glossary-search-wrap">
             <input class="glossary-search" id="glossary-search" placeholder="Search 91 terms — greeks, CRF, sector, trading...">
           </div>
@@ -932,6 +941,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=57"></script>
+<script type="module" src="./app.js?v=58"></script>
 </body>
 </html>
