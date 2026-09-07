@@ -9176,3 +9176,69 @@ this repo — they're MCP/OAuth transport plumbing, not gate/verdict business lo
 `trade-verdict`'s own `server.js` mirror convention has always been about keeping the two
 repos' *analysis* logic from drifting, not about mirroring every file in `Tra`. Deliberately
 not copied here.
+
+## Frontend: landscape Watchlist overflow list bled horizontally — a side effect of the PR #319 sticky fix (Sep 7, 2026, `trade-verdict` PR #331)
+
+Direct report, same day as the landscape ribbon-snap fix above: "the
+watchlist in landscape is falling outside right side, there's a
+horizontal scroll bar that doesn't work. keep the ticker rows short
+enough to keep inside the card frame, no horizontal scroll."
+
+**Root cause, traced directly to a side effect of PR #319's own sticky-row
+fix, not a new bug in this feature.** That fix had to set
+`overflow:visible` on `.card`/`.card-body-inner`/`.card-body-pad` while in
+landscape, so `position:sticky` on the Watchlist/Proxy/Glossary header
+rows would resolve their containing block against `.utility-pane` (the
+element that actually scrolls in the HUD) instead of one of those three
+non-scrolling ancestors. That fix was correct and necessary — but it also
+silently removed the only thing that had ever been constraining the
+Watchlist overflow list's horizontal extent: `.card-body-pad`'s own
+`overflow:hidden`/`auto` had been keeping wide content clipped/scrolled
+inside the card by the CSS `overflow` computed-value rule (setting one
+axis forces the other to compute non-`visible` too) — with all three
+ancestors now `overflow:visible`, nothing downstream of `.utility-pane`
+itself was left clipping horizontally, and `.utility-pane` itself had
+only ever declared `overflow-y:auto`, never an explicit `overflow-x`.
+Compounding it: `.compact-row-top` (ticker symbol + price + %change on
+one line, in the overflow list's compact rows) had no `flex-wrap` and no
+`min-width:0` on its children, so a wide combination (a 5-digit price, a
+3-digit %, a normal-length symbol) pushed the row's real content past the
+card's right edge instead of wrapping or shrinking — that overflow had
+nowhere to go but sideways once the containing chain no longer clipped it,
+producing exactly the "falling outside right side" symptom with a
+non-functional scrollbar (nothing was actually meant to be pannable there).
+
+**Fix, two parts, both landing in all three tiers' `index.html`
+(`.card`/`.card-body-inner`/`.card-body-pad`/`.compact-row-top`/
+`.utility-pane` are all hand-copied inline `<style>` rules across
+Free/Starter/Pro, same convention as every other shared CSS constant in
+this app):**
+- `.utility-pane` (inside the `@media (orientation:landscape)` block)
+  gained an explicit `overflow-x:hidden` alongside its existing
+  `overflow-y:auto` — restoring a real horizontal backstop at the one
+  ancestor that's supposed to be the landscape HUD's actual scroll
+  boundary, without reopening PR #319's fix: `.utility-pane` was never
+  one of the three ancestors that fix had to loosen, so this doesn't
+  interfere with sticky-row resolution at all.
+- `.compact-row-top` gained `flex-wrap:wrap; row-gap:2px; min-width:0` —
+  **not landscape-scoped**, applies globally — so an unusually wide
+  symbol/price/%-change combination wraps onto a second line inside the
+  row instead of forcing the row wider than its container, in both
+  portrait and landscape. `min-width:0` is the real fix here on a flex
+  child that would otherwise refuse to shrink below its content's natural
+  width regardless of `flex-wrap` on the parent.
+
+**Verified via real headless Chromium with deliberately extreme mocked
+content** (a 5-digit price, a 3-digit percentage, and a long headline —
+not just the normal case, since the normal case had never actually
+triggered the bug) **at two landscape widths, not just the reported
+one:** the standard 844x390 landscape phone size, and a genuinely narrow
+568x320 to stress-test further. Confirmed zero horizontal overflow
+(`.utility-pane.scrollWidth === .utility-pane.clientWidth`) at both
+widths, confirmed the compact row's extreme content wraps onto a second
+line rather than pushing width, and re-ran the PR #319 sticky-header
+regression check (`.wl-overflow-hdr`'s `getBoundingClientRect().top`
+identical before/after scrolling the pane) to confirm the `overflow-x`
+addition didn't reopen that fix. `npm test` (72/72) and `node --check`
+clean — pure CSS change, no `.ts`/`.js` touched, no `esbuild` rebuild or
+`?v=` bump needed.
