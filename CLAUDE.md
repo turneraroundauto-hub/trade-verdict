@@ -9313,3 +9313,77 @@ covers 2026/2027; re-derive and re-cross-check (per the lesson above,
 especially Good Friday) against NYSE's own published schedule
 (nyse.com/trade/hours-calendars) before extending it, rather than
 hand-calculating a third year cold.
+
+## Frontend: the Gate's OPEN/CLOSED label was never wired to the backend fix at all — a second, client-side isMarketClosed() (Sep 7, 2026, `trade-verdict` PR #335)
+
+Live report right after the `isMarketOpen()` backend fix above deployed
+and was confirmed live via the MCP `get_market` tool (`marketOpen: false`
+on Labor Day): "it still show open in the gate on this holiday." A real,
+distinct bug — not a propagation-delay or caching question — found by
+actually reading `renderGate()` instead of assuming the backend field
+was the only thing that mattered.
+
+**Root cause.** The Gate's OPEN/CLOSED text (and the market-color it's
+rendered in) is set from a completely separate, **client-side**
+`isMarketClosed()` — `const closed = isMarketClosed(); const marketLabel
+= closed ? 'CLOSED' : 'OPEN';` — never from `market.marketOpen`, the
+field the backend fix actually corrected. `isMarketClosed()` has the
+exact same shape bug the backend's `isMarketOpen()` had before its own
+fix (weekday + time-of-day only, zero holiday awareness) — and it's a
+completely independent function, so fixing the backend one changed
+nothing about what the label shows. Worse, per its own existing comment
+("market-closed always forces HOLD regardless of the real verdict"),
+this same function also gates a real verdict-correctness behavior, not
+just a label — on a holiday, a live analysis would have rendered an
+actual UP/DOWN call instead of being forced to HOLD, a more consequential
+bug than the label alone.
+
+**`isMarketClosed()` is deliberately tier-owned, not in
+`shared/rolodex.ts`** (per its own existing code comment: "Tier-owned...
+so this ships per tier deliberately") — so unlike every shared-module fix
+in this file, there was no single place to patch. The identical
+holiday-aware rewrite (same `MARKET_HOLIDAYS`/`MARKET_EARLY_CLOSE_DAYS`
+2026/2027 data as the backend fix, plus a matching `etDateStr()` helper)
+was hand-applied to every one of its independent copies: `app.ts`
+(Free, source) + `app.js` (its compiled bundle), `starter/app.ts` +
+`starter/app.js`, `pro/app.ts` + `pro/app.js`, `shark/index.html`'s
+still-monolithic inline script, and `preview/rolodex/app.js` — six
+separate copies, all now byte-for-byte identical in their new holiday
+logic even though each still lives in its own file, matching this
+function's existing deliberate-duplication convention rather than
+introducing a shared module for it.
+
+**Verified two ways beyond the standard checks** (both bundles rebuilt
+via `esbuild.config.mjs`, chunk-header grep confirming no
+duplicate-module regression at the established Free:7/Starter:8/Pro:10
+baseline, `tsc --noEmit` against each tier's own `app.ts` with the
+project's real compiler options showing zero new errors, `npm test`
+72/72 unaffected, and a 7-case standalone Node simulation of the
+extracted logic):
+1. **A real headless-Chromium end-to-end check, not just the isolated
+   logic.** Pinned the browser's clock to Labor Day 2026 noon ET via
+   Playwright's clock API, primed a fake Starter session, mocked
+   `/market`, and read the actual rendered `#gateMiniLabel` text —
+   `"CLOSED"`.
+2. **Confirmed the test itself actually discriminates, not just that it
+   passed once.** Stashed the fix, rebuilt the pre-fix bundle, and reran
+   the identical test against it: the same rendered label read
+   `"OPEN"`. Only then restored the fix and reconfirmed `"CLOSED"` —
+   proving the check would have caught the original bug, not just that
+   it doesn't complain about the fix.
+
+**Lesson, worth keeping distinct from the backend fix's own entry above:**
+confirming a backend field is correct (via a live MCP tool call, in this
+case) is not the same as confirming the UI that's supposed to consume it
+actually reads that field — always trace the actual render path
+(`grep`/read the rendering function) before declaring a user-visible bug
+fixed from a backend check alone, especially when, as here, a
+same-named/same-shaped client-side duplicate function turns out to be the
+real thing driving the screen.
+
+**Not yet verified against a live deploy** — same standing posture as
+every backend-paired frontend change in this file. To confirm: check the
+Gate's OPEN/CLOSED label on any tier during a real future holiday (or
+via a devtools clock override) and confirm it now reads CLOSED. **Needs
+the same manual update for 2028+ as the backend copy** — six files to
+touch instead of one, so don't forget any of them next time.
