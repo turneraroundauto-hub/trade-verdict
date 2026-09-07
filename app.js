@@ -1109,7 +1109,7 @@ function clampRoloCurrent() {
   roloCurrent = Math.min(roloCurrent, Math.max(0, watchlist2.length - 1));
 }
 var roloSwipe = null;
-function roloDeleteThreshold(card) {
+function roloSwipeThreshold(card) {
   return Math.min(120, card.getBoundingClientRect().width * 0.35);
 }
 function ensureRoloSwipeBg() {
@@ -1117,10 +1117,18 @@ function ensureRoloSwipeBg() {
   if (!bg) {
     bg = document.createElement("div");
     bg.className = "rolo-swipe-bg";
-    bg.innerHTML = '<span class="swipe-icon">\u{1F5D1}</span><span class="swipe-label">DELETE</span>';
     els.roloStage.insertBefore(bg, els.roloStage.firstChild);
   }
   return bg;
+}
+function updateRoloSwipeBg(bg, dx, progress) {
+  const dir = dx < 0 ? "left" : "right";
+  if (bg.dataset.dir !== dir) {
+    bg.dataset.dir = dir;
+    bg.classList.toggle("rolo-swipe-bg-next", dir === "right");
+    bg.innerHTML = dir === "left" ? '<span class="swipe-icon">\u{1F5D1}</span><span class="swipe-label">DELETE</span>' : '<span class="swipe-label">NEXT</span><span class="swipe-icon">\u2192</span>';
+  }
+  bg.style.opacity = String(progress);
 }
 function onRoloPointerDown(e) {
   if (roloSwipe) return;
@@ -1151,11 +1159,12 @@ function onRoloPointerMove(e) {
   }
   if (g.mode === "swipe") {
     e.preventDefault();
-    const clamped = Math.min(0, Math.max(dx, -g.card.getBoundingClientRect().width));
+    const w = g.card.getBoundingClientRect().width;
+    const clamped = Math.max(-w, Math.min(dx, w));
     g.card.style.transform = "translateY(0) scale(1) translateX(" + clamped + "px)";
     const bg = ensureRoloSwipeBg();
-    const progress = Math.min(Math.abs(clamped) / roloDeleteThreshold(g.card), 1);
-    bg.style.opacity = String(progress);
+    const progress = Math.min(Math.abs(clamped) / roloSwipeThreshold(g.card), 1);
+    updateRoloSwipeBg(bg, clamped, progress);
     g.pendingDx = clamped;
   }
 }
@@ -1166,9 +1175,9 @@ function onRoloPointerUp(e) {
   endRoloSwipe();
 }
 function finishRoloSwipe(g) {
-  const threshold = roloDeleteThreshold(g.card);
+  const threshold = roloSwipeThreshold(g.card);
   const bg = ensureRoloSwipeBg();
-  if (Math.abs(g.pendingDx) >= threshold) {
+  if (g.pendingDx <= -threshold) {
     const w = g.card.getBoundingClientRect().width;
     g.card.style.transition = "transform .18s ease-in, opacity .18s ease-in";
     g.card.style.transform = "translateX(-" + (w + 40) + "px)";
@@ -1178,6 +1187,16 @@ function finishRoloSwipe(g) {
       bg.style.opacity = "0";
       if (sym) cb.onDeleteConfirmed(sym);
     }, 180);
+  } else if (g.pendingDx >= threshold) {
+    const watchlist2 = cb.getWatchlist();
+    bg.style.opacity = "0";
+    if (roloCurrent < watchlist2.length - 1) {
+      g.card.style.transition = "";
+      goRolo(roloCurrent + 1);
+    } else {
+      g.card.style.transition = "transform .18s ease";
+      g.card.style.transform = "translateY(0) scale(1)";
+    }
   } else {
     g.card.style.transition = "transform .18s ease";
     g.card.style.transform = "translateY(0) scale(1)";
@@ -1319,9 +1338,23 @@ function openHelpBalloon(btn, key) {
   const duration = Math.ceil(lines / 4) * HELP_BALLOON_MS_PER_4_LINES;
   helpTimer = setTimeout(closeHelpBalloon, duration);
 }
+var tutorialActive = false;
+var tutorialAdvanceCb = null;
+var tutorialExitCb = null;
 function initHelpBalloons(content, onGlossaryJump) {
   helpContent = content;
   document.addEventListener("click", (e) => {
+    if (tutorialActive) {
+      e.preventDefault();
+      e.stopPropagation();
+      const advance = tutorialAdvanceCb;
+      tutorialActive = false;
+      tutorialAdvanceCb = null;
+      tutorialExitCb = null;
+      closeHelpBalloon();
+      if (advance) advance();
+      return;
+    }
     const target = e.target;
     const link = target.closest(".help-glossary-link");
     if (link) {
@@ -1341,6 +1374,15 @@ function initHelpBalloons(content, onGlossaryJump) {
     if (helpEl && helpEl.classList.contains("open") && !helpEl.contains(target)) closeHelpBalloon();
   }, true);
   document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && tutorialActive) {
+      const exit = tutorialExitCb;
+      tutorialActive = false;
+      tutorialAdvanceCb = null;
+      tutorialExitCb = null;
+      closeHelpBalloon();
+      if (exit) exit();
+      return;
+    }
     const target = e.target;
     if ((e.key === "Enter" || e.key === " ") && (target.closest("[data-help]") || target.closest(".help-glossary-link"))) {
       e.stopPropagation();
@@ -1349,10 +1391,13 @@ function initHelpBalloons(content, onGlossaryJump) {
     }
   }, true);
   els.scroller.addEventListener("scroll", () => {
+    if (tutorialActive) return;
     if (Date.now() - helpOpenedAt < HELP_SCROLL_GRACE_MS) return;
     closeHelpBalloon();
   });
-  window.addEventListener("resize", closeHelpBalloon);
+  window.addEventListener("resize", () => {
+    if (!tutorialActive) closeHelpBalloon();
+  });
 }
 function initRolodex(elements, callbacks) {
   els = elements;

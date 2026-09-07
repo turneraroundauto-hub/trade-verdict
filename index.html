@@ -454,6 +454,13 @@
   }
   .rolo-swipe-bg .swipe-icon{ font-size:17px; }
   .rolo-swipe-bg .swipe-label{ font-family:var(--mono); font-size:13px; font-weight:700; color:var(--ink); letter-spacing:.08em; }
+  /* Swipe RIGHT now jumps to the next ticker (Sep 2026, shared/rolodex.ts)
+     -- reveals from the left edge instead of the right, blue instead of
+     red. This tier's own app.ts never triggers the new tutorial, but the
+     gesture itself lives in the shared module all three tiers bundle, so
+     this CSS has to exist here too or a right-swipe would show the NEXT
+     label on the wrong (red, right-aligned) background. */
+  .rolo-swipe-bg-next{ background:var(--blue); justify-content:flex-start; }
   .rolo-nav{ display:flex; justify-content:center; align-items:center; padding:2px 4px; }
   .nav-hint{ font-size:13px; color:var(--ink-dim); }
 
@@ -660,7 +667,7 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=93"></script>
+<script type="module" src="./app.js?v=94"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
