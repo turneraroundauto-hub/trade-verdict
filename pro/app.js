@@ -2116,6 +2116,7 @@ function wireAccordionHead(head) {
 document.querySelectorAll(".card[data-card] > .card-head").forEach(wireAccordionHead);
 var roloStage = document.getElementById("roloStage");
 var roloIndex = document.getElementById("roloIndex");
+var scroller = document.getElementById("scroller");
 var tickerState = /* @__PURE__ */ new Map();
 var TYPE_COLOR = { CANARY: "var(--amber)", SENTIMENT: "var(--blue)", FLOW: "var(--green)" };
 var SIZING_LABEL = { FULL: "Full", HALF: "Half", QUARTER: "\xBC size" };
@@ -2394,6 +2395,109 @@ function refreshRoloCards() {
   });
   renderOverflowListIfOpen();
 }
+var PULL_TRIGGER_PX = 64;
+var PULL_MAX_PX = 96;
+var PULL_RESISTANCE = 0.5;
+var pullPointerId = null;
+var pullStartY = 0;
+var pullTracking = false;
+var pullRefreshing = false;
+function pullIndicatorEl() {
+  return document.getElementById("pullRefreshIndicator");
+}
+function setPullHeight(px, settle) {
+  const el = pullIndicatorEl();
+  if (!el) return;
+  el.classList.toggle("settling", !!settle);
+  el.style.height = px + "px";
+}
+function setPullLabel(text) {
+  const el = pullIndicatorEl();
+  const lbl = el ? el.querySelector(".pull-refresh-label") : null;
+  if (lbl) lbl.textContent = text;
+}
+function resetPull() {
+  pullTracking = false;
+  setPullHeight(0, true);
+  const el = pullIndicatorEl();
+  if (el) el.classList.remove("pull-ready");
+}
+function onScrollerPointerDown(e) {
+  if (pullRefreshing || e.pointerType === "mouse" && e.button !== 0 || isLandscapeMode()) return;
+  if (scroller.scrollTop > 0) return;
+  pullPointerId = e.pointerId;
+  pullStartY = e.clientY;
+  pullTracking = false;
+}
+function onScrollerPointerMove(e) {
+  if (pullPointerId === null || e.pointerId !== pullPointerId || pullRefreshing) return;
+  if (scroller.scrollTop > 0) {
+    if (pullTracking) resetPull();
+    return;
+  }
+  const rawDy = e.clientY - pullStartY;
+  if (rawDy <= 0) {
+    if (pullTracking) resetPull();
+    return;
+  }
+  pullTracking = true;
+  e.preventDefault();
+  const dy = Math.min(rawDy * PULL_RESISTANCE, PULL_MAX_PX);
+  setPullHeight(dy);
+  const ready = dy >= PULL_TRIGGER_PX;
+  const el = pullIndicatorEl();
+  if (el) el.classList.toggle("pull-ready", ready);
+  setPullLabel(ready ? "Release to refresh" : "Pull to refresh");
+}
+function onScrollerPointerUp(e) {
+  if (pullPointerId === null || e.pointerId !== pullPointerId) return;
+  pullPointerId = null;
+  if (!pullTracking) return;
+  const el = pullIndicatorEl();
+  const dy = el ? parseFloat(el.style.height || "0") : 0;
+  pullTracking = false;
+  if (dy >= PULL_TRIGGER_PX) doPullToRefresh();
+  else resetPull();
+}
+async function doPullToRefresh() {
+  pullRefreshing = true;
+  vibrateTap();
+  setPullHeight(PULL_TRIGGER_PX, true);
+  const el = pullIndicatorEl();
+  if (el) {
+    el.classList.add("refreshing");
+    el.classList.remove("pull-ready");
+  }
+  setPullLabel("Refreshing\u2026");
+  try {
+    await Promise.all([
+      fetchMarket(true),
+      ...watchlist.map(async (sym) => {
+        const td = await fetchTickerData(sym, true);
+        const state = tickerState.get(sym);
+        if (state) state.td = td;
+      })
+    ]);
+    cardWindow().forEach((sym) => {
+      renderRoloCard(sym);
+      renderPill(sym);
+    });
+    renderOverflowListIfOpen();
+    const proxyCard = document.querySelector('.card[data-card="proxy"]');
+    if (proxyCard && proxyCard.classList.contains("expanded")) renderProxyExplorer();
+    const heatCard = document.querySelector('.card[data-card="heatmap"]');
+    if (heatCard && heatCard.classList.contains("expanded")) renderHeatMap();
+    vibrateResult();
+  } finally {
+    pullRefreshing = false;
+    if (el) el.classList.remove("refreshing");
+    setPullHeight(0, true);
+  }
+}
+scroller.addEventListener("pointerdown", onScrollerPointerDown);
+scroller.addEventListener("pointermove", onScrollerPointerMove, { passive: false });
+scroller.addEventListener("pointerup", onScrollerPointerUp);
+scroller.addEventListener("pointercancel", onScrollerPointerUp);
 var DIAL_POSITIONS = {
   ACTIVE_SWING: { label: "Aggressive", cadence: "Session-by-session", entries: "Opening Drive, Pre-Catalyst Buildup, post-flush", stops: "Tight (+4% / -1%)", recheck: "Every session", sizing: "Smaller, capped at HALF" },
   ACTIVE_LEAN: { label: "Light Aggressive", cadence: "Daily", entries: "Pre-Catalyst Buildup, post-flush (no Opening Drive)", stops: "Standard (+4% / -3%)", recheck: "Daily", sizing: "Standard" },
@@ -3511,7 +3615,7 @@ async function checkAuth() {
 initWatchlist({ defaultTickers: ["SMMT", "VCYT", "TWST", "IMVT", "IREN", "ALAB", "MU"], maxTickers: 999, upgradeMessage: "Pro supports unlimited tickers already \u2014 this cap should never be hit." });
 initTickerCache({ API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
 initRolodex({
-  scroller: document.getElementById("scroller"),
+  scroller,
   gateCard: document.getElementById("gateCard"),
   gateFullOverlay: document.getElementById("gateFullOverlay"),
   gateSpacer: document.getElementById("gateSpacer"),
