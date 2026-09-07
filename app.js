@@ -1130,6 +1130,10 @@ function updateRoloSwipeBg(bg, dx, progress) {
   }
   bg.style.opacity = String(progress);
 }
+function activeRoloCardEl() {
+  const cards = Array.from(els.roloStage.querySelectorAll(".rolo-card"));
+  return cards[roloCurrent] || null;
+}
 function onRoloPointerDown(e) {
   if (roloSwipe) return;
   if (e.pointerType === "mouse" && e.button !== 0) return;
@@ -1201,6 +1205,35 @@ function finishRoloSwipe(g) {
     g.card.style.transition = "transform .18s ease";
     g.card.style.transform = "translateY(0) scale(1)";
     bg.style.opacity = "0";
+  }
+}
+var demoBgEl = null;
+function simulateSwipeDemo(direction) {
+  return new Promise((resolve) => {
+    const card = activeRoloCardEl();
+    if (!card) {
+      resolve();
+      return;
+    }
+    const w = card.getBoundingClientRect().width;
+    const dx = direction === "left" ? -w * 0.42 : w * 0.42;
+    const bg = ensureRoloSwipeBg();
+    updateRoloSwipeBg(bg, dx, 1);
+    demoBgEl = bg;
+    card.style.transition = "transform .32s cubic-bezier(.2,.7,.2,1)";
+    card.style.transform = "translateY(0) scale(1) translateX(" + dx + "px)";
+    setTimeout(resolve, 340);
+  });
+}
+function resetSwipeDemoCard() {
+  const card = activeRoloCardEl();
+  if (card) {
+    card.style.transition = "transform .22s ease";
+    card.style.transform = "translateY(0) scale(1)";
+  }
+  if (demoBgEl) {
+    demoBgEl.style.opacity = "0";
+    demoBgEl = null;
   }
 }
 function endRoloSwipe() {
@@ -1341,6 +1374,28 @@ function openHelpBalloon(btn, key) {
 var tutorialActive = false;
 var tutorialAdvanceCb = null;
 var tutorialExitCb = null;
+function openTutorialBalloon(anchor, html, onAdvance, onExit) {
+  tutorialActive = true;
+  tutorialAdvanceCb = onAdvance;
+  tutorialExitCb = onExit;
+  if (helpTimer) {
+    clearTimeout(helpTimer);
+    helpTimer = null;
+  }
+  const el = ensureHelpEl();
+  el.classList.remove("open");
+  el.innerHTML = html;
+  positionHelpBalloon(anchor, el);
+  requestAnimationFrame(() => el.classList.add("open"));
+  helpOpenKey = "__tutorial__";
+  helpOpenedAt = Date.now();
+}
+function endTutorial() {
+  tutorialActive = false;
+  tutorialAdvanceCb = null;
+  tutorialExitCb = null;
+  closeHelpBalloon();
+}
 function initHelpBalloons(content, onGlossaryJump) {
   helpContent = content;
   document.addEventListener("click", (e) => {
@@ -1471,6 +1526,15 @@ function isMarketClosed() {
   if (day === 0 || day === 6) return true;
   var mins = et.getHours() * 60 + et.getMinutes();
   return mins < 570 || mins >= 960;
+}
+function canVibrate() {
+  return typeof navigator !== "undefined" && typeof navigator.vibrate === "function";
+}
+function vibrateTap() {
+  if (canVibrate()) navigator.vibrate(15);
+}
+function vibrateResult() {
+  if (canVibrate()) navigator.vibrate([15, 60, 40]);
 }
 function sigColor(s) {
   return { GREEN: "var(--green)", RED: "var(--red)", YELLOW: "var(--amber)", "N/A": "var(--ink-dim)" }[s] || "var(--ink-dim)";
@@ -1664,6 +1728,7 @@ function wireAccordionHead(head) {
 document.querySelectorAll(".card[data-card] > .card-head").forEach(wireAccordionHead);
 var roloStage = document.getElementById("roloStage");
 var roloIndex = document.getElementById("roloIndex");
+var scroller = document.getElementById("scroller");
 var tickerState = /* @__PURE__ */ new Map();
 var TYPE_COLOR = { CANARY: "var(--amber)", SENTIMENT: "var(--blue)", FLOW: "var(--green)" };
 var SIZING_LABEL = { FULL: "Full", HALF: "Half", QUARTER: "\xBC size" };
@@ -1760,7 +1825,10 @@ function renderRoloCard(sym) {
   card.innerHTML = roloCardHTML(sym, state);
   card.classList.remove("verdict-up", "verdict-down");
   const btn = card.querySelector("[data-analyze]");
-  if (btn) btn.addEventListener("click", () => analyzeOne(sym));
+  if (btn) btn.addEventListener("click", () => {
+    vibrateTap();
+    analyzeOne(sym);
+  });
   const resetEl = card.querySelector("[data-reset]");
   if (resetEl) resetEl.addEventListener("click", () => resetTicker(sym));
   if (state.result && !isMarketClosed()) {
@@ -1789,6 +1857,7 @@ function renderPill(sym) {
   });
 }
 function deleteActiveTicker(sym) {
+  vibrateTap();
   tickerState.delete(sym);
   removeTicker(sym);
 }
@@ -1840,6 +1909,104 @@ async function renderRolodexFromWatchlist() {
     markRoloMarqueeDataReady();
   });
 }
+var PULL_TRIGGER_PX = 64;
+var PULL_MAX_PX = 96;
+var PULL_RESISTANCE = 0.5;
+var pullPointerId = null;
+var pullStartY = 0;
+var pullTracking = false;
+var pullRefreshing = false;
+function pullIndicatorEl() {
+  return document.getElementById("pullRefreshIndicator");
+}
+function setPullHeight(px, settle) {
+  const el = pullIndicatorEl();
+  if (!el) return;
+  el.classList.toggle("settling", !!settle);
+  el.style.height = px + "px";
+}
+function setPullLabel(text) {
+  const el = pullIndicatorEl();
+  const lbl = el ? el.querySelector(".pull-refresh-label") : null;
+  if (lbl) lbl.textContent = text;
+}
+function resetPull() {
+  pullTracking = false;
+  setPullHeight(0, true);
+  const el = pullIndicatorEl();
+  if (el) el.classList.remove("pull-ready");
+}
+function onScrollerPointerDown(e) {
+  if (pullRefreshing || e.pointerType === "mouse" && e.button !== 0 || isLandscapeMode()) return;
+  if (scroller.scrollTop > 0) return;
+  pullPointerId = e.pointerId;
+  pullStartY = e.clientY;
+  pullTracking = false;
+}
+function onScrollerPointerMove(e) {
+  if (pullPointerId === null || e.pointerId !== pullPointerId || pullRefreshing) return;
+  if (scroller.scrollTop > 0) {
+    if (pullTracking) resetPull();
+    return;
+  }
+  const rawDy = e.clientY - pullStartY;
+  if (rawDy <= 0) {
+    if (pullTracking) resetPull();
+    return;
+  }
+  pullTracking = true;
+  e.preventDefault();
+  const dy = Math.min(rawDy * PULL_RESISTANCE, PULL_MAX_PX);
+  setPullHeight(dy);
+  const ready = dy >= PULL_TRIGGER_PX;
+  const el = pullIndicatorEl();
+  if (el) el.classList.toggle("pull-ready", ready);
+  setPullLabel(ready ? "Release to refresh" : "Pull to refresh");
+}
+function onScrollerPointerUp(e) {
+  if (pullPointerId === null || e.pointerId !== pullPointerId) return;
+  pullPointerId = null;
+  if (!pullTracking) return;
+  const el = pullIndicatorEl();
+  const dy = el ? parseFloat(el.style.height || "0") : 0;
+  pullTracking = false;
+  if (dy >= PULL_TRIGGER_PX) doPullToRefresh();
+  else resetPull();
+}
+async function doPullToRefresh() {
+  pullRefreshing = true;
+  vibrateTap();
+  setPullHeight(PULL_TRIGGER_PX, true);
+  const el = pullIndicatorEl();
+  if (el) {
+    el.classList.add("refreshing");
+    el.classList.remove("pull-ready");
+  }
+  setPullLabel("Refreshing\u2026");
+  try {
+    await Promise.all([
+      fetchMarket(),
+      ...watchlist.map(async (sym) => {
+        const td = await fetchTickerData(sym, true);
+        const state = tickerState.get(sym);
+        if (state) state.td = td;
+      })
+    ]);
+    watchlist.forEach((sym) => {
+      renderRoloCard(sym);
+      renderPill(sym);
+    });
+    vibrateResult();
+  } finally {
+    pullRefreshing = false;
+    if (el) el.classList.remove("refreshing");
+    setPullHeight(0, true);
+  }
+}
+scroller.addEventListener("pointerdown", onScrollerPointerDown);
+scroller.addEventListener("pointermove", onScrollerPointerMove, { passive: false });
+scroller.addEventListener("pointerup", onScrollerPointerUp);
+scroller.addEventListener("pointercancel", onScrollerPointerUp);
 async function analyzeOne(sym) {
   const state = tickerState.get(sym);
   if (!state || state.analyzing) return;
@@ -1902,6 +2069,7 @@ async function analyzeOne(sym) {
     cacheVerdict(sym, _r);
     state.result = _r;
     state.analyzing = false;
+    vibrateResult();
     renderRoloCard(sym);
     renderPill(sym);
     fetchCreditStatus();
@@ -2001,6 +2169,7 @@ function topicalCompanyRowHTML(c) {
   return '<div class="compact-row-wrap" data-ticker="' + c.symbol + '"><div class="compact-row"><div class="compact-row-main"><div class="compact-row-top"><span class="compact-ticker" style="color:' + color + '"><a class="ticker-a" href="' + tickerHref2(c.symbol) + '" target="_blank">' + c.symbol + '</a></span><span class="compact-pct" style="color:' + color + '">' + pctLabel + "</span></div></div>" + addTickerBtnHTML(c.symbol) + "</div></div>";
 }
 async function runAgitatorCheck() {
+  vibrateTap();
   var qEl = document.getElementById("agitator-query");
   var btn = document.getElementById("agitatorCheckBtn");
   var out = document.getElementById("agitator-body");
@@ -2013,7 +2182,7 @@ async function runAgitatorCheck() {
   btn.disabled = true;
   btn.classList.add("btn-running");
   btn.textContent = "CHECKING\u2026";
-  out.innerHTML = '<div class="track-empty">Loading...</div>';
+  out.innerHTML = '<div class="track-empty text-pulse">Loading...</div>';
   try {
     var url = API_URL2 + "/agitator?q=" + encodeURIComponent(q) + "&watchlist=" + encodeURIComponent(watchlist.join(","));
     var res = await fetch(addSecret2(url), { headers: authH2() });
@@ -2042,6 +2211,7 @@ async function runAgitatorCheck() {
       var cmNewsHTML = '<div class="headline" style="margin-top:8px">' + (cm.news ? cm.news.url ? '<a href="' + cm.news.url + '" target="_blank">' + cm.news.headline + "</a>" : cm.news.headline : '<span style="opacity:.6">No recent related news found.</span>') + "</div>";
       var cmRelatedHTML = '<div class="track-log-title" style="margin-top:10px">RELATED</div>' + (cm.related && cm.related.length ? '<div class="compact-list">' + cm.related.map(relatedRowHTML).join("") + "</div>" : '<div class="track-empty">No related companies found.</div>');
       out.innerHTML = '<div class="track-log-title">SPOT PRICE</div>' + spotHTML + proxyHTML + '<div class="track-empty" style="margin-top:6px">' + (spotHTML ? "Live commodity spot price." : cm.name + " spot price unavailable \u2014 showing its tradable proxy instead.") + "</div>" + cmGaugeHTML + cmNewsHTML + cmFactorsHTML + cmRelatedHTML;
+      vibrateResult();
       wireAgitatorAddButtons(out);
       if (!isLandscapeMode()) snapCardUnderDock(document.getElementById("card-agitator"));
       return;
@@ -2069,6 +2239,7 @@ async function runAgitatorCheck() {
         topicalHTML = '<div class="track-empty">Couldn\u2019t find a company for "' + q + '".</div>';
       }
       out.innerHTML = suggestionHTML + topicalHTML;
+      vibrateResult();
       var yesBtn = document.getElementById("agitatorSuggestYes");
       if (yesBtn) yesBtn.addEventListener("click", function() {
         qEl.value = yesBtn.dataset.ticker || "";
@@ -2093,6 +2264,7 @@ async function runAgitatorCheck() {
     var headlineHTML = '<div class="headline" style="margin-top:8px">' + (data.headlineUsed ? data.headlineUsedUrl ? '<a href="' + data.headlineUsedUrl + '" target="_blank">' + data.headlineUsed + "</a>" : data.headlineUsed : '<span style="opacity:.6">No recent related news found.</span>') + "</div>";
     var compsHTML = '<div class="track-log-title" style="margin-top:10px">RELATED</div>' + (data.comps && data.comps.length ? '<div class="compact-list">' + data.comps.map(relatedRowHTML).join("") + "</div>" : '<div class="track-empty">No related companies found.</div>');
     out.innerHTML = gaugeHTML + headlineHTML + factorsHTML + compsHTML;
+    vibrateResult();
     wireAgitatorAddButtons(out);
     if (!isLandscapeMode()) snapCardUnderDock(document.getElementById("card-agitator"));
   } catch (e) {
@@ -2351,10 +2523,11 @@ function filterGlossary(query) {
 }
 document.getElementById("glossary-search").addEventListener("input", (e) => filterGlossary(e.target.value));
 var HELP_CONTENT = {
+  pills: "Tap any pill above to open its ticker card, then hit ANALYZE to run it through all 6 gates and get a real UP/DOWN/FLAT verdict \u2014 this is the whole point of the app. Swipe a card left to remove it from your watchlist, or right to jump to the next ticker and analyze it automatically.",
   gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against \u2014 feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read \u2014 tap the docked bar to jump back to top. Pre/post-market prices are IEX-only and may vary from the full consolidated tape; built for regular-session (9:30am\u20134pm ET) analysis.',
-  pulse: 'A live AI-written read on today\u2019s market mood and <a class="help-glossary-link" href="#" data-term="sector rotation">sector rotation</a> \u2014 Starter and up unlocks the real, per-session version.',
-  io: 'Paste or type <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names, one per line or comma-separated, to add them to your watchlist. Type a ticker in caps (AAPL) or a name any other way (Tesla) \u2014 either resolves to the right symbol.',
-  agitator: "A standalone discovery tool for proofing a new stock interest or a media rumor BEFORE it enters your watchlist \u2014 free, no credit cost. Type a ticker, a company name, or paste a full headline/rumor \u2014 one box handles all three \u2014 and get a LOW/MEDIUM/HIGH read across 6 real signals, plus a few real related companies to also check. Past Reactions isn\u2019t tracked yet, so it\u2019s shown but never scored.",
+  pulse: "A quick, AI-written summary of today\u2019s market mood and sector rotation \u2014 Starter and up unlock the real, per-session version here. For your information only, it never changes a gate or a verdict.",
+  io: 'Type or paste <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names \u2014 one per line, or separated by commas. All caps (AAPL) adds a ticker directly; type it any other way (Tesla) and it resolves to the right symbol. Analyze All runs your full watchlist, up to 3 credits.',
+  agitator: "Check out a new stock idea or a rumor before it earns a spot on your watchlist \u2014 always free. Type a ticker, a company name, or paste a headline, and get one LOW/MEDIUM/HIGH read built from 6 real signals, plus a few related companies worth a look.",
   "agitator-score": "One overall number, 0-10, averaging the 6 signals below it \u2014 a quick read on how big a deal this news might be for the stock, not a precise measurement.",
   "agitator-surprise": "How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.",
   "agitator-uncertainty": "How unclear it still is to everyone how big a deal this actually is. High means the market hasn\u2019t figured out how to react yet.",
@@ -2364,6 +2537,95 @@ var HELP_CONTENT = {
   "agitator-expected-move": "How much price movement the options market is already betting on for this stock, right now.",
   "agitator-past": "How reliably this app\u2019s past verdicts on this ticker have graded out. Shows n/a until enough real graded history exists."
 };
+var TUTORIAL_STEP_SETTLE_MS = 450;
+function tutorialCard(id) {
+  return document.getElementById(id);
+}
+function tutorialExpand(id) {
+  const card = tutorialCard(id);
+  if (card && !card.classList.contains("expanded")) expandCard(card);
+}
+function tutorialActiveCardEl() {
+  const cards = Array.from(roloStage.querySelectorAll(".rolo-card"));
+  return cards[getRoloCurrent()] || null;
+}
+var TUTORIAL_STEPS = [
+  {
+    html: HELP_CONTENT.pills,
+    getAnchor: () => document.querySelector('[data-help="pills"]'),
+    before: () => scrollToActiveCard()
+  },
+  {
+    html: "This is <b>swipe-to-delete</b> \u2014 swipe any card left anytime to remove that ticker from your watchlist.",
+    getAnchor: () => tutorialActiveCardEl(),
+    before: () => simulateSwipeDemo("left")
+  },
+  {
+    html: "Swipe right to jump to the <b>next ticker</b> in your watchlist and analyze it automatically.",
+    getAnchor: () => tutorialActiveCardEl(),
+    before: () => {
+      resetSwipeDemoCard();
+      return simulateSwipeDemo("right");
+    }
+  },
+  {
+    html: HELP_CONTENT.gate,
+    getAnchor: () => document.querySelector('[data-help="gate"]'),
+    before: () => {
+      resetSwipeDemoCard();
+      jumpToTop();
+    }
+  },
+  {
+    html: HELP_CONTENT.pulse,
+    getAnchor: () => document.querySelector('[data-help="pulse"]'),
+    before: () => tutorialExpand("card-pulse")
+  },
+  {
+    html: HELP_CONTENT.agitator,
+    getAnchor: () => document.querySelector('[data-help="agitator"]'),
+    before: () => tutorialExpand("card-agitator")
+  },
+  {
+    html: HELP_CONTENT.io,
+    getAnchor: () => document.querySelector('[data-help="io"]'),
+    before: () => tutorialExpand("card-io")
+  },
+  {
+    html: "That\u2019s the app. Tap a pill, hit ANALYZE, and let the gates do the work \u2014 everything else here just supports that call. Come back to <b>\u25B6 Run Tutorial</b>, right here in the Glossary, anytime you want to see this again.",
+    getAnchor: () => document.getElementById("glossary-header"),
+    before: () => tutorialExpand("card-glossary")
+  }
+];
+async function runTutorialStep(index) {
+  if (index >= TUTORIAL_STEPS.length) {
+    endTutorial();
+    return;
+  }
+  const step = TUTORIAL_STEPS[index];
+  if (step.before) await step.before();
+  await new Promise((r) => setTimeout(r, TUTORIAL_STEP_SETTLE_MS));
+  const anchor = step.getAnchor();
+  if (!anchor) {
+    runTutorialStep(index + 1);
+    return;
+  }
+  openTutorialBalloon(
+    anchor,
+    step.html,
+    () => {
+      runTutorialStep(index + 1);
+    },
+    () => {
+      resetSwipeDemoCard();
+    }
+  );
+}
+function startTutorial() {
+  localStorage.setItem("tv_tutorial_seen_free", "1");
+  runTutorialStep(0);
+}
+window.startTutorial = startTutorial;
 function initApp() {
   cleanLS();
   document.getElementById("ticker-count").textContent = "CRF \xB7 " + watchlist.length + " TICKERS";
@@ -2371,6 +2633,9 @@ function initApp() {
   sizeGateSpacer();
   renderRolodexFromWatchlist();
   setTimeout(fetchCreditStatus, 2e3);
+  setTimeout(function() {
+    if (!localStorage.getItem("tv_tutorial_seen_free")) startTutorial();
+  }, 900);
   setInterval(function() {
     fetchMarket();
   }, 4 * 60 * 1e3);
@@ -2389,7 +2654,7 @@ async function boot() {
     goRolo(0);
   });
   initRolodex({
-    scroller: document.getElementById("scroller"),
+    scroller,
     gateCard: document.getElementById("gateCard"),
     gateFullOverlay: document.getElementById("gateFullOverlay"),
     gateSpacer: document.getElementById("gateSpacer"),
