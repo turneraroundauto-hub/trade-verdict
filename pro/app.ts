@@ -1337,6 +1337,27 @@ async function renderScorecardCard(): Promise<void> {
         + '<div class="trigger-row"><span class="trigger-lbl">Avg return per trade</span><span class="trigger-val" style="color:' + retColor + '">' + retSign + exp.avgSimulatedReturnPct + '%</span></div>'
         + '<div class="trigger-row"><span class="trigger-lbl">Win rate</span><span class="trigger-val">' + exp.winRatePct + '%</span><span class="trigger-sub">' + exp.sizedGradedCount + '</span></div>';
     }
+    // UP/DOWN split + top-5 pooled tickers (Sep 13, 2026, direct follow-up
+    // ask). Both fields are pooled across every user AND every tier -- not
+    // this account's own data -- so they're the same for every viewer
+    // regardless of scope; server omits either side of the split that
+    // hasn't cleared its own 5-graded floor yet (insufficientData) rather
+    // than publishing a noisy early percentage.
+    var db = data.directionBreakdown;
+    if (db) {
+      var dirRow = (label: string, d: any) => d && !d.insufficientData
+        ? '<div class="trigger-row"><span class="trigger-lbl">' + label + '</span><span class="trigger-val">' + d.directionalPct + '%</span><span class="trigger-sub">' + d.gradedCount + '</span></div>'
+        : '<div class="trigger-row"><span class="trigger-lbl">' + label + '</span><span class="trigger-val" style="color:var(--ink-dim)">—</span><span class="trigger-sub">' + (d ? d.gradedCount : 0) + '/5</span></div>';
+      html += '<div class="track-log-title" style="margin-top:12px">UP vs DOWN ACCURACY</div>'
+        + dirRow('UP verdicts', db.up) + dirRow('DOWN verdicts', db.down);
+    }
+    if (data.topTickers && data.topTickers.length) {
+      var topRows = data.topTickers.map((t: any) => {
+        var color = t.directionalPct >= 65 ? 'var(--green)' : t.directionalPct >= 50 ? 'var(--amber)' : 'var(--red)';
+        return '<div class="trigger-row"><span class="trigger-lbl"><a class="ticker-a" href="' + tickerHref(t.ticker) + '" target="_blank">' + t.ticker + '</a></span><span class="trigger-val" style="color:' + color + '">' + t.directionalPct + '%</span><span class="trigger-sub">' + t.gradedCount + '</span></div>';
+      }).join('');
+      html += '<div class="track-log-title" style="margin-top:12px">TOP 5 TICKERS (ALL USERS)</div>' + topRows;
+    }
     el.innerHTML = html;
   } catch (e) {
     el.innerHTML = '<div class="track-empty">Scorecard unavailable right now.</div>';
@@ -2052,7 +2073,7 @@ const HELP_CONTENT: Record<string, string> = {
   proxy: 'Shows which sector or stock each ticker is compared against for <a class="help-glossary-link" href="#" data-term="gate 5">Gate 5</a>, and whether they’re still moving together right now.',
   heatmap: 'A color-coded snapshot of major sectors and every ticker in your watchlist, sorted by today’s % change.',
   track: 'Your own logged verdict history. Tap ✓ RIGHT or ✗ WRONG after the session closes to build a real accuracy record, broken down by gate and by ticker.',
-  scorecard: 'Automatic accuracy tracking — every verdict is checked against the real price move 24h later (and again ~5 trading days later for the strict score), nothing for you to log. Stays hidden until at least 20 verdicts are graded. "If followed at recommended size" simulates the return you\'d have realized sizing exactly as recommended — FLAT and no-size calls aren\'t counted as a trade either way, so this only reflects the calls that actually told you to take a position.',
+  scorecard: 'Automatic accuracy tracking — every verdict is checked against the real price move 24h later (and again ~5 trading days later for the strict score), nothing for you to log. Stays hidden until at least 20 verdicts are graded. "If followed at recommended size" simulates the return you\'d have realized sizing exactly as recommended — FLAT and no-size calls aren\'t counted as a trade either way, so this only reflects the calls that actually told you to take a position. The UP vs DOWN split and Top 5 Tickers are pooled across every user and every tier, not just your own account — each side needs 5+ graded verdicts before it shows a number.',
   agitator: 'Check out a new stock idea or a rumor before it earns a spot on your watchlist — always free. Type a ticker, a company name, or paste a headline, and get one LOW/MEDIUM/HIGH read built from 6 real signals, plus a few related companies worth a look.',
   'agitator-score': 'One overall score, 0–10, averaging the 6 signals below — a fast read on how big a deal this news might be, not an exact measurement.',
   'agitator-surprise': 'How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.',
