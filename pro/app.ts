@@ -1319,22 +1319,23 @@ async function renderScorecardCard(): Promise<void> {
     var html = '<div class="track-log-title">VERDICT ACCURACY (' + data.gradedCount + ' graded)</div>'
       + strictRow
       + '<div class="trigger-row"><span class="trigger-lbl">Directional accuracy</span><span class="trigger-val">' + data.directionalPct + '%</span></div>';
-    // BY TICKER breakdown removed Sep 2, 2026 -- direct feedback: with
-    // most watchlists holding far fewer than 5 graded rows per ticker,
-    // this rendered as a wall of "—" placeholders with real data on maybe
-    // one ticker out of fifteen. Replaced by a single pooled stat shown
-    // on the ticker's own analyzed card instead (see the TRACK RECORD row
-    // in gateListHTML), available on every tier.
-    if (data.breakdown) {
-      var section = function (title: string, key: string): string {
-        var groups = data.breakdown[key] || {};
-        var rows = Object.keys(groups).map(function (k) {
-          var g = groups[k];
-          return '<div class="trigger-row"><span class="trigger-lbl">' + k + '</span><span class="trigger-val">' + (g.directionalPct != null ? g.directionalPct + '%' : '—') + '</span><span class="trigger-sub">' + g.gradedCount + '</span></div>';
-        }).join('');
-        return rows ? '<div class="track-log-title" style="margin-top:12px">' + title + '</div>' + rows : '';
-      };
-      html += section('BY GATE 1 BRANCH', 'gate1Branch') + section('BY PRE-GATE STATE', 'preGateState') + section('BY GATE 0 READ', 'gate0Read') + section('BY GATE 2 CORROBORATION', 'gate2CorroborationState');
+    // BY TICKER breakdown removed Sep 2, 2026; the by-gate1-branch/
+    // pre-gate-state/gate0-read/gate2-corroboration breakdown removed Sep
+    // 13, 2026 -- direct feedback: real signal for tuning the framework's
+    // own rules, not something a user needs staring back at them here.
+    // Replaced by the section below -- directional accuracy answers "was
+    // the call right"; this answers "would following it at the
+    // recommended size have made money," which % accuracy alone can't.
+    var exp = data.expectancy;
+    if (exp && exp.insufficientSizedData) {
+      html += '<div class="track-log-title" style="margin-top:12px">IF FOLLOWED AT RECOMMENDED SIZE</div>'
+        + '<div class="track-empty">Accumulating — ' + exp.sizedGradedCount + '/5 sized verdicts so far.</div>';
+    } else if (exp) {
+      var retColor = exp.avgSimulatedReturnPct >= 0 ? 'var(--green)' : 'var(--red)';
+      var retSign = exp.avgSimulatedReturnPct >= 0 ? '+' : '';
+      html += '<div class="track-log-title" style="margin-top:12px">IF FOLLOWED AT RECOMMENDED SIZE</div>'
+        + '<div class="trigger-row"><span class="trigger-lbl">Avg return per trade</span><span class="trigger-val" style="color:' + retColor + '">' + retSign + exp.avgSimulatedReturnPct + '%</span></div>'
+        + '<div class="trigger-row"><span class="trigger-lbl">Win rate</span><span class="trigger-val">' + exp.winRatePct + '%</span><span class="trigger-sub">' + exp.sizedGradedCount + '</span></div>';
     }
     el.innerHTML = html;
   } catch (e) {
@@ -2051,7 +2052,7 @@ const HELP_CONTENT: Record<string, string> = {
   proxy: 'Shows which sector or stock each ticker is compared against for <a class="help-glossary-link" href="#" data-term="gate 5">Gate 5</a>, and whether they’re still moving together right now.',
   heatmap: 'A color-coded snapshot of major sectors and every ticker in your watchlist, sorted by today’s % change.',
   track: 'Your own logged verdict history. Tap ✓ RIGHT or ✗ WRONG after the session closes to build a real accuracy record, broken down by gate and by ticker.',
-  scorecard: 'Automatic accuracy tracking — every verdict is checked against the real price move about 3 trading days later, nothing for you to log. Stays hidden until at least 20 verdicts are graded.',
+  scorecard: 'Automatic accuracy tracking — every verdict is checked against the real price move 24h later (and again ~5 trading days later for the strict score), nothing for you to log. Stays hidden until at least 20 verdicts are graded. "If followed at recommended size" simulates the return you\'d have realized sizing exactly as recommended — FLAT and no-size calls aren\'t counted as a trade either way, so this only reflects the calls that actually told you to take a position.',
   agitator: 'Check out a new stock idea or a rumor before it earns a spot on your watchlist — always free. Type a ticker, a company name, or paste a headline, and get one LOW/MEDIUM/HIGH read built from 6 real signals, plus a few related companies worth a look.',
   'agitator-score': 'One overall score, 0–10, averaging the 6 signals below — a fast read on how big a deal this news might be, not an exact measurement.',
   'agitator-surprise': 'How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.',

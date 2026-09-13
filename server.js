@@ -3974,6 +3974,47 @@ function tickerStatsWithFloor(rows, minGraded) {
   if (stats.gradedCount < minGraded) return { gradedCount: stats.gradedCount, insufficientData: true };
   return stats;
 }
+
+// Direct feedback (Sep 13, 2026): directional accuracy alone ("was the
+// call right") is only part of the story -- it weighs a correct-but-tiny
+// move the same as a correct-and-large one, and says nothing about what a
+// FALSE call actually cost. This answers the actual question asked --
+// "would following this in trade practice point toward profit" -- using
+// the same actual_return_pct (the ticker's own real % move over the
+// primary 24h window, already computed by the grading sweep) but signed
+// by verdict direction and scaled by the recommended SIZING_RULES size,
+// simulating the return a user would have realized had they sized and
+// held exactly as the app told them to. FLAT verdicts and NONE-sized
+// UP/DOWN calls are excluded entirely (not counted as a $0 trade) -- both
+// mean "the app told you to hold no position," which isn't a trade to
+// grade the profitability of, one way or the other.
+const SIZE_MULTIPLIER = { FULL: 1, HALF: 0.5, QUARTER: 0.25 };
+// Same "don't publish a noisy stat off a handful of samples" floor as
+// SCORECARD_TICKER_MIN_GRADED -- this slice is always a subset of the
+// overall graded count (FLAT/NONE-sized verdicts don't qualify), so it
+// needs its own floor rather than reusing SCORECARD_MIN_GRADED.
+const SCORECARD_MIN_SIZED_GRADED = 5;
+function computeExpectancyStats(rows) {
+  const sized = rows.filter(r =>
+    (r.verdict === "UP" || r.verdict === "DOWN") &&
+    SIZE_MULTIPLIER[r.size_action] &&
+    r.actual_return_pct != null
+  );
+  if (sized.length < SCORECARD_MIN_SIZED_GRADED) {
+    return { sizedGradedCount: sized.length, insufficientSizedData: true };
+  }
+  const returns = sized.map(r => {
+    const direction = r.verdict === "UP" ? 1 : -1;
+    return direction * r.actual_return_pct * SIZE_MULTIPLIER[r.size_action];
+  });
+  const avgReturnPct = returns.reduce((a, b) => a + b, 0) / returns.length;
+  const winCount = returns.filter(x => x > 0).length;
+  return {
+    sizedGradedCount:      sized.length,
+    avgSimulatedReturnPct: +avgReturnPct.toFixed(2),
+    winRatePct:            +(winCount / sized.length * 100).toFixed(1),
+  };
+}
 app.get("/scorecard", async (req, res) => {
   if (!req.tierConfig?.scorecard) {
     return res.status(403).json({ error: "Scorecard not available on this tier yet" });
@@ -3995,7 +4036,7 @@ app.get("/scorecard", async (req, res) => {
     const email = req.userEmail.trim().toLowerCase();
     const { data, error } = await supabase
       .from("verdict_log")
-      .select("grade, grade_secondary, ticker, pre_gate_state, gate1_branch, gate0_read, gate2_corroboration_state")
+      .select("grade, grade_secondary, verdict, size_action, actual_return_pct")
       .eq("user_email", email).not("graded_at", "is", null);
     if (error) { console.error("GET /scorecard:", error.message); return res.json({ insufficientData: true, gradedCount: 0 }); }
     const rows  = data || [];
@@ -4003,7 +4044,10 @@ app.get("/scorecard", async (req, res) => {
     if (stats.gradedCount < SCORECARD_MIN_GRADED) {
       return res.json({ insufficientData: true, gradedCount: stats.gradedCount });
     }
-    const result = { scope: "personal", strictPct: stats.strictPct, directionalPct: stats.directionalPct, gradedCount: stats.gradedCount };
+    const result = {
+      scope: "personal", strictPct: stats.strictPct, directionalPct: stats.directionalPct, gradedCount: stats.gradedCount,
+      expectancy: computeExpectancyStats(rows),
+    };
 
     // Per-ticker breakdown (personal/pool/graph-peers) removed Sep 2, 2026
     // -- mirror-only, see Tra's server.js for the full write-up. Replaced
@@ -4011,25 +4055,13 @@ app.get("/scorecard", async (req, res) => {
     // instead (computeHistoricalReaction, relayed through
     // /ticker/:symbol) -- available on every tier.
 
-    if (req.tierConfig?.tracker) {
-      const breakdownBy = key => {
-        const groups = {};
-        rows.forEach(r => { const k = r[key] || "(none)"; (groups[k] = groups[k] || []).push(r); });
-        return Object.fromEntries(Object.entries(groups).map(([k, rs]) => [k, computeAccuracyStats(rs)]));
-      };
-      result.breakdown = {
-        gate1Branch:  breakdownBy("gate1_branch"),
-        preGateState: breakdownBy("pre_gate_state"),
-        gate0Read:    breakdownBy("gate0_read"),
-        // Proposal 7's own spec named this as one of the breakdown
-        // dimensions ("Gate 2 corroboration state") but the write path
-        // (logVerdict's gate2CorroborationState field) was never actually
-        // read back out here until now -- added Aug 28, 2026, the same
-        // pass that made contextCorroboration compute a real value on
-        // every analysis instead of only when Session Context was typed.
-        gate2CorroborationState: breakdownBy("gate2_corroboration_state"),
-      };
-    }
+    // The by-gate1-branch/pre-gate-state/gate0-read/gate2-corroboration
+    // breakdown (shipped Aug 26-28, 2026) removed from this response Sep
+    // 13, 2026 -- mirror-only, see Tra's server.js for the full write-up.
+    // Real signal for tuning the framework's own rules, not something an
+    // end user needs on their own Scorecard card -- still fully queryable
+    // directly against verdict_log whenever it's actually needed for that
+    // purpose, just not served as a live per-request feature.
     res.json(result);
   } catch (e) {
     console.error("GET /scorecard:", e.message);

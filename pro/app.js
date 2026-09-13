@@ -3126,16 +3126,13 @@ async function renderScorecardCard() {
     }
     var strictRow = data.strictPct != null ? '<div class="trigger-row"><span class="trigger-lbl">Strict accuracy</span><span class="trigger-val">' + data.strictPct + "%</span></div>" : "";
     var html = '<div class="track-log-title">VERDICT ACCURACY (' + data.gradedCount + " graded)</div>" + strictRow + '<div class="trigger-row"><span class="trigger-lbl">Directional accuracy</span><span class="trigger-val">' + data.directionalPct + "%</span></div>";
-    if (data.breakdown) {
-      var section = function(title, key) {
-        var groups = data.breakdown[key] || {};
-        var rows = Object.keys(groups).map(function(k) {
-          var g = groups[k];
-          return '<div class="trigger-row"><span class="trigger-lbl">' + k + '</span><span class="trigger-val">' + (g.directionalPct != null ? g.directionalPct + "%" : "\u2014") + '</span><span class="trigger-sub">' + g.gradedCount + "</span></div>";
-        }).join("");
-        return rows ? '<div class="track-log-title" style="margin-top:12px">' + title + "</div>" + rows : "";
-      };
-      html += section("BY GATE 1 BRANCH", "gate1Branch") + section("BY PRE-GATE STATE", "preGateState") + section("BY GATE 0 READ", "gate0Read") + section("BY GATE 2 CORROBORATION", "gate2CorroborationState");
+    var exp = data.expectancy;
+    if (exp && exp.insufficientSizedData) {
+      html += '<div class="track-log-title" style="margin-top:12px">IF FOLLOWED AT RECOMMENDED SIZE</div><div class="track-empty">Accumulating \u2014 ' + exp.sizedGradedCount + "/5 sized verdicts so far.</div>";
+    } else if (exp) {
+      var retColor = exp.avgSimulatedReturnPct >= 0 ? "var(--green)" : "var(--red)";
+      var retSign = exp.avgSimulatedReturnPct >= 0 ? "+" : "";
+      html += '<div class="track-log-title" style="margin-top:12px">IF FOLLOWED AT RECOMMENDED SIZE</div><div class="trigger-row"><span class="trigger-lbl">Avg return per trade</span><span class="trigger-val" style="color:' + retColor + '">' + retSign + exp.avgSimulatedReturnPct + '%</span></div><div class="trigger-row"><span class="trigger-lbl">Win rate</span><span class="trigger-val">' + exp.winRatePct + '%</span><span class="trigger-sub">' + exp.sizedGradedCount + "</span></div>";
     }
     el.innerHTML = html;
   } catch (e) {
@@ -3639,7 +3636,7 @@ var HELP_CONTENT = {
   proxy: 'Shows which sector or stock each ticker is compared against for <a class="help-glossary-link" href="#" data-term="gate 5">Gate 5</a>, and whether they\u2019re still moving together right now.',
   heatmap: "A color-coded snapshot of major sectors and every ticker in your watchlist, sorted by today\u2019s % change.",
   track: "Your own logged verdict history. Tap \u2713 RIGHT or \u2717 WRONG after the session closes to build a real accuracy record, broken down by gate and by ticker.",
-  scorecard: "Automatic accuracy tracking \u2014 every verdict is checked against the real price move about 3 trading days later, nothing for you to log. Stays hidden until at least 20 verdicts are graded.",
+  scorecard: `Automatic accuracy tracking \u2014 every verdict is checked against the real price move 24h later (and again ~5 trading days later for the strict score), nothing for you to log. Stays hidden until at least 20 verdicts are graded. "If followed at recommended size" simulates the return you'd have realized sizing exactly as recommended \u2014 FLAT and no-size calls aren't counted as a trade either way, so this only reflects the calls that actually told you to take a position.`,
   agitator: "Check out a new stock idea or a rumor before it earns a spot on your watchlist \u2014 always free. Type a ticker, a company name, or paste a headline, and get one LOW/MEDIUM/HIGH read built from 6 real signals, plus a few related companies worth a look.",
   "agitator-score": "One overall score, 0\u201310, averaging the 6 signals below \u2014 a fast read on how big a deal this news might be, not an exact measurement.",
   "agitator-surprise": "How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.",
