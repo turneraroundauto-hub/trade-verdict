@@ -9387,3 +9387,115 @@ Gate's OPEN/CLOSED label on any tier during a real future holiday (or
 via a devtools clock override) and confirm it now reads CLOSED. **Needs
 the same manual update for 2028+ as the backend copy** — six files to
 touch instead of one, so don't forget any of them next time.
+
+## Backend/Frontend: Scorecard gets a profit-oriented expectancy metric, drops the per-branch breakdown (Sep 13, 2026, `Tra` PR #110 / `trade-verdict` PR #337)
+
+Preceded by a real live bug report on the Scorecard card that turned out
+to be an account mix-up, not a bug — the phone in question was signed
+into a second, genuinely-different account (`j_m_turner@outlook.com`, 15
+verdicts, 8 graded) instead of the real account with 225. Confirmed by
+querying `verdict_log` directly via the Supabase MCP connection rather
+than guessing from the UI symptom alone — `/scorecard`'s
+`.eq("user_email", email)` filter was working exactly as written the
+whole time.
+
+**The real, substantive follow-up, direct feedback once the account
+question was settled.** Three things, stated together: (1) the by-gate1-
+branch/pre-gate-state/gate0-read/gate2-corroboration breakdown (shipped
+Aug 26-28, 2026) is "unnecessary information to the user but decent for
+helping the app learn" — real calibration signal, not something an end
+user needs staring back at them on their own card; (2) directional
+accuracy alone is "showing a quarter of the story" — it weighs a
+correct-but-tiny move the same as a correct-and-large one and says
+nothing about what a wrong call actually cost; (3) the missing piece is
+whether the app can "point toward profit if the verdicts are followed in
+trade practice."
+
+**The data to answer (3) was already sitting in `verdict_log`, unused for
+this purpose.** Every graded row already carries `actual_return_pct` (the
+ticker's own real % move over the grading window, computed by
+`gradeDueRows()`) and `size_action` (the recommended `FULL`/`HALF`/
+`QUARTER`/`NONE` sizing). New `computeExpectancyStats(rows)`: filters to
+`UP`/`DOWN` verdicts with a real sizeable action, computes
+`direction × actual_return_pct × sizeMultiplier` per row (`FULL`=1,
+`HALF`=0.5, `QUARTER`=0.25) — the return a user would have realized
+sizing and holding exactly as recommended — and averages it, plus a win
+rate (share with a positive simulated return). FLAT verdicts and
+`NONE`-sized calls are excluded entirely, not counted as a $0 trade —
+both mean "the app told you to hold no position," which isn't a trade to
+grade the profitability of either way. Gated behind its own
+`SCORECARD_MIN_SIZED_GRADED = 5` floor (this slice is always a strict
+subset of the overall graded count), separate from the existing
+`SCORECARD_MIN_GRADED = 20` floor on the card as a whole.
+
+**Verified against this account's own real history before shipping, not
+a synthetic case** — pulled all 225 graded rows directly via Supabase:
+55.1% directional accuracy overall, but only 46 of those 225 ever
+recommended a real sized position. Of those 46: **+0.48% average
+simulated return per trade, 52.2% win rate.** A genuinely different, more
+complete number than the headline accuracy figure — exactly the gap the
+feedback identified. (All 44 DOWN verdicts in this account's history
+happened to carry `size_action: NONE` — the sizeable sample here is
+UP-only; not a bug, just this account's own real trigger mix so far.)
+
+**The per-branch breakdown removed from the response, not just hidden
+client-side** — `/scorecard`'s personal-scope select dropped `ticker,
+pre_gate_state, gate1_branch, gate0_read, gate2_corroboration_state`
+(none of which are needed once the breakdown itself is gone) in favor of
+`verdict, size_action, actual_return_pct`. The underlying `verdict_log`
+columns are completely untouched — the calibration question this
+breakdown existed to answer is still fully answerable via a direct query
+grouped by tier/branch/state across every user, exactly the technique
+used to confirm the new metric above, just not served as a live
+per-request feature nobody was asking to see on their own card.
+
+**Frontend (`starter/app.ts`/`pro/app.ts`, byte-identical apart from the
+pre-existing wording differences between the two tiers' help text):** the
+Scorecard card now renders "IF FOLLOWED AT RECOMMENDED SIZE" under the
+existing accuracy line — avg return per trade (green/red by sign, same
+convention as everywhere else in this app) and win rate, or an
+"Accumulating — N/5 sized verdicts so far" message below the floor. The
+`(?)` help text was also corrected to describe the real two-window
+grading (24h primary + ~5 trading days secondary) instead of the stale
+single "~3 trading days" wording left over from before the Sep 7, 2026
+two-window redesign — a pre-existing inaccuracy in text sitting directly
+next to what this pass was already editing.
+
+**A real, useful testing-methodology discovery made while verifying
+this, worth keeping alongside this file's other Playwright lessons.** A
+synthetic mouse click at a card-head's real screen coordinates
+(`page.mouse.click()`, the technique this file's own Sep 2, 2026 lesson
+already prescribes over a bare DOM `.click()`) silently did nothing —
+traced via monkey-patching `Event.prototype.stopPropagation` to log every
+call, which caught `shared/rolodex.ts`'s `initHelpBalloons()` tutorial-
+advance handler (`if (tutorialActive) { ...; e.stopPropagation(); ... }`)
+consuming the very first click on the page to advance/dismiss the
+first-run tutorial, before it ever reached the card's own accordion
+listener. Not a bug — this app genuinely auto-starts a first-run tutorial
+900ms after load unless `tv_tutorial_seen_<tier>` is already set in
+localStorage — but a real trap for any future test that primes a
+fake session without also marking the tutorial seen: the first
+interaction in the whole test silently goes to the tutorial instead of
+whatever it was meant to do, and everything after it works fine, making
+the failure look like a one-off flake rather than a systematic first-
+click issue. **Fix for future tests, not the app:** always set
+`localStorage.tv_tutorial_seen_<tier> = '1'` (matching real returning-user
+behavior) before driving any interaction in a fresh test session.
+
+**Verified end-to-end, both tiers, with the real numbers above:** real
+headless-Chromium pass (tutorial suppressed per the lesson just above)
+confirmed the card expands, a real fetch to `/scorecard` fires, and the
+rendered text reads exactly `VERDICT ACCURACY (225 graded)` /
+`Directional accuracy 55.1%` / `IF FOLLOWED AT RECOMMENDED SIZE` /
+`Avg return per trade +0.48%` / `Win rate 52.2%`, with zero leftover
+`BY GATE`/`BY PRE-GATE` breakdown headings anywhere in the DOM. `node
+--check`/`npm test` (72/72) clean in both repos; `esbuild` rebuild +
+chunk-header grep confirmed no duplicate-module regression across all
+three bundles; `tsc --noEmit` against `starter/app.ts`/`pro/app.ts`
+directly showed zero new errors beyond the known `?v=N` baseline.
+
+**Not yet verified against a live deploy** — same standing posture as
+every backend change in this file. To confirm: open the Scorecard card
+on a real signed-in Starter/Pro account with 5+ sized graded verdicts and
+confirm the new "IF FOLLOWED AT RECOMMENDED SIZE" section renders real
+numbers instead of the accumulating message.
