@@ -9929,3 +9929,120 @@ direction, and confirm a clean, otherwise-HIGH-confidence verdict in that
 same direction renders MEDIUM instead; check Render logs are silent (no
 `computeDirectionalAccuracy` errors) as real traffic exercises the new
 query path.
+
+## Backend: verdict_log gets a confidence column + same-day repeat-verdict dedup (Sep 14, 2026, `Tra` PR #114 / `trade-verdict` PR #343)
+
+Prompted by checking Render logs for `computeDirectionalAccuracy` errors
+right after the Sep 14 historical-accuracy ceiling shipped — that check
+surfaced a real gap: `verdict_log` had no `confidence` column at all, so
+neither confidence-ceiling mechanism (`applyProxyFitCeiling`, the
+same-direction `applyHistoricalAccuracyCeiling`) was observable after
+the fact. There was no way to confirm a real HIGH->MEDIUM demotion had
+actually fired in production, or hadn't, from this table alone.
+
+**Fix 1 — `confidence` column.** `supabase-ddl-patch14`: one nullable
+`confidence text` column, additive, no backfill (pre-existing rows'
+real confidence was never captured and can't be reconstructed).
+`logVerdict()`'s insert and its one call site now carry
+`confidence: parsed.confidence` — logged right before the row is
+written, after every ceiling that can demote confidence has already
+run, so this is the real, final value a verdict shipped at.
+
+**Fix 2 — same-day repeat-verdict dedup, a real gap found while
+investigating.** A direct follow-up question — how accurate is the
+Scorecard when a ticker gets analyzed several times in one morning with
+different answers each time — led to checking the actual grading code
+and the live data together. Confirmed two things:
+
+1. **"Unrealized" (ungraded) verdicts were already handled correctly.**
+   Every `/scorecard` query filters `.not("graded_at", "is", null)` — a
+   verdict that hasn't reached its 24h/5-trading-day grading window yet
+   was never counted in any accuracy stat. Not a gap.
+2. **Repeat same-day calls on one ticker were NOT deduplicated at
+   all — a real gap.** `analyzeOne()`/`analyzeAll()` fire a real
+   `/analyze` call every time with no cache check whatsoever — the
+   client's same-day verdict cache (`shared/analysis-cache.ts`) is only
+   ever consulted by the pill-tap navigation path, never by Analyze All
+   or the plain ANALYZE button. Confirmed live in real production data:
+   HOOD logged **DOWN (13:31), UP (13:56), FLAT (14:02), FLAT (14:18),
+   then UP (14:32)** — five different calls in about an hour, almost
+   certainly from Analyze All being re-run against the same ~14-ticker
+   watchlist every 15-25 minutes. Every one of those five became its
+   own independently-graded `verdict_log` row, and every Scorecard-
+   facing query counted all five equally — a ticker re-checked often
+   padded the graded pool proportionally more than one checked once,
+   even though "how often it got re-checked" has nothing to do with
+   call quality.
+
+**A related, separate asymmetry surfaced but NOT fixed this pass,
+flagged for a future decision if wanted:** `classifyVerdictReturn()`
+(which drives the headline `directionalPct` stat) grades purely off the
+verdict word vs. price outcome — it never checks `size_action`. A
+`NONE`-sized UP/DOWN call (one the app itself flagged as "don't act on
+this") still counts fully toward directional accuracy; only the
+separate `computeExpectancyStats` excludes `NONE`-sized and FLAT calls.
+So the headline "accuracy" number grades the AI's raw directional
+sentiment, while the profit-oriented number grades actual actionable
+calls — two different scopes, both surfaced as "accuracy" in different
+parts of the app. Left alone deliberately, since it's a real design
+question (should directional accuracy also require a real sizeable
+action?) rather than an obvious bug, and this pass was already scoped
+to the repeat-call dedup.
+
+**Fix, confirmed via `AskUserQuestion` before writing any code — only
+the LAST same-day call for a given ticker+user counts.** Three options
+were on the table (first call wins, last call wins, keep counting all
+of them) — last call wins was chosen, treating each same-day
+re-analysis as superseding the earlier read rather than the first
+glance being the "real" decision.
+
+`supabase-ddl-patch15`: nullable `superseded boolean not null default
+false`. New `supersedeSameDayVerdicts(ticker, userEmail)`, called at
+the top of `logVerdict()` before every insert — marks any existing,
+not-yet-superseded row for the same `(ticker, user_email)` issued on
+or after the current UTC calendar day's start as `superseded = true`.
+Rows are never deleted — the row and its eventual real grade stay in
+the table for audit/history, just excluded from aggregate stats going
+forward. Every Scorecard-facing query now adds `.eq("superseded",
+false)`: `computeHistoricalReaction` (the ticker card's TRACK RECORD
+row), `computeDirectionalAccuracy` (feeds the Sep 14 confidence ceiling
+**directly** — this bug was quietly skewing a live verdict-pipeline
+input, not just a display number), `fetchScorecardPool` (the pooled
+direction-breakdown/top-tickers stats), and both `/scorecard` queries
+(free-aggregate and personal).
+
+**Scoped to ticker+user_email+calendar-day (UTC); anonymous Free-tier
+rows are deliberately left unscoped.** A row with no `user_email` can't
+be attributed to a specific visitor — two anonymous `tier='free'` rows
+on the same ticker same day could be the same person re-checking, or
+two different people who happen to both check it, with no way to tell
+which. Same "can't attribute, don't guess" posture as every other
+anonymous-data limitation in this file. Grading itself
+(`gradeDueRows()`) is untouched — a superseded row's real price outcome
+is still legitimate, factual data; the exclusion only applies at the
+aggregate-stat read layer, not the write/grading layer.
+
+**Verified with a real simulation, not just reasoning about the SQL.**
+Since `execute_sql` (the available Supabase MCP tool) runs every query
+in a read-only transaction, there was no way to test-write against the
+real table and roll back — same limitation as every other Supabase-
+backed change in this file that needs behavioral verification. Built an
+11-assertion throwaway harness (fake in-memory Supabase client,
+`supersedeSameDayVerdicts`/`logVerdict` extracted verbatim) covering:
+the real HOOD-shaped 3-repeat case (only the last of 3 same-day calls
+stays live, all 3 rows still exist), a call from yesterday untouched by
+today's call, two different tickers for the same user staying
+independent, the same ticker for two different users staying
+independent, anonymous rows never getting superseded, and an
+already-graded earlier row correctly getting superseded with its real
+grade preserved (not wiped) — all 11 pass. `node --check` clean, real
+local boot of `Tra`'s `server.js` with dummy env vars (`HTTP 200`, zero
+crashes). `trade-verdict`'s mirror confirmed byte-identical in every
+touched region.
+
+**Not yet verified against a live deploy** — same standing posture as
+every backend change in this file. To confirm: after a same-day
+Analyze-All re-run on a real watchlist, check that only the most recent
+row per ticker has `superseded = false`; confirm `/scorecard` and the
+ticker-card TRACK RECORD numbers don't shift when a superseded row
+exists for that ticker.
