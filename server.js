@@ -2808,7 +2808,7 @@ async function computeHistoricalReaction(symbol) {
   if (cached && Date.now() - cached.time < HISTORICAL_REACTION_CACHE_MAX_AGE_MS) return cached.data;
   try {
     const { data, error } = await supabase.from("verdict_log").select("grade")
-      .eq("ticker", symbol).not("graded_at", "is", null);
+      .eq("ticker", symbol).eq("superseded", false).not("graded_at", "is", null);
     if (error) { console.error(`computeHistoricalReaction ${symbol}:`, error.message); return cached ? cached.data : null; }
     const stats = tickerStatsWithFloor(data || [], SCORECARD_TICKER_MIN_GRADED);
     const result = stats.insufficientData ? null : {
@@ -2844,7 +2844,7 @@ async function computeDirectionalAccuracy(symbol, direction) {
   if (cached && Date.now() - cached.time < HISTORICAL_REACTION_CACHE_MAX_AGE_MS) return cached.data;
   try {
     const { data, error } = await supabase.from("verdict_log").select("grade")
-      .eq("ticker", symbol).eq("verdict", direction).not("graded_at", "is", null);
+      .eq("ticker", symbol).eq("verdict", direction).eq("superseded", false).not("graded_at", "is", null);
     if (error) { console.error(`computeDirectionalAccuracy ${symbol} ${direction}:`, error.message); return cached ? cached.data : null; }
     const stats = tickerStatsWithFloor(data || [], SCORECARD_TICKER_MIN_GRADED);
     const result = stats.insufficientData ? null : {
@@ -3119,11 +3119,32 @@ async function saveProxyResolution(symbol, resolved, trigger) {
   }
 }
 
+// Mirror-only per the two-repo rule -- see Tra's server.js for the full
+// write-up (Sep 14, 2026: same-day repeat /analyze calls on one ticker
+// weren't deduped at all -- confirmed live via HOOD logging DOWN/UP/FLAT/
+// FLAT/UP within an hour). Scoped to ticker+user_email+calendar-day
+// (UTC); anonymous rows (no user_email) are never superseded.
+async function supersedeSameDayVerdicts(ticker, userEmail) {
+  if (!supabase || !userEmail) return;
+  try {
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    await supabase.from("verdict_log")
+      .update({ superseded: true })
+      .eq("ticker", ticker).eq("user_email", userEmail)
+      .eq("superseded", false)
+      .gte("issued_at", todayStart.toISOString());
+  } catch (e) {
+    console.error(`supersedeSameDayVerdicts ${ticker}:`, e.message);
+  }
+}
+
 // ─── PROPOSAL 7 — VERDICT ACCURACY SCORECARD (Aug 26, 2026) ───────────
 // Mirror-only per the two-repo rule -- Tra is the real deploy target.
 async function logVerdict(fields) {
   if (!supabase) return;
   try {
+    await supersedeSameDayVerdicts(fields.ticker, fields.userEmail || null);
     const issuedAt = new Date();
     const dueAtPrimary = addHours(issuedAt, PRIMARY_GRADING_WINDOW_HOURS);
     const dueAtSecondary = addTradingDays(issuedAt, SECONDARY_GRADING_WINDOW_TRADING_DAYS);
@@ -4139,7 +4160,8 @@ async function fetchScorecardPool() {
     return scorecardPoolCache.data;
   }
   const { data, error } = await supabase
-    .from("verdict_log").select("ticker, grade, verdict").not("graded_at", "is", null);
+    .from("verdict_log").select("ticker, grade, verdict")
+    .eq("superseded", false).not("graded_at", "is", null);
   if (error) { console.error("fetchScorecardPool:", error.message); return scorecardPoolCache.data || []; }
   scorecardPoolCache = { data: data || [], time: Date.now() };
   return scorecardPoolCache.data;
@@ -4183,7 +4205,7 @@ app.get("/scorecard", async (req, res) => {
     if (req.userTier === "free") {
       const { data, error } = await supabase
         .from("verdict_log").select("grade")
-        .eq("tier", "free").not("graded_at", "is", null);
+        .eq("tier", "free").eq("superseded", false).not("graded_at", "is", null);
       if (error) { console.error("GET /scorecard (free):", error.message); return res.json({ insufficientData: true, gradedCount: 0 }); }
       const stats = computeAccuracyStats(data || []);
       if (stats.gradedCount < SCORECARD_MIN_GRADED) return res.json({ insufficientData: true, gradedCount: stats.gradedCount });
@@ -4201,7 +4223,7 @@ app.get("/scorecard", async (req, res) => {
     const { data, error } = await supabase
       .from("verdict_log")
       .select("grade, grade_secondary, verdict, size_action, actual_return_pct")
-      .eq("user_email", email).not("graded_at", "is", null);
+      .eq("user_email", email).eq("superseded", false).not("graded_at", "is", null);
     if (error) { console.error("GET /scorecard:", error.message); return res.json({ insufficientData: true, gradedCount: 0 }); }
     const rows  = data || [];
     const stats = computeAccuracyStats(rows);
