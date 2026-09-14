@@ -9499,3 +9499,270 @@ every backend change in this file. To confirm: open the Scorecard card
 on a real signed-in Starter/Pro account with 5+ sized graded verdicts and
 confirm the new "IF FOLLOWED AT RECOMMENDED SIZE" section renders real
 numbers instead of the accumulating message.
+
+## Backend: proxy-fit correlation check generalized beyond Taiwan/Korea semis, BDC/REIT sizing capped at the category level, regime data prewarmed (Sep 13, 2026, `Tra` PR pending / `trade-verdict` PR pending)
+
+Direct continuation of the Scorecard/expectancy work above, prompted by a
+live "make recommendations for improving accuracy" ask, then a real
+data-driven investigation into the 61 UP verdicts that graded FALSE, then
+a direct correction on the fix that investigation was heading toward:
+**"how is this alone going to be fixed with a cap? there is supposed to be
+a dynamic algorithm designed especially for this purpose... something
+doesn't seem wired correctly maybe?"** — followed by an explicit design
+constraint once the real wiring gap was found: **"this fix should be
+pointing the problem not the symptoms (ticker specifics) and I want these
+symptoms to be drivers in the algorithm not a chased pipe dream."**
+
+**What the data actually showed, queried directly from `verdict_log` via
+the Supabase MCP connection, pooled across every user (360 graded
+verdicts) — not guessed at.** Overall directional accuracy 55.1%, but UP
+verdicts alone sat at 34.4% (n=61) against DOWN's 65.5% (n=29). Of the 40
+UP verdicts that graded FALSE, every single one had `pre_gate_state` and
+`gate0_read` both GREEN — meaning none of them ever tripped an override
+branch; every miss was a "clean" verdict riding whatever confidence the
+model self-assigned, with nothing server-side ever checking it against
+real price/proxy data. Four tickers (ALAB, ARCC, STWD, NU) accounted for
+41 of the 61 total UP calls at a combined 24.4% accuracy — the other
+tickers, as a group, sat at 55%. ALAB specifically: 0/8 real UP verdicts
+graded TRUE, avg return -5.14% on the misses.
+
+**The real wiring investigation, not another guess.** Read `classifyTicker()`/
+`PROXY_RULES` directly and pulled ALAB's real `proxy_regime_state` row from
+Supabase: `rolling_r: 0.49, baseline_r: 0.66, state: INTACT` — the Fixed-
+Proxy Regime Validation correlation check (Proposal 3, Aug 13, 2026) is
+genuinely running, not dead code. But `resolveProxyRegime()`'s call site
+in `refreshMarketEntry()` was gated to `isFixedTaiwanKorea` only — every
+other static category (Fintech/Crypto, BDC/REIT/Income, Biotech/Medical,
+Software/Cloud, Energy/Commodities, Defense/Aerospace) got a proxy
+assignment with **zero ongoing correlation-strength check, ever**. And
+even for the one category that WAS checked, "INTACT" only means the
+correlation hasn't degraded from its own historical baseline — never that
+the baseline was strong enough to trust in the first place. ALAB's
+0.49-0.66 rolling/baseline correlation to TSM leaves roughly half its real
+move proxy-unrelated, and nothing anywhere read that number as a fit
+problem — only the binary state label mattered.
+
+Also confirmed a real, distinct pattern in the same data: ARCC (a BDC)
+already resolves to the textbook-correct IWM+SPY proxy via a direct
+ticker-list match — the classification itself isn't wrong — yet sits at
+18.2% UP accuracy over 11 real verdicts. BDCs/REITs are rate/yield-driven,
+not catalyst-driven; they rarely produce a move large enough to clear even
+the MARGINAL classification band, no matter how correct their proxy
+assignment is. That's a property of the CATEGORY, not a wiring defect —
+confirmed by checking, not assumed.
+
+**What was deliberately NOT done, per the direct "point at the problem,
+not the symptom" instruction:** no `NU`-specific reclassification (its
+Fintech/Crypto → BTC+QQQ proxy assignment stays as-is; if that correlation
+is genuinely weak, the generalized check now catches it the same way it
+would for any other ticker, rather than adding another one-off exception
+to a list that already reads as ad hoc); no change to `resolveGate5`'s
+own AI/Semiconductor-only BROKEN-regime dynamic-resolution fallback (that
+stays scoped to the one category its paired forceDown-authority exemption
+was built around — widening it would be a real, separate behavior change
+nothing here asked for).
+
+**Three fixes shipped, all reusing existing mechanisms:**
+
+1. **`resolveProxyRegime()` generalized from "Taiwan/Korea semis only" to
+   every static `PROXY_RULES` category.** `regimeValidation()` itself was
+   always generic (any two close series) — it just never got called for
+   anything but the category it launched with. Now takes a `proxySymbol`
+   param (the classification's own first proxy symbol — a multi-symbol
+   proxy like "USO + GLD" correlates against its first symbol only, same
+   simplification `evaluateProxyStatus()` already makes averaging
+   multi-symbol % moves) instead of hardcoding `"TSM"`. `refreshMarketEntry()`
+   now calls it for any ticker with a static classification (`staticRule
+   !== DEFAULT_PROXY`), not just `isFixedTaiwanKorea`. `proxy_regime_state`
+   gained a `proxy_symbol` column (patch12, applied directly via Supabase
+   MCP) so a cached row's correlation can be checked against the proxy it
+   was actually computed for — a later reclassification can't silently
+   reuse a correlation computed against a now-wrong instrument. Existing
+   rows (proxy_symbol NULL) self-heal on next check, no backfill needed.
+2. **A new post-parse confidence-ceiling clamp, `ah.applyProxyFitCeiling()`**,
+   applied once in `/analyze` after every branch that can set confidence —
+   including a "clean," no-override verdict, which is exactly ALAB's real
+   failure shape. Below `PROXY_FIT_FLOOR` (0.5), a HIGH confidence downgrades
+   to MEDIUM regardless of which branch (or none) produced it; MEDIUM/LOW
+   are never touched — a real disagreement stays meaningful even against a
+   weak proxy, and this shouldn't make LOW more common than it already is.
+   Deliberately NOT threaded into `priceConfirmedConfidence()` itself —
+   that function only ever fires on specific override branches, so it
+   structurally can't reach a clean verdict's self-assigned confidence at
+   all, which is the actual gap that let ALAB's failures through invisibly.
+3. **`BDC/REIT/Income` gets a category-level `sizingOverride: "QUARTER"`**
+   directly on the `PROXY_RULES` entry — enforced by the exact same
+   `rule.sizingOverride === "QUARTER"` check Patch 2's fundamentals-
+   speculative tier already uses, zero new code path. Capped at
+   classification time, not learned per-ticker from a live track record
+   (the earlier, rejected design for this same problem) — a brand-new
+   BDC/REIT ticker is protected on day one, and any ticker that resolves
+   into this category via keyword match (not just the hand-listed ones)
+   gets it automatically.
+
+**A fourth piece, folded in mid-session on a direct follow-up question**
+("what if we had a separate node that helped fetch data quicker... and
+created correlation tables that feed this mechanism?"). Recommended
+against a real standalone service — the correlation check is already
+cheap and off the hot request path (weekly cache) — in favor of the much
+smaller version of the same idea: **`runRegimePrewarmSweep()`**, a daily
+in-process sweep (same `setInterval` pattern as the existing
+`runVerdictGradingSweep()` — no new deploy, no new cost) that walks every
+ticker `gx.PROXY_RULES` itself names and proactively warms its regime
+cache ahead of demand, so a ticker nobody's checked recently still has a
+fresh correlation number by the time a real request needs it. Reads the
+ticker list directly off the real classification data (`gx.PROXY_RULES`)
+rather than a second, hand-maintained copy that could drift out of sync.
+
+**`classifyTicker()`/`PROXY_RULES`/`DEFAULT_PROXY` moved from `server.js`
+into `gates-extended.ts`**, content unchanged, specifically so the prewarm
+sweep (and anything else that needs the real classification data) can
+require it directly instead of duplicating the ticker lists. Every
+existing call site in `server.js` keeps working unchanged via three local
+aliases (`const PROXY_RULES = gx.PROXY_RULES`, etc.) — no call site had to
+be touched.
+
+**Verified thoroughly, given this is Gate 5/confidence logic with a real
+incident history (the Aug 13, 2026 forceDown-unreachable bug lived in
+exactly this area):** `classifyTicker`/`PROXY_RULES` and the new
+`applyProxyFitCeiling()` both got real test coverage (13 new cases, 85/85
+passing total, up from 72) — including the exact real ALAB number
+(rolling_r 0.49 → MEDIUM), the exact floor boundary, a null-regime case,
+and confirmation that MEDIUM/LOW are never touched. A real local boot test
+of `Tra`'s actual `server.js` (dummy env vars, real `npm install`) starts
+clean and serves a request — confirmed via `curl`, not just "no crash in
+the log." `trade-verdict`'s mirror confirmed identical in every touched
+region before editing (only header-comment differences, per the
+established pattern) and passes `node --check` + the full test suite;
+this repo's own `server.js` couldn't be boot-tested directly (no
+`express` in this repo's `node_modules` — it's mirror-only, never the
+real deploy target, consistent with every other entry in this file).
+
+**Not yet verified against a live deploy** — same standing posture as
+every backend change in this file. To confirm: re-analyze ALAB after
+`Tra` redeploys and confirm confidence caps at MEDIUM even on an otherwise
+clean UP call; re-analyze ARCC/STWD and confirm sizing never exceeds
+QUARTER; check Render logs for `runRegimePrewarmSweep` firing on its daily
+interval and for real `proxy_symbol`-populated rows accumulating in
+`proxy_regime_state` across categories beyond AI/Semiconductor.
+
+## Backend/Frontend: Candidate Probation — a broken proxy's replacement has to earn trust, not inherit it (Sep 13, 2026)
+
+Direct follow-up, same session as the proxy-fit generalization above, to
+a question about whether that work actually replaces a broken proxy or
+just downgrades confidence around it. Answer at the time: AI/Semiconductor
+already gets a real replacement via the Dynamic Proxy Resolution
+Algorithm (Patch 2); every other category, once the regime check above
+was widened to run for them too, only ever got a confidence clamp — the
+algorithm never re-ran for them. Direct instruction, verbatim: **"I think
+its important that if a ticker breaks proxy there should be a 'search for
+new' placeholder that would need to earn sustainable correlation."**
+
+**What this needed was already half-built.** `resolveFixedProxyBreak()`
+(Patch 2, unmodified by this change) already runs the real search and
+returns a `tier` (`primary`/`secondary`/`fundamentals-confirmed`/
+`fundamentals-speculative`) the moment a category's regime is BROKEN. The
+gap was entirely on the trust side: a fresh `'primary'`-tier find was
+reported — and granted real forceDown authority — off one snapshot, with
+nothing checking whether that candidate's correlation actually held up
+over time. "Search for new" was already happening; "earn sustainable
+correlation" was the missing half.
+
+**A wrong assumption caught before it shaped the fix.** The obvious
+worry going in was that granting a fresh candidate forceDown authority
+this easily might be coupled to `FORCEDOWN_EXEMPT`/`TAIWAN_PROXY`/
+`GATE_5_KOREA` — the STATIC fixed-proxy registry gating which categories
+get forceDown authority at all. Reading `/analyze`'s real `gate5Auth`
+computation directly (not assumed from an earlier, wrong note already
+corrected once above) confirmed this is not the case: the dynamic-
+resolution path's authority is governed entirely by `rule.forceDownAuthority`,
+computed generically inside `buildDynamicProxyRule()` regardless of
+category, and is completely independent of that static registry. This
+meant probation could be built as a pure trust-gate on the dynamic path
+alone — no risk of it interacting with, or needing changes to, the
+static-category exemption list.
+
+**Implementation, reusing `proxy_resolution` rather than building new
+machinery** (`server.js`, both repos):
+- `PROXY_CANDIDATE_REQUIRED_CONFIRMS = 2` — the number of consecutive
+  checks a fresh `'primary'`-tier result must clear
+  `resolveFixedProxyBreak()`'s own primary correlation floor, with the
+  SAME symbol each time, before it's trusted as a promoted `"primary"`
+  proxy.
+- `GATE5_CANDIDATE_RECHECK_MAX_AGE_MS = 7 days` — a candidate still on
+  probation is re-checked weekly, not the `GATE5_RECOMPUTE_MAX_AGE_MS`
+  90-day quarterly cadence a promoted/trusted proxy settles into.
+  `getCachedProxyResolution()` picks the cadence per-row via
+  `proxyCandidatePromoted(data.candidate_confirms)`.
+- `proxy_resolution` gained `candidate_confirms integer not null default 0`
+  and `candidate_since timestamptz` (`supabase-ddl-patch13-proxy-candidate-
+  probation.sql`, applied directly via the Supabase MCP connection,
+  confirmed zero `anon`/`authenticated` grants on the standard
+  grants-check query per this file's established rule).
+- `saveProxyResolution()` now reads the prior row before upserting and
+  computes the streak: a fresh `'primary'` result with the SAME
+  `proxy_symbol` as last time increments the streak; a DIFFERENT symbol
+  (the candidate flipped) resets it to 1, not 0 — it's still a fresh,
+  first-ever confirm for that new symbol; and dropping below the primary
+  floor (regressing to `'secondary'` or worse) resets it to 0 outright,
+  never just pausing it — a later re-clear of the same symbol restarts
+  the streak from 1, it doesn't resume the old count. Returns
+  `{candidateConfirms, candidateSince}` so the caller can pass it straight
+  into `buildDynamicProxyRule()` without a second read.
+- `buildDynamicProxyRule(resolved, candidateConfirms)` gained a new first
+  branch: a `'primary'` result that hasn't cleared
+  `PROXY_CANDIDATE_REQUIRED_CONFIRMS` yet reports as a new tier,
+  `"candidate"` — `forceDownAuthority: false`, `sizingOverride: "QUARTER"`,
+  a rationale describing "N/2 consecutive confirms" and that it "trades
+  on Gate 0 + its own price-action gates alone until promoted." Only once
+  promoted does it fall through to the existing `'primary'`/`'secondary'`
+  branch and regain real forceDown authority.
+- Both `resolveGate5()` call sites (the cached-row path and the
+  freshly-computed path) now thread the streak through:
+  `buildDynamicProxyRule({...}, cached.candidate_confirms)` and
+  `buildDynamicProxyRule(resolved, saved?.candidateConfirms)`.
+
+**Frontend (Pro only — the only tier with a Proxy Resolution Explorer to
+show a tier badge in):** `pro/app.ts`'s two `tierColor` maps
+(`analystViewHTML`'s per-card badge, `renderProxyExplorer`'s list rows)
+gained `candidate: 'var(--purple)'` — distinct from `primary`'s green
+(trusted) and `secondary`'s amber (informational-only), since a
+candidate's correlation is objectively stronger than "secondary" tier,
+just not yet trusted with authority. `TIER_RANK` gained `candidate: 1`,
+shifting `secondary`/`fundamentals-confirmed`/`fundamentals-speculative`
+down one rank each, so the Explorer's tier-sort still orders candidates
+between trusted primaries and merely-informational secondaries.
+
+**Verified:** a 14-case throwaway simulation (extracted, not
+reimplemented — the real `saveProxyResolution`/`buildDynamicProxyRule`
+logic against a fake in-memory table) covering: a fresh candidate
+reporting as `"candidate"` with no forceDown authority and QUARTER
+sizing; promotion on the 2nd consecutive same-symbol confirm, regaining
+forceDown authority; staying promoted on continued confirmation; a
+different candidate symbol resetting the streak to 1 (not 2); a
+regression below the primary floor resetting the streak to 0, with a
+later re-clear restarting at 1 rather than resuming; and confirmation
+that `secondary`/`fundamentals-*` tiers are completely unaffected by any
+of this. `node --check` and the full test suite (85/85, up from 72) pass
+in both repos; `Tra`'s actual `server.js` boots cleanly with dummy env
+vars and serves a request. `trade-verdict`'s mirror confirmed
+byte-identical to `Tra`'s in every touched region (diffed directly, only
+header-comment wording differs, per this file's established mirror
+convention) before and after editing. Pro's bundle (`node
+esbuild.config.mjs`) rebuilds with only `pro/app.js` changing content —
+confirmed via `git diff --stat` and the usual chunk-header grep (10
+shared modules, no duplicate-module regression) — `pro/index.html`'s
+`?v=` bumped (59→60) accordingly. `starter/app.js`/`app.js` (Free)
+untouched, since neither has a Proxy Resolution Explorer to show a tier
+color in.
+
+**Not yet verified against a live deploy** — same standing posture as
+every backend change in this file. To confirm: force a regime-BROKEN
+recompute on a non-AI/Semiconductor ticker (e.g. via `pre_gate_hard_trigger`)
+and confirm the resolved proxy first reports as `"candidate"` tier
+(purple badge on Pro, no forceDown authority, QUARTER sizing) rather
+than immediately trusted, then re-check weekly and confirm it promotes
+to `"primary"` (green badge, forceDown authority restored) after the
+same symbol clears the floor a second consecutive time; check
+`proxy_resolution` for real `candidate_confirms`/`candidate_since` values
+accumulating.

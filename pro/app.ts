@@ -446,7 +446,7 @@ function analystViewHTML(sym: string, result: AnalyzeResponse | null, td: Ticker
   var proxyHtml = '';
   if (rule && rule.proxy) {
     var tier = rule.tier || 'primary';
-    var tierColor: Record<string, string> = { primary: 'var(--green)', secondary: 'var(--amber)', 'fundamentals-confirmed': 'var(--blue)', 'fundamentals-speculative': 'var(--red)' };
+    var tierColor: Record<string, string> = { primary: 'var(--green)', candidate: 'var(--purple)', secondary: 'var(--amber)', 'fundamentals-confirmed': 'var(--blue)', 'fundamentals-speculative': 'var(--red)' };
     var tc = tierColor[tier] || 'var(--ink-dim)';
     proxyHtml = `<div class="analyst-row"><span class="analyst-lbl">PROXY TIER</span><span class="proxy-tier-badge" style="color:${tc};border-color:${tc}55;background:${tc}11">${tier.toUpperCase().replace(/-/g, ' ')}</span></div>`
       + `<div class="analyst-note">${rule.proxy.name}${rule.dynamicallyResolved ? ' — dynamically resolved (Gate 5)' : ' — fixed sector proxy'}</div>`;
@@ -1163,7 +1163,7 @@ function classifyCoherence(tickerPct: number, proxyPct: number): { label: string
 }
 function tickerLink(symbol: string): string { return `<a href="${tickerHref(symbol)}" target="_blank" class="proxy-verify-link">${symbol}</a>`; }
 
-var TIER_RANK: Record<string, number> = { primary: 0, secondary: 1, 'fundamentals-confirmed': 2, 'fundamentals-speculative': 3 };
+var TIER_RANK: Record<string, number> = { primary: 0, candidate: 1, secondary: 2, 'fundamentals-confirmed': 3, 'fundamentals-speculative': 4 };
 var COHERENCE_RANK: Record<string, number> = { TRACKING: 0, 'LAG RISK': 1, DECOUPLING: 2 };
 var proxySort: { key: string | null; dir: number } = { key: null, dir: 1 };
 
@@ -1226,7 +1226,7 @@ export async function renderProxyExplorer(force?: boolean): Promise<void> {
     if (proxySort.key === 'level') sortByRank(rows, (r) => r.tier != null ? TIER_RANK[r.tier] : null, proxySort.dir);
     else if (proxySort.key === 'coherence') sortByRank(rows, (r) => r.coherence ? COHERENCE_RANK[r.coherence.label] : null, proxySort.dir);
 
-    var tierColor: Record<string, string> = { primary: 'var(--green)', secondary: 'var(--amber)', 'fundamentals-confirmed': 'var(--blue)', 'fundamentals-speculative': 'var(--red)' };
+    var tierColor: Record<string, string> = { primary: 'var(--green)', candidate: 'var(--purple)', secondary: 'var(--amber)', 'fundamentals-confirmed': 'var(--blue)', 'fundamentals-speculative': 'var(--red)' };
     body!.innerHTML = rows.map((r) => {
       if (!r.rule || !r.rule.proxy) return `<div class="proxy-item"><div class="proxy-item-head"><span class="proxy-ticker">${tickerLink(r.ticker)}</span><span class="analyst-val" style="color:var(--ink-dim)">unavailable</span></div></div>`;
       var tier = r.tier || 'primary';
