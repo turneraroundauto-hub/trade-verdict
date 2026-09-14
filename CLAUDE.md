@@ -9766,3 +9766,87 @@ to `"primary"` (green badge, forceDown authority restored) after the
 same symbol clears the floor a second consecutive time; check
 `proxy_resolution` for real `candidate_confirms`/`candidate_since` values
 accumulating.
+
+## Ops: Neo4j Aura Professional trial paused — migrated to a permanent Aura Free instance (Sep 14, 2026)
+
+While doing a live-verification pass on the Sep 13, 2026 proxy-fit fixes
+above (real Supabase queries, real Render logs, real MCP-connector calls
+against production — see the pattern established once the `Trade_Tribunal`
+MCP connector shipped Sep 7, 2026), found Tra's Neo4j sync had been
+silently failing since sometime between **Sep 7 17:56 UTC** (last known-
+good `Neo4j schema: ok`) and **Sep 13 21:07 UTC** (first confirmed
+`syncClassificationToGraph`/`syncCorrelationToGraph` failure on real
+traffic) — a ~6-day gap with no Tra deploy or restart in between, so
+nothing on Tra's own side had changed. Every failure logged the same
+symptom: `Could not perform discovery. No routing servers available`,
+with a completely empty routing table (`routers:[], readers:[], writers:[]`)
+— not an auth error, not a network-block error, the exact shape a driver
+sees when the database it's asking for simply isn't running.
+
+**A real correction made along the way, worth keeping as its own
+lesson.** First hypothesis (auto-paused for inactivity/cost-control) was
+floated without direct visibility into the Aura console — and got pushed
+back on directly ("I don't see anywhere that it's paused and you're
+connected to it so run a check"), which also surfaced a real
+misstatement on this session's part: there is **no Neo4j MCP connector in
+this environment at all** (confirmed via `ToolSearch`) — every prior and
+current observation of Neo4j's health has only ever come indirectly, via
+**Tra's own server logs on Render** showing *its* driver's connection
+attempts failing, never a direct connection from any Claude session to
+Neo4j itself. Once Mr. T checked the actual Aura console directly, the
+instance genuinely was showing **PAUSED**, with "2 days left" on the
+trial — confirming the original hypothesis was right in substance, but it
+should have been stated as unconfirmed until someone actually looked, not
+offered as a likely explanation on its own. Checking the real state
+directly is what resolved the ambiguity, not more reasoning about the
+routing-table symptom.
+
+**Why moving off the trial cost nothing in code.** `neo4j-graph.js`/
+`neo4j-seed.js` were audited directly (grep for `apoc.`, `gds.`, `USE `,
+`SHOW DATABASES`, `dbms.`, vector/fulltext indexes — zero matches) back
+when the "are you building inside Neo4j within the free tier features?"
+question first came up — confirmed the whole schema (plain uniqueness
+constraints, plain indexes, single default database via `driver.session()`
+with no `database` param) is Community/Free-tier-compatible. Migrating
+the paused **AuraDB Professional trial** (`Tra`, id `c5605db2`) to a
+permanent **AuraDB Free** instance was therefore a pure credential swap,
+zero code changes.
+
+**What actually shipped:**
+- Created a new AuraDB Free instance in the same Aura project. `NEO4J_URI`/
+  `NEO4J_USERNAME`/`NEO4J_PASSWORD` updated directly on Tra's Render
+  Environment tab (never pasted into chat — same standing credential rule
+  as every other integration in this file). The env-var save triggered an
+  automatic redeploy; confirmed via Render logs, `Neo4j schema: ok` at
+  **05:11:51 UTC** — the first successful Neo4j connection since Sep 7.
+- **Reseed, same one-off-cron-job technique as the original Sep 2, 2026
+  live seeding** (this sandbox has no way to hold real Neo4j credentials
+  or reach Aura directly, same as it never could): a temporary Render Cron
+  Job (`neo4j-reseed-once`, `node neo4j-seed.js`, scheduled for a literal
+  Feb 31 so it can never auto-fire — manual-trigger only), with the new
+  instance's three credentials added directly to *that job's own*
+  Environment tab (cron jobs don't inherit env vars from other services).
+  Triggered manually once; the run log confirmed schema ensured, all 12
+  companies and 10 relationships upserted (the TSMC semiconductor cluster
+  + the BlackBerry/automotive cluster from the Sep 1-2, 2026 saga), and
+  both round-trip verification blocks passing (**"OK — all 6 relationships
+  confirmed round-trip through Neo4j"** for TSM, **"OK — all 3
+  relationships confirmed round-trip through Neo4j"** for BB). Cron job
+  deleted manually afterward via the Render dashboard once it had served
+  its one purpose — same as last time, the Render MCP toolset has no
+  delete/destroy tool for any resource (confirmed again), only
+  create/list/get/metrics/env-update.
+
+**Left open, not urgent:** the old paused Professional trial instance
+(`c5605db2`) still exists in the Aura console and can be deleted whenever
+convenient — a paused instance isn't accruing further cost, so there's no
+rush, just a real cleanup item. This is a new instance from the one seeded
+Sep 2, 2026, so there is no data-migration concern — the new Free instance
+was reseeded from the same source (`neo4j-seed.js`) rather than copied
+from the old one.
+
+**Confirmed live, not just deployed:** this is the first time since the
+Sep 7-13 gap that a real classification/correlation sync should succeed
+on real traffic — watch Render logs for `syncClassificationToGraph`/
+`syncCorrelationToGraph` lines with no trailing error message (they only
+ever log on failure; a clean sync is silent) to confirm it's holding.
