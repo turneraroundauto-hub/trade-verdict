@@ -9850,3 +9850,82 @@ Sep 7-13 gap that a real classification/correlation sync should succeed
 on real traffic — watch Render logs for `syncClassificationToGraph`/
 `syncCorrelationToGraph` lines with no trailing error message (they only
 ever log on failure; a clean sync is silent) to confirm it's holding.
+
+## Backend: same-direction historical-accuracy confidence ceiling — pooled grading becomes an input to the verdict, not just a readout (Sep 14, 2026)
+
+Direct follow-up to a full live sweep confirming every Sep 13, 2026 fix
+(proxy-fit ceiling, BDC/REIT sizing cap, regime prewarm, Candidate
+Probation) was genuinely wired and running in production. That sweep's
+own honest conclusion named one real gap: `verdict_log`'s grading data
+feeds two real displays (the ticker card's TRACK RECORD row, the
+Scorecard's expectancy metric) but never the verdict pipeline itself —
+Candidate Probation and the proxy-fit ceiling are the only two mechanisms
+that self-correct from anything, and both are correlation-driven, not
+accuracy-driven. Direct instruction: close that gap — introduce pooled
+per-ticker accuracy as a real input to the verdict, not just a readout.
+
+**Scoped via `AskUserQuestion` before writing any code, given how
+consequential a verdict-logic change this is.** Confirmed: confidence-cap
+only, the same one-step `HIGH → MEDIUM` demotion shape as the Sep 13
+proxy-fit ceiling — explicitly **not** a sizing cap and **not**
+suppression to FLAT. A stronger intervention was considered and rejected
+specifically because of a "stopped clock" risk: forcing a ticker to FLAT
+whenever its own history looks bad would mean it could never ship a real
+verdict in that direction again to prove it's improved, since nothing
+would ever get graded going forward to correct the record.
+
+**A real design gap found before writing the mechanism, not assumed away.**
+`computeHistoricalReaction()` (Sep 1-2, 2026, feeds the two existing
+display consumers) pools **all** graded verdicts for a ticker regardless
+of direction — which is exactly why ALAB's real problem (0/8 UP verdicts
+graded TRUE) doesn't show up as alarming in a direction-agnostic average
+that also includes its DOWN/FLAT history. The new mechanism has to compare
+against the SAME direction as the verdict being shipped, or it can't
+actually catch the failure shape that motivated it in the first place.
+
+**Shipped (`Tra` + `trade-verdict`, same PR pattern, function names, and
+mirror discipline as every gate-logic change in this file):**
+- `computeDirectionalAccuracy(symbol, direction)` — a new function/cache,
+  deliberately kept separate from `computeHistoricalReaction()` rather than
+  modifying it in place, since two already-shipped display features depend
+  on that one staying direction-agnostic. Same shape, same
+  `SCORECARD_TICKER_MIN_GRADED` (5) floor, same fail-safe-to-stale-cache
+  posture — queries `verdict_log` scoped to `.eq("verdict", direction)`
+  in addition to the existing ticker filter.
+- `ah.applyHistoricalAccuracyCeiling(confidence, sameDirectionPct)`
+  (`analyze-helpers.ts`) — `HISTORICAL_ACCURACY_FLOOR_PCT = 40`, same
+  "reasonable-but-arbitrary, revisit once real data accumulates" posture
+  as `PROXY_FIT_FLOOR` and every other threshold in this file seeded from
+  judgment rather than a data fit. Only ever demotes a clean `HIGH`; never
+  touches `MEDIUM`/`LOW`, sizing, or the verdict direction — same one-
+  directional discipline as the proxy-fit ceiling right above it.
+- Wired into `/analyze` immediately after the proxy-fit ceiling call,
+  gated behind `parsed.confidence === "HIGH" && (parsed.verdict === "UP"
+  || parsed.verdict === "DOWN")` — the async Supabase query only fires
+  when the result could actually matter, so the common non-HIGH case
+  costs zero extra load.
+
+**Verified against real production data, not just simulation.** Pulled
+ALAB's actual UP-direction graded rows directly from Supabase (8 rows, all
+`FALSE`) and ran them through the real, extracted `tickerStatsWithFloor`/
+`computeAccuracyStats` logic (not reimplemented) end to end: computes
+`{directionalPct: 0, gradedCount: 8}`, and feeding that into the real
+`applyHistoricalAccuracyCeiling('HIGH', 0)` correctly returns `MEDIUM` —
+confirming this mechanism would catch ALAB's exact real failure shape the
+moment it self-assigns a clean HIGH again. Also: 13 new unit-test cases
+(both repos, 92/92 passing total, up from 85 — the real floor boundary,
+insufficient-data safety, and confirmation that MEDIUM/LOW/sizing/
+verdict-direction are never touched); `node --check` clean on both
+`server.js` and the compiled `analyze-helpers.js` in both repos; a real
+local boot of `Tra`'s actual `server.js` (dummy env vars) confirmed via a
+live `curl` — clean start, real HTTP response, zero crashes.
+`trade-verdict`'s mirror confirmed byte-identical to `Tra`'s in every
+touched region via direct diff before and after editing.
+
+**Not yet verified against a live deploy** — same standing posture as
+every backend change in this file. To confirm: watch for a ticker with 5+
+same-direction graded verdicts and a genuinely poor track record in that
+direction, and confirm a clean, otherwise-HIGH-confidence verdict in that
+same direction renders MEDIUM instead; check Render logs are silent (no
+`computeDirectionalAccuracy` errors) as real traffic exercises the new
+query path.
