@@ -42,16 +42,28 @@ export function getAccuracyLog() { return getLog(); }
 // redundant with the pooled Scorecard stats now sitting right above this
 // in the same card body. What's left is the one thing the pooled side
 // can't show -- your own streak and your own recent calls -- trimmed to
-// the last 3 with the rest tucked behind a "view full log" toggle (same
-// expand-btn/arrow pattern already used for Analyst View) rather than a
-// second full list competing with the pooled section for space.
+// the last 3 with the rest tucked behind a "View full log" link rather
+// than a second full list competing with the pooled section for space.
+//
+// Rebuilt Sep 2026 to actually match the approved sandbox mockup (a live
+// build had drifted from it -- direct feedback, screenshot comparison):
+// the streak renders inline in the "YOUR LOG" divider row itself (via
+// #trackStreakInline, a sibling element outside #track-body) as a flame +
+// number + small square pips, not a separate labeled row; each log entry
+// shows its verdict as a colored pill + a plain checkmark instead of
+// "RIGHT"/"WRONG" text, with an abbreviated month/day date, not a full
+// timestamp; and the expand affordance is a plain underlined link
+// ("View full log (N) →"), not a bordered button.
 export function renderTrackRecord() {
     var log = getLog();
     var body = document.getElementById('track-body');
     if (!body)
         return;
+    var streakEl = document.getElementById('trackStreakInline');
     if (!log.length) {
         body.innerHTML = '<div class="track-empty">No trades logged yet.<br>After each verdict tap ✓ RIGHT or ✗ WRONG.</div>';
+        if (streakEl)
+            streakEl.innerHTML = '';
         return;
     }
     var streak = 0, streakType = null;
@@ -63,34 +75,35 @@ export function renderTrackRecord() {
         else
             break;
     }
-    var streakLabel = streak > 1 ? streak + ' ' + (streakType ? '✓' : '✗') + ' streak' : '&mdash;';
     var streakColor = streakType ? 'var(--green)' : 'var(--red)';
-    var pips = log.slice(-5).map(function (e) { return '<div class="trend-pip" style="background:' + (e.correct ? 'var(--green)' : 'var(--red)') + '"></div>'; }).join('');
+    var streakLabel = streak > 1 ? '🔥' + streak : '&mdash;';
+    var pips = log.slice(-5).map(function (e) { return '<span class="track-streak-pip" style="background:' + (e.correct ? 'var(--green)' : 'var(--red)') + '"></span>'; }).join('');
+    if (streakEl)
+        streakEl.innerHTML = '<span style="color:' + streakColor + '">' + streakLabel + '</span><span class="track-streak-pips">' + pips + '</span>';
+    var vDim = function (v) { return v === 'UP' ? 'var(--green-dim)' : v === 'DOWN' ? 'var(--red-dim)' : 'var(--amber-dim)'; };
+    var vColor = function (v) { return v === 'UP' ? 'var(--green)' : v === 'DOWN' ? 'var(--red)' : 'var(--amber)'; };
     var tradeRow = function (e) {
-        var vColor = e.verdict === 'UP' ? 'var(--green)' : e.verdict === 'DOWN' ? 'var(--red)' : 'var(--amber)';
         var rColor = e.correct ? 'var(--green)' : 'var(--red)';
-        var t = new Date(e.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' });
-        return '<div class="track-log-item"><span class="tli-ticker"><a class="ticker-a" href="' + tickerHref(e.ticker) + '" target="_blank">' + e.ticker + '</a></span><span class="tli-verdict" style="color:' + vColor + '">' + e.verdict + '</span><span class="tli-result" style="color:' + rColor + '">' + (e.correct ? '✓ RIGHT' : '✗ WRONG') + '</span><span class="tli-time">' + e.session + ' ' + t + ' ET</span></div>';
+        var d = new Date(e.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' });
+        return '<div class="track-log-item"><span class="tli-ticker"><a class="ticker-a" href="' + tickerHref(e.ticker) + '" target="_blank">' + e.ticker + '</a></span><span class="tli-pill" style="background:' + vDim(e.verdict) + ';color:' + vColor(e.verdict) + '">' + e.verdict + '</span><span class="tli-check" style="color:' + rColor + '">' + (e.correct ? '✓' : '✗') + '</span><span class="tli-date">' + d + '</span></div>';
     };
     var reversed = [].concat(log).reverse();
     var visibleRows = reversed.slice(0, 3).map(tradeRow).join('');
     var extra = reversed.slice(3, 8);
     var extraHTML = extra.length
-        ? '<button type="button" class="expand-btn" id="trackLogMoreBtn"><span>VIEW FULL LOG (' + log.length + ')</span><span class="analyst-arrow" id="trackLogMoreArrow">▼</span></button>'
+        ? '<button type="button" class="view-full-log-link" id="trackLogMoreBtn">View full log (' + log.length + ') &rarr;</button>'
             + '<div id="trackLogMoreBody" style="display:none">' + extra.map(tradeRow).join('') + '</div>'
         : '';
-    body.innerHTML = '<div class="record-streak-row"><span class="track-stat-lbl" style="margin:0">STREAK</span><span style="font-family:var(--mono);font-size:13px;font-weight:700;color:' + streakColor + '">' + streakLabel + '</span><span class="trend-bar" style="margin:0 0 0 auto">' + pips + '</span></div>'
-        + visibleRows + extraHTML;
+    body.innerHTML = visibleRows + extraHTML;
     var moreBtn = document.getElementById('trackLogMoreBtn');
     if (moreBtn)
         moreBtn.addEventListener('click', function () {
-            var b = document.getElementById('trackLogMoreBody'), a = document.getElementById('trackLogMoreArrow');
+            var b = document.getElementById('trackLogMoreBody');
             if (!b)
                 return;
             var open = b.style.display === 'none';
             b.style.display = open ? 'block' : 'none';
-            if (a)
-                a.textContent = open ? '▲' : '▼';
+            moreBtn.innerHTML = open ? 'Hide full log &larr;' : 'View full log (' + log.length + ') &rarr;';
         });
 }
 window.logResult = logResult;

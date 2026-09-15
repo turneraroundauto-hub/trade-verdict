@@ -1200,25 +1200,29 @@ async function renderScorecardCard(): Promise<void> {
     // Strict accuracy dropped (Sep 2026, direct feedback -- mirror of
     // pro/app.ts's own comment). `data.strictPct` is still on the wire,
     // unread here on purpose.
-    var html = '<div class="track-log-title">VERDICT ACCURACY (' + data.gradedCount + ' graded)</div>'
-      + '<div class="trigger-row"><span class="trigger-lbl">Directional accuracy</span><span class="trigger-val">' + data.directionalPct + '%</span></div>';
-    // BY TICKER breakdown removed Sep 2, 2026; the by-gate1-branch/
-    // pre-gate-state/gate0-read/gate2-corroboration breakdown removed Sep
-    // 13, 2026 -- mirror of pro/app.ts's own comment. Replaced by the
-    // section below -- directional accuracy answers "was the call
-    // right"; this answers "would following it at the recommended size
-    // have made money," which % accuracy alone can't.
+    //
+    // Rebuilt to match the approved "Unified Stack" sandbox mockup, which
+    // a first build had drifted from (direct screenshot feedback) --
+    // mirror of pro/app.ts's own rebuild, same reasoning.
     var exp = data.expectancy;
+    var retTileHTML = '';
     if (exp && exp.insufficientSizedData) {
-      html += '<div class="track-log-title" style="margin-top:12px">IF FOLLOWED AT RECOMMENDED SIZE</div>'
-        + '<div class="track-empty">Accumulating — ' + exp.sizedGradedCount + '/5 sized verdicts so far.</div>';
+      retTileHTML = '<div class="sc-tile"><div class="sc-tile-lbl">Avg return / trade</div><div class="sc-tile-val" style="font-size:12px;color:var(--ink-dim)">' + exp.sizedGradedCount + '/5 sized</div></div>';
     } else if (exp) {
       var retColor = exp.avgSimulatedReturnPct >= 0 ? 'var(--green)' : 'var(--red)';
       var retSign = exp.avgSimulatedReturnPct >= 0 ? '+' : '';
       // Win rate dropped too, same reasoning as pro/app.ts.
-      html += '<div class="track-log-title" style="margin-top:12px">IF FOLLOWED AT RECOMMENDED SIZE</div>'
-        + '<div class="trigger-row"><span class="trigger-lbl">Avg return per trade</span><span class="trigger-val" style="color:' + retColor + '">' + retSign + exp.avgSimulatedReturnPct + '%</span></div>';
+      retTileHTML = '<div class="sc-tile"><div class="sc-tile-lbl">Avg return / trade</div><div class="sc-tile-val" style="color:' + retColor + '">' + retSign + exp.avgSimulatedReturnPct + '%</div></div>';
     }
+    var html = '<div class="sc-head-row"><div class="track-log-title" style="margin:0">VERDICT ACCURACY</div><span class="sc-pooled-badge">Pooled &middot; ' + data.gradedCount + ' graded</span></div>'
+      + '<div class="sc-tile-grid"><div class="sc-tile"><div class="sc-tile-lbl">Directional accuracy</div><div class="sc-tile-val">' + data.directionalPct + '%</div></div>' + retTileHTML + '</div>';
+    // BY TICKER breakdown removed Sep 2, 2026; the by-gate1-branch/
+    // pre-gate-state/gate0-read/gate2-corroboration breakdown removed Sep
+    // 13, 2026 -- mirror of pro/app.ts's own comment. Replaced by the
+    // tiles above -- directional accuracy answers "was the call right";
+    // avg return answers "would following it at the recommended size
+    // have made money," which % accuracy alone can't.
+    //
     // UP/DOWN split + top-5 pooled tickers (Sep 13, 2026, direct follow-up
     // ask). Both fields are pooled across every user AND every tier -- not
     // this account's own data -- so they're the same for every viewer
@@ -1230,15 +1234,14 @@ async function renderScorecardCard(): Promise<void> {
       var dirRow = (label: string, d: any) => d && !d.insufficientData
         ? '<div class="trigger-row"><span class="trigger-lbl">' + label + '</span><span class="trigger-val">' + d.directionalPct + '%</span><span class="trigger-sub">' + d.gradedCount + '</span></div>'
         : '<div class="trigger-row"><span class="trigger-lbl">' + label + '</span><span class="trigger-val" style="color:var(--ink-dim)">—</span><span class="trigger-sub">' + (d ? d.gradedCount : 0) + '/5</span></div>';
-      html += '<div class="track-log-title" style="margin-top:12px">UP vs DOWN ACCURACY</div>'
-        + dirRow('UP verdicts', db.up) + dirRow('DOWN verdicts', db.down);
+      html += dirRow('UP verdicts', db.up) + dirRow('DOWN verdicts', db.down);
     }
     if (data.topTickers && data.topTickers.length) {
       var topRows = data.topTickers.map((t: any) => {
         var color = t.directionalPct >= 65 ? 'var(--green)' : t.directionalPct >= 50 ? 'var(--amber)' : 'var(--red)';
         return '<div class="trigger-row"><span class="trigger-lbl"><a class="ticker-a" href="' + tickerHref(t.ticker) + '" target="_blank">' + t.ticker + '</a></span><span class="trigger-val" style="color:' + color + '">' + t.directionalPct + '%</span><span class="trigger-sub">' + t.gradedCount + '</span></div>';
       }).join('');
-      html += '<div class="track-log-title" style="margin-top:12px">TOP 5 TICKERS (ALL USERS)</div>' + topRows;
+      html += '<div class="track-log-title" style="margin-top:12px">TOP TICKERS (POOLED)</div>' + topRows;
     }
     el.innerHTML = html;
   } catch (e) {
