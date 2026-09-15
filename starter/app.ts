@@ -1197,11 +1197,10 @@ async function renderScorecardCard(): Promise<void> {
       el.innerHTML = '<div class="track-empty">Accumulating — ' + (data.gradedCount || 0) + '/20 graded verdicts so far. Check back once more verdicts have been scored.</div>';
       return;
     }
-    var strictRow = data.strictPct != null
-      ? '<div class="trigger-row"><span class="trigger-lbl">Strict accuracy</span><span class="trigger-val">' + data.strictPct + '%</span></div>'
-      : '';
+    // Strict accuracy dropped (Sep 2026, direct feedback -- mirror of
+    // pro/app.ts's own comment). `data.strictPct` is still on the wire,
+    // unread here on purpose.
     var html = '<div class="track-log-title">VERDICT ACCURACY (' + data.gradedCount + ' graded)</div>'
-      + strictRow
       + '<div class="trigger-row"><span class="trigger-lbl">Directional accuracy</span><span class="trigger-val">' + data.directionalPct + '%</span></div>';
     // BY TICKER breakdown removed Sep 2, 2026; the by-gate1-branch/
     // pre-gate-state/gate0-read/gate2-corroboration breakdown removed Sep
@@ -1216,9 +1215,9 @@ async function renderScorecardCard(): Promise<void> {
     } else if (exp) {
       var retColor = exp.avgSimulatedReturnPct >= 0 ? 'var(--green)' : 'var(--red)';
       var retSign = exp.avgSimulatedReturnPct >= 0 ? '+' : '';
+      // Win rate dropped too, same reasoning as pro/app.ts.
       html += '<div class="track-log-title" style="margin-top:12px">IF FOLLOWED AT RECOMMENDED SIZE</div>'
-        + '<div class="trigger-row"><span class="trigger-lbl">Avg return per trade</span><span class="trigger-val" style="color:' + retColor + '">' + retSign + exp.avgSimulatedReturnPct + '%</span></div>'
-        + '<div class="trigger-row"><span class="trigger-lbl">Win rate</span><span class="trigger-val">' + exp.winRatePct + '%</span><span class="trigger-sub">' + exp.sizedGradedCount + '</span></div>';
+        + '<div class="trigger-row"><span class="trigger-lbl">Avg return per trade</span><span class="trigger-val" style="color:' + retColor + '">' + retSign + exp.avgSimulatedReturnPct + '%</span></div>';
     }
     // UP/DOWN split + top-5 pooled tickers (Sep 13, 2026, direct follow-up
     // ask). Both fields are pooled across every user AND every tier -- not
@@ -1583,7 +1582,7 @@ const HELP_CONTENT: Record<string, string> = {
   gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against — feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read — tap the docked bar to jump back to top. Pre/post-market prices are IEX-only and may vary from the full consolidated tape; built for regular-session (9:30am–4pm ET) analysis.',
   pulse: 'A quick, AI-written summary of today’s market mood and which <a class="help-glossary-link" href="#" data-term="sector rotation">sectors</a> are leading or lagging. For your information only — it never changes a gate or a verdict.',
   io: 'Type or paste <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names — one per line, or separated by commas. All caps (AAPL) adds a ticker directly; type it any other way (Tesla) and it resolves to the right symbol. Analyze All runs your full watchlist, up to 7 credits.',
-  scorecard: 'Real, server-graded accuracy — every verdict is automatically checked against the actual price move 24h later (and again ~5 trading days later for the strict score), no manual logging needed. Suppressed until at least 20 verdicts have been graded. "If followed at recommended size" simulates the return you\'d have realized sizing exactly as recommended — FLAT and no-size calls aren\'t counted as a trade either way, so this only reflects the calls that actually told you to take a position. The UP vs DOWN split and Top 5 Tickers are pooled across every user and every tier, not just your own account — each side needs 5+ graded verdicts before it shows a number.',
+  scorecard: 'Real, server-graded accuracy — every verdict is automatically checked against the actual price move 24h later, no manual logging needed. Suppressed until at least 20 verdicts have been graded. "If followed at recommended size" simulates the return you\'d have realized sizing exactly as recommended — FLAT and no-size calls aren\'t counted as a trade either way. The UP vs DOWN split and Top 5 Tickers are pooled across every user and every tier, not just your own account — each side needs 5+ graded verdicts before it shows a number. "Your Log" — your own manually-logged ✓/✗ record — is a Pro feature.',
   agitator: 'Check out a new stock idea or a rumor before it earns a spot on your watchlist — always free. Type a ticker, a company name, or paste a headline, and get one LOW/MEDIUM/HIGH read built from 6 real signals, plus a few related companies worth a look.',
   'agitator-score': 'One overall number, 0-10, averaging the 6 signals below it — a quick read on how big a deal this news might be for the stock, not a precise measurement.',
   'agitator-surprise': 'How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.',

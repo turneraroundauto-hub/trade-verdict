@@ -366,6 +366,27 @@
   .headline .age{ color:var(--ink-dim); }
   .track-empty{ font-size:13px; color:var(--ink-dim); text-align:center; padding:16px 0; font-style:italic; }
   .track-log-title{ font-size:11px; color:var(--ink-dim); letter-spacing:.08em; margin-bottom:6px; }
+  /* "Your Log" -- Starter has no manual logging (tierConfig.tracker:false,
+     see shared/track-record-sync.js), so the personal half of the merged
+     Verdict Record card is a static blurred teaser instead of real
+     content, same technique as Free's Sector Pulse teaser (index.html's
+     .pulse-blur/.pulse-upsell) -- fake example data, no JS rendering.
+     Replaces the standalone .track-teaser promo box this used to be. */
+  .track-stat-lbl{ font-size:11px; color:var(--ink-dim); display:block; margin-bottom:3px; }
+  .record-streak-row{ display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+  .track-log-item{ display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid var(--border-3); font-size:13px; }
+  .track-log-item:last-child{ border-bottom:none; }
+  .tli-ticker{ font-family:var(--mono); font-weight:700; color:var(--ink); min-width:44px; }
+  .tli-verdict{ font-family:var(--mono); font-size:11px; min-width:38px; }
+  .tli-result{ font-family:var(--mono); font-size:13px; font-weight:700; flex-shrink:0; }
+  .tli-time{ font-family:var(--mono); font-size:11px; color:var(--ink-dim); margin-left:auto; }
+  .trend-bar{ display:flex; gap:2px; align-items:center; }
+  .trend-pip{ width:8px; height:16px; border-radius:2px; flex-shrink:0; }
+  .record-log-wrap{ position:relative; margin-top:14px; padding-top:14px; border-top:1px solid var(--border-3); }
+  .record-log-blur{ filter:blur(4px); pointer-events:none; user-select:none; }
+  .record-log-upsell{ position:absolute; inset:14px 0 0 0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; background:rgba(8,12,18,.82); border-radius:8px; }
+  .record-log-upsell span{ font-size:13px; color:var(--ink); font-weight:700; }
+  .record-log-upsell a{ font-size:13px; font-weight:700; color:var(--green); background:var(--green-dim); border:1px solid rgba(0,230,118,.4); border-radius:6px; padding:6px 14px; text-decoration:none; }
   .trigger-row{ display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid var(--border-3); font-size:13px; }
   .trigger-row:last-child{ border-bottom:none; }
   .trigger-lbl{ font-size:13px; color:var(--ink); flex:1; }
@@ -537,10 +558,6 @@
   .glossary-term-example{ font-size:13px; color:var(--ink-dim); margin-top:3px; font-style:italic; line-height:1.4; }
   .glossary-no-results{ padding:20px 0; font-size:13px; color:var(--ink-dim); text-align:center; display:none; }
 
-  .track-teaser{ padding:12px 14px; background:var(--blue-dim); border:1px solid rgba(74,168,255,.18); border-radius:10px; display:flex; justify-content:space-between; align-items:center; gap:10px; }
-  .track-teaser-title{ font-size:13px; font-weight:700; color:var(--blue); letter-spacing:.08em; margin-bottom:3px; }
-  .track-teaser-sub{ font-size:13px; color:var(--ink-dim); }
-  .track-teaser-upgrade{ font-size:13px; font-weight:700; color:var(--blue); background:rgba(74,168,255,.1); border:1px solid rgba(74,168,255,.3); border-radius:4px; padding:6px 10px; text-decoration:none; white-space:nowrap; flex:none; }
 
   .disclaimer{ margin:4px 0 0; padding:12px; background:var(--red-dim); border:1px solid rgba(255,59,92,.25); border-radius:10px; }
   .disclaimer-title{ font-size:13px; font-weight:700; color:var(--red); letter-spacing:.06em; margin-bottom:6px; }
@@ -743,7 +760,7 @@
         <div class="card-head" tabindex="0" role="button" aria-expanded="false">
           <span class="card-icon">🎯</span>
           <div class="card-title-wrap">
-            <div class="card-label">Verdict Scorecard</div>
+            <div class="card-label">Verdict Record</div>
             <div class="card-sub">Auto-graded accuracy</div>
           </div>
           <button type="button" class="help-btn" data-help="scorecard" aria-label="What is this?">?</button>
@@ -751,6 +768,18 @@
         </div>
         <div class="card-body"><div class="card-body-inner"><div class="card-body-pad">
           <div id="scorecard-body"><div class="track-empty">Tap to load your scorecard.</div></div>
+          <div class="record-log-wrap">
+            <div class="track-log-title">YOUR LOG</div>
+            <div class="record-log-blur">
+              <div class="record-streak-row"><span class="track-stat-lbl" style="margin:0">STREAK</span><span style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--green)">4 ✓ streak</span><span class="trend-bar" style="margin:0 0 0 auto"><div class="trend-pip" style="background:var(--green)"></div><div class="trend-pip" style="background:var(--green)"></div><div class="trend-pip" style="background:var(--red)"></div><div class="trend-pip" style="background:var(--green)"></div><div class="trend-pip" style="background:var(--green)"></div></span></div>
+              <div class="track-log-item"><span class="tli-ticker">NVDA</span><span class="tli-verdict" style="color:var(--green)">UP</span><span class="tli-result" style="color:var(--green)">✓ RIGHT</span><span class="tli-time">Tue 11:24 AM ET</span></div>
+              <div class="track-log-item"><span class="tli-ticker">ALAB</span><span class="tli-verdict" style="color:var(--red)">DOWN</span><span class="tli-result" style="color:var(--green)">✓ RIGHT</span><span class="tli-time">Tue 9:48 AM ET</span></div>
+            </div>
+            <div class="record-log-upsell">
+              <span>Want to log and track your own calls?</span>
+              <a href="https://buy.stripe.com/6oU4gA98t57p4dh2x33VC02" target="_blank">UPGRADE TO PRO →</a>
+            </div>
+          </div>
         </div></div></div>
       </div>
 
@@ -773,14 +802,6 @@
         </div></div></div>
       </div>
 
-      <div class="track-teaser">
-        <div>
-          <div class="track-teaser-title">📈 TRACK RECORD</div>
-          <div class="track-teaser-sub">Log verdicts and track your accuracy</div>
-        </div>
-        <a class="track-teaser-upgrade" href="https://buy.stripe.com/6oU4gA98t57p4dh2x33VC02" target="_blank">UPGRADE → Pro</a>
-      </div>
-
       <div class="disclaimer">
         <div class="disclaimer-title">⚠ NOT FINANCIAL OR MARKET ADVICE</div>
         <p>This app is a <strong>pattern and catalyst analysis tool</strong> for <strong>trading support</strong> during the <strong>first 90 minutes (9:30–11:00am ET)</strong> and <strong>last 90 minutes (2:30–4:00pm ET)</strong> of the regular US session only.</p>
@@ -798,6 +819,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=113"></script>
+<script type="module" src="./app.js?v=114"></script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-import { getAccuracyLog, replaceLog } from './track-record.js?v=17';
+import { getAccuracyLog, replaceLog } from './track-record.js?v=18';
 let cfg = null;
 let pulling = false; // suppresses the push a pull's own replaceLog() would otherwise trigger
 export function initTrackRecordSync(config) { cfg = config; }

@@ -10046,3 +10046,120 @@ Analyze-All re-run on a real watchlist, check that only the most recent
 row per ticker has `superseded = false`; confirm `/scorecard` and the
 ticker-card TRACK RECORD numbers don't shift when a superseded row
 exists for that ticker.
+
+## Frontend: Verdict Scorecard + Track Record merged into one "Verdict Record" card, two flagged rows dropped (Sep 2026, `trade-verdict` PR pending)
+
+Direct live feedback against a real Pro-tier screenshot: too much
+redundancy between the two accordion cards, `Strict accuracy` and
+`Win rate` specifically flagged (highlighted in the screenshot) for
+deletion. Scoped by mocking up three merge options in an Artifact
+sandbox first, per direct instruction, before touching real code —
+**Unified Stack** (pooled Scorecard stats stay the headline, personal
+log trims to its last 3 entries with a link/toggle for the rest, no
+tabs), **Toggle Tabs** (a real OVERALL/MY LOG switch), and **Compact
+Ledger** (most aggressive cut, full log behind a closed-by-default
+disclosure). Picked **Unified Stack** — this card lives on a
+watchlist page meant for a quick scan, and a tab switch or a
+closed-by-default log both add a decision/tap in front of the one
+thing this card is supposed to build trust in.
+
+**Deleted from the Scorecard half, both tiers, per the flagged
+screenshot:** `Strict accuracy` (sat at a confusing 0%, no signal
+Directional accuracy didn't already give more plainly) and `Win rate`
+(the same 46 sized trades as `Avg return per trade`, just a second
+percentage of the identical slice). Pure frontend change —
+`/scorecard`'s response still carries `strictPct`/`winRatePct` on the
+wire, just unread by either tier's `renderScorecardCard()` now; no
+backend PR needed.
+
+**The two cards became one, `data-card="scorecard"`/`id="card-scorecard"`
+kept as the merge target** (least churn — the help-balloon key, the
+tutorial-step anchor, and every generic accordion/dock/height-cap
+mechanism in `shared/rolodex.ts` key off this id). Retitled "Verdict
+Record" on both tiers. On **Pro**, the old separate `card-track`
+card is gone — its real content now renders as a "YOUR LOG" section
+directly beneath `#scorecard-body` in the same card body, separated
+by a repurposed `.track-clear-row` (now a divider row: label on the
+left, Clear All on the right, instead of just a right-aligned button).
+
+**`renderTrackRecord()` (`shared/track-record.ts`) rewritten to match
+the approved distillation**, not just trimmed in place: the hit-rate
+number, the UP/DOWN/HOLD tally, and the personal Top Tickers list are
+gone — all three re-sliced data the pooled Scorecard stats sitting
+right above them (or each other) already covered. What's left is the
+one thing the pooled side can't show: **streak** (unchanged logic,
+same em-dash-below-a-real-streak convention as before) with a 5-dot
+sparkline (`.trend-pip`, repurposed from the old 20-pip "LAST N" bar),
+then the **3 most recent trades** unconditionally, with anything
+beyond that (up to the same 8-total cap `renderTrackRecord()` always
+used) tucked behind a **"VIEW FULL LOG (N)" toggle** — reused the
+exact `.expand-btn`/`.analyst-arrow` visual language Analyst View
+already established for this same "tap to reveal more" pattern,
+rather than inventing a new disclosure widget. `renderGateAttribution()`/
+`renderTickerAccuracy()` (pro/app.ts's "ACCURACY BY TRIGGER"/"ACCURACY
+BY TICKER" breakdowns) removed outright, not hidden — both operated on
+DOM containers (`#track-gate-breakdown`/`#track-ticker-breakdown`)
+that no longer exist. `classifyTrigger()`/`TRIGGER_LABELS` themselves
+are untouched — Analyst View still uses them; only the two aggregate
+views built on top of `getAccuracyLog()` are gone. The now-pointless
+`refreshTrackRecordCard()` wrapper (which called `renderTrackRecord()`
+plus the two removed functions) was deleted too — its 3 call sites now
+call `renderTrackRecord()` directly (or, for the Clear All handler,
+nothing extra at all — `clearLog()` already re-renders internally).
+
+**Starter gets a blurred teaser for "YOUR LOG" instead of real
+content**, per direct instruction — Starter has never had manual
+logging (`tierConfig.tracker:false`, no `track-record-sync` import at
+all). This replaces a standalone `.track-teaser` promo box that used
+to sit after the Glossary card, unrelated to either accordion card —
+removed outright, folded into the merged card instead. New
+`.record-log-blur`/`.record-log-upsell` mirror Free's existing Sector
+Pulse teaser technique (`index.html`'s `.pulse-blur`/`.pulse-upsell` —
+`filter:blur(4px)` on static example content, a centered upsell CTA
+on top) rather than inventing a new pattern, styled as an absolutely-
+positioned overlay (not the original's negative-margin trick, which
+depends on guessing the blurred content's exact height) so it stays
+correctly centered regardless of how tall the fake example content is.
+The fake content reuses the real `.track-log-item`/`.tli-*`/
+`.record-streak-row` classes (newly added to `starter/index.html`,
+which never needed them before) so the blur genuinely previews the
+real Pro feature's shape, not an approximation. CTA links to the same
+Pro-upgrade Stripe link Starter's per-ticker-card "UPGRADE → Pro to
+log results" link already uses.
+
+**Verified via real headless Chromium, both tiers, 27 checks** (mocked
+`/scorecard`/`/market`, a primed `tv_accuracy_log` on Pro): confirmed
+the card title reads "Verdict Record" on both; confirmed `Strict
+accuracy`/`Win rate`/`ACCURACY BY TRIGGER`/`ACCURACY BY TICKER` are
+absent from the rendered DOM on both tiers; confirmed UP vs DOWN and
+the pooled Top Tickers section still render; confirmed exactly 3 trade
+rows show by default on Pro with a real "VIEW FULL LOG (5)" toggle
+that reveals all 5 on click; confirmed Clear All still empties the log
+(real `confirm()` dialog handled, not skipped); confirmed Starter's
+old standalone `.track-teaser` box is gone from the DOM; confirmed the
+blur filter is genuinely applied (`getComputedStyle`, not just present
+in the CSS source) and the upsell CTA links to the correct Stripe URL.
+Zero console/page errors on either tier. `node --check` clean on both
+bundles and both compiled `shared/*.js` siblings; `npx tsc --noEmit`
+against `pro/app.ts`/`starter/app.ts` directly (project's real
+compiler options) and `npm run typecheck` both show the same known
+7-error `?v=N`-import-resolution baseline, zero new errors; `npm test`
+(92/92) unaffected — this doesn't touch `gates-extended.ts`/
+`analyze-helpers.ts`. `esbuild` rebuild + chunk-header grep confirmed
+no duplicate-module regression (Free:7/Starter:8/Pro:10 shared modules,
+unchanged). `?v=` bumped on `pro/index.html` (60→61) and
+`starter/index.html` (113→114) since each tier's bundled `app.js`
+content changed; `app.js` (Free) untouched — Free never had either
+card. `shared/track-record-sync.ts`'s own `./track-record.js?v=17→18`
+import bumped per the standard rule, even though Pro's bundler
+(`normalizeSharedImports`) resolves it to the `.ts` sibling regardless
+of the query string.
+
+**Not yet verified against a live deploy** — same standing posture as
+every frontend change in this file; `tra-zacg.onrender.com` is
+unreachable from this sandbox. To confirm: open a real Pro account's
+merged card and check the streak/recent-trades/view-full-log toggle
+against real `tv_accuracy_log` data; open a real Starter account's
+card and confirm the blurred teaser renders correctly on an actual
+device (the absolute-position overlay technique here is new to this
+codebase, unlike the negative-margin trick it's modeled on).
