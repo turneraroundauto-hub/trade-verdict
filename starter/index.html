@@ -268,7 +268,27 @@
     .utility-pane .card[data-card].landscape-active{ display:block; }
     .utility-pane .card[data-card] > .card-head{ display:none; }
     .utility-pane .card[data-card] .card-body{ display:grid; grid-template-rows:1fr; }
-    .utility-pane .card[data-card] .card-body-inner{ overflow:visible; }
+    /* min-width:0 (Sep 15, 2026, real report: "the watchlist rows are
+       too long in landscape... not bound by the frame width") -- a grid
+       item's default min-width is "auto" ONLY when its own overflow is
+       visible; the portrait rule's overflow:hidden on this same element
+       quietly resets that to 0. Restoring overflow:visible here (for the
+       sticky-containing-block fix above) undid that side effect too --
+       .card-body-inner's automatic min-width reverted to its content's
+       min-content size, which for a white-space:nowrap descendant
+       (.compact-news, shared by Watchlist overflow rows on Pro and the
+       Agitator's RELATED rows on all three tiers) is the full unbroken
+       headline width. The row balloons past .utility-pane's own bounds
+       and only gets clipped where .utility-pane's overflow-x:hidden
+       finally catches it -- a hard cutoff with no ellipsis, since
+       .compact-news itself never got squeezed to a width where its own
+       text-overflow:ellipsis would trigger. min-width:0 overrides the
+       automatic minimum regardless of the overflow value, so the row
+       shrinks correctly again and the ellipsis does its job. Confirmed
+       via an isolated repro, not assumed: a genuinely long headline
+       measurably blew .utility-pane's scrollWidth from 742px to 1213px on the real page
+       without this fix, back to 742px with it. */
+    .utility-pane .card[data-card] .card-body-inner{ overflow:visible; min-width:0; }
     .utility-pane .card[data-card] .card-body-pad{ overflow:visible; }
     /* Tightened while in landscape (same report: "will need to be
        framed really tight to save room") -- far less vertical room

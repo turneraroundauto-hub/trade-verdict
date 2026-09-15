@@ -10418,3 +10418,93 @@ zero new findings — only the one already-documented, deliberately-
 deferred WARN (`auth_leaked_password_protection`, blocked by the
 project's Free plan; see the Aug 26, 2026 entry above) is present, and
 every previously-fixed grants/RLS/search_path issue remains fixed.
+
+## Frontend: landscape HUD — a nowrap headline could blow a row past the pane's own bounds (Sep 15, 2026, `trade-verdict`)
+
+Direct live report, real screenshot: a Watchlist overflow row's headline
+("Trump Calls Jensen Huang Live On-Stage at the All-In Summit: 'Robots
+Will Not Be Taking Over,'") ran past the visible right edge of the
+device with no ellipsis, and the top Gate/pill marquees looked cut off
+at both ends too (that second half is normal marquee mid-scroll
+behavior, not a bug — flagged and ruled out before touching anything).
+
+**Root cause: a CSS Grid automatic-minimum-size interaction, not a
+missing wrap/ellipsis rule — those were already correctly in place.**
+`.card-body{display:grid}` makes `.card-body-inner` a grid item. Per
+spec, a grid item's default `min-width` is `auto` (content-based) ONLY
+when its own `overflow` is `visible`; the portrait rule's
+`overflow:hidden` on this same element quietly resets that automatic
+minimum to `0`. The landscape override (`.utility-pane .card[data-card]
+.card-body-inner{overflow:visible;}`, added for the Sep 6, 2026
+`position:sticky`-containing-block fix documented above) restores
+`overflow:visible` for a completely unrelated reason — and as a side
+effect, un-does that free reset too. With the automatic minimum back to
+`auto`, the grid item's minimum width becomes its content's min-content
+size, which for a `white-space:nowrap` descendant (`.compact-news`,
+shared verbatim by Pro's Watchlist-overflow rows AND the Agitator
+Gauge's RELATED rows on all three tiers) is the full unbroken headline
+width. The whole row balloons past `.utility-pane`'s own bounds and
+only gets stopped where `.utility-pane`'s own `overflow-x:hidden`
+finally catches it (the Sep 7, 2026 fix) — a hard, ellipsis-less
+cutoff, since `.compact-news` itself never got squeezed down to a width
+where its own `text-overflow:ellipsis` would ever trigger.
+
+**A real false start caught before shipping, worth keeping as a
+lesson.** First attempt at verifying this used the exact real headline
+text from the report at a standard 844×390 landscape viewport — and
+found NO measurable overflow in either the buggy or fixed state, which
+would have meant either the theory was wrong or the fix was a no-op.
+Rather than trust that single (nearly-negative) result, built an
+isolated minimal repro of just the CSS structure in question and forced
+a synthetic string long enough to unambiguously exceed the pane's
+width — which cleanly reproduced the bug (`.utility-pane.scrollWidth`
+742px→1296px) and confirmed the fix (back to 742px). Re-ran the exact
+same forcing technique against the real, unmodified app afterward and
+got the same result (742px→1213px→742px) — the original real-headline
+test simply happened to land just under the threshold at this specific
+viewport/font combination in headless Chromium; the real device in the
+report evidently renders it wider (a different actual landscape width,
+or the real "Martian Mono" web font vs. this sandbox's generic
+monospace fallback). **Don't trust a single non-reproducing test as
+proof a theory is wrong — force the input further before concluding
+that, especially when the mechanism itself is independently sound.**
+
+**Fix: one declaration, `min-width:0` on the same landscape
+`.card-body-inner` override that restores `overflow:visible`** — this
+overrides the automatic minimum regardless of the overflow value, so
+the grid item shrinks correctly again and `.compact-news`'s own
+`text-overflow:ellipsis` finally has a bounded box to clip against.
+Applied identically to all three tiers' hand-copied CSS (`index.html`,
+`starter/index.html`, `pro/index.html`), same convention as every other
+shared landscape-HUD rule in this file.
+
+**Checked that this wasn't hiding elsewhere, not assumed from the fix's
+generality.** The selector this lands on
+(`.utility-pane .card[data-card] .card-body-inner`) matches every card
+in the landscape HUD, not just Watchlist's — confirmed directly by
+reading `getComputedStyle(...).minWidth` on every card's
+`.card-body-inner` post-fix: all 9 cards on Pro (dial, pulse, agitator,
+import, watchlist, proxy, heatmap, scorecard, glossary), all 6 on
+Starter, all 4 on Free report `0px`. Also grepped every tier for any
+other `white-space:nowrap` + `overflow:hidden` ("ellipsis pattern")
+element living inside a card body — `.compact-news` (Watchlist overflow
+rows, Agitator RELATED rows) is the only one; `.card-label`/`.card-sub`
+live in `.card-head`, which is `display:none` in landscape and never
+at risk; `.brand`/`.credits-chip`/`.gate-marquee`/`.rolo-divider` all
+live outside any card body entirely. Re-confirmed the Agitator card's
+own RELATED row specifically (not just Watchlist) resolves cleanly
+post-fix via a real headless-Chromium check with a synthetic
+oversized related-company headline. **Nothing else needs this same
+fix** — one declaration, on one shared ancestor, covers every card on
+every tier by construction, not by luck.
+
+`npm test` (92/92) unaffected — pure CSS change, no `.ts`/`.js`
+touched, no `esbuild` rebuild or `?v=` bump needed.
+
+**Not yet verified against a live deploy** — same standing posture as
+every frontend change in this file; the specific font-rendering
+difference that made the real device (but not this sandbox's headless
+Chromium) trip the threshold on the original real-world headline is
+itself unconfirmed. To confirm: open the real Watchlist overflow list
+in landscape on a real device with a genuinely long headline in it and
+confirm it now truncates with "..." instead of bleeding past the frame.
