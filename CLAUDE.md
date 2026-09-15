@@ -10047,7 +10047,7 @@ row per ticker has `superseded = false`; confirm `/scorecard` and the
 ticker-card TRACK RECORD numbers don't shift when a superseded row
 exists for that ticker.
 
-## Frontend: Verdict Scorecard + Track Record merged into one "Verdict Record" card, two flagged rows dropped (Sep 2026, `trade-verdict` PR pending)
+## Frontend: Verdict Scorecard + Track Record merged into one "Verdict Record" card, two flagged rows dropped (Sep 2026, `trade-verdict` PR #344, merged)
 
 Direct live feedback against a real Pro-tier screenshot: too much
 redundancy between the two accordion cards, `Strict accuracy` and
@@ -10163,3 +10163,101 @@ against real `tv_accuracy_log` data; open a real Starter account's
 card and confirm the blurred teaser renders correctly on an actual
 device (the absolute-position overlay technique here is new to this
 codebase, unlike the negative-margin trick it's modeled on).
+
+**Follow-up, same day (`trade-verdict` PR #345, merged): the live build
+had drifted from the approved sandbox mockup — a real gap between what
+was designed and what shipped, not a live bug.** Reported directly
+against a real Pro-tier screenshot ("this doesn't look like the
+rendering we agreed to") next to the original approved Artifact mockup.
+Comparing the two side by side confirmed the complaint: the merge PR
+above implemented the right CONTENT (which fields to drop, what to
+keep) but never actually ported the mockup's own visual shape — it fell
+back to this file's existing generic `.trigger-row`/`.track-log-title`
+row styling instead. Concretely, the mockup's compact two-tile pooled
+header, "Pooled · N graded" badge, colored pill-badge verdicts,
+abbreviated dates, inline flame-streak, and plain "Clear"/"View full
+log →" links never made it into the actual build.
+
+**Rebuilt `renderScorecardCard()` (`pro/app.ts`/`starter/app.ts`) and
+`renderTrackRecord()` (`shared/track-record.ts`) to match the mockup for
+real, superseding the shapes described earlier in this section:**
+- Pooled stats now render as two `.sc-tile` stat boxes (Directional
+  accuracy / Avg return per trade) under a `.sc-pooled-badge` reading
+  "Pooled · N graded" — not the stacked full-width label/value rows the
+  first build used. The "IF FOLLOWED AT RECOMMENDED SIZE" and "UP vs
+  DOWN ACCURACY" section headers are gone too — the mockup never had
+  them, the tiles/rows speak for themselves. "TOP TICKERS (POOLED)"
+  replaces "TOP 5 TICKERS (ALL USERS)".
+- The streak (`renderTrackRecord()`) no longer renders as its own
+  labeled `.record-streak-row` inside the log body — it's injected into
+  a new `#trackStreakInline` span that lives in the static "YOUR LOG"
+  divider row itself, right next to the label, as a 🔥 + count + 5 small
+  `.track-streak-pip` squares (replacing the old 8×16px `.trend-pip`
+  bars, which are gone). `renderTrackRecord()` now updates two DOM
+  targets, not one — guarded independently, since `#trackStreakInline`
+  doesn't exist on any page this function might run against without it.
+- Each log row now shows the verdict as a colored `.tli-pill` (dim
+  background + full-color text, the same `--green-dim`/`--red-dim`/
+  `--amber-dim` tokens already used everywhere else in this app) plus a
+  plain `.tli-check` (✓/✗) instead of the old "✓ RIGHT"/"✗ WRONG" text,
+  and an abbreviated month/day `.tli-date` (`"Aug 28"`) instead of a
+  full `session + time + "ET"` timestamp. `.tli-verdict`/`.tli-result`/
+  `.tli-time` are removed outright, not left as dead CSS.
+- "Clear" and "View full log (N) →" are now plain underlined links
+  (`.track-clear` restyled as a link, new `.view-full-log-link`) instead
+  of bordered buttons (`.track-clear`'s old border/background, and the
+  old `.expand-btn`/`.analyst-arrow` toggle borrowed from Analyst View).
+  The link's own label flips to "Hide full log ←" when expanded, same
+  toggle behavior as before, just a text-only affordance instead of a
+  separate arrow glyph.
+- Starter's blurred "YOUR LOG" teaser preview (`starter/index.html`'s
+  static fake content) was updated to the same pill/inline-streak shape
+  — the blur is supposed to preview the real Pro feature's actual look,
+  and it had drifted the same way the real Pro build had.
+
+**Verified via a 39-check headless-Chromium pass on both Pro and
+Starter** against the redesigned markup/CSS — pooled tiles/badge render
+with the right values, the dropped section headers are genuinely absent
+from the DOM, the streak renders inline with 5 pips and clears when the
+log empties, log rows render as pills with plain checkmarks and
+abbreviated dates (not "RIGHT"/"WRONG" or a full timestamp), Clear and
+View-full-log both compute to a transparent background (confirming
+they're genuinely links, not styled buttons), expanding reveals all 5
+rows and flips the link label, Starter's teaser uses the same pill/flame
+shape, zero console errors on either tier. One self-inflicted test bug
+caught and fixed before trusting the result: an early assertion counted
+`.tli-pill` anywhere in the DOM (5 — 3 visible + 2 already rendered but
+hidden behind the toggle) instead of scoping to `#track-body`'s direct
+`.track-log-item` children (3) — not an app bug, a test-selector
+mistake, fixed by scoping the query correctly. `npm test` (92/92,
+unaffected), `npx tsc --noEmit` against both tiers' `app.ts` directly
+(same known 7-error `?v=N` baseline, zero new errors), `esbuild` rebuild
++ chunk-header grep (no duplicate-module regression, Free:7/Starter:8/
+Pro:10 unchanged). `shared/track-record.ts`'s content change cascaded
+one hop into `shared/track-record-sync.ts`'s own relative import
+(`?v=18→19`, both the `.ts` source and its compiled `.js` sibling, per
+this file's own `.ts`-source-must-carry-the-bump-too rule) — though
+since Pro's bundler resolves shared imports to their `.ts` sibling
+regardless of query string, this bump is for source-of-truth
+consistency, not something the live bundle actually depends on.
+`pro/index.html` (61→62) and `starter/index.html` (114→115) `?v=`
+bumped since each tier's own bundled `app.js` content changed.
+
+**Lesson worth keeping, since this cost a full extra round-trip:**
+approving a design in a sandbox mockup and then building "the same
+thing" for real are two different steps, and the second one needs to be
+checked against the first, not just against the written spec of what
+content to keep/drop. A mockup conveys visual shape (tile layout, pill
+badges, inline placement, link-vs-button styling) that a text summary
+of "what changed" can silently drop even when every content decision
+in that summary was implemented correctly — confirmed here by directly
+diffing a fresh screenshot of the live build against the original
+approved mockup image side by side, not by re-reading the PR's own
+description of itself.
+
+**Not yet verified against a live deploy** — same standing posture as
+every frontend change in this file. To confirm: open a real Pro
+account's card and check the tile/pill/streak rendering against real
+`/scorecard` and `tv_accuracy_log` data; open a real Starter account's
+card on an actual device and confirm the redesigned teaser still reads
+correctly through the blur.
