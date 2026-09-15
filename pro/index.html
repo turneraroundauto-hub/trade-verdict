@@ -507,8 +507,7 @@
   /* Swipe RIGHT now jumps to the next ticker (Sep 2026) -- reveals from
      the left edge instead of the right, blue instead of red. */
   .rolo-swipe-bg-next{ background:var(--blue); justify-content:flex-start; }
-  .rolo-nav{ display:flex; justify-content:center; align-items:center; padding:2px 4px; }
-  .nav-hint{ font-size:13px; color:var(--ink-dim); }
+  .rolo-nav{ height:1px; background:var(--border-3); margin:6px 14px 2px; }
 
   /* ── PRO — Watchlist overflow (unlimited, beyond the 15-card window) ── */
   /* Sticky so the sort control stays visible while the row list scrolls
@@ -858,7 +857,7 @@
 
       <div class="rolo-wrap">
         <div class="rolo-stage" id="roloStage"></div>
-        <div class="rolo-nav"><span class="nav-hint" id="roloHint">— / —</span></div>
+        <div class="rolo-nav"></div>
       </div>
 
       <!-- Landscape-only: every utility card below gets moved in here by
@@ -997,6 +996,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=62"></script>
+<script type="module" src="./app.js?v=63"></script>
 </body>
 </html>

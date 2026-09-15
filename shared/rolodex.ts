@@ -30,7 +30,6 @@ export interface RolodexElements {
   listHead: HTMLElement;
   roloIndex: HTMLElement;
   roloStage: HTMLElement;
-  roloHint: HTMLElement | null;
 }
 
 export interface RolodexCallbacks {
@@ -297,7 +296,6 @@ export function positionRoloStack(): void {
   });
   const chips = Array.from(els.roloIndex.querySelectorAll<HTMLElement>('.rolo-chip'));
   chips.forEach((chip) => chip.classList.toggle('active', +(chip.dataset.idx || -1) === roloCurrent));
-  if (els.roloHint) els.roloHint.textContent = cards.length ? (roloCurrent + 1) + ' / ' + cards.length : '— / —';
   syncRoloStageHeight();
 }
 

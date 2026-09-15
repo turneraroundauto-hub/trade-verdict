@@ -1815,7 +1815,6 @@ rolodex.initRolodex({
   listHead: document.getElementById('listHead') as HTMLElement,
   roloIndex: roloIndex,
   roloStage: roloStage,
-  roloHint: document.getElementById('roloHint'),
 }, {
   getWatchlist: () => watchlist,
   onActivate: (sym) => {

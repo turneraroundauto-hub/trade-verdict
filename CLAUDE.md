@@ -10508,3 +10508,65 @@ Chromium) trip the threshold on the original real-world headline is
 itself unconfirmed. To confirm: open the real Watchlist overflow list
 in landscape on a real device with a genuinely long headline in it and
 confirm it now truncates with "..." instead of bleeding past the frame.
+
+## Frontend: "N / N" pill-position hint replaced with a plain divider line (Sep 15, 2026)
+
+Direct report against a real Pro-tier screenshot: the `#roloHint` "15 / 15"
+text sitting between the active ticker card and the cards below it was
+redundant — real leftover from the pre-Aug-15, 2026 swipe/paging design
+(the active pill in `#roloIndex`'s ribbon already shows the same position
+info via its `.active` highlight; card switching has been pill-tap-only
+since Aug 16, 2026, so `.rolo-nav`'s original "which position am I on"
+purpose no longer applies). Asked for it to become a plain division line
+instead.
+
+**Removed cleanly, not just hidden.** `shared/rolodex.ts`'s
+`positionRoloStack()` no longer writes into `els.roloHint` — the field was
+dropped from `RolodexEls` entirely, not left as dead state. All three
+tiers' `app.ts` dropped their `roloHint: document.getElementById(...)`
+line, and the `<span class="nav-hint" id="roloHint">— / —</span>` markup
+was removed from `.rolo-nav` in all three tiers' `index.html` (byte-
+identical across Free/Starter/Pro before editing, confirmed via grep).
+`.rolo-nav`'s CSS switched from a flex text-centering rule to a plain
+1px `var(--border-3)` line with side margins — the same divider color
+already used for every other faint-line-needs-real-contrast fix in this
+file (Sep 6, 2026, "landscape HUD polish... white dividers").
+
+**Verified via real headless Chromium** (mocked backend, Pro tier):
+`.rolo-nav` renders with zero text content, a real `1px` height, and the
+`--border-3` background color; confirmed `#roloHint`/`.nav-hint` no longer
+exist anywhere in the DOM. `npm test` (92/92) unaffected; `tsc` against
+`tsconfig.json` and each tier's own `app.ts` directly (project's real
+compiler options) show zero new errors beyond the known `?v=N` baseline;
+`esbuild` rebuild + chunk-header grep confirmed no duplicate-module
+regression (Free:7/Starter:8/Pro:10 shared modules, unchanged). `?v=`
+bumped on all three tiers' `<script>` tags (`index.html` 96→97,
+`starter/index.html` 115→116, `pro/index.html` 62→63) since each tier's
+bundled `app.js` content changed.
+
+## Frontend: reported "cutoff text" below the active ticker card — investigated, not yet confirmed (Sep 15, 2026)
+
+Same screenshot as above also showed a faint line of illegible marks
+between the (now-removed) "15/15" hint and the Watchlist card header —
+reported as "cutoff text," asked whether it's inside the card or bleeding
+through from behind it.
+
+**Ruled out:** `#landscapeHud` (the ribbon+pane HUD) sits in the DOM right
+after `.rolo-wrap`/before the Watchlist card and does contain a plain
+"Tap a card on the left to view it." placeholder — but it's `display:none`
+outside `@media (orientation:landscape)`, confirmed by reading the actual
+rule (not assumed), so it can't be rendering anything in a portrait
+screenshot.
+
+**Likely candidate, not confirmed:** the Rolodex's own intentional
+stacked-card effect — `positionRoloStack()` renders the 1-2 cards on
+either side of the active one with `translateY(±14/28px)`, reduced
+opacity (0.55/0.35), and `brightness(.7)`, a deliberate "peek of the next
+card" illusion. `.rolo-stage` has `overflow:hidden`, so this sliver should
+stay clipped within the stage's own box — but it's the one mechanism in
+this area that produces genuinely faded, partial text by design, and
+worth checking against before assuming a real bug. Not independently
+confirmed against the actual reported pixel position (the screenshot's
+resolution wasn't enough to read the region conclusively) — flagged for a
+follow-up check now that the "15/15" hint directly above it is gone,
+since that changes the exact boundary at that spot.

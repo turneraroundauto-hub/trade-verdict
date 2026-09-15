@@ -564,8 +564,7 @@
      this CSS has to exist here too or a right-swipe would show the NEXT
      label on the wrong (red, right-aligned) background. */
   .rolo-swipe-bg-next{ background:var(--blue); justify-content:flex-start; }
-  .rolo-nav{ display:flex; justify-content:center; align-items:center; padding:2px 4px; }
-  .nav-hint{ font-size:13px; color:var(--ink-dim); }
+  .rolo-nav{ height:1px; background:var(--border-3); margin:6px 14px 2px; }
 
   /* Sticky so the search box stays visible while the term list scrolls
      beneath it inside .card-body-pad's own capped overflow -- same fix
@@ -772,7 +771,7 @@
 
       <div class="rolo-wrap">
         <div class="rolo-stage" id="roloStage"></div>
-        <div class="rolo-nav"><span class="nav-hint" id="roloHint">— / —</span></div>
+        <div class="rolo-nav"></div>
       </div>
 
       <!-- Landscape-only: every utility card below gets moved in here by
@@ -852,6 +851,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=115"></script>
+<script type="module" src="./app.js?v=116"></script>
 </body>
 </html>
