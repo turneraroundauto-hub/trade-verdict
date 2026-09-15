@@ -1132,7 +1132,7 @@ known to have run ATM programs.
 ## Backend: Proposal 4 — Context-Weighted Gate 2 Corroboration (Aug 13, 2026)
 
 Landed from the Notion Build Log's "Formal Rule Proposals" section (`Tra`
-PR pending / `trade-verdict` PR pending, mirrored per the two-repo rule).
+PR #34 / `trade-verdict` PR #108, mirrored per the two-repo rule).
 Session Context (the free-text textarea every tier's client already sends
 as `marketContext`) previously had zero backend awareness at all — purely
 a client-side keyword-highlight cosmetic (`shared/context-highlight.js`),
@@ -1251,7 +1251,7 @@ implied. Gate 0 (SPY/QQQ) is unaffected — it reads a pre-computed
 `gateStatus` string the server already resolved correctly server-side
 before the client ever sees it, a different code path entirely.
 
-**Fix (`Tra` PR pending / `trade-verdict` PR pending, same PRs as
+**Fix (`Tra` PR #34 / `trade-verdict` PR #108, same PRs as
 Proposal 4 above, one merge for both):**
 - New `normalizeMarketReading()` parses the real string wire format via the
   `parsePctString()` helper Proposal 4 already added, while still accepting
@@ -5202,8 +5202,8 @@ repo that deploys, don't just report success from having called the
 tool once** — this cost real, avoidable debugging time on top of
 everything else this saga already cost.
 
-**Rebuilt, observation-first this time (`Tra` PR pending / `trade-verdict`
-PR pending, mirrored per the two-repo rule).** Direct instruction: keep
+**Rebuilt, observation-first this time (`Tra` PR #48 / `trade-verdict`
+PR #187, mirrored per the two-repo rule).** Direct instruction: keep
 the `pre_gate_solvency_state` table (a viable path, not abandoned) and
 get CIK/SEC data resolution actually reliable before rebuilding any
 enforcement on top of it. Re-landed only the two request-correctness
@@ -5229,8 +5229,8 @@ this data is in hand should the persistent-flag/enforcement layer get
 rebuilt, informed by what actually happens rather than reasoned about
 from documentation.
 
-**The real root cause, found from that data (`Tra` PR pending /
-`trade-verdict` PR pending, mirrored per the two-repo rule).** Real
+**The real root cause, found from that data (`Tra` PR #49 /
+`trade-verdict` PR #188, mirrored per the two-repo rule).** Real
 Render logs for BALY (a live, current going-concern case — the Aug 17,
 2026 liquidity warning, `substantial doubt`/`going concern` verbatim in
 the Q2 10-Q) showed the `ciks`-scoping theory was WRONG: the search
@@ -5276,8 +5276,8 @@ live SEC response rather than reasoning about documented API behavior.
 is re-checking BALY after this ships and seeing RED instead of GREEN.
 
 **A second real bug found immediately after, same technique — a genuine
-false positive on a healthy company (`Tra` PR pending / `trade-verdict`
-PR pending, mirrored per the two-repo rule).** Once the per-category
+false positive on a healthy company (`Tra` PR #50 / `trade-verdict`
+PR #189, mirrored per the two-repo rule).** Once the per-category
 search started actually working, it surfaced a RED on STWD (Starwood
 Property Trust) despite a strong recent earnings report. Traced with the
 same discipline as BALY — not reasoned about, verified against the real
@@ -5325,7 +5325,7 @@ get the real Render `[PRE-GATE]` log lines, then the real matched
 sentence via SEC EDGAR's CIK-scoped search UI, before touching code.
 
 **The flagged risk above turned out to be real, same day (`Tra` PR
-pending / `trade-verdict` PR pending, mirrored per the two-repo rule).**
+#52 / `trade-verdict` PR #190, mirrored per the two-repo rule).**
 STWD stayed RED after the "going concern" fix — same 2 hits, same
 company, now matching `"insolvent"` instead. A scoped EDGAR search for
 `"insolvent"` on STWD's own CIK returned **1,648 hits, confirmed by
@@ -5387,8 +5387,8 @@ unverified; STWD going GREEN here is fully explained by the keyword trim
 alone.
 
 **Research follow-up, same day: the real fix for the false-positive class
-itself, not just another keyword trim (`Tra` PR pending / `trade-verdict`
-PR pending, mirrored per the two-repo rule).** Prompted directly: "do a
+itself, not just another keyword trim (`Tra` PR #52 / `trade-verdict`
+PR #191, mirrored per the two-repo rule).** Prompted directly: "do a
 deeper research dive to find the logic needed in a search that returns
 valid company concerns," with a suggestion to align with SEC's own
 developer-API guidance (declared User-Agent with a contact email, use
@@ -5919,7 +5919,7 @@ alone, but only covers whatever's hand-listed). **Chose live backend
 lookup.** `Tra` was added to this session's repo scope and cloned per the
 two-repo rule's own documented process.
 
-**Backend (`Tra` PR pending / `trade-verdict` PR pending, mirrored per the
+**Backend (`Tra` PR #56 / `trade-verdict` PR #213, mirrored per the
 two-repo rule — same pattern, same function names, confirmed byte-
 identical via diff before shipping).** New `GET /lookup?q=<query>`,
 gated by the same auth middleware as every other route (no special
@@ -9500,7 +9500,7 @@ on a real signed-in Starter/Pro account with 5+ sized graded verdicts and
 confirm the new "IF FOLLOWED AT RECOMMENDED SIZE" section renders real
 numbers instead of the accumulating message.
 
-## Backend: proxy-fit correlation check generalized beyond Taiwan/Korea semis, BDC/REIT sizing capped at the category level, regime data prewarmed (Sep 13, 2026, `Tra` PR pending / `trade-verdict` PR pending)
+## Backend: proxy-fit correlation check generalized beyond Taiwan/Korea semis, BDC/REIT sizing capped at the category level, regime data prewarmed (Sep 13, 2026, `Tra` PR #111 / `trade-verdict` PR #339)
 
 Direct continuation of the Scorecard/expectancy work above, prompted by a
 live "make recommendations for improving accuracy" ask, then a real
@@ -10308,35 +10308,45 @@ by fetching that branch: its HEAD commit ("Publish Android build v2
 exactly, and it contains both `android-builds/trade-tribunal-latest.aab`
 and `android-builds/trade-tribunal-latest.apk`.
 
-**What this actually means for the still-open Play Console warnings:**
-the code fix has been sitting correct and CI-verified for 11 days: the
-gap is that this specific signed `.aab` was apparently never uploaded as
-a new release to Play Console's closed-testing track — the build tested
-today still predates the fix. Since Free tier's TWA is a thin wrapper
-that just opens the live website (no bundled web content), no *other*
-frontend/backend work done since Sep 4 requires a new Android build —
-only native-manifest-level changes (orientation, SDK/library versions,
-signing) ever do, and none have landed since.
+**Correction: the "never uploaded" conclusion below was wrong — this
+session had no way to see Play Console at all, and shouldn't have
+guessed as confidently as it did.** The paragraph originally here
+concluded the signed `.aab` had never been uploaded as a new release,
+reasoning only from GitHub Actions/repo state — which says nothing
+about what Mr. T actually did in Play Console, a system this session
+has zero visibility into (no connector, no API access). Directly asked
+"are you positive I didn't upload that bundle?", and a real Play
+Console App Bundle Explorer screenshot settled it: **"App bundle:
+2 (2)"** (versionCode 2, matching the Sep 4 bump), **"API levels
+23+"** (the exact `minSdkVersion` bump made for the androidbrowserhelper
+2.7.3 fix), target SDK 36, and **"3 releases"** already using this
+exact bundle. That's the precise fingerprint of the fixed build —
+it has already been uploaded and released multiple times.
 
-**The one remaining step is a human action, not a code fix** — Mr. T
-holds the real Play Console access and the signing keystore (this repo
-deliberately never has it; see "Keystore handling" above), and
-`SendUserFile` has a documented history of not working reliably for
-binary handoffs to him (see "Delivering files to Mr. T" above), so the
-`raw.githubusercontent.com` link is the right delivery mechanism, same
-as every prior Android asset handoff:
-`https://raw.githubusercontent.com/turneraroundauto-hub/trade-verdict/store-assets/android-builds/android-builds/trade-tribunal-latest.aab`
-— download this file and upload it as a new release on the closed-
-testing track. Once Play re-processes the pre-launch report against
-this build, both warnings should clear.
+**So the real, still-open question is why Play's pre-launch report
+keeps showing the edge-to-edge warnings against a build that should
+have cleared them** — not "was it uploaded." Possibilities, none
+confirmed from here: the pre-launch report is a stale/cached scan from
+before this exact bundle went out and hasn't been re-run since; the
+report is being read against an older release/track than the one
+holding versionCode 2; or the androidbrowserhelper 2.7.3 + orientation-
+unlock fix genuinely doesn't fully satisfy whatever Play's automated
+scanner checks, despite matching the documented cause
+(`GoogleChromeLabs/bubblewrap#967`) exactly. **This needs a human check
+of the actual Play Console pre-launch report page** — specifically,
+confirm which app bundle version/release the report was last run
+against, and whether re-running it (or waiting for the next scheduled
+scan) against the current "2 (2)" release clears the warnings. If it
+doesn't, that's real evidence the code fix needs a second look, not
+just a re-upload.
 
-**If a fresher build is ever wanted instead** (e.g. once more native-
-manifest changes land), trigger `build-android.yml` via
-`workflow_dispatch` from the Play Console app or a phone browser (per
-its own documented one-tap design) rather than assuming a rebuild is
-needed by default — this sweep found no reason to trigger a new one
-right now, since run #13 already contains everything the reported
-warnings need.
+**What this sweep can still say with confidence:** the code fix itself
+(androidbrowserhelper 2.7.3, minSdk 23, orientation unlock) is correct
+per Google's own documented cause for this warning, is on `main`, is
+CI-verified via a successful `build-android.yml` run, and — now
+confirmed — is the exact bundle already live in Play Console across 3
+releases. Nothing about the fix itself is unverified anymore; what's
+unverified is why Play's own report hasn't reflected it clearing.
 
 **Rest of this sweep, run the same day:** `npm test` (92/92), `npx tsc
 -p tsconfig.json` (same known 7-error `?v=N`-import-resolution baseline,
