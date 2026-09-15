@@ -10261,3 +10261,97 @@ account's card and check the tile/pill/streak rendering against real
 `/scorecard` and `tv_accuracy_log` data; open a real Starter account's
 card on an actual device and confirm the redesigned teaser still reads
 correctly through the blur.
+
+## Ops: Play Console edge-to-edge warnings — the fix has shipped since Sep 3-4, 2026; a signed build with it has been sitting ready the whole time (Sep 15, 2026)
+
+A full repo sweep was prompted by Mr. T's screenshot of Google Play
+Console's pre-launch report still showing two unresolved "For your next
+release" warnings ("Edge-to-edge may not display for all users," "uses
+deprecated APIs or parameters for edge-to-edge") on the app's second
+closed test — with testers actively using it and approval on the line.
+**This section had never existed until now**, even though the actual
+code fix long predates it (`trade-verdict` PR #283 / build-android.yml
+runs #7-13, Sep 3-4, 2026) — a real documentation gap this sweep closes.
+
+**The fix itself, already in `android/app/build.gradle` and
+`android/twa-manifest.json` on `main`:** `com.google.androidbrowserhelper`
+bumped 2.6.2 → 2.7.3 (2.7.0-alpha03 is the release that fixed this exact
+SDK 35 edge-to-edge warning for Bubblewrap-generated TWAs,
+`GoogleChromeLabs/bubblewrap#967`), `minSdkVersion` 21 → 23 (a required
+follow-up — 2.7.3 itself refuses to build under 21), and the app's
+orientation lock removed everywhere it was declared
+(`twa-manifest.json`, `build.gradle`, root `manifest.json`,
+`LauncherActivity.java`'s `setRequestedOrientation`) — Play's own
+"remove resizability and orientation restrictions" warning, and the
+real cause of a live "not rotating" report at the time (an
+Activity-level lock CSS/JS can never override). `versionCode`/
+`versionName` were also bumped 1 → 2 so a rebuilt APK installs as a
+real update, not an ambiguous same-version reinstall.
+
+**Confirmed, not assumed, that a signed build containing this fix
+already exists and has existed since Sep 4, 2026 — this was the whole
+point of this sweep's investigation.** `.github/workflows/build-android.yml`
+(workflow id `332215098`, `workflow_dispatch`-only, confirmed via a
+correctly-scoped `list_workflow_runs` query — an earlier query in this
+same session had accidentally pointed at the wrong workflow, "pages
+build and deployment," and needed to be redone against the real numeric
+id) shows **run #13 (`33829198696`, Sep 4 2026 02:21-02:23 UTC) completed
+successfully**, built from commit `18e793b` on
+`claude/android-rotation-rebuild` — a lineage that already carries the
+full edge-to-edge fix above. That run's own job publishes the signed
+`.apk`/`.aab` to a scratch branch (`store-assets/android-builds`, same
+raw.githubusercontent.com-URL technique this file's "Delivering files to
+Mr. T" section already documents, since Actions' own signed artifact
+URLs are blocked by this sandbox's egress policy) — confirmed directly
+by fetching that branch: its HEAD commit ("Publish Android build v2
+(18e793b...)", timestamped 2026-09-04 02:23:17 UTC) matches run #13
+exactly, and it contains both `android-builds/trade-tribunal-latest.aab`
+and `android-builds/trade-tribunal-latest.apk`.
+
+**What this actually means for the still-open Play Console warnings:**
+the code fix has been sitting correct and CI-verified for 11 days: the
+gap is that this specific signed `.aab` was apparently never uploaded as
+a new release to Play Console's closed-testing track — the build tested
+today still predates the fix. Since Free tier's TWA is a thin wrapper
+that just opens the live website (no bundled web content), no *other*
+frontend/backend work done since Sep 4 requires a new Android build —
+only native-manifest-level changes (orientation, SDK/library versions,
+signing) ever do, and none have landed since.
+
+**The one remaining step is a human action, not a code fix** — Mr. T
+holds the real Play Console access and the signing keystore (this repo
+deliberately never has it; see "Keystore handling" above), and
+`SendUserFile` has a documented history of not working reliably for
+binary handoffs to him (see "Delivering files to Mr. T" above), so the
+`raw.githubusercontent.com` link is the right delivery mechanism, same
+as every prior Android asset handoff:
+`https://raw.githubusercontent.com/turneraroundauto-hub/trade-verdict/store-assets/android-builds/android-builds/trade-tribunal-latest.aab`
+— download this file and upload it as a new release on the closed-
+testing track. Once Play re-processes the pre-launch report against
+this build, both warnings should clear.
+
+**If a fresher build is ever wanted instead** (e.g. once more native-
+manifest changes land), trigger `build-android.yml` via
+`workflow_dispatch` from the Play Console app or a phone browser (per
+its own documented one-tap design) rather than assuming a rebuild is
+needed by default — this sweep found no reason to trigger a new one
+right now, since run #13 already contains everything the reported
+warnings need.
+
+**Rest of this sweep, run the same day:** `npm test` (92/92), `npx tsc
+-p tsconfig.json` (same known 7-error `?v=N`-import-resolution baseline,
+zero new), and a full `node esbuild.config.mjs` rebuild of all three
+bundles (Free/Starter/Pro chunk-header grep confirmed at their
+established 7/8/10 shared-module counts, zero `git status` diff against
+what was already committed) all came back clean — the repo's own
+build/test state matches what's actually deployed, nothing stale or
+drifted. A live check via the `Trade_Tribunal` MCP connector's
+`get_market` tool returned real, current production data (correct
+`marketOpen:false` outside trading hours, a real Gate 0 YELLOW read, a
+real generated Sector Pulse narrative) — the first time this file has a
+directly-confirmed-live (not "unverified from sandbox") market-data
+round trip on record. A Supabase Security Advisor scan came back with
+zero new findings — only the one already-documented, deliberately-
+deferred WARN (`auth_leaked_password_protection`, blocked by the
+project's Free plan; see the Aug 26, 2026 entry above) is present, and
+every previously-fixed grants/RLS/search_path issue remains fixed.
