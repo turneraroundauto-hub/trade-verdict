@@ -10340,13 +10340,66 @@ scan) against the current "2 (2)" release clears the warnings. If it
 doesn't, that's real evidence the code fix needs a second look, not
 just a re-upload.
 
+**Answered the same day: real root cause, confirmed directly against
+the fixed release, not stale-scan/wrong-release.** Mr. T pulled up the
+pre-launch report's own expandable detail view for "Your app uses
+deprecated APIs or parameters for edge-to-edge" and screenshotted it.
+It's explicitly scoped to **Release name: 2 (2)** — the exact
+versionCode-2 build confirmed live above, not an older/cached scan —
+and names `android.view.Window.setStatusBarColor`/
+`setNavigationBarColor` as "starting in"
+**`androidx.core.view.WindowCompat.enableEdgeToEdge`**, the very
+AndroidX function `androidbrowserhelper` 2.7.3's `EdgeToEdgeController`
+calls to implement the fix.
+
+This directly confirms — via Play's own live scan of the fixed release,
+not inference — the risk flagged as unverified during the original
+research pass: a third-party developer's own dex/bytecode analysis
+(`Timehue/ShinobiX` PR #173, cited above) claimed `WindowCompat.
+enableEdgeToEdge()` itself still calls the deprecated setters
+internally, with no SDK guard. That claim couldn't be checked against
+AndroidX's real source from this sandbox (`cs.android.com` is
+egress-blocked) — Google's own report just verified it directly, on
+this app's actual shipped build.
+
+**What this settles: the warning is not fixable from anything in this
+repo.** No file here — `LauncherActivity.java`, `AndroidManifest.xml`,
+`build.gradle`, `colors.xml` — calls either deprecated setter directly;
+the call chain bottoms out one dependency layer down, inside
+`androidx.core` itself, which `androidbrowserhelper` depends on to do
+the "correct" edge-to-edge thing. The only real fixes from here are
+external and out of this project's control: `androidbrowserhelper`
+shipping a version that stops routing through `WindowCompat.
+enableEdgeToEdge()` in favor of its own guarded implementation, or a
+future `androidx.core` release patching that function's internals.
+Bumping our own dependency version further won't help unless one of
+those upstream fixes actually exists in the version bumped to — check
+`GoogleChrome/android-browser-helper` release notes for that
+specifically before trying another version bump.
+
+**Confirmed non-blocking, not confirmed harmless — a real, important
+distinction.** Checked directly: nothing in Play Console's UI marks
+this "must fix" — it's still filed under "For your next release," the
+same non-blocking severity tier Google uses for advisory findings, and
+this exact release has already gone out across 3 real releases with
+the warning present the whole time. This matches the pattern
+independently found in `flutter/flutter` issue #183372 (a Flutter app
+doing everything right still got this same warning traced to a
+framework-internal call, closed as a known duplicate) — a known,
+apparently-accepted-by-Google class of one-layer-removed warning that
+doesn't block shipping. **Treat this as closed/documented, not as an
+open action item** — there's nothing further to chase in this repo
+unless `androidbrowserhelper`'s own release notes announce a real fix
+for it later.
+
 **What this sweep can still say with confidence:** the code fix itself
 (androidbrowserhelper 2.7.3, minSdk 23, orientation unlock) is correct
 per Google's own documented cause for this warning, is on `main`, is
 CI-verified via a successful `build-android.yml` run, and — now
 confirmed — is the exact bundle already live in Play Console across 3
-releases. Nothing about the fix itself is unverified anymore; what's
-unverified is why Play's own report hasn't reflected it clearing.
+releases. The one remaining warning traces to a real, external,
+non-blocking cause inside AndroidX itself, confirmed directly against
+this app's own shipped release, not left as an open question.
 
 **Rest of this sweep, run the same day:** `npm test` (92/92), `npx tsc
 -p tsconfig.json` (same known 7-error `?v=N`-import-resolution baseline,
