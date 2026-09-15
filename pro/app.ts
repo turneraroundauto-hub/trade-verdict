@@ -52,7 +52,7 @@
 import { initTickerCache, fetchTickerData } from '../shared/ticker-cache';
 import { initWatchlist, watchlist, addTickers, addKnownTicker, removeTicker, setWatchlist, onWatchlistSave, onTickersAdded } from '../shared/watchlist';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache';
-import { renderTrackRecord, logResult, getAccuracyLog, clearLog } from '../shared/track-record';
+import { renderTrackRecord, logResult, clearLog } from '../shared/track-record';
 import { initTrackRecordSync, pullTrackRecordFromServer, schedulePushTrackRecord } from '../shared/track-record-sync';
 import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync';
 import { getTzPref, getTzIana, onPrefsChange, tickerHref, newsHref, refreshTickerLinks } from '../shared/prefs';
@@ -415,8 +415,6 @@ export function logResultUI(ticker: string, verdict: string, correct: boolean, b
   var rowEl = btnEl.closest('.log-row') as HTMLElement | null; if (!rowEl) return;
   var meta = { trigger: classifyTrigger(lastAnalysis[ticker]) };
   logResult(ticker, verdict, correct, rowEl, meta);
-  renderGateAttribution();
-  renderTickerAccuracy();
   schedulePushTrackRecord();
 }
 
@@ -1263,40 +1261,20 @@ export async function renderProxyExplorer(force?: boolean): Promise<void> {
 }
 export function refreshProxyExplorer(): void { renderProxyExplorer(true); }
 
-// ── PRO — track-record gate-attribution + ticker-accuracy breakdowns ──
-function renderGateAttribution(): void {
-  var el = document.getElementById('track-gate-breakdown'); if (!el) return;
-  var log = getAccuracyLog().filter((e: any) => e.trigger);
-  if (!log.length) { el.innerHTML = ''; return; }
-  var by: Record<string, { c: number; t: number }> = {};
-  log.forEach((e: any) => { var k = e.trigger; if (!by[k]) by[k] = { c: 0, t: 0 }; by[k].t++; if (e.correct) by[k].c++; });
-  var order = ['pre-gate', 'gate0', 'gate1', 'gate5', 'corroboration', 'standard'];
-  var rows = order.filter((k) => by[k]).map((k) => {
-    var s = by[k]; var rate = Math.round((s.c / s.t) * 100);
-    var color = rate >= 65 ? 'var(--green)' : rate >= 50 ? 'var(--amber)' : 'var(--red)';
-    return `<div class="trigger-row"><span class="trigger-lbl">${TRIGGER_LABELS[k]}</span><span class="trigger-val" style="color:${color}">${rate}%</span><span class="trigger-sub">${s.c}/${s.t}</span></div>`;
-  }).join('');
-  el.innerHTML = '<div class="track-log-title" style="margin-top:12px">ACCURACY BY TRIGGER</div>' + rows;
-}
-function renderTickerAccuracy(): void {
-  var el = document.getElementById('track-ticker-breakdown'); if (!el) return;
-  var log = getAccuracyLog();
-  if (!log.length) { el.innerHTML = ''; return; }
-  var by: Record<string, { c: number; t: number }> = {};
-  log.forEach((e: any) => { if (!by[e.ticker]) by[e.ticker] = { c: 0, t: 0 }; by[e.ticker].t++; if (e.correct) by[e.ticker].c++; });
-  var rows = Object.entries(by).sort((a, b) => b[1].t - a[1].t).map(([ticker, s]) => {
-    var rate = Math.round((s.c / s.t) * 100);
-    var color = rate >= 65 ? 'var(--green)' : rate >= 50 ? 'var(--amber)' : 'var(--red)';
-    return `<div class="trigger-row"><span class="trigger-lbl"><a class="ticker-a" href="${tickerHref(ticker)}" target="_blank">${ticker}</a></span><span class="trigger-val" style="color:${color}">${rate}%</span><span class="trigger-sub">${s.c}/${s.t}</span></div>`;
-  }).join('');
-  el.innerHTML = '<div class="track-log-title" style="margin-top:12px">ACCURACY BY TICKER</div>' + rows;
-}
-function refreshTrackRecordCard(): void { renderTrackRecord(); renderGateAttribution(); renderTickerAccuracy(); }
+// "ACCURACY BY TRIGGER"/"ACCURACY BY TICKER" (renderGateAttribution/
+// renderTickerAccuracy) removed in the Verdict Record merge (Sep 2026) --
+// both re-sliced the same tv_accuracy_log data the pooled Scorecard
+// stats above them (and each other) already covered. classifyTrigger()
+// itself is untouched -- Analyst View still uses it -- this only drops
+// the two aggregate breakdown views that read from getAccuracyLog().
 
 // ── PROPOSAL 7 — Verdict Accuracy Scorecard (Aug 26, 2026) ──────────
 // Real, server-graded accuracy (verdict_log, graded automatically ~3
-// trading days after each verdict) -- distinct from Track Record above,
-// which is the user's own manually-logged ✓/✗ record. Gated server-side
+// trading days after each verdict) -- distinct from "Your Log" below,
+// rendered into #track-body (shared/track-record.ts) right underneath
+// this function's own output in the same merged Verdict Record card
+// (Sep 2026), which is the user's own manually-logged ✓/✗ record. Gated
+// server-side
 // on credits.TIERS.pro.scorecard (Pro-first rollout, per direct
 // instruction) -- the endpoint itself returns 403 on any tier that
 // doesn't have the flag yet, so this card degrades to a plain message
@@ -1313,11 +1291,12 @@ async function renderScorecardCard(): Promise<void> {
       el.innerHTML = '<div class="track-empty">Accumulating — ' + (data.gradedCount || 0) + '/20 graded verdicts so far. Check back once more verdicts have been scored.</div>';
       return;
     }
-    var strictRow = data.strictPct != null
-      ? '<div class="trigger-row"><span class="trigger-lbl">Strict accuracy</span><span class="trigger-val">' + data.strictPct + '%</span></div>'
-      : '';
+    // Strict accuracy dropped from this card (Sep 2026, direct feedback --
+    // it sat at a confusing 0% and added no signal Directional accuracy
+    // didn't already answer more plainly). The raw field still comes back
+    // on `data.strictPct` -- unread here on purpose, not removed
+    // server-side, since nothing else in this pass touched /scorecard.
     var html = '<div class="track-log-title">VERDICT ACCURACY (' + data.gradedCount + ' graded)</div>'
-      + strictRow
       + '<div class="trigger-row"><span class="trigger-lbl">Directional accuracy</span><span class="trigger-val">' + data.directionalPct + '%</span></div>';
     // BY TICKER breakdown removed Sep 2, 2026; the by-gate1-branch/
     // pre-gate-state/gate0-read/gate2-corroboration breakdown removed Sep
@@ -1333,9 +1312,12 @@ async function renderScorecardCard(): Promise<void> {
     } else if (exp) {
       var retColor = exp.avgSimulatedReturnPct >= 0 ? 'var(--green)' : 'var(--red)';
       var retSign = exp.avgSimulatedReturnPct >= 0 ? '+' : '';
+      // Win rate dropped too (same pass, same feedback) -- same 46 sized
+      // trades as the return line above it, just re-framed as a second
+      // percentage of the identical slice. `exp.winRatePct` is still on
+      // the wire, unread here, for the same reason as strictPct above.
       html += '<div class="track-log-title" style="margin-top:12px">IF FOLLOWED AT RECOMMENDED SIZE</div>'
-        + '<div class="trigger-row"><span class="trigger-lbl">Avg return per trade</span><span class="trigger-val" style="color:' + retColor + '">' + retSign + exp.avgSimulatedReturnPct + '%</span></div>'
-        + '<div class="trigger-row"><span class="trigger-lbl">Win rate</span><span class="trigger-val">' + exp.winRatePct + '%</span><span class="trigger-sub">' + exp.sizedGradedCount + '</span></div>';
+        + '<div class="trigger-row"><span class="trigger-lbl">Avg return per trade</span><span class="trigger-val" style="color:' + retColor + '">' + retSign + exp.avgSimulatedReturnPct + '%</span></div>';
     }
     // UP/DOWN split + top-5 pooled tickers (Sep 13, 2026, direct follow-up
     // ask). Both fields are pooled across every user AND every tier -- not
@@ -2072,8 +2054,7 @@ const HELP_CONTENT: Record<string, string> = {
   watchlist: 'Every <a class="help-glossary-link" href="#" data-term="ticker">ticker</a> beyond your top 15 cards lives here. Tap + on any row to move it up into your main list.',
   proxy: 'Shows which sector or stock each ticker is compared against for <a class="help-glossary-link" href="#" data-term="gate 5">Gate 5</a>, and whether they’re still moving together right now.',
   heatmap: 'A color-coded snapshot of major sectors and every ticker in your watchlist, sorted by today’s % change.',
-  track: 'Your own logged verdict history. Tap ✓ RIGHT or ✗ WRONG after the session closes to build a real accuracy record, broken down by gate and by ticker.',
-  scorecard: 'Automatic accuracy tracking — every verdict is checked against the real price move 24h later (and again ~5 trading days later for the strict score), nothing for you to log. Stays hidden until at least 20 verdicts are graded. "If followed at recommended size" simulates the return you\'d have realized sizing exactly as recommended — FLAT and no-size calls aren\'t counted as a trade either way, so this only reflects the calls that actually told you to take a position. The UP vs DOWN split and Top 5 Tickers are pooled across every user and every tier, not just your own account — each side needs 5+ graded verdicts before it shows a number.',
+  scorecard: 'Two accuracy views in one card. The top half is automatic — every verdict is checked against the real price move 24h later, nothing for you to log — and stays hidden until at least 20 verdicts are graded. "If followed at recommended size" simulates the return you\'d have realized sizing exactly as recommended — FLAT and no-size calls aren\'t counted as a trade either way. The UP vs DOWN split and Top 5 Tickers are pooled across every user and every tier, not just your own account — each side needs 5+ graded verdicts before it shows a number. "Your Log" below is your own record — tap ✓ RIGHT or ✗ WRONG after a session closes to build it.',
   agitator: 'Check out a new stock idea or a rumor before it earns a spot on your watchlist — always free. Type a ticker, a company name, or paste a headline, and get one LOW/MEDIUM/HIGH read built from 6 real signals, plus a few related companies worth a look.',
   'agitator-score': 'One overall score, 0–10, averaging the 6 signals below — a fast read on how big a deal this news might be, not an exact measurement.',
   'agitator-surprise': 'How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.',
@@ -2217,11 +2198,6 @@ const TUTORIAL_STEPS: TutorialStep[] = [
     before: () => tutorialExpand('card-heatmap'),
   },
   {
-    html: HELP_CONTENT.track,
-    getAnchor: () => tutorialAnchor('track', 'track'),
-    before: () => tutorialExpand('card-track'),
-  },
-  {
     html: HELP_CONTENT.scorecard,
     getAnchor: () => tutorialAnchor('scorecard', 'scorecard'),
     before: () => tutorialExpand('card-scorecard'),
@@ -2266,7 +2242,7 @@ function initApp(): void {
   fetchMarket();
   rolodex.sizeGateSpacer();
   renderRolodexFromWatchlist();
-  refreshTrackRecordCard();
+  renderTrackRecord();
   renderDialCard();
   setTimeout(fetchCreditStatus, 2000);
   // New-user tutorial -- fires once per browser (a tier-scoped flag, so a
@@ -2383,7 +2359,7 @@ checkAuth();
 document.getElementById('analyzeAllBtn')!.addEventListener('click', analyzeAll);
 document.getElementById('importBtn')!.addEventListener('click', addTickers);
 document.getElementById('exportCsvBtn')!.addEventListener('click', () => exportWatchlistCSV(document.getElementById('exportCsvBtn') as HTMLButtonElement));
-document.getElementById('clearTrackBtn')!.addEventListener('click', () => { clearLog(); refreshTrackRecordCard(); });
+document.getElementById('clearTrackBtn')!.addEventListener('click', () => { clearLog(); });
 document.getElementById('agitatorCheckBtn')!.addEventListener('click', runAgitatorCheck);
 document.getElementById('agitator-clear')!.addEventListener('click', () => {
   var qEl = document.getElementById('agitator-query') as HTMLInputElement;

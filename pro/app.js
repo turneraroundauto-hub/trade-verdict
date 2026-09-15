@@ -895,32 +895,6 @@ function renderTrackRecord() {
     body.innerHTML = '<div class="track-empty">No trades logged yet.<br>After each verdict tap \u2713 RIGHT or \u2717 WRONG.</div>';
     return;
   }
-  var total = log.length, correct = log.filter(function(e) {
-    return e.correct;
-  }).length;
-  var rate = Math.round(correct / total * 100);
-  var rateColor = rate >= 65 ? "var(--green)" : rate >= 50 ? "var(--amber)" : "var(--red)";
-  var byType = { UP: { c: 0, t: 0 }, DOWN: { c: 0, t: 0 }, FLAT: { c: 0, t: 0 } };
-  log.forEach(function(e) {
-    var v = e.verdict || "UP";
-    if (!byType[v]) byType[v] = { c: 0, t: 0 };
-    byType[v].t++;
-    if (e.correct) byType[v].c++;
-  });
-  var typeRate = function(v) {
-    return byType[v].t ? Math.round(byType[v].c / byType[v].t * 100) + "%" : "&mdash;";
-  };
-  var byTicker = {};
-  log.forEach(function(e) {
-    if (!byTicker[e.ticker]) byTicker[e.ticker] = { c: 0, t: 0 };
-    byTicker[e.ticker].t++;
-    if (e.correct) byTicker[e.ticker].c++;
-  });
-  var topTickers = Object.entries(byTicker).sort(function(a, b) {
-    return b[1].t - a[1].t;
-  }).slice(0, 3).map(function(x) {
-    return '<a class="ticker-a" href="' + tickerHref(x[0]) + '" target="_blank">' + x[0] + "</a> " + Math.round(x[1].c / x[1].t * 100) + "%";
-  }).join(" \xB7 ") || "&mdash;";
   var streak = 0, streakType = null;
   for (var i = log.length - 1; i >= 0; i--) {
     if (streakType === null) streakType = log[i].correct;
@@ -929,17 +903,28 @@ function renderTrackRecord() {
   }
   var streakLabel = streak > 1 ? streak + " " + (streakType ? "\u2713" : "\u2717") + " streak" : "&mdash;";
   var streakColor = streakType ? "var(--green)" : "var(--red)";
-  var recent20 = log.slice(-20);
-  var pips = recent20.map(function(e) {
+  var pips = log.slice(-5).map(function(e) {
     return '<div class="trend-pip" style="background:' + (e.correct ? "var(--green)" : "var(--red)") + '"></div>';
   }).join("");
-  var recent8 = [].concat(log).reverse().slice(0, 8).map(function(e) {
+  var tradeRow = function(e) {
     var vColor = e.verdict === "UP" ? "var(--green)" : e.verdict === "DOWN" ? "var(--red)" : "var(--amber)";
     var rColor = e.correct ? "var(--green)" : "var(--red)";
     var t = new Date(e.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "America/New_York" });
     return '<div class="track-log-item"><span class="tli-ticker"><a class="ticker-a" href="' + tickerHref(e.ticker) + '" target="_blank">' + e.ticker + '</a></span><span class="tli-verdict" style="color:' + vColor + '">' + e.verdict + '</span><span class="tli-result" style="color:' + rColor + '">' + (e.correct ? "\u2713 RIGHT" : "\u2717 WRONG") + '</span><span class="tli-time">' + e.session + " " + t + " ET</span></div>";
-  }).join("");
-  body.innerHTML = '<div class="track-rate"><span class="track-rate-num" style="color:' + rateColor + '">' + rate + '%</span><div><div class="track-rate-label">HIT RATE</div><div class="track-rate-count">' + correct + " right of " + total + ' logged</div></div></div><div class="track-grid"><div class="track-stat"><span class="track-stat-lbl">\u{1F44D} UP</span><span class="track-stat-val">' + typeRate("UP") + '</span><span class="track-stat-sub">' + byType.UP.c + "/" + byType.UP.t + '</span></div><div class="track-stat"><span class="track-stat-lbl">\u{1F44E} DOWN</span><span class="track-stat-val">' + typeRate("DOWN") + '</span><span class="track-stat-sub">' + byType.DOWN.c + "/" + byType.DOWN.t + '</span></div><div class="track-stat"><span class="track-stat-lbl">HOLD</span><span class="track-stat-val">' + typeRate("FLAT") + '</span><span class="track-stat-sub">' + byType.FLAT.c + "/" + byType.FLAT.t + '</span></div></div><div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap"><div><div class="track-stat-lbl">STREAK</div><div style="font-family:monospace;font-size:var(--fs-sm);font-weight:700;color:' + streakColor + '">' + streakLabel + '</div></div><div><div class="track-stat-lbl">TOP TICKERS</div><div style="font-family:monospace;font-size:var(--fs-sm)">' + topTickers + "</div></div></div>" + (recent20.length ? '<div class="trend-bar"><span class="trend-bar-lbl">LAST ' + recent20.length + "</span>" + pips + "</div>" : "") + '<div class="track-log-title" style="margin-top:12px">RECENT TRADES</div>' + recent8;
+  };
+  var reversed = [].concat(log).reverse();
+  var visibleRows = reversed.slice(0, 3).map(tradeRow).join("");
+  var extra = reversed.slice(3, 8);
+  var extraHTML = extra.length ? '<button type="button" class="expand-btn" id="trackLogMoreBtn"><span>VIEW FULL LOG (' + log.length + ')</span><span class="analyst-arrow" id="trackLogMoreArrow">\u25BC</span></button><div id="trackLogMoreBody" style="display:none">' + extra.map(tradeRow).join("") + "</div>" : "";
+  body.innerHTML = '<div class="record-streak-row"><span class="track-stat-lbl" style="margin:0">STREAK</span><span style="font-family:var(--mono);font-size:13px;font-weight:700;color:' + streakColor + '">' + streakLabel + '</span><span class="trend-bar" style="margin:0 0 0 auto">' + pips + "</span></div>" + visibleRows + extraHTML;
+  var moreBtn = document.getElementById("trackLogMoreBtn");
+  if (moreBtn) moreBtn.addEventListener("click", function() {
+    var b = document.getElementById("trackLogMoreBody"), a = document.getElementById("trackLogMoreArrow");
+    if (!b) return;
+    var open = b.style.display === "none";
+    b.style.display = open ? "block" : "none";
+    if (a) a.textContent = open ? "\u25B2" : "\u25BC";
+  });
 }
 window.logResult = logResult;
 window.clearLog = clearLog;
@@ -2306,8 +2291,6 @@ function logResultUI(ticker, verdict, correct, btnEl) {
   if (!rowEl) return;
   var meta = { trigger: classifyTrigger(lastAnalysis[ticker]) };
   logResult(ticker, verdict, correct, rowEl, meta);
-  renderGateAttribution();
-  renderTickerAccuracy();
   schedulePushTrackRecord();
 }
 function logSectionHTML(sym, verdict) {
@@ -3055,56 +3038,6 @@ async function renderProxyExplorer(force) {
 function refreshProxyExplorer() {
   renderProxyExplorer(true);
 }
-function renderGateAttribution() {
-  var el = document.getElementById("track-gate-breakdown");
-  if (!el) return;
-  var log = getAccuracyLog().filter((e) => e.trigger);
-  if (!log.length) {
-    el.innerHTML = "";
-    return;
-  }
-  var by = {};
-  log.forEach((e) => {
-    var k = e.trigger;
-    if (!by[k]) by[k] = { c: 0, t: 0 };
-    by[k].t++;
-    if (e.correct) by[k].c++;
-  });
-  var order = ["pre-gate", "gate0", "gate1", "gate5", "corroboration", "standard"];
-  var rows = order.filter((k) => by[k]).map((k) => {
-    var s = by[k];
-    var rate = Math.round(s.c / s.t * 100);
-    var color = rate >= 65 ? "var(--green)" : rate >= 50 ? "var(--amber)" : "var(--red)";
-    return `<div class="trigger-row"><span class="trigger-lbl">${TRIGGER_LABELS[k]}</span><span class="trigger-val" style="color:${color}">${rate}%</span><span class="trigger-sub">${s.c}/${s.t}</span></div>`;
-  }).join("");
-  el.innerHTML = '<div class="track-log-title" style="margin-top:12px">ACCURACY BY TRIGGER</div>' + rows;
-}
-function renderTickerAccuracy() {
-  var el = document.getElementById("track-ticker-breakdown");
-  if (!el) return;
-  var log = getAccuracyLog();
-  if (!log.length) {
-    el.innerHTML = "";
-    return;
-  }
-  var by = {};
-  log.forEach((e) => {
-    if (!by[e.ticker]) by[e.ticker] = { c: 0, t: 0 };
-    by[e.ticker].t++;
-    if (e.correct) by[e.ticker].c++;
-  });
-  var rows = Object.entries(by).sort((a, b) => b[1].t - a[1].t).map(([ticker, s]) => {
-    var rate = Math.round(s.c / s.t * 100);
-    var color = rate >= 65 ? "var(--green)" : rate >= 50 ? "var(--amber)" : "var(--red)";
-    return `<div class="trigger-row"><span class="trigger-lbl"><a class="ticker-a" href="${tickerHref(ticker)}" target="_blank">${ticker}</a></span><span class="trigger-val" style="color:${color}">${rate}%</span><span class="trigger-sub">${s.c}/${s.t}</span></div>`;
-  }).join("");
-  el.innerHTML = '<div class="track-log-title" style="margin-top:12px">ACCURACY BY TICKER</div>' + rows;
-}
-function refreshTrackRecordCard() {
-  renderTrackRecord();
-  renderGateAttribution();
-  renderTickerAccuracy();
-}
 async function renderScorecardCard() {
   var el = document.getElementById("scorecard-body");
   if (!el) return;
@@ -3124,15 +3057,14 @@ async function renderScorecardCard() {
       el.innerHTML = '<div class="track-empty">Accumulating \u2014 ' + (data.gradedCount || 0) + "/20 graded verdicts so far. Check back once more verdicts have been scored.</div>";
       return;
     }
-    var strictRow = data.strictPct != null ? '<div class="trigger-row"><span class="trigger-lbl">Strict accuracy</span><span class="trigger-val">' + data.strictPct + "%</span></div>" : "";
-    var html = '<div class="track-log-title">VERDICT ACCURACY (' + data.gradedCount + " graded)</div>" + strictRow + '<div class="trigger-row"><span class="trigger-lbl">Directional accuracy</span><span class="trigger-val">' + data.directionalPct + "%</span></div>";
+    var html = '<div class="track-log-title">VERDICT ACCURACY (' + data.gradedCount + ' graded)</div><div class="trigger-row"><span class="trigger-lbl">Directional accuracy</span><span class="trigger-val">' + data.directionalPct + "%</span></div>";
     var exp = data.expectancy;
     if (exp && exp.insufficientSizedData) {
       html += '<div class="track-log-title" style="margin-top:12px">IF FOLLOWED AT RECOMMENDED SIZE</div><div class="track-empty">Accumulating \u2014 ' + exp.sizedGradedCount + "/5 sized verdicts so far.</div>";
     } else if (exp) {
       var retColor = exp.avgSimulatedReturnPct >= 0 ? "var(--green)" : "var(--red)";
       var retSign = exp.avgSimulatedReturnPct >= 0 ? "+" : "";
-      html += '<div class="track-log-title" style="margin-top:12px">IF FOLLOWED AT RECOMMENDED SIZE</div><div class="trigger-row"><span class="trigger-lbl">Avg return per trade</span><span class="trigger-val" style="color:' + retColor + '">' + retSign + exp.avgSimulatedReturnPct + '%</span></div><div class="trigger-row"><span class="trigger-lbl">Win rate</span><span class="trigger-val">' + exp.winRatePct + '%</span><span class="trigger-sub">' + exp.sizedGradedCount + "</span></div>";
+      html += '<div class="track-log-title" style="margin-top:12px">IF FOLLOWED AT RECOMMENDED SIZE</div><div class="trigger-row"><span class="trigger-lbl">Avg return per trade</span><span class="trigger-val" style="color:' + retColor + '">' + retSign + exp.avgSimulatedReturnPct + "%</span></div>";
     }
     var db = data.directionBreakdown;
     if (db) {
@@ -3647,8 +3579,7 @@ var HELP_CONTENT = {
   watchlist: 'Every <a class="help-glossary-link" href="#" data-term="ticker">ticker</a> beyond your top 15 cards lives here. Tap + on any row to move it up into your main list.',
   proxy: 'Shows which sector or stock each ticker is compared against for <a class="help-glossary-link" href="#" data-term="gate 5">Gate 5</a>, and whether they\u2019re still moving together right now.',
   heatmap: "A color-coded snapshot of major sectors and every ticker in your watchlist, sorted by today\u2019s % change.",
-  track: "Your own logged verdict history. Tap \u2713 RIGHT or \u2717 WRONG after the session closes to build a real accuracy record, broken down by gate and by ticker.",
-  scorecard: `Automatic accuracy tracking \u2014 every verdict is checked against the real price move 24h later (and again ~5 trading days later for the strict score), nothing for you to log. Stays hidden until at least 20 verdicts are graded. "If followed at recommended size" simulates the return you'd have realized sizing exactly as recommended \u2014 FLAT and no-size calls aren't counted as a trade either way, so this only reflects the calls that actually told you to take a position. The UP vs DOWN split and Top 5 Tickers are pooled across every user and every tier, not just your own account \u2014 each side needs 5+ graded verdicts before it shows a number.`,
+  scorecard: `Two accuracy views in one card. The top half is automatic \u2014 every verdict is checked against the real price move 24h later, nothing for you to log \u2014 and stays hidden until at least 20 verdicts are graded. "If followed at recommended size" simulates the return you'd have realized sizing exactly as recommended \u2014 FLAT and no-size calls aren't counted as a trade either way. The UP vs DOWN split and Top 5 Tickers are pooled across every user and every tier, not just your own account \u2014 each side needs 5+ graded verdicts before it shows a number. "Your Log" below is your own record \u2014 tap \u2713 RIGHT or \u2717 WRONG after a session closes to build it.`,
   agitator: "Check out a new stock idea or a rumor before it earns a spot on your watchlist \u2014 always free. Type a ticker, a company name, or paste a headline, and get one LOW/MEDIUM/HIGH read built from 6 real signals, plus a few related companies worth a look.",
   "agitator-score": "One overall score, 0\u201310, averaging the 6 signals below \u2014 a fast read on how big a deal this news might be, not an exact measurement.",
   "agitator-surprise": "How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.",
@@ -3747,11 +3678,6 @@ var TUTORIAL_STEPS = [
     before: () => tutorialExpand("card-heatmap")
   },
   {
-    html: HELP_CONTENT.track,
-    getAnchor: () => tutorialAnchor("track", "track"),
-    before: () => tutorialExpand("card-track")
-  },
-  {
     html: HELP_CONTENT.scorecard,
     getAnchor: () => tutorialAnchor("scorecard", "scorecard"),
     before: () => tutorialExpand("card-scorecard")
@@ -3803,7 +3729,7 @@ function initApp() {
   fetchMarket();
   sizeGateSpacer();
   renderRolodexFromWatchlist();
-  refreshTrackRecordCard();
+  renderTrackRecord();
   renderDialCard();
   setTimeout(fetchCreditStatus, 2e3);
   setTimeout(function() {
@@ -3928,7 +3854,6 @@ document.getElementById("importBtn").addEventListener("click", addTickers);
 document.getElementById("exportCsvBtn").addEventListener("click", () => exportWatchlistCSV(document.getElementById("exportCsvBtn")));
 document.getElementById("clearTrackBtn").addEventListener("click", () => {
   clearLog();
-  refreshTrackRecordCard();
 });
 document.getElementById("agitatorCheckBtn").addEventListener("click", runAgitatorCheck);
 document.getElementById("agitator-clear").addEventListener("click", () => {

@@ -45,36 +45,48 @@ export function replaceLog(entries: TrackEntry[]): void {saveLog(entries);render
 // this module already owns, without duplicating the localStorage read/parse.
 export function getAccuracyLog(): TrackEntry[] {return getLog();}
 
+// Distilled Aug/Sep-2026 "Unified Stack" merge (CLAUDE.md, "Verdict
+// Record — Scorecard + Track Record consolidation"): this card no longer
+// stands alone next to a separate Scorecard card, so the hit-rate number,
+// UP/DOWN/HOLD tally, and personal Top Tickers list were dropped as
+// redundant with the pooled Scorecard stats now sitting right above this
+// in the same card body. What's left is the one thing the pooled side
+// can't show -- your own streak and your own recent calls -- trimmed to
+// the last 3 with the rest tucked behind a "view full log" toggle (same
+// expand-btn/arrow pattern already used for Analyst View) rather than a
+// second full list competing with the pooled section for space.
 export function renderTrackRecord(): void {
   var log=getLog();
   var body=document.getElementById('track-body');if(!body)return;
   if(!log.length){body.innerHTML='<div class="track-empty">No trades logged yet.<br>After each verdict tap ✓ RIGHT or ✗ WRONG.</div>';return}
-  var total=log.length,correct=log.filter(function(e){return e.correct}).length;
-  var rate=Math.round((correct/total)*100);
-  var rateColor=rate>=65?'var(--green)':rate>=50?'var(--amber)':'var(--red)';
-  var byType: Record<string, {c: number; t: number}> = {UP:{c:0,t:0},DOWN:{c:0,t:0},FLAT:{c:0,t:0}};
-  log.forEach(function(e){var v=e.verdict||'UP';if(!byType[v])byType[v]={c:0,t:0};byType[v].t++;if(e.correct)byType[v].c++});
-  var typeRate=function(v: string){return byType[v].t?Math.round((byType[v].c/byType[v].t)*100)+'%':'&mdash;'};
-  var byTicker: Record<string, {c: number; t: number}> = {};
-  log.forEach(function(e){if(!byTicker[e.ticker])byTicker[e.ticker]={c:0,t:0};byTicker[e.ticker].t++;if(e.correct)byTicker[e.ticker].c++});
-  var topTickers=Object.entries(byTicker).sort(function(a,b){return b[1].t-a[1].t}).slice(0,3).map(function(x){return'<a class="ticker-a" href="'+tickerHref(x[0])+'" target="_blank">'+x[0]+'</a> '+Math.round((x[1].c/x[1].t)*100)+'%'}).join(' · ')||'&mdash;';
   var streak=0,streakType: boolean | null=null;
   for(var i=log.length-1;i>=0;i--){if(streakType===null)streakType=log[i].correct;if(log[i].correct===streakType)streak++;else break}
   var streakLabel=streak>1?streak+' '+(streakType?'✓':'✗')+' streak':'&mdash;';
   var streakColor=streakType?'var(--green)':'var(--red)';
-  var recent20=log.slice(-20);
-  var pips=recent20.map(function(e){return'<div class="trend-pip" style="background:'+(e.correct?'var(--green)':'var(--red)')+'"></div>'}).join('');
-  var recent8=[].concat(log).reverse().slice(0,8).map(function(e){
+  var pips=log.slice(-5).map(function(e){return'<div class="trend-pip" style="background:'+(e.correct?'var(--green)':'var(--red)')+'"></div>'}).join('');
+  var tradeRow=function(e: TrackEntry){
     var vColor=e.verdict==='UP'?'var(--green)':e.verdict==='DOWN'?'var(--red)':'var(--amber)';
     var rColor=e.correct?'var(--green)':'var(--red)';
     var t=new Date(e.ts).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZone:'America/New_York'});
     return'<div class="track-log-item"><span class="tli-ticker"><a class="ticker-a" href="'+tickerHref(e.ticker)+'" target="_blank">'+e.ticker+'</a></span><span class="tli-verdict" style="color:'+vColor+'">'+e.verdict+'</span><span class="tli-result" style="color:'+rColor+'">'+(e.correct?'✓ RIGHT':'✗ WRONG')+'</span><span class="tli-time">'+e.session+' '+t+' ET</span></div>';
-  }).join('');
-  body.innerHTML='<div class="track-rate"><span class="track-rate-num" style="color:'+rateColor+'">'+rate+'%</span><div><div class="track-rate-label">HIT RATE</div><div class="track-rate-count">'+correct+' right of '+total+' logged</div></div></div>'
-    +'<div class="track-grid"><div class="track-stat"><span class="track-stat-lbl">👍 UP</span><span class="track-stat-val">'+typeRate('UP')+'</span><span class="track-stat-sub">'+byType.UP.c+'/'+byType.UP.t+'</span></div><div class="track-stat"><span class="track-stat-lbl">👎 DOWN</span><span class="track-stat-val">'+typeRate('DOWN')+'</span><span class="track-stat-sub">'+byType.DOWN.c+'/'+byType.DOWN.t+'</span></div><div class="track-stat"><span class="track-stat-lbl">HOLD</span><span class="track-stat-val">'+typeRate('FLAT')+'</span><span class="track-stat-sub">'+byType.FLAT.c+'/'+byType.FLAT.t+'</span></div></div>'
-    +'<div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap"><div><div class="track-stat-lbl">STREAK</div><div style="font-family:monospace;font-size:var(--fs-sm);font-weight:700;color:'+streakColor+'">'+streakLabel+'</div></div><div><div class="track-stat-lbl">TOP TICKERS</div><div style="font-family:monospace;font-size:var(--fs-sm)">'+topTickers+'</div></div></div>'
-    +(recent20.length?'<div class="trend-bar"><span class="trend-bar-lbl">LAST '+recent20.length+'</span>'+pips+'</div>':'')
-    +'<div class="track-log-title" style="margin-top:12px">RECENT TRADES</div>'+recent8;
+  };
+  var reversed=([] as TrackEntry[]).concat(log).reverse();
+  var visibleRows=reversed.slice(0,3).map(tradeRow).join('');
+  var extra=reversed.slice(3,8);
+  var extraHTML=extra.length
+    ?'<button type="button" class="expand-btn" id="trackLogMoreBtn"><span>VIEW FULL LOG ('+log.length+')</span><span class="analyst-arrow" id="trackLogMoreArrow">▼</span></button>'
+      +'<div id="trackLogMoreBody" style="display:none">'+extra.map(tradeRow).join('')+'</div>'
+    :'';
+  body.innerHTML='<div class="record-streak-row"><span class="track-stat-lbl" style="margin:0">STREAK</span><span style="font-family:var(--mono);font-size:13px;font-weight:700;color:'+streakColor+'">'+streakLabel+'</span><span class="trend-bar" style="margin:0 0 0 auto">'+pips+'</span></div>'
+    +visibleRows+extraHTML;
+  var moreBtn=document.getElementById('trackLogMoreBtn');
+  if(moreBtn)moreBtn.addEventListener('click',function(){
+    var b=document.getElementById('trackLogMoreBody'),a=document.getElementById('trackLogMoreArrow');
+    if(!b)return;
+    var open=b.style.display==='none';
+    b.style.display=open?'block':'none';
+    if(a)a.textContent=open?'▲':'▼';
+  });
 }
 
 declare global {

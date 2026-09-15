@@ -2862,15 +2862,14 @@ async function renderScorecardCard() {
       el.innerHTML = '<div class="track-empty">Accumulating \u2014 ' + (data.gradedCount || 0) + "/20 graded verdicts so far. Check back once more verdicts have been scored.</div>";
       return;
     }
-    var strictRow = data.strictPct != null ? '<div class="trigger-row"><span class="trigger-lbl">Strict accuracy</span><span class="trigger-val">' + data.strictPct + "%</span></div>" : "";
-    var html = '<div class="track-log-title">VERDICT ACCURACY (' + data.gradedCount + " graded)</div>" + strictRow + '<div class="trigger-row"><span class="trigger-lbl">Directional accuracy</span><span class="trigger-val">' + data.directionalPct + "%</span></div>";
+    var html = '<div class="track-log-title">VERDICT ACCURACY (' + data.gradedCount + ' graded)</div><div class="trigger-row"><span class="trigger-lbl">Directional accuracy</span><span class="trigger-val">' + data.directionalPct + "%</span></div>";
     var exp = data.expectancy;
     if (exp && exp.insufficientSizedData) {
       html += '<div class="track-log-title" style="margin-top:12px">IF FOLLOWED AT RECOMMENDED SIZE</div><div class="track-empty">Accumulating \u2014 ' + exp.sizedGradedCount + "/5 sized verdicts so far.</div>";
     } else if (exp) {
       var retColor = exp.avgSimulatedReturnPct >= 0 ? "var(--green)" : "var(--red)";
       var retSign = exp.avgSimulatedReturnPct >= 0 ? "+" : "";
-      html += '<div class="track-log-title" style="margin-top:12px">IF FOLLOWED AT RECOMMENDED SIZE</div><div class="trigger-row"><span class="trigger-lbl">Avg return per trade</span><span class="trigger-val" style="color:' + retColor + '">' + retSign + exp.avgSimulatedReturnPct + '%</span></div><div class="trigger-row"><span class="trigger-lbl">Win rate</span><span class="trigger-val">' + exp.winRatePct + '%</span><span class="trigger-sub">' + exp.sizedGradedCount + "</span></div>";
+      html += '<div class="track-log-title" style="margin-top:12px">IF FOLLOWED AT RECOMMENDED SIZE</div><div class="trigger-row"><span class="trigger-lbl">Avg return per trade</span><span class="trigger-val" style="color:' + retColor + '">' + retSign + exp.avgSimulatedReturnPct + "%</span></div>";
     }
     var db = data.directionBreakdown;
     if (db) {
@@ -3042,7 +3041,7 @@ var HELP_CONTENT = {
   gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against \u2014 feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read \u2014 tap the docked bar to jump back to top. Pre/post-market prices are IEX-only and may vary from the full consolidated tape; built for regular-session (9:30am\u20134pm ET) analysis.',
   pulse: 'A quick, AI-written summary of today\u2019s market mood and which <a class="help-glossary-link" href="#" data-term="sector rotation">sectors</a> are leading or lagging. For your information only \u2014 it never changes a gate or a verdict.',
   io: 'Type or paste <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names \u2014 one per line, or separated by commas. All caps (AAPL) adds a ticker directly; type it any other way (Tesla) and it resolves to the right symbol. Analyze All runs your full watchlist, up to 7 credits.',
-  scorecard: `Real, server-graded accuracy \u2014 every verdict is automatically checked against the actual price move 24h later (and again ~5 trading days later for the strict score), no manual logging needed. Suppressed until at least 20 verdicts have been graded. "If followed at recommended size" simulates the return you'd have realized sizing exactly as recommended \u2014 FLAT and no-size calls aren't counted as a trade either way, so this only reflects the calls that actually told you to take a position. The UP vs DOWN split and Top 5 Tickers are pooled across every user and every tier, not just your own account \u2014 each side needs 5+ graded verdicts before it shows a number.`,
+  scorecard: `Real, server-graded accuracy \u2014 every verdict is automatically checked against the actual price move 24h later, no manual logging needed. Suppressed until at least 20 verdicts have been graded. "If followed at recommended size" simulates the return you'd have realized sizing exactly as recommended \u2014 FLAT and no-size calls aren't counted as a trade either way. The UP vs DOWN split and Top 5 Tickers are pooled across every user and every tier, not just your own account \u2014 each side needs 5+ graded verdicts before it shows a number. "Your Log" \u2014 your own manually-logged \u2713/\u2717 record \u2014 is a Pro feature.`,
   agitator: "Check out a new stock idea or a rumor before it earns a spot on your watchlist \u2014 always free. Type a ticker, a company name, or paste a headline, and get one LOW/MEDIUM/HIGH read built from 6 real signals, plus a few related companies worth a look.",
   "agitator-score": "One overall number, 0-10, averaging the 6 signals below it \u2014 a quick read on how big a deal this news might be for the stock, not a precise measurement.",
   "agitator-surprise": "How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.",
