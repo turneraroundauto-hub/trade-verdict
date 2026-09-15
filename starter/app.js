@@ -2862,26 +2862,27 @@ async function renderScorecardCard() {
       el.innerHTML = '<div class="track-empty">Accumulating \u2014 ' + (data.gradedCount || 0) + "/20 graded verdicts so far. Check back once more verdicts have been scored.</div>";
       return;
     }
-    var html = '<div class="track-log-title">VERDICT ACCURACY (' + data.gradedCount + ' graded)</div><div class="trigger-row"><span class="trigger-lbl">Directional accuracy</span><span class="trigger-val">' + data.directionalPct + "%</span></div>";
     var exp = data.expectancy;
+    var retTileHTML = "";
     if (exp && exp.insufficientSizedData) {
-      html += '<div class="track-log-title" style="margin-top:12px">IF FOLLOWED AT RECOMMENDED SIZE</div><div class="track-empty">Accumulating \u2014 ' + exp.sizedGradedCount + "/5 sized verdicts so far.</div>";
+      retTileHTML = '<div class="sc-tile"><div class="sc-tile-lbl">Avg return / trade</div><div class="sc-tile-val" style="font-size:12px;color:var(--ink-dim)">' + exp.sizedGradedCount + "/5 sized</div></div>";
     } else if (exp) {
       var retColor = exp.avgSimulatedReturnPct >= 0 ? "var(--green)" : "var(--red)";
       var retSign = exp.avgSimulatedReturnPct >= 0 ? "+" : "";
-      html += '<div class="track-log-title" style="margin-top:12px">IF FOLLOWED AT RECOMMENDED SIZE</div><div class="trigger-row"><span class="trigger-lbl">Avg return per trade</span><span class="trigger-val" style="color:' + retColor + '">' + retSign + exp.avgSimulatedReturnPct + "%</span></div>";
+      retTileHTML = '<div class="sc-tile"><div class="sc-tile-lbl">Avg return / trade</div><div class="sc-tile-val" style="color:' + retColor + '">' + retSign + exp.avgSimulatedReturnPct + "%</div></div>";
     }
+    var html = '<div class="sc-head-row"><div class="track-log-title" style="margin:0">VERDICT ACCURACY</div><span class="sc-pooled-badge">Pooled &middot; ' + data.gradedCount + ' graded</span></div><div class="sc-tile-grid"><div class="sc-tile"><div class="sc-tile-lbl">Directional accuracy</div><div class="sc-tile-val">' + data.directionalPct + "%</div></div>" + retTileHTML + "</div>";
     var db = data.directionBreakdown;
     if (db) {
       var dirRow = (label, d) => d && !d.insufficientData ? '<div class="trigger-row"><span class="trigger-lbl">' + label + '</span><span class="trigger-val">' + d.directionalPct + '%</span><span class="trigger-sub">' + d.gradedCount + "</span></div>" : '<div class="trigger-row"><span class="trigger-lbl">' + label + '</span><span class="trigger-val" style="color:var(--ink-dim)">\u2014</span><span class="trigger-sub">' + (d ? d.gradedCount : 0) + "/5</span></div>";
-      html += '<div class="track-log-title" style="margin-top:12px">UP vs DOWN ACCURACY</div>' + dirRow("UP verdicts", db.up) + dirRow("DOWN verdicts", db.down);
+      html += dirRow("UP verdicts", db.up) + dirRow("DOWN verdicts", db.down);
     }
     if (data.topTickers && data.topTickers.length) {
       var topRows = data.topTickers.map((t) => {
         var color = t.directionalPct >= 65 ? "var(--green)" : t.directionalPct >= 50 ? "var(--amber)" : "var(--red)";
         return '<div class="trigger-row"><span class="trigger-lbl"><a class="ticker-a" href="' + tickerHref(t.ticker) + '" target="_blank">' + t.ticker + '</a></span><span class="trigger-val" style="color:' + color + '">' + t.directionalPct + '%</span><span class="trigger-sub">' + t.gradedCount + "</span></div>";
       }).join("");
-      html += '<div class="track-log-title" style="margin-top:12px">TOP 5 TICKERS (ALL USERS)</div>' + topRows;
+      html += '<div class="track-log-title" style="margin-top:12px">TOP TICKERS (POOLED)</div>' + topRows;
     }
     el.innerHTML = html;
   } catch (e) {

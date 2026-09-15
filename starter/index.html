@@ -373,15 +373,26 @@
      .pulse-blur/.pulse-upsell) -- fake example data, no JS rendering.
      Replaces the standalone .track-teaser promo box this used to be. */
   .track-stat-lbl{ font-size:11px; color:var(--ink-dim); display:block; margin-bottom:3px; }
-  .record-streak-row{ display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+  /* Unified Stack scorecard header -- pooled stats stay the headline,
+     rendered as two stat tiles with a "Pooled · N graded" badge, matching
+     the approved sandbox mockup (CLAUDE.md, "Verdict Record" merge). */
+  .sc-head-row{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+  .sc-pooled-badge{ font-size:10px; color:var(--ink-dim); border:1px solid var(--border-3); border-radius:10px; padding:2px 9px; text-transform:uppercase; letter-spacing:.04em; white-space:nowrap; }
+  .sc-tile-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
+  .sc-tile{ border:1px solid var(--border-3); border-radius:8px; padding:10px 12px; }
+  .sc-tile-lbl{ font-size:10px; color:var(--ink-dim); text-transform:uppercase; letter-spacing:.03em; margin-bottom:5px; line-height:1.3; }
+  .sc-tile-val{ font-family:var(--mono); font-size:21px; font-weight:800; }
+  .your-log-lbl-group{ display:flex; align-items:center; gap:8px; }
+  .track-streak-inline{ display:inline-flex; align-items:center; gap:5px; font-family:var(--mono); font-size:12px; font-weight:700; }
+  .track-streak-pips{ display:inline-flex; gap:2px; }
+  .track-streak-pip{ width:6px; height:6px; border-radius:2px; flex-shrink:0; }
   .track-log-item{ display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid var(--border-3); font-size:13px; }
   .track-log-item:last-child{ border-bottom:none; }
   .tli-ticker{ font-family:var(--mono); font-weight:700; color:var(--ink); min-width:44px; }
-  .tli-verdict{ font-family:var(--mono); font-size:11px; min-width:38px; }
-  .tli-result{ font-family:var(--mono); font-size:13px; font-weight:700; flex-shrink:0; }
-  .tli-time{ font-family:var(--mono); font-size:11px; color:var(--ink-dim); margin-left:auto; }
-  .trend-bar{ display:flex; gap:2px; align-items:center; }
-  .trend-pip{ width:8px; height:16px; border-radius:2px; flex-shrink:0; }
+  .tli-pill{ font-family:var(--mono); font-size:10px; font-weight:700; padding:2px 7px; border-radius:8px; text-transform:uppercase; }
+  .tli-check{ font-size:13px; font-weight:700; flex-shrink:0; }
+  .tli-date{ font-family:var(--mono); font-size:11px; color:var(--ink-dim); margin-left:auto; }
+  .view-full-log-link{ display:inline-block; font-family:var(--mono); font-size:12px; color:var(--ink-dim); text-decoration:underline; margin-top:8px; background:none; border:none; padding:0; cursor:pointer; text-align:left; }
   .record-log-wrap{ position:relative; margin-top:14px; padding-top:14px; border-top:1px solid var(--border-3); }
   .record-log-blur{ filter:blur(4px); pointer-events:none; user-select:none; }
   .record-log-upsell{ position:absolute; inset:14px 0 0 0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; background:rgba(8,12,18,.82); border-radius:8px; }
@@ -769,11 +780,13 @@
         <div class="card-body"><div class="card-body-inner"><div class="card-body-pad">
           <div id="scorecard-body"><div class="track-empty">Tap to load your scorecard.</div></div>
           <div class="record-log-wrap">
-            <div class="track-log-title">YOUR LOG</div>
+            <div class="your-log-lbl-group">
+              <div class="track-log-title" style="margin:0">YOUR LOG</div>
+              <span class="track-streak-inline" style="color:var(--green)">🔥4<span class="track-streak-pips"><span class="track-streak-pip" style="background:var(--green)"></span><span class="track-streak-pip" style="background:var(--green)"></span><span class="track-streak-pip" style="background:var(--red)"></span><span class="track-streak-pip" style="background:var(--green)"></span><span class="track-streak-pip" style="background:var(--green)"></span></span></span>
+            </div>
             <div class="record-log-blur">
-              <div class="record-streak-row"><span class="track-stat-lbl" style="margin:0">STREAK</span><span style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--green)">4 ✓ streak</span><span class="trend-bar" style="margin:0 0 0 auto"><div class="trend-pip" style="background:var(--green)"></div><div class="trend-pip" style="background:var(--green)"></div><div class="trend-pip" style="background:var(--red)"></div><div class="trend-pip" style="background:var(--green)"></div><div class="trend-pip" style="background:var(--green)"></div></span></div>
-              <div class="track-log-item"><span class="tli-ticker">NVDA</span><span class="tli-verdict" style="color:var(--green)">UP</span><span class="tli-result" style="color:var(--green)">✓ RIGHT</span><span class="tli-time">Tue 11:24 AM ET</span></div>
-              <div class="track-log-item"><span class="tli-ticker">ALAB</span><span class="tli-verdict" style="color:var(--red)">DOWN</span><span class="tli-result" style="color:var(--green)">✓ RIGHT</span><span class="tli-time">Tue 9:48 AM ET</span></div>
+              <div class="track-log-item"><span class="tli-ticker">NVDA</span><span class="tli-pill" style="background:var(--green-dim);color:var(--green)">UP</span><span class="tli-check" style="color:var(--green)">✓</span><span class="tli-date">Tue</span></div>
+              <div class="track-log-item"><span class="tli-ticker">ALAB</span><span class="tli-pill" style="background:var(--red-dim);color:var(--red)">DOWN</span><span class="tli-check" style="color:var(--green)">✓</span><span class="tli-date">Tue</span></div>
             </div>
             <div class="record-log-upsell">
               <span>Want to log and track your own calls?</span>
@@ -819,6 +832,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=114"></script>
+<script type="module" src="./app.js?v=115"></script>
 </body>
 </html>

@@ -891,8 +891,10 @@ function renderTrackRecord() {
   var log = getLog();
   var body = document.getElementById("track-body");
   if (!body) return;
+  var streakEl = document.getElementById("trackStreakInline");
   if (!log.length) {
     body.innerHTML = '<div class="track-empty">No trades logged yet.<br>After each verdict tap \u2713 RIGHT or \u2717 WRONG.</div>';
+    if (streakEl) streakEl.innerHTML = "";
     return;
   }
   var streak = 0, streakType = null;
@@ -901,29 +903,35 @@ function renderTrackRecord() {
     if (log[i].correct === streakType) streak++;
     else break;
   }
-  var streakLabel = streak > 1 ? streak + " " + (streakType ? "\u2713" : "\u2717") + " streak" : "&mdash;";
   var streakColor = streakType ? "var(--green)" : "var(--red)";
+  var streakLabel = streak > 1 ? "\u{1F525}" + streak : "&mdash;";
   var pips = log.slice(-5).map(function(e) {
-    return '<div class="trend-pip" style="background:' + (e.correct ? "var(--green)" : "var(--red)") + '"></div>';
+    return '<span class="track-streak-pip" style="background:' + (e.correct ? "var(--green)" : "var(--red)") + '"></span>';
   }).join("");
+  if (streakEl) streakEl.innerHTML = '<span style="color:' + streakColor + '">' + streakLabel + '</span><span class="track-streak-pips">' + pips + "</span>";
+  var vDim = function(v) {
+    return v === "UP" ? "var(--green-dim)" : v === "DOWN" ? "var(--red-dim)" : "var(--amber-dim)";
+  };
+  var vColor = function(v) {
+    return v === "UP" ? "var(--green)" : v === "DOWN" ? "var(--red)" : "var(--amber)";
+  };
   var tradeRow = function(e) {
-    var vColor = e.verdict === "UP" ? "var(--green)" : e.verdict === "DOWN" ? "var(--red)" : "var(--amber)";
     var rColor = e.correct ? "var(--green)" : "var(--red)";
-    var t = new Date(e.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "America/New_York" });
-    return '<div class="track-log-item"><span class="tli-ticker"><a class="ticker-a" href="' + tickerHref(e.ticker) + '" target="_blank">' + e.ticker + '</a></span><span class="tli-verdict" style="color:' + vColor + '">' + e.verdict + '</span><span class="tli-result" style="color:' + rColor + '">' + (e.correct ? "\u2713 RIGHT" : "\u2717 WRONG") + '</span><span class="tli-time">' + e.session + " " + t + " ET</span></div>";
+    var d = new Date(e.ts).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
+    return '<div class="track-log-item"><span class="tli-ticker"><a class="ticker-a" href="' + tickerHref(e.ticker) + '" target="_blank">' + e.ticker + '</a></span><span class="tli-pill" style="background:' + vDim(e.verdict) + ";color:" + vColor(e.verdict) + '">' + e.verdict + '</span><span class="tli-check" style="color:' + rColor + '">' + (e.correct ? "\u2713" : "\u2717") + '</span><span class="tli-date">' + d + "</span></div>";
   };
   var reversed = [].concat(log).reverse();
   var visibleRows = reversed.slice(0, 3).map(tradeRow).join("");
   var extra = reversed.slice(3, 8);
-  var extraHTML = extra.length ? '<button type="button" class="expand-btn" id="trackLogMoreBtn"><span>VIEW FULL LOG (' + log.length + ')</span><span class="analyst-arrow" id="trackLogMoreArrow">\u25BC</span></button><div id="trackLogMoreBody" style="display:none">' + extra.map(tradeRow).join("") + "</div>" : "";
-  body.innerHTML = '<div class="record-streak-row"><span class="track-stat-lbl" style="margin:0">STREAK</span><span style="font-family:var(--mono);font-size:13px;font-weight:700;color:' + streakColor + '">' + streakLabel + '</span><span class="trend-bar" style="margin:0 0 0 auto">' + pips + "</span></div>" + visibleRows + extraHTML;
+  var extraHTML = extra.length ? '<button type="button" class="view-full-log-link" id="trackLogMoreBtn">View full log (' + log.length + ') &rarr;</button><div id="trackLogMoreBody" style="display:none">' + extra.map(tradeRow).join("") + "</div>" : "";
+  body.innerHTML = visibleRows + extraHTML;
   var moreBtn = document.getElementById("trackLogMoreBtn");
   if (moreBtn) moreBtn.addEventListener("click", function() {
-    var b = document.getElementById("trackLogMoreBody"), a = document.getElementById("trackLogMoreArrow");
+    var b = document.getElementById("trackLogMoreBody");
     if (!b) return;
     var open = b.style.display === "none";
     b.style.display = open ? "block" : "none";
-    if (a) a.textContent = open ? "\u25B2" : "\u25BC";
+    moreBtn.innerHTML = open ? "Hide full log &larr;" : "View full log (" + log.length + ") &rarr;";
   });
 }
 window.logResult = logResult;
@@ -3057,26 +3065,27 @@ async function renderScorecardCard() {
       el.innerHTML = '<div class="track-empty">Accumulating \u2014 ' + (data.gradedCount || 0) + "/20 graded verdicts so far. Check back once more verdicts have been scored.</div>";
       return;
     }
-    var html = '<div class="track-log-title">VERDICT ACCURACY (' + data.gradedCount + ' graded)</div><div class="trigger-row"><span class="trigger-lbl">Directional accuracy</span><span class="trigger-val">' + data.directionalPct + "%</span></div>";
     var exp = data.expectancy;
+    var retTileHTML = "";
     if (exp && exp.insufficientSizedData) {
-      html += '<div class="track-log-title" style="margin-top:12px">IF FOLLOWED AT RECOMMENDED SIZE</div><div class="track-empty">Accumulating \u2014 ' + exp.sizedGradedCount + "/5 sized verdicts so far.</div>";
+      retTileHTML = '<div class="sc-tile"><div class="sc-tile-lbl">Avg return / trade</div><div class="sc-tile-val" style="font-size:12px;color:var(--ink-dim)">' + exp.sizedGradedCount + "/5 sized</div></div>";
     } else if (exp) {
       var retColor = exp.avgSimulatedReturnPct >= 0 ? "var(--green)" : "var(--red)";
       var retSign = exp.avgSimulatedReturnPct >= 0 ? "+" : "";
-      html += '<div class="track-log-title" style="margin-top:12px">IF FOLLOWED AT RECOMMENDED SIZE</div><div class="trigger-row"><span class="trigger-lbl">Avg return per trade</span><span class="trigger-val" style="color:' + retColor + '">' + retSign + exp.avgSimulatedReturnPct + "%</span></div>";
+      retTileHTML = '<div class="sc-tile"><div class="sc-tile-lbl">Avg return / trade</div><div class="sc-tile-val" style="color:' + retColor + '">' + retSign + exp.avgSimulatedReturnPct + "%</div></div>";
     }
+    var html = '<div class="sc-head-row"><div class="track-log-title" style="margin:0">VERDICT ACCURACY</div><span class="sc-pooled-badge">Pooled &middot; ' + data.gradedCount + ' graded</span></div><div class="sc-tile-grid"><div class="sc-tile"><div class="sc-tile-lbl">Directional accuracy</div><div class="sc-tile-val">' + data.directionalPct + "%</div></div>" + retTileHTML + "</div>";
     var db = data.directionBreakdown;
     if (db) {
       var dirRow = (label, d) => d && !d.insufficientData ? '<div class="trigger-row"><span class="trigger-lbl">' + label + '</span><span class="trigger-val">' + d.directionalPct + '%</span><span class="trigger-sub">' + d.gradedCount + "</span></div>" : '<div class="trigger-row"><span class="trigger-lbl">' + label + '</span><span class="trigger-val" style="color:var(--ink-dim)">\u2014</span><span class="trigger-sub">' + (d ? d.gradedCount : 0) + "/5</span></div>";
-      html += '<div class="track-log-title" style="margin-top:12px">UP vs DOWN ACCURACY</div>' + dirRow("UP verdicts", db.up) + dirRow("DOWN verdicts", db.down);
+      html += dirRow("UP verdicts", db.up) + dirRow("DOWN verdicts", db.down);
     }
     if (data.topTickers && data.topTickers.length) {
       var topRows = data.topTickers.map((t) => {
         var color = t.directionalPct >= 65 ? "var(--green)" : t.directionalPct >= 50 ? "var(--amber)" : "var(--red)";
         return '<div class="trigger-row"><span class="trigger-lbl"><a class="ticker-a" href="' + tickerHref(t.ticker) + '" target="_blank">' + t.ticker + '</a></span><span class="trigger-val" style="color:' + color + '">' + t.directionalPct + '%</span><span class="trigger-sub">' + t.gradedCount + "</span></div>";
       }).join("");
-      html += '<div class="track-log-title" style="margin-top:12px">TOP 5 TICKERS (ALL USERS)</div>' + topRows;
+      html += '<div class="track-log-title" style="margin-top:12px">TOP TICKERS (POOLED)</div>' + topRows;
     }
     el.innerHTML = html;
   } catch (e) {
