@@ -10570,3 +10570,101 @@ confirmed against the actual reported pixel position (the screenshot's
 resolution wasn't enough to read the region conclusively) — flagged for a
 follow-up check now that the "15/15" hint directly above it is gone,
 since that changes the exact boundary at that spot.
+
+## Backend/Frontend: anonymous per-device visit counting shipped — and real evidence for the recurring "grants come back" mystery (Sep 17, 2026, `Tra` PR #115 / `trade-verdict` PR #346)
+
+Prompted by checking Supabase directly for "how many unique visits" —
+the only existing signal (`credits`' own `ip:<address>` keys) turned out
+to badly overcount real people: 35 of 192 "unique" anonymous IPs
+(~18%) fell inside T-Mobile's `172.56.0.0/13` CGNAT block, which
+reassigns one phone a new public IP every time it hops a cell tower.
+Direct instruction, with a hard constraint: know how many different
+phones actually access the app, without phishing or asking anyone for
+anything.
+
+**What shipped.** `shared/device-id.ts` generates a random
+`crypto.randomUUID()` once and keeps it in `localStorage` — an
+app-generated identifier for a browser storage slot, not anything
+requested from or identifying the visitor. `platform` (`web` vs. the
+Android TWA) is read from `document.referrer`, which Chrome itself sets
+to `android-app://<package>` on the one navigation that launches a page
+inside an installed Trusted Web Activity — a passive signal the browser
+already exposes, not a fingerprint. Pinged fire-and-forget from `boot()`
+on all three built tiers through each tier's existing `authH()`/
+`addSecret()` config, same auth path every other backend call already
+uses. New `POST /device-ping` (`Tra`, mirrored here) upserts by
+`device_id` into a new `device_visits` table
+(`supabase-ddl-patch16-device-visits.sql`) — a returning device updates
+one row (`last_seen_at`/`visit_count`) rather than minting a new
+"visitor"; `first_seen_at`/`first_tier` are excluded from the update
+payload so they're never overwritten. No IP, user-agent, or email is
+accepted or stored anywhere in this table. Verified via real
+headless-Chromium checks (exactly one ping per boot, correct body,
+correct auth header per tier) and by simulating the upsert directly
+against the live table before merging. Both PRs merged the same day.
+
+**The real finding, prompted by a direct follow-up question ("do we
+have to leave the table exposed? we've realized that it causes a
+security exposure in the past").** The table needs to be reachable via
+Supabase's Data API for `Tra`'s `supabase-js` client to read/write it at
+all — that part isn't optional under the current architecture. The
+open manual step from both PRs was adding `device_visits` to Project
+Settings → Data API → Exposed tables. That was done, then — completely
+unprompted, just checking the state honestly rather than assuming the
+earlier revoke still held — a fresh `information_schema.role_table_grants`
+query on `device_visits` came back with full `anon`/`authenticated`
+SELECT/INSERT/UPDATE/DELETE, live, on the public anon key, sitting right
+there in every tier's page source.
+
+**This is the same regression class documented above (Aug 4, Aug 13,
+Aug 26) — but this time there's an actual, direct trigger to point at,
+not just a guess.** The Aug 13 entry above flagged this exact
+question and left it explicitly unconfirmed: "a dashboard action or a
+script re-granting broadly" vs. "the Aug 4 fix never actually held
+long-term" — flagged to Mr. T as an open question, not guessed at,
+because nobody had a clean before/after to compare. This time there is
+one: `device_visits`' grants were confirmed clean (zero rows) right
+before the Data API exposure toggle was flipped, and confirmed reopened
+(all four privileges, both roles) immediately after, with nothing else
+touching this table or this project in between. That's about as close
+to a controlled repro as this mystery has ever gotten — strong evidence
+that **exposing a table via Data API → Exposed tables on this project
+re-grants `anon`/`authenticated` default privileges as a side effect**,
+independent of whatever RLS/revoke state it had going in.
+
+**Re-closed immediately**, then swept every service-role table in the
+project in one query (not just `device_visits` — the Aug 13 lesson was
+specifically not to scope narrowly after a surprise like this):
+`credits`, `accuracy_log`, `proxy_resolution`, `pre_gate_triggers`,
+`watchlists`, `proxy_regime_state`, `pre_gate_solvency_state`,
+`verdict_log`, `corroboration_log`, `news_cache`, `mcp_oauth_state`,
+`device_visits` — zero `anon`/`authenticated` grants across all twelve,
+confirmed via the standard query. Only `device_visits` was affected;
+whatever this project's history has going on didn't touch anything
+that wasn't just freshly exposed.
+
+**Updated standing rule, superseding the informal "periodically
+re-check" advice from Aug 13 with something concrete to act on:**
+exposing or re-exposing ANY table via Data API → Exposed tables is now
+its own trigger for the grants check, same tier as running a DDL
+patch — not a background "eventually get around to it" task.
+Immediately after toggling a table's Data API exposure (new table or
+existing), re-run:
+```sql
+select grantee, table_name, privilege_type
+from information_schema.role_table_grants
+where table_schema = 'public' and table_name = '<table>'
+  and grantee in ('anon','authenticated');
+```
+and revoke again if anything comes back. This still isn't a fully
+proven root cause — one repro on one table is evidence, not certainty,
+and the Aug 4/13 incidents predate this observation and could still
+have a different or additional cause — but it's the first actual
+trigger anyone has caught in the act, and it's cheap enough to guard
+against unconditionally rather than keep treating every recurrence as
+a fresh mystery.
+
+**Not yet done, a real follow-up:** confirm this reproduces on a
+second table (the next time any table's Data API exposure is toggled
+for any reason) before calling the root cause fully confirmed rather
+than "one strong data point."
