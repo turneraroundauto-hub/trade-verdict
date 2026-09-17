@@ -50,6 +50,7 @@
 //   FOR:"), same reasoning as Free's own build: keep the shared Rolodex
 //   card language consistent across every tier that uses it.
 import { initTickerCache, fetchTickerData } from '../shared/ticker-cache';
+import { pingDeviceVisit } from '../shared/device-id';
 import { initWatchlist, watchlist, addTickers, addKnownTicker, removeTicker, setWatchlist, onWatchlistSave, onTickersAdded } from '../shared/watchlist';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache';
 import { renderTrackRecord, logResult, clearLog } from '../shared/track-record';
@@ -2323,6 +2324,7 @@ async function checkAuth(): Promise<void> {
 
 initWatchlist({ defaultTickers: ['SMMT', 'VCYT', 'TWST', 'IMVT', 'IREN', 'ALAB', 'MU'], maxTickers: 999, upgradeMessage: 'Pro supports unlimited tickers already — this cap should never be hit.' });
 initTickerCache({ API_URL: API_URL, authH: authH, addSecret: addSecret });
+pingDeviceVisit({ API_URL: API_URL, authH: authH, addSecret: addSecret });
 
 rolodex.initRolodex({
   scroller: scroller,

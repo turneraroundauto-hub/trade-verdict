@@ -25,6 +25,7 @@
 // conversion, not assumed). The emitted, committed starter/app.js is the
 // real bundle -- browsers never load this .ts file directly.
 import { initTickerCache, fetchTickerData } from '../shared/ticker-cache';
+import { pingDeviceVisit } from '../shared/device-id';
 import { initWatchlist, watchlist, addTickers, addKnownTicker, removeTicker, onWatchlistSave, onTickersAdded } from '../shared/watchlist';
 import { cleanLS, cacheVerdict, getCachedVerdict } from '../shared/analysis-cache';
 import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from '../shared/watchlist-sync';
@@ -1805,6 +1806,7 @@ async function checkAuth(): Promise<void> {
 
 initWatchlist({ defaultTickers: ['SMMT', 'VCYT', 'TWST', 'IMVT', 'IREN', 'ALAB', 'MU'], maxTickers: 7, upgradeMessage: 'Starter tier supports up to 7 tickers.\n\nUpgrade to Pro for more.' });
 initTickerCache({ API_URL: API_URL, authH: authH, addSecret: addSecret });
+pingDeviceVisit({ API_URL: API_URL, authH: authH, addSecret: addSecret });
 
 rolodex.initRolodex({
   scroller: scroller,
