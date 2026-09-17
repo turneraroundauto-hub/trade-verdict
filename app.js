@@ -37,6 +37,54 @@ async function fetchTickerData(symbol, force) {
   return p;
 }
 
+// shared/device-id.ts
+var DEVICE_ID_KEY = "tv_device_id";
+var DEVICE_PLATFORM_KEY = "tv_device_platform";
+function randomId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    return (c === "x" ? r : r & 3 | 8).toString(16);
+  });
+}
+function getOrCreateDeviceId() {
+  try {
+    let id = localStorage.getItem(DEVICE_ID_KEY);
+    if (!id) {
+      id = randomId();
+      localStorage.setItem(DEVICE_ID_KEY, id);
+    }
+    return id;
+  } catch {
+    return randomId();
+  }
+}
+function getDevicePlatform() {
+  try {
+    const cached = localStorage.getItem(DEVICE_PLATFORM_KEY);
+    if (cached === "web" || cached === "twa") return cached;
+    const platform = document.referrer.indexOf("android-app://") === 0 ? "twa" : "web";
+    localStorage.setItem(DEVICE_PLATFORM_KEY, platform);
+    return platform;
+  } catch {
+    return "web";
+  }
+}
+function pingDeviceVisit(config) {
+  try {
+    const deviceId = getOrCreateDeviceId();
+    const platform = getDevicePlatform();
+    fetch(config.addSecret(config.API_URL + "/device-ping"), {
+      method: "POST",
+      headers: config.authH(),
+      body: JSON.stringify({ deviceId, platform }),
+      keepalive: true
+    }).catch(() => {
+    });
+  } catch {
+  }
+}
+
 // shared/prefs.ts
 var TIMEZONES = {
   ET: { label: "ET (Eastern)", iana: "America/New_York" },
@@ -2687,6 +2735,7 @@ async function boot() {
   if (redirectingToPaidTier) return;
   initWatchlist({ defaultTickers: ["MU", "IREN", "ALAB"], maxTickers: 3, upgradeMessage: "Free tier supports up to 3 tickers.\n\nUpgrade to Starter for more." });
   initTickerCache({ API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
+  pingDeviceVisit({ API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
   onWatchlistSave(function() {
     schedulePushWatchlist();
     renderRolodexFromWatchlist();

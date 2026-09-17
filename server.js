@@ -3967,6 +3967,51 @@ app.get("/agitator", async (req, res) => {
 // app. A lapsed Starter user with 7 saved tickers gets all 7 back from here;
 // the free-tier frontend then displays only the first 3 (its own cap) but
 // doesn't destroy the other 4 — they reappear if the user resubscribes.
+// ── DEVICE VISIT PING (anonymous device counting, no PII) ─────────
+// Mirror only — real change is in Tra's server.js. Direct instruction:
+// know how many different phones actually access the app, without
+// phishing or asking for anything. Deliberately narrower than the
+// credits table's own `ip:<address>` keys, which turned out to badly
+// overcount real people once checked — a phone on T-Mobile's CGNAT gets a
+// new public IP every time it hops a cell tower.
+//
+// The client (shared/device-id.ts) generates a random UUID once and
+// keeps it in localStorage — an app-generated identifier for a browser
+// storage slot, not anything requested from or identifying the person.
+// `platform` comes from `document.referrer` — Chrome itself sets that to
+// `android-app://<package>` on the one navigation that launches a page
+// inside an installed Trusted Web Activity, a passive signal the browser
+// already exposes, not anything fingerprinted. No IP, no user-agent, no
+// email is accepted or stored here, on purpose.
+const DEVICE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+app.post("/device-ping", async (req, res) => {
+  const { deviceId, platform } = req.body || {};
+  if (typeof deviceId !== "string" || !DEVICE_ID_RE.test(deviceId)) {
+    return res.status(400).json({ error: "Invalid deviceId" });
+  }
+  const plat = platform === "twa" ? "twa" : "web";
+  if (!supabase) return res.json({ success: true, stored: false });
+  try {
+    const { data: existing } = await supabase
+      .from("device_visits")
+      .select("visit_count")
+      .eq("device_id", deviceId)
+      .maybeSingle();
+    const { error } = await supabase.from("device_visits").upsert({
+      device_id:     deviceId,
+      platform:      plat,
+      first_tier:    existing ? undefined : (req.userTier || null),
+      last_seen_at:  new Date().toISOString(),
+      visit_count:   (existing?.visit_count || 0) + 1,
+    }, { onConflict: "device_id" });
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (e) {
+    console.error("POST /device-ping:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get("/watchlist", async (req, res) => {
   if (!req.userEmail) return res.status(401).json({ error: "Sign in required" });
   if (!supabase) return res.json({ tickers: [] });
