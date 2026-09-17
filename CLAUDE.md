@@ -10668,3 +10668,91 @@ a fresh mystery.
 second table (the next time any table's Data API exposure is toggled
 for any reason) before calling the root cause fully confirmed rather
 than "one strong data point."
+
+## Android app: Play Console edge-to-edge/orientation warnings — fixed, merged, live (Sep 3-4, 2026, `trade-verdict` PRs #283, #285, #286; retroactively logged Sep 17, 2026)
+
+**Never logged here at the time it happened** — a real documentation gap
+this file's own record of every other change doesn't have. Android-side
+work (the Bubblewrap-generated `android/` project, its own CI workflow)
+has apparently been landing without a CLAUDE.md entry; logged retroactively
+now, from real git/CI history, at the user's request so it can be relayed
+to Google directly.
+
+**What Google flagged** (Play Console → Test and release → "For your next
+release," screenshotted against the live app, `app.tradetribunal.twa`):
+1. "Edge-to-edge may not display for all users" — from Android 15, apps
+   targeting SDK 35 display edge-to-edge by default; an app that doesn't
+   handle insets can render content under/behind the system status and
+   navigation bars.
+2. "Your app uses deprecated APIs or parameters for edge-to-edge."
+3. (Same screenshot round, a sibling flag on the same release) "Remove
+   resizability and orientation restrictions... to support large screen
+   devices."
+
+**Root cause, confirmed by reading the actual generated project, not
+guessed:** all three trace to two things in the Bubblewrap-generated TWA
+wrapper — `LauncherActivity.java` hard-locking orientation to portrait
+(`SCREEN_ORIENTATION_USER_PORTRAIT`), and the `com.google.androidbrowserhelper`
+library version (2.6.2) predating its own upstream fix for this exact SDK
+35 edge-to-edge warning.
+
+**What actually shipped, in three PRs:**
+1. **`trade-verdict` PR #283.** Unlocked orientation everywhere it was
+   declared (`android/twa-manifest.json`, `android/app/build.gradle`, root
+   `manifest.json`, the Android-bundled manifest mirror) to `"any"`/
+   `SCREEN_ORIENTATION_UNSPECIFIED` — directly answers flag #3, and the
+   old pre-Oreo code path already proved `UNSPECIFIED` doesn't reintroduce
+   the transparent-background splash crash its own comment used to warn
+   about. Bumped `com.google.androidbrowserhelper` 2.6.2 → **2.7.3** —
+   2.7.0-alpha03 is the specific upstream release that fixed this exact
+   SDK 35 edge-to-edge warning for Bubblewrap-generated TWAs
+   (`GoogleChromeLabs/bubblewrap#967`); 2.7.3 is the current stable release
+   past that fix — directly answers flags #1 and #2.
+2. **`trade-verdict` PR #285.** The 2.7.3 bump forced a real, unrelated
+   Gradle failure: `androidbrowserhelper` 2.7.3 itself requires
+   `minSdkVersion 23`, one higher than this app's existing 21. Raising
+   `minSdkVersion` (vs. Gradle's other two suggested escapes — pinning an
+   older compatible library version, which would undo the edge-to-edge fix
+   entirely, or `tools:overrideLibrary`, which Gradle's own docs warn "may
+   lead to runtime failures") was the only option that keeps the actual
+   fix intact. Real, disclosed cost: drops support for Android 5.0-5.1
+   (API 21-22) devices — judged negligible for this app's real install base.
+3. **`trade-verdict` PR #286.** Bumped the app's own `versionCode`/
+   `versionName` 1 → 2, since Android enforces the orientation lock at the
+   OS/Activity level — the previously-built/installed APK (versionCode 1)
+   would keep running the old portrait-locked Activity no matter what the
+   web bundle did, regardless of source changes already merged. Also fixed
+   the CI pipeline itself (`.github/workflows/build-android.yml`) through
+   three real, sequential build failures before it produced a clean
+   artifact: Bubblewrap's own interactive "regenerate twa-manifest.json?"
+   prompt blocking non-TTY CI outright (fixed by piping `"n"`, declining —
+   accepting would have silently reverted the hand-edited
+   `androidbrowserhelper` version back to Bubblewrap's own default); the
+   `minSdkVersion` failure from PR #285 (fixed there, confirmed live here);
+   and a `bubblewrap build`-generated uncommitted change to
+   `shortcuts.xml` colliding with the workflow's own branch-switch publish
+   step (fixed with a `git reset --hard`/`git clean -fd` immediately before
+   switching, safe since both build outputs were already copied out first).
+
+**Verified as a real, successful CI build, not just a source-level fix.**
+The workflow's final run succeeded end-to-end and published a real signed
+`.apk`/`.aab` to a scratch branch in the repo (`android-builds/`,
+`raw.githubusercontent.com`-servable — the same "route around the sandbox
+network limitation instead of fighting it" pattern this file's own Google
+Play launch section already used for file handoffs, applied here to
+Actions-artifact signed-URL downloads instead).
+
+**Confirmed by Mr. T (Sep 2026): the built `.aab` has been uploaded to Play
+Console as a real release and is live/in use.** Not independently verified
+from this session — no Android SDK/emulator/Play Console access exists in
+any sandbox this project has used. Whether Google's own re-scan has
+actually cleared these three specific flags on the new release isn't
+separately confirmed either way; that's the one thing left to check on the
+Play Console side, not a code-level open item.
+
+**For relaying to Google directly, the concise version:** upgraded
+`com.google.androidbrowserhelper` to 2.7.3 (the release that added edge-to-
+edge support for Trusted Web Activities) and removed the app's portrait
+orientation lock, raising `minSdkVersion` to 23 as a required consequence
+of the library upgrade; released as versionCode 2, currently live on Play
+Console.
