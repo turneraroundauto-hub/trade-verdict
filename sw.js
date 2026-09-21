@@ -50,3 +50,41 @@ self.addEventListener('fetch', (event) => {
       .catch(() => caches.match(event.request.mode === 'navigate' ? '/' : event.request))
   );
 });
+
+// Anonymous re-engagement push -- see shared/push.ts and Tra's
+// push-notifications.js. The payload is plain JSON built server-side
+// ({title, body, url}); this worker never has to reach back out to the
+// network to render a notification, so it still works offline.
+self.addEventListener('push', (event) => {
+  let data = { title: 'Trade Tribunal', body: 'Check today’s Gate.', url: '/' };
+  try {
+    if (event.data) data = { ...data, ...event.data.json() };
+  } catch {
+    // Malformed/empty payload -- fall back to the generic message above
+    // rather than showing nothing, or throwing and dropping the push.
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: '/shared/assets/icons/icon-192.png',
+      badge: '/shared/assets/icons/icon-192.png',
+      data: { url: data.url || '/' },
+    })
+  );
+});
+
+// Focus an already-open tab if one exists rather than always opening a new
+// one -- most real re-opens during a testing window are from a tester who
+// already has the app pinned/backgrounded, not a fresh launch.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = (event.notification.data && event.notification.data.url) || '/';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ('focus' in client) return client.focus();
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(targetUrl);
+    })
+  );
+});
