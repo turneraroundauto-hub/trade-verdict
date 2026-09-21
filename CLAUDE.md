@@ -10756,3 +10756,196 @@ edge support for Trusted Web Activities) and removed the app's portrait
 orientation lock, raising `minSdkVersion` to 23 as a required consequence
 of the library upgrade; released as versionCode 2, currently live on Play
 Console.
+
+## Backend/Frontend: anonymous per-device push notifications — Free tier (Sep 2026, `Tra` PR / `trade-verdict` PR, mirrored per the two-repo rule)
+
+Direct ask, prompted by the "More testing required" Play Console rejection
+(closed-testing production access needs 12 testers genuinely re-opening
+the app across 14 consecutive days, not just opted in — see the research
+done the same session): "get people to remember to use the app." First
+framed as "make everyone log in so I can push a notification" — corrected
+before writing any code, via `AskUserQuestion`: a login wall isn't needed
+for this at all, and would actively work against the stated goal.
+
+**Why no login.** Free tier's whole product story — and what's already
+declared to Google Play — is "no account required for any functionality"
+(this file's own Google Play launch section: *"Sign-in details: 'No.'
+Free tier requires no account for any of its functionality."*). Adding a
+signup wall now would mean re-declaring that to Google mid-review, on the
+exact app already flagged for scrutiny, and would add real friction at
+the one moment (a 14-day closed-testing window) that most needs zero
+friction to get testers reopening the app daily. Web Push doesn't need an
+account either way — a subscription is keyed to a device, not a person.
+
+**Shipped, riding the existing anonymous device_id (Sep 17, 2026,
+`device_visits`) instead of any login:**
+- `push-notifications.js` (new, both repos, `Tra`'s the real deploy
+  target) — `web-push`-backed, VAPID-signed. `GET /push/vapid-public-key`,
+  `POST /push/subscribe` (upserts by `device_id`), `POST /push/unsubscribe`,
+  and `sendPushToAllSubscribers()` — a 404/410 from the push service means
+  the browser itself dropped the subscription, so that row is deleted
+  rather than retried forever; any other single-subscription failure is
+  logged and skipped, never blocking the rest of the batch.
+- New `push_subscriptions` table (`supabase-ddl-patch17-push-subscriptions.sql`,
+  applied directly via Supabase MCP) — `device_id`/`endpoint`/`p256dh`/
+  `auth`/`tier`/`disabled`, no email, no phone number, nothing requested
+  from the visitor beyond the browser's own native permission prompt. Same
+  two-step RLS-disable + explicit-revoke pattern every service-role table
+  in this project uses, confirmed via the standard grants-check query
+  (zero `anon`/`authenticated` rows) — and, per the Sep 17, 2026
+  `device_visits` incident, re-confirmed clean specifically because that
+  incident showed exposing a table via Data API can silently re-grant
+  `anon`/`authenticated` privileges as a side effect.
+- **Sends real content, not a bare "come back" ping** — hooked directly
+  into the existing 9:30am ET market-open cache-warm `setInterval`
+  (Aug 5, 2026), firing right after `warmTrackedMarketCache()` populates
+  `marketCache`, so the notification body is that morning's actual Gate
+  status/note, never stale relative to what opening the app right now
+  would show. Best-effort: a push failure can never affect the cache warm
+  it rides alongside.
+- `shared/push.ts` (new, Free tier only for now — the only tier with a
+  registered Service Worker; written tier-agnostically so Starter/Pro can
+  adopt it later the same way) — `shouldOfferPush()`/`dismissPushOffer()`/
+  `enablePush()`/`resyncPushIfGranted()`. The offer is a one-time,
+  dismissible banner (plain block in normal page flow, deliberately kept
+  out of this app's dock/sticky/Rolodex plumbing — see this file's own
+  repeated lessons about that machinery being fragile — since it only
+  ever needs to show once at the top of the page). Never re-offered once
+  `Notification.permission` is no longer `'default'` (a real grant/deny)
+  or the visitor has dismissed it once. `resyncPushIfGranted()` runs on
+  every boot and silently re-posts an already-granted visitor's current
+  subscription — covers a dropped/stale server-side row (a redeploy, a
+  cleared table) without ever asking the visitor for anything again.
+- `sw.js` gained `push`/`notificationclick` listeners — renders from the
+  plain JSON payload the backend sends (`{title, body, url}`), fails safe
+  to a generic message on a malformed/missing payload rather than
+  throwing or showing nothing; `notificationclick` focuses an already-open
+  tab when one exists instead of always opening a new one (the realistic
+  shape of a real re-open during a testing window).
+
+**A real TypeScript/lib.dom strictness mismatch caught and fixed before
+shipping**, not a runtime bug: `PushSubscriptionOptionsInit.applicationServerKey`
+wants a `BufferSource` backed by exactly `ArrayBuffer`, while `Uint8Array`'s
+own generic type covers `ArrayBufferLike` (which also includes
+`SharedArrayBuffer`) — a real strictness mismatch in newer `lib.dom.d.ts`,
+not a genuine runtime concern for a freshly-allocated array. Fixed with a
+narrow, explained cast at the one call site.
+
+**A credential-handling near-miss worth keeping as its own lesson.**
+Generated a real VAPID key pair locally (`web-push generateVAPIDKeys()`,
+pure offline crypto). The sandbox's own auto-mode classifier blocked a
+`Bash` command that would have printed the private key back into this
+session's own output ("Credential Materialization") — correctly, per
+this project's own long-standing "never pasted into chat" rule for
+secrets. Since setting it via the Render MCP tool would have required the
+same value to appear in a tool-call argument either way, there was no
+path that both kept the key out of this session's context AND set it
+programmatically. Resolved by writing the key straight from one file to
+another (never printed to stdout) and handing the resulting `.txt` to Mr.
+T via `SendUserFile`, for him to paste directly into Tra's Render
+Environment tab himself — the same "human enters the real secret
+manually" posture this file has used for every other credential in this
+project's history (the Android keystore, `MCP_AGENT_KEY`, the Neo4j Aura
+credentials). **Lesson: when a task needs a freshly-generated secret set
+somewhere, generating it is fine — routing it through your own visible
+output or tool-call arguments to get it there is the part to avoid, even
+when the destination is a trusted first-party service.**
+
+**Testing found two real, separate false leads before landing on the
+actual cause — both worth keeping since they'll recur on the next
+push-notification or Service-Worker test in this app:**
+1. `page.route()` (registered on the `Page`) does not reliably see
+   requests a Service Worker itself proxies in this sandbox — the exact
+   same gotcha this file's own testing notes already document for
+   Free tier's `sw.js`, but this is the first time it was hit on a route
+   that mattered for the test's own assertions rather than an unrelated
+   escaping request. Fixed by registering mocks on the `BrowserContext`
+   (`context.route()`) instead of the `Page`, which does correctly see
+   SW-proxied requests here.
+2. A `wireMocks()` helper that called `context.route(...)` without
+   `await`ing it produced a real, confusing race — some requests during
+   page load got mocked, others silently reached the real (egress-
+   blocked) network, and which ones failed depending on timing. Not an
+   app bug; a missing `await` in the test harness itself. **Always await
+   route registration before navigating** — an unresolved
+   `context.route()`/`page.route()` promise is not guaranteed to have
+   fully registered before the next line runs.
+3. **Confirmed as a genuine, un-mockable sandbox limitation, not a bug of
+   either kind:** `PushManager.subscribe()` itself is a browser-internal
+   call to a real push service (Google's FCM, in Chrome) — it never goes
+   through `fetch()`, so nothing at the `page.route()`/`context.route()`
+   layer can intercept it. Confirmed directly via an isolated diagnostic:
+   it throws `AbortError: "Registration failed - permission denied"` in
+   this sandbox regardless of key validity, matching the
+   `connect_rejected` entries for `android.clients.google.com` in the
+   agent-proxy's own connection log — the same class of "can't verify
+   against live X from this sandbox" limitation this file has documented
+   for Alpaca/Finnhub/SEC/Marketaux/goldprice.dev. Worked around for
+   testing purposes by stubbing just that one call
+   (`reg.pushManager.subscribe`/`getSubscription`) via
+   `page.addInitScript()`, which let every OTHER real code path —
+   `enablePush()`'s vapid-key fetch, the resulting `/push/subscribe`
+   POST body shape, banner state, `resyncPushIfGranted()`'s re-post on
+   boot — get verified end-to-end for real.
+4. **The first-run-tutorial-swallows-the-first-click gotcha this file
+   already documents (Sep 13, 2026) recurred here too**, on a plain
+   dismiss-button click this time rather than an accordion card —
+   `window.onPushDismissClick()` worked perfectly when called directly
+   via `page.evaluate()`, but a real `page.click('.push-banner-dismiss')`
+   silently did nothing, because the tutorial's own delegated
+   click-advance handler consumed it first. Fixed the same documented
+   way: `localStorage.setItem('tv_tutorial_seen_free', '1')` via
+   `page.addInitScript()` before navigating, in every test scenario.
+
+**Verified end-to-end with all of the above accounted for:** a 21-check
+real headless-Chromium suite covering three scenarios — a fresh visitor
+enabling notifications (banner shows, permission requested, the real
+VAPID key is fetched through the SW-proxied network path, the subscribe
+POST carries a real device UUID and the subscription's endpoint/keys,
+banner hides after), a fresh visitor dismissing instead (banner hides
+immediately, zero push calls fire, the dismissal persists across a
+reload, the banner never reappears), and a returning visitor who already
+granted permission on a prior visit (banner never shows again,
+`resyncPushIfGranted()` silently re-posts the existing subscription on
+every boot) — all 21 pass, zero page errors. A separate 10-case isolated
+harness (mocked `self`/`caches`, no browser needed) confirmed `sw.js`'s
+`push` handler renders the server's real title/body/url and fails safe
+to a generic message on a malformed or missing payload, and
+`notificationclick` correctly focuses an existing open tab or opens a
+new one at the carried URL, falling back to `/` when none is carried.
+`node --check` clean on both `push-notifications.js` copies and `sw.js`;
+`npx tsc --noEmit -p tsconfig.json` back to the known 7-error `?v=N`
+baseline (zero new); `npm test` (92/92) unaffected — this doesn't touch
+`gates-extended.ts`/`analyze-helpers.ts`; `node esbuild.config.mjs`
+rebuilt cleanly with `shared/push.ts` appearing as its own chunk in
+`app.js` only (8→9 shared modules) and zero change to `starter/app.js`/
+`pro/app.js`'s own chunk counts (9/11, unchanged) — confirming correct,
+Free-tier-only scoping with no duplicate-module regression. `index.html`'s
+`<script src="./app.js?v=N">` bumped (98→99) since `app.js`'s bundled
+content changed; no shared-module cascade needed beyond that one file,
+since `push.ts` has no other importer yet.
+
+**Not yet verified against a live deploy or a real push service round
+trip** — same standing posture as every backend-dependent feature in
+this file, compounded here by the sandbox's own inability to reach
+Google's push infrastructure at all (see the testing notes above). To
+confirm once `Tra` redeploys with the VAPID env vars set: open the Free
+tier PWA on a real device, tap Enable on the banner, confirm a real OS
+notification prompt appears and a subsequent `/push/subscribe` call
+succeeds; the next morning's 9:30am ET market-open warm should then
+deliver a real push notification carrying that day's actual Gate status.
+Check Render logs for `push-notifications:` warnings (means the VAPID
+env vars never got set) or `Market-open push: sent N` lines (confirms
+it's actually firing).
+
+**Explicitly not done in this pass, deliberate scope:** Starter/Pro
+adoption (`shared/push.ts` is written to support it, but neither tier
+registers a Service Worker today — that's its own decision, not implied
+by this one); any server-side segmentation of who gets pushed (every
+active subscription gets the same daily market-open content regardless
+of tier or watchlist — a real future refinement, not built here); a
+second, different notification trigger beyond the daily market-open one
+(e.g. a real Gate flip mid-session, an Agitator-detected event) — the
+market-open hook was chosen specifically because it's the one moment
+this app already has a natural "here's today's real content" answer
+ready, with zero new fetch cost.

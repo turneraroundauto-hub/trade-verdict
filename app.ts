@@ -44,7 +44,8 @@
 //   no ticker-card upgrade prompt, no bottom-of-page teaser card. Pro is
 //   still the only tier with a real tracker.
 import { initTickerCache, fetchTickerData } from './shared/ticker-cache';
-import { pingDeviceVisit } from './shared/device-id';
+import { pingDeviceVisit, getOrCreateDeviceId } from './shared/device-id';
+import { shouldOfferPush, dismissPushOffer, enablePush, resyncPushIfGranted } from './shared/push';
 import { initWatchlist, watchlist, addTickers, addKnownTicker, removeTicker, onWatchlistSave, onTickersAdded } from './shared/watchlist';
 import { cleanLS, cacheVerdict, getCachedVerdict } from './shared/analysis-cache';
 import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from './shared/watchlist-sync';
@@ -1513,6 +1514,41 @@ function startTutorial(): void {
 }
 (window as any).startTutorial = startTutorial;
 
+// ── push notifications ─────────────────────────────────────────────
+// Account-free re-engagement -- see shared/push.ts for why this is keyed
+// to the anonymous device_id instead of a login. Offered once, via a
+// dismissible banner, only when the browser hasn't already been asked
+// (Notification.permission === 'default') and the visitor hasn't already
+// dismissed it before.
+function maybeShowPushBanner(): void {
+  const banner = document.getElementById('pushBanner');
+  if (!banner) return;
+  if (shouldOfferPush()) banner.hidden = false;
+}
+
+async function onPushEnableClick(): Promise<void> {
+  const btn = document.getElementById('pushEnableBtn') as HTMLButtonElement | null;
+  if (btn) { btn.disabled = true; btn.textContent = 'ENABLING…'; }
+  const ok = await enablePush(getOrCreateDeviceId(), { API_URL, authH, addSecret });
+  const banner = document.getElementById('pushBanner');
+  if (banner) banner.hidden = true;
+  if (!ok && btn) { btn.disabled = false; btn.textContent = 'Enable'; }
+  // A denial or failure isn't re-offered this session either -- re-asking
+  // right after a "no" just reads as nagging. shouldOfferPush() already
+  // won't re-offer once Notification.permission is no longer 'default'
+  // (a real grant/deny); this covers the same-session, still-'default'
+  // failure case (offline, backend hiccup) the same way.
+  dismissPushOffer();
+}
+(window as any).onPushEnableClick = onPushEnableClick;
+
+function onPushDismissClick(): void {
+  dismissPushOffer();
+  const banner = document.getElementById('pushBanner');
+  if (banner) banner.hidden = true;
+}
+(window as any).onPushDismissClick = onPushDismissClick;
+
 // ── init ────────────────────────────────────────────────────────────
 function initApp(): void {
   cleanLS();
@@ -1535,6 +1571,8 @@ async function boot(): Promise<void> {
   initWatchlist({ defaultTickers: ['MU', 'IREN', 'ALAB'], maxTickers: 3, upgradeMessage: 'Free tier supports up to 3 tickers.\n\nUpgrade to Starter for more.' });
   initTickerCache({ API_URL, authH, addSecret });
   pingDeviceVisit({ API_URL, authH, addSecret });
+  resyncPushIfGranted(getOrCreateDeviceId(), { API_URL, authH, addSecret });
+  setTimeout(maybeShowPushBanner, 1500);
   onWatchlistSave(function () { schedulePushWatchlist(); renderRolodexFromWatchlist(); });
   onTickersAdded(function () { rolodex.goRolo(0); });
 

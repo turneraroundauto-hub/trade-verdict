@@ -85,6 +85,85 @@ function pingDeviceVisit(config) {
   }
 }
 
+// shared/push.ts
+var DISMISSED_KEY = "tv_push_dismissed";
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  const out = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++) out[i] = rawData.charCodeAt(i);
+  return out;
+}
+function pushSupported() {
+  return typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && typeof Notification !== "undefined";
+}
+function shouldOfferPush() {
+  if (!pushSupported()) return false;
+  if (Notification.permission !== "default") return false;
+  try {
+    if (localStorage.getItem(DISMISSED_KEY) === "1") return false;
+  } catch {
+    return false;
+  }
+  return true;
+}
+function dismissPushOffer() {
+  try {
+    localStorage.setItem(DISMISSED_KEY, "1");
+  } catch {
+  }
+}
+async function postSubscription(deviceId, sub, config) {
+  await fetch(config.addSecret(config.API_URL + "/push/subscribe"), {
+    method: "POST",
+    headers: config.authH(),
+    body: JSON.stringify({ deviceId, subscription: sub.toJSON() }),
+    keepalive: true
+  }).catch(() => {
+  });
+}
+async function enablePush(deviceId, config) {
+  if (!pushSupported()) return false;
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") return false;
+    const keyRes = await fetch(config.addSecret(config.API_URL + "/push/vapid-public-key"), { headers: config.authH() });
+    if (!keyRes.ok) return false;
+    const { publicKey } = await keyRes.json();
+    if (!publicKey) return false;
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        // Cast needed -- lib.dom.d.ts's PushSubscriptionOptionsInit wants a
+        // BufferSource whose backing buffer is exactly ArrayBuffer, while
+        // Uint8Array's own generic type is ArrayBufferLike (which also
+        // covers SharedArrayBuffer) -- a real TS strictness mismatch, not a
+        // runtime concern (this array is always freshly allocated here).
+        applicationServerKey: urlBase64ToUint8Array(publicKey)
+      });
+    }
+    await postSubscription(deviceId, sub, config);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function resyncPushIfGranted(deviceId, config) {
+  if (!pushSupported() || Notification.permission !== "granted") return;
+  (async () => {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (!sub) return;
+      await postSubscription(deviceId, sub, config);
+    } catch {
+    }
+  })();
+}
+
 // shared/prefs.ts
 var TIMEZONES = {
   ET: { label: "ET (Eastern)", iana: "America/New_York" },
@@ -2715,6 +2794,33 @@ function startTutorial() {
   runTutorialStep(0);
 }
 window.startTutorial = startTutorial;
+function maybeShowPushBanner() {
+  const banner = document.getElementById("pushBanner");
+  if (!banner) return;
+  if (shouldOfferPush()) banner.hidden = false;
+}
+async function onPushEnableClick() {
+  const btn = document.getElementById("pushEnableBtn");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "ENABLING\u2026";
+  }
+  const ok = await enablePush(getOrCreateDeviceId(), { API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
+  const banner = document.getElementById("pushBanner");
+  if (banner) banner.hidden = true;
+  if (!ok && btn) {
+    btn.disabled = false;
+    btn.textContent = "Enable";
+  }
+  dismissPushOffer();
+}
+window.onPushEnableClick = onPushEnableClick;
+function onPushDismissClick() {
+  dismissPushOffer();
+  const banner = document.getElementById("pushBanner");
+  if (banner) banner.hidden = true;
+}
+window.onPushDismissClick = onPushDismissClick;
 function initApp() {
   cleanLS();
   document.getElementById("ticker-count").textContent = "CRF \xB7 " + watchlist.length + " TICKERS";
@@ -2736,6 +2842,8 @@ async function boot() {
   initWatchlist({ defaultTickers: ["MU", "IREN", "ALAB"], maxTickers: 3, upgradeMessage: "Free tier supports up to 3 tickers.\n\nUpgrade to Starter for more." });
   initTickerCache({ API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
   pingDeviceVisit({ API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
+  resyncPushIfGranted(getOrCreateDeviceId(), { API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
+  setTimeout(maybeShowPushBanner, 1500);
   onWatchlistSave(function() {
     schedulePushWatchlist();
     renderRolodexFromWatchlist();
