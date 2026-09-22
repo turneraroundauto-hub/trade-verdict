@@ -11113,3 +11113,152 @@ let a `/device-ping` fire (every tier's `boot()` already calls it), and
 check the corresponding `device_visits` row for a real, non-null
 `user_email`; confirm a later anonymous ping (e.g. after signing out)
 leaves that same row's `user_email` untouched rather than clearing it.
+
+## Daily-notifications plan — status and consolidated log (Sep 21-22, 2026)
+
+Original scope, agreed via `AskUserQuestion` before any of this was built:
+signed-in Starter/Pro/Shark users get personalized daily push content off
+their own watchlist; anonymous Free users get a generic market-wide push
+to drive re-engagement; Android push delivery only, no email pipeline;
+and a sign-up nudge to convert some of that anonymous traffic into real
+accounts. Confirmed via direct manifest/build-file inspection before any
+of this started that **none of it needs a new Android app bundle** — the
+already-shipped, versionCode-2 Play Store app already has TWA
+notification delegation fully enabled (`POST_NOTIFICATIONS` permission,
+`DelegationService`, `enableNotifications:true`); everything that
+controls push content/timing/personalization lives in the website/
+backend, which deploy independently of the Play Store.
+
+**Phase 1 — SHIPPED (`trade-verdict` PR #350, part of the same PR as
+below).** The existing anonymous market-open push (see the per-device
+push-notifications section above) only ever used the flat, mechanical
+`gateNote` line ("SPY +0.4% QQQ +0.3%"). New `pulsePushBody(cache)`
+prefers the real, already-generated Sector Pulse narrative's first
+sentence instead — ellipsis-truncated if that sentence alone still
+exceeds 140 chars, falling back to the original `gateNote` behavior
+whenever the pulse hasn't landed yet (an async race: `generatePulse()`
+populates `marketCache.pulse` independently of the cache-warm's own
+timing). Zero new fetches/cost — reuses data `warmTrackedMarketCache()`
+already computes for Starter/Pro's real Sector Pulse card. Verified via
+a 9-case standalone simulation of the extracted function (real 2-sentence
+pulse takes only the first sentence, over-length first sentence
+truncates with a real prefix + ellipsis, null/whitespace-only pulse falls
+back to `gateNote` exactly as before, `gateNote`-only path still
+truncates at its original 110 chars).
+
+**Phase 2 — SHIPPED (`trade-verdict` PR #350, then #351).** A sign-up/
+sign-in nudge for anonymous Free visitors, plus a follow-on "how to use
+this" callout — two real feedback rounds, both direct:
+
+1. **The nudge itself.** Shown to any visitor with no valid `tv_session`
+   on **every** app open — not once, not on a re-show cadence (a 7-day
+   cadence was proposed and explicitly rejected: *"I like the reoccurring
+   nudge every time it's opened"*). Copy deliberately carries **no
+   notification pitch at all** (*"remove the pitch about notifications
+   but keep that it's fee [free] to sign up"*) — just the free-to-
+   sign-up framing, doubling as a sign-in prompt for a visitor who
+   already has an account via the same single SIGN UP / SIGN IN
+   destination the header's own button already uses (confirmed by
+   reading the code, not assumed: that link routes to Starter's real
+   auth screen, and a Starter signup with no Stripe purchase attached
+   lands as a genuine, real, no-cost `tier:'free'` account — "free to
+   sign up" is factually true, not just marketing copy).
+2. **The post-dismiss ANALYZE spotlight.** Dismissing the nudge (or, for
+   a visitor already signed in with no nudge to dismiss, the same
+   trigger point directly) scroll-snaps to the active ticker card and
+   frames its real ANALYZE button with a fade-everything-else spotlight
+   (4 real, independently-clickable dark strips framing the button's own
+   live rect — not a `pointer-events:none` box-shadow trick, which could
+   never also catch a tap-the-dark-area-to-dismiss click) plus a callout:
+   *"tap to ANALYZE - Could be your next favorite company!"* Falls back
+   to sitting above the button with a down-arrow when there isn't enough
+   horizontal room, rather than clipping off-screen.
+3. **Targeting, per direct correction** ("this would only happen on
+   anonymous and new sign-ins only"): an anonymous visitor gets the
+   spotlight every time (same cadence as the nudge); a visitor signed in
+   for the very first time ever on this device (a fresh signup, or a
+   first sign-in to an existing account) gets it exactly once, captured
+   via a `tv_free_seen_signed_in` flag read *before* it's set on that
+   same load; a returning already-signed-in visitor gets neither.
+4. **A real gap caught by headless-Chromium testing, not simulation.**
+   The spotlight was originally only reachable via the nudge's own
+   dismiss handler — so a freshly-signed-in visitor, who never sees the
+   nudge at all, had nothing to trigger it. Fixed with a shared
+   `nudgeOrSpotlight()` entry point both trigger moments (tutorial
+   completion, the 3s post-load timer) call: shows the nudge for an
+   anonymous visitor, or goes straight to the spotlight when already
+   signed in and eligible. Caught specifically because the test drove
+   all four real targeting states end-to-end rather than asserting each
+   function in isolation.
+5. **Redesigned the same day, direct feedback:** *"I was thinking of a
+   window that popped up and blurred everything else. The whole screen
+   seems invasive and not appealing."* The nudge's original full-bleed
+   opaque treatment (matching `#comeback-screen`'s own real "out of
+   credits" blocker) was replaced with a genuine floating modal: a
+   translucent `backdrop-filter:blur(6px)` overlay the app content stays
+   visible/legible through, with the copy in its own bordered/shadowed
+   surface card. `#comeback-screen` itself is deliberately untouched —
+   that one is a real blocker (use is actually halted until credits
+   refresh), a different situation from a skippable suggestion, and the
+   distinction is the point. Added tap-outside-the-card-to-dismiss (a
+   plain absolutely-positioned element behind the card) as the standard
+   modal affordance, alongside — not instead of — the existing "Not now"
+   link.
+
+Verified together: 16 real headless-Chromium checks across the four
+targeting states plus the working "hole" (the real button stays
+clickable through the spotlight), then 12 more for the modal redesign
+specifically (translucent+blurred backdrop, the card's own real
+background/radius/shadow/border, tap-outside dismisses, tap-*inside*
+does not, spotlight still chains correctly afterward). `npm test`
+92/92 throughout, `tsc` back to the known 7-error `?v=N` baseline each
+time, `esbuild` chunk-header grep confirmed no duplicate-module
+regression. Both PRs merged same-day; GitHub Actions' own "pages build
+and deployment" run for each merge commit confirmed `completed`/
+`success` before either was reported live.
+
+**A real, separate caching question raised and resolved, worth recording
+since it's exactly the failure mode this file's own cache-busting rule
+warns about.** Asked directly to make sure the spotlight "doesn't fall
+behind user cache." Checked, rather than assumed: `index.html` already
+carries the `Cache-Control: no-cache,no-store,must-revalidate` meta tag;
+`app.js?v=N` was correctly bumped on every touched commit (101, then
+102); and `sw.js`'s fetch handler is genuinely network-first for every
+request type, including `app.js` itself (never cached at all — the
+service worker's own `SHELL_CACHE` only ever stores navigation responses
+as an offline fallback, always superseded by a fresh network fetch when
+one succeeds), so it introduces no additional staleness risk on top of
+the existing `?v=` convention. Resolved live — the user confirmed the
+spotlight was working after this was checked.
+
+### Phases NOT complete — read this before assuming this thread is done
+
+- **Phase 3 — personalized daily push for signed-in Starter/Pro/Shark
+  users, based on their own synced watchlist. NOT STARTED.** This is the
+  one piece of the original three-way scope (generic-push-for-anonymous /
+  personalized-push-for-signed-in / sign-up-nudge) that hasn't been
+  touched at all. Needs, at minimum: giving Starter/Pro their own minimal
+  Service Worker (neither registers one today — `shared/push.ts` is
+  currently Free-tier-only, though written tier-agnostically so this
+  should extend cleanly), a `user_email` column on `push_subscriptions`
+  (currently keyed only by anonymous `device_id`), and a batched/
+  throttle-respecting daily send job with real per-subscriber content
+  prioritization (top 1-3 notable movers or Gate 5 flags off that
+  user's actual watchlist, not the generic market-wide content the
+  anonymous push sends).
+- **"Not convinced all users know how to use the app" — raised, not yet
+  acted on.** Separate from the two shipped onboarding mechanisms (the
+  once-ever 8-step tutorial, and the spotlight above), a live concern:
+  both currently fire once and then go quiet, so a visitor who skips or
+  gets distracted mid-tap has no further reminder. Recommended, not yet
+  built or confirmed: a persistent low-key visual cue (e.g. a subtle
+  pulsing glow) directly on the ANALYZE button that stays until a
+  visitor has analyzed at least one ticker ever, as a less-invasive
+  alternative/complement to repeating the full-screen spotlight every
+  open. No direction has been confirmed yet — this is an open thread,
+  not a decided next step.
+- **Not yet verified against a live deploy, either phase above** — same
+  standing sandbox limitation as every push/backend integration in this
+  file (`tra-zacg.onrender.com` unreachable from here). Spot-check a
+  real device once Phase 3 lands, same as the open items already listed
+  for Phase 1/2's own backend half above.
