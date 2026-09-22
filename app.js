@@ -108,12 +108,6 @@ function shouldOfferPush() {
   }
   return true;
 }
-function dismissPushOffer() {
-  try {
-    localStorage.setItem(DISMISSED_KEY, "1");
-  } catch {
-  }
-}
 async function postSubscription(deviceId, sub, config) {
   await fetch(config.addSecret(config.API_URL + "/push/subscribe"), {
     method: "POST",
@@ -1985,6 +1979,7 @@ function renderRoloCard(sym) {
   const btn = card.querySelector("[data-analyze]");
   if (btn) btn.addEventListener("click", () => {
     vibrateTap();
+    requestPushOfferOnFirstGesture();
     analyzeOne(sym);
   });
   const resetEl = card.querySelector("[data-reset]");
@@ -2794,33 +2789,14 @@ function startTutorial() {
   runTutorialStep(0);
 }
 window.startTutorial = startTutorial;
-function maybeShowPushBanner() {
-  const banner = document.getElementById("pushBanner");
-  if (!banner) return;
-  if (shouldOfferPush()) banner.hidden = false;
+var pushOfferInFlight = false;
+function requestPushOfferOnFirstGesture() {
+  if (pushOfferInFlight || !shouldOfferPush()) return;
+  pushOfferInFlight = true;
+  enablePush(getOrCreateDeviceId(), { API_URL: API_URL2, authH: authH2, addSecret: addSecret2 }).finally(() => {
+    pushOfferInFlight = false;
+  });
 }
-async function onPushEnableClick() {
-  const btn = document.getElementById("pushEnableBtn");
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = "ENABLING\u2026";
-  }
-  const ok = await enablePush(getOrCreateDeviceId(), { API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
-  const banner = document.getElementById("pushBanner");
-  if (banner) banner.hidden = true;
-  if (!ok && btn) {
-    btn.disabled = false;
-    btn.textContent = "Enable";
-  }
-  dismissPushOffer();
-}
-window.onPushEnableClick = onPushEnableClick;
-function onPushDismissClick() {
-  dismissPushOffer();
-  const banner = document.getElementById("pushBanner");
-  if (banner) banner.hidden = true;
-}
-window.onPushDismissClick = onPushDismissClick;
 function initApp() {
   cleanLS();
   document.getElementById("ticker-count").textContent = "CRF \xB7 " + watchlist.length + " TICKERS";
@@ -2843,7 +2819,6 @@ async function boot() {
   initTickerCache({ API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
   pingDeviceVisit({ API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
   resyncPushIfGranted(getOrCreateDeviceId(), { API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
-  setTimeout(maybeShowPushBanner, 1500);
   onWatchlistSave(function() {
     schedulePushWatchlist();
     renderRolodexFromWatchlist();
@@ -2863,6 +2838,7 @@ async function boot() {
   }, {
     getWatchlist: () => watchlist,
     onActivate: (sym) => {
+      requestPushOfferOnFirstGesture();
       const state = tickerState.get(sym);
       if (state && !state.result && !state.analyzing) analyzeOne(sym);
     },

@@ -45,7 +45,7 @@
 //   still the only tier with a real tracker.
 import { initTickerCache, fetchTickerData } from './shared/ticker-cache';
 import { pingDeviceVisit, getOrCreateDeviceId } from './shared/device-id';
-import { shouldOfferPush, dismissPushOffer, enablePush, resyncPushIfGranted } from './shared/push';
+import { shouldOfferPush, enablePush, resyncPushIfGranted } from './shared/push';
 import { initWatchlist, watchlist, addTickers, addKnownTicker, removeTicker, onWatchlistSave, onTickersAdded } from './shared/watchlist';
 import { cleanLS, cacheVerdict, getCachedVerdict } from './shared/analysis-cache';
 import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from './shared/watchlist-sync';
@@ -481,7 +481,7 @@ function renderRoloCard(sym: string): void {
   card.innerHTML = roloCardHTML(sym, state);
   card.classList.remove('verdict-up', 'verdict-down');
   const btn = card.querySelector('[data-analyze]');
-  if (btn) btn.addEventListener('click', () => { vibrateTap(); analyzeOne(sym); });
+  if (btn) btn.addEventListener('click', () => { vibrateTap(); requestPushOfferOnFirstGesture(); analyzeOne(sym); });
   const resetEl = card.querySelector('[data-reset]');
   if (resetEl) resetEl.addEventListener('click', () => resetTicker(sym));
   if (state.result && !isMarketClosed()) {
@@ -1516,38 +1516,39 @@ function startTutorial(): void {
 
 // ── push notifications ─────────────────────────────────────────────
 // Account-free re-engagement -- see shared/push.ts for why this is keyed
-// to the anonymous device_id instead of a login. Offered once, via a
-// dismissible banner, only when the browser hasn't already been asked
-// (Notification.permission === 'default') and the visitor hasn't already
-// dismissed it before.
-function maybeShowPushBanner(): void {
-  const banner = document.getElementById('pushBanner');
-  if (!banner) return;
-  if (shouldOfferPush()) banner.hidden = false;
+// to the anonymous device_id instead of a login.
+//
+// Sep 21, 2026 redesign: the original launch used a dismissible banner
+// ("Get notified when the Gate flips") with its own Enable button --
+// direct feedback called the copy confusing (jargon a first-time visitor
+// has no reason to know) and, more importantly, wanted this opt-OUT, not
+// opt-in: don't make it a separate ask the visitor has to notice and act
+// on, make it a natural side effect of just using the app.
+//
+// No browser lets a site subscribe to push silently -- Notification
+// permission always needs the browser's own native "Allow/Block" dialog,
+// and (Safari/iOS in particular, this app's real Play/PWA install target)
+// that dialog only fires when requested synchronously from inside a real
+// user gesture, never from a bare page-load timer. So "opt-out" here
+// means: fire the request automatically on the very first real gesture
+// almost every visitor makes -- tapping a ticker pill (which already
+// auto-runs that ticker's analysis, rolodex.ts's onActivate below) --
+// instead of waiting for a dedicated click on our own banner/button.
+// There's no more custom copy to be confusing about: the browser's own
+// trusted "tradetribunal.app wants to send you notifications" dialog is
+// what the visitor sees, not anything this app wrote.
+//
+// requestPushOfferOnFirstGesture() is called unconditionally from every
+// pill tap; shouldOfferPush() itself is what makes it a no-op once
+// Notification.permission is no longer 'default' (a real grant/deny) --
+// so this fires at most once per browser, on the first tap after load.
+let pushOfferInFlight = false;
+function requestPushOfferOnFirstGesture(): void {
+  if (pushOfferInFlight || !shouldOfferPush()) return;
+  pushOfferInFlight = true;
+  enablePush(getOrCreateDeviceId(), { API_URL, authH, addSecret })
+    .finally(() => { pushOfferInFlight = false; });
 }
-
-async function onPushEnableClick(): Promise<void> {
-  const btn = document.getElementById('pushEnableBtn') as HTMLButtonElement | null;
-  if (btn) { btn.disabled = true; btn.textContent = 'ENABLING…'; }
-  const ok = await enablePush(getOrCreateDeviceId(), { API_URL, authH, addSecret });
-  const banner = document.getElementById('pushBanner');
-  if (banner) banner.hidden = true;
-  if (!ok && btn) { btn.disabled = false; btn.textContent = 'Enable'; }
-  // A denial or failure isn't re-offered this session either -- re-asking
-  // right after a "no" just reads as nagging. shouldOfferPush() already
-  // won't re-offer once Notification.permission is no longer 'default'
-  // (a real grant/deny); this covers the same-session, still-'default'
-  // failure case (offline, backend hiccup) the same way.
-  dismissPushOffer();
-}
-(window as any).onPushEnableClick = onPushEnableClick;
-
-function onPushDismissClick(): void {
-  dismissPushOffer();
-  const banner = document.getElementById('pushBanner');
-  if (banner) banner.hidden = true;
-}
-(window as any).onPushDismissClick = onPushDismissClick;
 
 // ── init ────────────────────────────────────────────────────────────
 function initApp(): void {
@@ -1572,7 +1573,6 @@ async function boot(): Promise<void> {
   initTickerCache({ API_URL, authH, addSecret });
   pingDeviceVisit({ API_URL, authH, addSecret });
   resyncPushIfGranted(getOrCreateDeviceId(), { API_URL, authH, addSecret });
-  setTimeout(maybeShowPushBanner, 1500);
   onWatchlistSave(function () { schedulePushWatchlist(); renderRolodexFromWatchlist(); });
   onTickersAdded(function () { rolodex.goRolo(0); });
 
@@ -1588,6 +1588,7 @@ async function boot(): Promise<void> {
   }, {
     getWatchlist: () => watchlist,
     onActivate: (sym) => {
+      requestPushOfferOnFirstGesture();
       const state = tickerState.get(sym);
       if (state && !state.result && !state.analyzing) analyzeOne(sym);
     },

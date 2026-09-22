@@ -10949,3 +10949,97 @@ second, different notification trigger beyond the daily market-open one
 market-open hook was chosen specifically because it's the one moment
 this app already has a natural "here's today's real content" answer
 ready, with zero new fetch cost.
+
+## Frontend: push-notification offer redesigned — opt-out, not a confusing opt-in banner (Sep 21, 2026)
+
+Direct live feedback against a real screenshot of the launch above: the
+banner's own copy ("Get notified when the Gate flips") was confusing —
+"Gate" is this app's own internal metaphor, meaningless to a first-time
+visitor — and, more substantively, the whole shape was wrong: **"it
+needs to be opt-out option, not opt-in. I need people to use the app,
+not passively ask them to let me notify them."**
+
+**The real platform constraint, worth stating plainly before the fix:**
+no browser lets a site subscribe a visitor to push silently. Notification
+permission always needs the browser's own native "Allow/Block" dialog —
+there is no way to make this happen with literally zero visitor action,
+on any platform. Safari/iOS (this app's real PWA/TWA install target) is
+stricter still: that dialog only fires when `Notification.requestPermission()`
+is called synchronously from inside a real user gesture — never from a
+bare page-load timer. So "opt-out" here can't mean "silently on by
+default"; it means the smallest version of "ask" that's technically
+possible: don't make it a separate decision the visitor has to notice
+and act on, make it a side effect of the thing they were already doing.
+
+**Fix: removed the banner entirely — the request now fires automatically
+on the visitor's first real tap, not a dedicated click.** `shared/push.ts`
+is unchanged (still `shouldOfferPush()`/`enablePush()`/
+`resyncPushIfGranted()`); what changed is `app.ts`'s own wiring:
+- `maybeShowPushBanner()`/`onPushEnableClick()`/`onPushDismissClick()`
+  and their `window.fn=` bridges are gone. `#pushBanner` and its
+  `.push-banner*` CSS removed from `index.html` outright, not just hidden.
+- New `requestPushOfferOnFirstGesture()` — a thin, in-flight-guarded
+  wrapper around `enablePush()`, gated by the same `shouldOfferPush()`
+  check the banner used to gate its own visibility on (so it's still a
+  genuine one-time ask: a no-op the instant `Notification.permission` is
+  no longer `'default'`, whether granted, denied, or already requested
+  this session). Called from two real user-gesture entry points:
+  `rolodex.initRolodex()`'s `onActivate` callback (fires on every pill
+  tap — the single most universal first interaction on this page, since
+  tapping a pill already auto-runs that ticker's analysis) and the
+  manual `[data-analyze]` button's own click handler (covers a re-tap on
+  an already-analyzed card, which never reaches `onActivate`'s
+  auto-analyze branch).
+- Nothing left to be confusing about — the visitor now sees only the
+  browser's own trusted, standard "tradetribunal.app wants to send you
+  notifications" dialog, not any copy this app wrote.
+
+**A real, disclosed trade-off, not hidden:** removing the explanatory
+banner text means a visitor now sees the OS permission dialog with less
+context for why it's appearing, which could plausibly lower the
+grant-vs-block rate for visitors who think about it before answering —
+but that's the direct, requested trade for making the ask automatic
+instead of an extra decision. Worth revisiting only if real Play Store
+engagement data ends up suggesting the block rate is the actual
+bottleneck, not guessed at now.
+
+**Verified via headless Chromium, 14 checks across 3 scenarios** — a
+technique note first: `context.grantPermissions()` (Playwright's own
+mock-permission API) reflects a granted permission in
+`Notification.permission` the instant it's called, before the app ever
+calls `requestPermission()` itself — using it to simulate "the OS dialog
+resolves to Allow" pre-empties the very `shouldOfferPush()` check this
+fix depends on, since permission would already read non-`'default'`
+before the tap. Verified instead by stubbing `Notification.requestPermission`
+directly (tracking a call counter, resolving `'granted'`) so the test
+proves the app's own code triggers the real permission call, off a real
+gesture, with permission still genuinely `'default'` beforehand — not
+just that some pre-granted state happens to already look right. Confirmed:
+(1) a fresh visitor sees no `#pushBanner` anywhere in the DOM and zero
+`requestPermission()`/vapid/subscribe calls from a plain page load with
+no tap; (2) tapping the first ticker pill is what calls
+`requestPermission()` (exactly once, proven via the stub's counter) and
+drives the full real flow through to a `/push/subscribe` POST carrying a
+real device UUID — all in the same gesture, no separate banner click;
+(3) a returning visitor who already granted permission in a prior
+session gets `resyncPushIfGranted()`'s existing silent re-post on boot,
+and a further pill tap fires no new `requestPermission()`/vapid calls (the
+`shouldOfferPush()` gate correctly no-ops once permission is already
+decided). Zero page errors across all three. `npx tsc --noEmit` back to
+the known 7-error `?v=N`-import-resolution baseline, zero new errors;
+`npm test` (92/92) unaffected — this doesn't touch `gates-extended.ts`/
+`analyze-helpers.ts`; `node esbuild.config.mjs` rebuilt `app.js` clean,
+chunk-header grep confirmed the same 9 shared-module count as before (no
+duplicate-module regression), `starter/app.js`/`pro/app.js` unaffected
+(neither imports `shared/push.ts` — this feature is still Free-tier-only,
+per the original launch's own explicit scope). `index.html`'s
+`<script src="./app.js?v=100">` bumped since `app.js`'s content changed.
+
+**Not yet verified against a live deploy** — same standing posture as
+the original launch above; the backend half (VAPID env vars, the
+`/push/subscribe` round trip, the 9:30am ET market-open send) is
+unaffected by this change and carries the same open verification item it
+already had. To confirm this specific fix live: open the Free tier PWA
+on a real device with notification permission not yet decided, tap any
+ticker pill, and confirm the native OS permission dialog appears
+immediately — no banner, no separate Enable tap.
