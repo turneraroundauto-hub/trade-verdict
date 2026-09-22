@@ -1867,7 +1867,7 @@ try {
 } catch (e) {
 }
 var storedForRedirect;
-var SIGNIN_SEEN_FLAG = "tv_free_seen_signed_in";
+var SIGNIN_SEEN_FLAG = "tv_free_seen_signed_in_v2";
 var wasFirstSignedInLoad = false;
 if (sbSession) {
   if (!localStorage.getItem(SIGNIN_SEEN_FLAG)) wasFirstSignedInLoad = true;
@@ -2910,7 +2910,7 @@ async function runTutorialStep(index) {
   );
 }
 function startTutorial() {
-  localStorage.setItem("tv_tutorial_seen_free", "1");
+  localStorage.setItem("tv_tutorial_seen_free_v2", "1");
   runTutorialStep(0);
 }
 window.startTutorial = startTutorial;
@@ -3005,7 +3005,7 @@ function initApp() {
   sizeGateSpacer();
   renderRolodexFromWatchlist();
   setTimeout(fetchCreditStatus, 2e3);
-  if (!localStorage.getItem("tv_tutorial_seen_free")) {
+  if (!localStorage.getItem("tv_tutorial_seen_free_v2")) {
     setTimeout(startTutorial, 900);
   } else {
     setTimeout(nudgeOrSpotlight, 3e3);
