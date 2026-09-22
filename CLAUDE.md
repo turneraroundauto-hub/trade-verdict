@@ -11044,6 +11044,76 @@ on a real device with notification permission not yet decided, tap any
 ticker pill, and confirm the native OS permission dialog appears
 immediately — no banner, no separate Enable tap.
 
+## Backend: device_visits now correlates to a signed-in account (Sep 22, 2026, `Tra` patch17 / `trade-verdict` patch18)
+
+Direct follow-up to the Sep 17, 2026 device-visit-counting entry above:
+"the device visit table needs to be able to correlate to users with an
+account. right now I can't tell who is who if they sign-in." Real gap —
+`device_visits` had `device_id`/`platform`/`first_tier`/timestamps/
+`visit_count`, nothing identifying which account (if any) a device
+belonged to.
+
+**Backend-only fix — no frontend change was needed at all.** The
+signed-in user's email was already reaching `/device-ping` the whole
+time, just never captured: `pingDeviceVisit()` (`shared/device-id.ts`)
+sends its ping through `config.authH()`, the exact same header helper
+every other backend call already uses — carrying the real Supabase
+session token when signed in. `/device-ping` sits behind the same global
+`app.use` auth middleware every other route goes through (it's not on
+the small allowlist of pre-auth routes), so `req.userEmail` was already
+being resolved and available inside the handler on every signed-in ping
+— it just wasn't being written anywhere.
+
+**Shipped:** one nullable `user_email text` column
+(`supabase-ddl-patch17-device-visits-user-email.sql` in `Tra`, mirrored
+as `patch18` in `trade-verdict` since that repo's own patch17 slot was
+already taken by the push-notifications table — same "no Tra-side
+`.sql` file is required, only Supabase MCP + the mirror's own numbering"
+posture already established for `mcp_oauth_state`). Applied directly via
+the Supabase MCP connection; grants re-checked immediately after per this
+file's own standing rule (a plain `ADD COLUMN` isn't a Data API exposure
+toggle, so no reset was expected, and none occurred — zero
+`anon`/`authenticated` rows, confirmed).
+
+`/device-ping`'s upsert (both repos) gained `user_email: req.userEmail ||
+undefined` — `undefined` fields are dropped from the JSON body entirely
+before it reaches Supabase, so an anonymous ping (tier-secret auth, no
+session) never sends the column at all and never clears a device's
+already-known email back to null. This is the identical pattern
+`first_tier: existing ? undefined : ...` already used one line above it
+in the same upsert — not a new mechanism. A later signed-in ping from a
+different account on the same device (a shared browser, for instance)
+does overwrite it — the field tracks the *last known* signed-in account
+for that device, not a first-seen snapshot.
+
+**No fingerprinting, no new client-side collection — the "no phishing,
+nothing requested from the user" constraint this table shipped under
+(Sep 17, 2026) still holds.** This only captures the account the user
+explicitly signed into, using auth data the request was already
+carrying for an unrelated reason (every backend call authenticates the
+same way). Nothing new is asked of, or read from, the visitor.
+
+**Verified:** confirmed via a standalone Node check that the upsert
+payload genuinely omits `user_email` (not `null`) on an anonymous ping
+and includes it on a signed-in one — the exact mechanism the whole fix
+depends on. `node --check` clean on both `server.js` files. A real local
+boot of `Tra`'s actual `server.js` (dummy env vars, a real generated
+VAPID keypair so the push-notifications module load doesn't crash
+first) starts cleanly and reaches the real code path: `/device-ping`
+with no auth returns 401 (middleware working), with tier-secret auth it
+resolves `req.userTier` and attempts a real Supabase upsert (network
+failure against the dummy URL, as expected — confirms the handler
+executes through to the write, not that the write itself succeeded).
+`npm test` (92/92) unaffected — this doesn't touch `gates-extended.ts`/
+`analyze-helpers.ts`.
+
+**Not yet verified against a live deploy** — same standing posture as
+every backend change in this file. To confirm: sign in on a real device,
+let a `/device-ping` fire (every tier's `boot()` already calls it), and
+check the corresponding `device_visits` row for a real, non-null
+`user_email`; confirm a later anonymous ping (e.g. after signing out)
+leaves that same row's `user_email` untouched rather than clearing it.
+
 ## Daily-notifications plan — status and consolidated log (Sep 21-22, 2026)
 
 Original scope, agreed via `AskUserQuestion` before any of this was built:
