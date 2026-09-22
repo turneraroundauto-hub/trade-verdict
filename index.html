@@ -99,6 +99,25 @@
   .header-title-wrap{ min-width:0; }
   .brand{ font-family:'Playfair Display',serif; font-size:clamp(14px,4.2vw,20px); font-weight:800; color:var(--ink); letter-spacing:.3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:max-content; }
   .brand .t1{ color:var(--green); } .brand .t2{ color:var(--red); }
+  /* ── Embedded sign-in screen (inside #signin-nudge) — the real Starter/Pro
+     auth-screen markup/CSS/behavior, reused verbatim (including the entrance
+     "bounce" animation) per direct instruction, not a Free-tier reskin. ── */
+  .auth-wordmark{ font-family:'Playfair Display',serif; font-size:clamp(16px,5.6vw,22px); font-weight:800; margin-bottom:4px; transform-origin:50% 0%; transform:translateY(-460px) scale(3); opacity:0; animation:dropShrinkIn 950ms cubic-bezier(.22,.68,.36,1) forwards; }
+  .auth-wordmark .t1{ color:var(--green); } .auth-wordmark .t2{ color:var(--red); }
+  .auth-sub{ opacity:0; animation:fadeUp 450ms ease-out 780ms forwards; }
+  .auth-card{ opacity:0; animation:fadeUp 450ms ease-out 900ms forwards; }
+  @keyframes dropShrinkIn{
+    0%{transform:translateY(-460px) scale(3);opacity:1}
+    65%{transform:translateY(0) scale(1);opacity:1}
+    78%{transform:translateY(-10px) scale(1)}
+    90%{transform:translateY(3px) scale(1)}
+    100%{transform:translateY(0) scale(1);opacity:1}
+  }
+  @keyframes fadeUp{ from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+  @media (prefers-reduced-motion: reduce){
+    .auth-wordmark{animation:none;opacity:1;transform:none}
+    .auth-sub,.auth-card{animation:none;opacity:1;transform:none}
+  }
   .brand-meta{ font-size:13px; color:var(--ink-dim); margin-top:2px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-family:var(--mono); }
   .tier-chip{ font-size:11px; font-weight:700; color:var(--ink-dim); background:rgba(125,136,150,.1); border:1px solid rgba(125,136,150,.3); border-radius:3px; padding:1px 6px; letter-spacing:.08em; }
   /* Stacked vertically on the right, not a horizontal row -- a row this
@@ -629,19 +648,58 @@
      content stays visible/legible through, with the actual copy living
      in its own bordered/shadowed card instead of floating directly on a
      blank page. #signin-nudge-backdrop-close closes it on a tap outside
-     the card, the standard modal affordance -- on top of the explicit
-     "Not now" link, not instead of it. -->
+     the card, the standard modal affordance.
+
+     Content: the real Starter/Pro sign-in screen (#auth-screen there),
+     embedded verbatim per direct instruction -- same fields, same
+     bindAuthEvents()/handleLogin()/handleSignup() logic (added to this
+     tier's own app.ts below), same entrance "bounce" animation -- not a
+     Free-tier-authored pitch card. A real login here stores a real
+     tv_session and reloads, so every already-correct piece of Free's own
+     architecture (redirectingToPaidTier, the sbSession-conditional
+     watchlist sync, the header/credits chip) picks it up exactly the way
+     it already does for a session bounced back from a lapsed
+     Starter/Pro/Shark subscription -- no new state-management code
+     needed. "← Back to Free tier" doubles as this modal's dismiss action
+     (reusing signin-nudge-dismiss's existing wiring) since navigating
+     there would just reload the page we're already on. -->
 <div id="signin-nudge" style="display:none;align-items:center;justify-content:center;padding:24px;background:rgba(8,12,18,.72);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);position:fixed;inset:0;z-index:999">
   <div id="signin-nudge-backdrop-close" style="position:absolute;inset:0"></div>
-  <div style="position:relative;width:100%;max-width:320px;text-align:center;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:26px 22px;box-shadow:0 20px 60px rgba(0,0,0,.55)">
-    <div style="font-size:42px;margin-bottom:14px">&#128274;</div>
-    <h2 style="font-family:var(--mono);font-size:17px;color:var(--white);margin-bottom:8px;letter-spacing:.08em">SAVE YOUR WATCHLIST</h2>
-    <p style="font-family:var(--mono);font-size:13px;color:var(--dim);line-height:1.7;margin-bottom:20px">It's free to create an account — sync your watchlist across devices and keep it if you ever upgrade.<br>Already have one? The same link signs you in.</p>
-    <a id="signin-nudge-cta" href="https://tradetribunal.app/starter/" style="display:block;font-family:var(--mono);font-size:13px;font-weight:700;color:var(--green);background:var(--green-dim);border:1px solid rgba(0,230,118,.4);border-radius:8px;padding:12px 20px;text-decoration:none;margin-bottom:16px">SIGN UP / SIGN IN</a>
-    <button type="button" id="signin-nudge-dismiss"
-      style="background:none;border:none;font-family:var(--mono);font-size:12px;color:var(--dim);cursor:pointer;text-decoration:underline">
-      Not now
-    </button>
+  <div style="position:relative;width:100%;max-width:340px">
+    <h1 class="auth-wordmark"><span class="t1">TRADE</span> <span class="t2">TRIBUNAL</span></h1>
+    <p class="auth-sub" style="font-family:var(--mono);font-size:13px;color:var(--dim);margin-bottom:28px">CRF Pattern Analysis</p>
+    <div class="auth-card" style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px">
+      <div id="auth-title" style="font-family:var(--mono);font-size:15px;font-weight:700;color:var(--blue);letter-spacing:.1em;margin-bottom:16px">SIGN IN</div>
+      <label style="font-family:var(--mono);font-size:13px;color:var(--dim);display:block;margin-bottom:4px">EMAIL</label>
+      <input id="auth-email" type="email" autocomplete="email" placeholder="your@email.com"
+        style="width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:5px;padding:9px 12px;color:var(--white);font-family:var(--mono);font-size:15px;margin-bottom:12px;box-sizing:border-box">
+      <label style="font-family:var(--mono);font-size:13px;color:var(--dim);display:block;margin-bottom:4px">PASSWORD</label>
+      <div style="position:relative;margin-bottom:8px">
+        <input id="auth-password" type="password" autocomplete="current-password" placeholder="••••••••"
+          style="width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:5px;padding:9px 40px 9px 12px;color:var(--white);font-family:var(--mono);font-size:15px;box-sizing:border-box">
+        <button type="button" id="eye-btn"
+          style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--dim);font-size:18px;padding:4px;line-height:1;-webkit-tap-highlight-color:transparent">
+          &#128065;
+        </button>
+      </div>
+      <div style="text-align:right;margin-bottom:14px">
+        <button type="button" id="reset-link"
+          style="background:none;border:none;font-family:var(--mono);font-size:13px;color:var(--dim);cursor:pointer;padding:0;text-decoration:underline;-webkit-tap-highlight-color:transparent">
+          Forgot password?
+        </button>
+      </div>
+      <div id="auth-error" style="font-family:var(--mono);font-size:13px;color:var(--red);margin-bottom:12px;min-height:16px"></div>
+      <button type="button" id="auth-btn"
+        style="width:100%;height:44px;background:rgba(74,168,255,.12);border:1px solid rgba(74,168,255,.4);color:var(--blue);border-radius:6px;font-family:var(--mono);font-size:15px;font-weight:700;cursor:pointer;letter-spacing:.08em;-webkit-tap-highlight-color:transparent">
+        SIGN IN
+      </button>
+      <button type="button" id="auth-toggle"
+        style="width:100%;margin-top:12px;background:none;border:none;color:var(--dim);font-family:var(--mono);font-size:13px;cursor:pointer;padding:4px;-webkit-tap-highlight-color:transparent">
+        New user? <span style="text-decoration:underline">Create Account</span>
+      </button>
+    </div>
+    <p style="text-align:center;margin-top:14px"><a id="signin-nudge-dismiss" href="javascript:void(0)" style="font-family:var(--mono);font-size:13px;color:var(--dim);text-decoration:underline">&larr; Back to Free tier</a></p>
+    <p style="font-family:var(--mono);font-size:13px;color:var(--dim);text-align:center;margin-top:16px;line-height:1.6">Trade Tribunal &middot; Not financial advice</p>
   </div>
 </div>
 
@@ -803,7 +861,7 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=102"></script>
+<script type="module" src="./app.js?v=103"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));

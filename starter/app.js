@@ -1954,7 +1954,7 @@ function toggleAuthMode(mode) {
   var isL = authMode === "login";
   document.getElementById("auth-title").textContent = isL ? "SIGN IN" : "CREATE ACCOUNT";
   document.getElementById("auth-btn").textContent = isL ? "SIGN IN" : "CREATE ACCOUNT";
-  document.getElementById("auth-toggle").textContent = isL ? "New user? Create account" : "Already have an account? Sign in";
+  document.getElementById("auth-toggle").innerHTML = isL ? 'New user? <span style="text-decoration:underline">Create Account</span>' : 'Already have an account? <span style="text-decoration:underline">Sign in</span>';
   document.getElementById("auth-error").textContent = "";
   document.getElementById("auth-error").style.color = "var(--red)";
   var rl = document.getElementById("reset-link");
@@ -2003,11 +2003,10 @@ async function handleSignup() {
       var e = await r.json();
       throw new Error(e.error || "Signup failed");
     }
+    toggleAuthMode("login");
     err.style.color = "var(--green)";
     err.textContent = "Account created! Check your email to confirm, then sign in.";
-    btn.textContent = "SIGN IN";
     btn.disabled = false;
-    toggleAuthMode("login");
   } catch (e2) {
     err.textContent = e2.message;
     btn.textContent = "CREATE ACCOUNT";
