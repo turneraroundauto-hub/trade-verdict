@@ -45,7 +45,7 @@
 //   still the only tier with a real tracker.
 import { initTickerCache, fetchTickerData } from './shared/ticker-cache';
 import { pingDeviceVisit, getOrCreateDeviceId } from './shared/device-id';
-import { shouldOfferPush, dismissPushOffer, enablePush, resyncPushIfGranted } from './shared/push';
+import { shouldOfferPush, enablePush, resyncPushIfGranted } from './shared/push';
 import { initWatchlist, watchlist, addTickers, addKnownTicker, removeTicker, onWatchlistSave, onTickersAdded } from './shared/watchlist';
 import { cleanLS, cacheVerdict, getCachedVerdict } from './shared/analysis-cache';
 import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } from './shared/watchlist-sync';
@@ -197,6 +197,35 @@ try {
     }
   }
 } catch (e) { }
+
+// ── Phase 2 -- sign-up/sign-in nudge + post-dismiss ANALYZE spotlight ──
+// (Sep 2026, part of the same daily-notifications plan as push above.)
+// wasFirstSignedInLoad captures, once, at load time, whether this is the
+// very first load on this device that ever saw a valid tv_session -- has
+// to be captured BEFORE the flag below gets set, or every later check
+// would just be reading the value this same load just wrote. This is
+// what "new sign-ins" means for the spotlight's own targeting further
+// down: the one load right after a fresh Starter signup (or a first-time
+// sign-in to an existing account) bounces back here, never a later
+// sign-out/sign-in cycle on the same device.
+const SIGNIN_SEEN_FLAG = 'tv_free_seen_signed_in';
+let wasFirstSignedInLoad = false;
+if (sbSession) {
+  if (!localStorage.getItem(SIGNIN_SEEN_FLAG)) wasFirstSignedInLoad = true;
+  localStorage.setItem(SIGNIN_SEEN_FLAG, '1');
+}
+
+// Splash: anonymous only, every open (no cadence, no "seen once" flag --
+// direct instruction). A signed-in visitor, new or returning, never
+// needs to be asked to sign up or in for something they've already done.
+function shouldShowSignInNudge(): boolean { return !sbSession; }
+
+// Spotlight targeting, per direct correction: "this would only happen on
+// anonymous and new sign-ins only" -- anonymous visitors get it every
+// time (same cadence as the splash they just dismissed); a signed-in
+// visitor gets it exactly once, only on the one load that just proved
+// they're new to this device; a RETURNING signed-in visitor gets neither.
+function shouldShowAnalyzeSpotlight(): boolean { return !sbSession || wasFirstSignedInLoad; }
 
 // ── CREDIT DISPLAY ────────────────────────────────────────────────────
 // Purchasing credits requires attributing the Stripe payment to an
@@ -481,7 +510,7 @@ function renderRoloCard(sym: string): void {
   card.innerHTML = roloCardHTML(sym, state);
   card.classList.remove('verdict-up', 'verdict-down');
   const btn = card.querySelector('[data-analyze]');
-  if (btn) btn.addEventListener('click', () => { vibrateTap(); analyzeOne(sym); });
+  if (btn) btn.addEventListener('click', () => { vibrateTap(); requestPushOfferOnFirstGesture(); analyzeOne(sym); });
   const resetEl = card.querySelector('[data-reset]');
   if (resetEl) resetEl.addEventListener('click', () => resetTicker(sym));
   if (state.result && !isMarketClosed()) {
@@ -1494,7 +1523,7 @@ const TUTORIAL_STEPS: TutorialStep[] = [
 ];
 
 async function runTutorialStep(index: number): Promise<void> {
-  if (index >= TUTORIAL_STEPS.length) { rolodex.endTutorial(); return; }
+  if (index >= TUTORIAL_STEPS.length) { rolodex.endTutorial(); nudgeOrSpotlight(); return; }
   const step = TUTORIAL_STEPS[index];
   if (step.before) await step.before();
   await new Promise((r) => setTimeout(r, TUTORIAL_STEP_SETTLE_MS));
@@ -1514,40 +1543,151 @@ function startTutorial(): void {
 }
 (window as any).startTutorial = startTutorial;
 
+// ── Phase 2 -- sign-up/sign-in nudge + post-dismiss ANALYZE spotlight ──
+function maybeShowSignInNudge(): void {
+  if (!shouldShowSignInNudge()) return;
+  const el = document.getElementById('signin-nudge');
+  if (el) el.style.display = 'flex';
+}
+
+// The one shared entry point both trigger moments (tutorial completion,
+// the 3s post-load timer) call, instead of calling maybeShowSignInNudge()
+// directly -- an anonymous visitor sees the nudge, whose own dismiss
+// handler chains into the spotlight; a signed-in, spotlight-eligible
+// visitor (a brand-new sign-up/sign-in, per shouldShowAnalyzeSpotlight())
+// has no nudge to dismiss at all, so this goes straight to the spotlight
+// for them instead of silently doing nothing. A returning signed-in
+// visitor is a no-op either way, via each should*() guard.
+function nudgeOrSpotlight(): void {
+  if (shouldShowSignInNudge()) maybeShowSignInNudge();
+  else maybeShowAnalyzeSpotlight();
+}
+
+function closeSignInNudge(): void {
+  const el = document.getElementById('signin-nudge');
+  if (el) el.style.display = 'none';
+  maybeShowAnalyzeSpotlight();
+}
+
+function activeAnalyzeButton(): HTMLElement | null {
+  const cards = Array.from(roloStage.querySelectorAll<HTMLElement>('.rolo-card'));
+  const active = cards[rolodex.getRoloCurrent()];
+  if (!active) return null;
+  return active.querySelector<HTMLElement>('[data-analyze]');
+}
+
+const ANALYZE_SPOTLIGHT_COPY = 'tap to ANALYZE - Could be your next favorite company!';
+
+function removeAnalyzeSpotlight(): void {
+  const el = document.getElementById('analyze-spotlight');
+  if (el) el.remove();
+  scroller.removeEventListener('scroll', removeAnalyzeSpotlight);
+  window.removeEventListener('resize', removeAnalyzeSpotlight);
+}
+
+// Frames the real ANALYZE button's own live rect with 4 dark strips (so
+// everything else reads as faded) plus a highlight ring, and a text+arrow
+// callout pointing at it. Dismisses on any strip/callout tap, a real tap
+// on the button itself, a scroll, or a resize -- deliberately not kept
+// repositioned/alive through any of those, since this is a one-time
+// nudge, not a persistent tour: dismissing rather than re-tracking is
+// simpler and avoids any stale-position drift to verify.
+function buildAnalyzeSpotlight(btn: HTMLElement): void {
+  removeAnalyzeSpotlight();
+  const r = btn.getBoundingClientRect();
+  const pad = 8;
+  const holeTop = r.top - pad, holeLeft = r.left - pad, holeRight = r.right + pad, holeBottom = r.bottom + pad;
+  const vw = window.innerWidth, vh = window.innerHeight;
+
+  const root = document.createElement('div');
+  root.id = 'analyze-spotlight';
+
+  (['top', 'bottom', 'left', 'right'] as const).forEach(function (pos) {
+    const s = document.createElement('div');
+    s.className = 'spotlight-strip';
+    s.addEventListener('click', removeAnalyzeSpotlight);
+    if (pos === 'top') s.style.cssText = 'top:0;left:0;right:0;height:' + Math.max(0, holeTop) + 'px;';
+    else if (pos === 'bottom') s.style.cssText = 'top:' + holeBottom + 'px;left:0;right:0;bottom:0;';
+    else if (pos === 'left') s.style.cssText = 'top:' + holeTop + 'px;left:0;width:' + Math.max(0, holeLeft) + 'px;height:' + (holeBottom - holeTop) + 'px;';
+    else s.style.cssText = 'top:' + holeTop + 'px;left:' + holeRight + 'px;right:0;height:' + (holeBottom - holeTop) + 'px;';
+    root.appendChild(s);
+  });
+
+  const ring = document.createElement('div');
+  ring.className = 'spotlight-ring';
+  ring.style.cssText = 'top:' + holeTop + 'px;left:' + holeLeft + 'px;width:' + (holeRight - holeLeft) + 'px;height:' + (holeBottom - holeTop) + 'px;';
+  root.appendChild(ring);
+
+  // Callout sits to the LEFT of the button, vertically centered against
+  // it, with a right-pointing arrow between the text and the button --
+  // falls back to sitting just above it (arrow pointing down) only when
+  // there isn't enough horizontal room (a narrow phone), rather than
+  // clipping off-screen.
+  const callout = document.createElement('div');
+  callout.className = 'spotlight-callout';
+  const calloutMaxW = 190;
+  if (holeLeft >= calloutMaxW + 16) {
+    callout.style.cssText = 'right:' + (vw - holeLeft + 10) + 'px;top:' + ((holeTop + holeBottom) / 2) + 'px;transform:translateY(-50%);max-width:' + calloutMaxW + 'px;';
+    callout.innerHTML = '<span>' + ANALYZE_SPOTLIGHT_COPY + '</span><span class="spotlight-arrow">&rarr;</span>';
+  } else {
+    callout.classList.add('spotlight-callout-above');
+    callout.style.cssText = 'left:' + Math.max(12, holeLeft) + 'px;bottom:' + (vh - holeTop + 10) + 'px;max-width:' + Math.min(calloutMaxW, vw - 24) + 'px;';
+    callout.innerHTML = '<span>' + ANALYZE_SPOTLIGHT_COPY + '</span><span class="spotlight-arrow">&darr;</span>';
+  }
+  callout.addEventListener('click', removeAnalyzeSpotlight);
+  root.appendChild(callout);
+
+  document.body.appendChild(root);
+  scroller.addEventListener('scroll', removeAnalyzeSpotlight, { passive: true });
+  window.addEventListener('resize', removeAnalyzeSpotlight);
+  btn.addEventListener('click', removeAnalyzeSpotlight, { once: true });
+}
+
+function maybeShowAnalyzeSpotlight(): void {
+  if (!shouldShowAnalyzeSpotlight()) return;
+  rolodex.scrollToActiveCard();
+  setTimeout(function () {
+    const btn = activeAnalyzeButton();
+    if (!btn) return; // active card already analyzed -- nothing to point at, skip silently
+    buildAnalyzeSpotlight(btn);
+  }, TUTORIAL_STEP_SETTLE_MS);
+}
+
 // ── push notifications ─────────────────────────────────────────────
 // Account-free re-engagement -- see shared/push.ts for why this is keyed
-// to the anonymous device_id instead of a login. Offered once, via a
-// dismissible banner, only when the browser hasn't already been asked
-// (Notification.permission === 'default') and the visitor hasn't already
-// dismissed it before.
-function maybeShowPushBanner(): void {
-  const banner = document.getElementById('pushBanner');
-  if (!banner) return;
-  if (shouldOfferPush()) banner.hidden = false;
+// to the anonymous device_id instead of a login.
+//
+// Sep 21, 2026 redesign: the original launch used a dismissible banner
+// ("Get notified when the Gate flips") with its own Enable button --
+// direct feedback called the copy confusing (jargon a first-time visitor
+// has no reason to know) and, more importantly, wanted this opt-OUT, not
+// opt-in: don't make it a separate ask the visitor has to notice and act
+// on, make it a natural side effect of just using the app.
+//
+// No browser lets a site subscribe to push silently -- Notification
+// permission always needs the browser's own native "Allow/Block" dialog,
+// and (Safari/iOS in particular, this app's real Play/PWA install target)
+// that dialog only fires when requested synchronously from inside a real
+// user gesture, never from a bare page-load timer. So "opt-out" here
+// means: fire the request automatically on the very first real gesture
+// almost every visitor makes -- tapping a ticker pill (which already
+// auto-runs that ticker's analysis, rolodex.ts's onActivate below) --
+// instead of waiting for a dedicated click on our own banner/button.
+// There's no more custom copy to be confusing about: the browser's own
+// trusted "tradetribunal.app wants to send you notifications" dialog is
+// what the visitor sees, not anything this app wrote.
+//
+// requestPushOfferOnFirstGesture() is called unconditionally from every
+// pill tap; shouldOfferPush() itself is what makes it a no-op once
+// Notification.permission is no longer 'default' (a real grant/deny) --
+// so this fires at most once per browser, on the first tap after load.
+let pushOfferInFlight = false;
+function requestPushOfferOnFirstGesture(): void {
+  if (pushOfferInFlight || !shouldOfferPush()) return;
+  pushOfferInFlight = true;
+  enablePush(getOrCreateDeviceId(), { API_URL, authH, addSecret })
+    .finally(() => { pushOfferInFlight = false; });
 }
-
-async function onPushEnableClick(): Promise<void> {
-  const btn = document.getElementById('pushEnableBtn') as HTMLButtonElement | null;
-  if (btn) { btn.disabled = true; btn.textContent = 'ENABLING…'; }
-  const ok = await enablePush(getOrCreateDeviceId(), { API_URL, authH, addSecret });
-  const banner = document.getElementById('pushBanner');
-  if (banner) banner.hidden = true;
-  if (!ok && btn) { btn.disabled = false; btn.textContent = 'Enable'; }
-  // A denial or failure isn't re-offered this session either -- re-asking
-  // right after a "no" just reads as nagging. shouldOfferPush() already
-  // won't re-offer once Notification.permission is no longer 'default'
-  // (a real grant/deny); this covers the same-session, still-'default'
-  // failure case (offline, backend hiccup) the same way.
-  dismissPushOffer();
-}
-(window as any).onPushEnableClick = onPushEnableClick;
-
-function onPushDismissClick(): void {
-  dismissPushOffer();
-  const banner = document.getElementById('pushBanner');
-  if (banner) banner.hidden = true;
-}
-(window as any).onPushDismissClick = onPushDismissClick;
 
 // ── init ────────────────────────────────────────────────────────────
 function initApp(): void {
@@ -1559,8 +1699,17 @@ function initApp(): void {
   setTimeout(fetchCreditStatus, 2000);
   // New-user tutorial -- fires once per browser (a tier-scoped flag).
   // Delayed to give the initial card/gate render a moment to settle
-  // before anchoring the first balloon.
-  setTimeout(function () { if (!localStorage.getItem('tv_tutorial_seen_free')) startTutorial(); }, 900);
+  // before anchoring the first balloon. The sign-in nudge chains off the
+  // tutorial's own completion (runTutorialStep) for a first-time
+  // visitor instead of firing here too, so the two overlays never
+  // compete for the same moment -- per the answered "splash after
+  // tutorial, or 3 seconds after opening" spec, a visitor who's already
+  // seen the tutorial gets the nudge on the plain 3s timer instead.
+  if (!localStorage.getItem('tv_tutorial_seen_free')) {
+    setTimeout(startTutorial, 900);
+  } else {
+    setTimeout(nudgeOrSpotlight, 3000);
+  }
   setInterval(function () { fetchMarket(); }, 4 * 60 * 1000);
   enforceMarketState();
   setInterval(enforceMarketState, 60 * 1000);
@@ -1572,7 +1721,6 @@ async function boot(): Promise<void> {
   initTickerCache({ API_URL, authH, addSecret });
   pingDeviceVisit({ API_URL, authH, addSecret });
   resyncPushIfGranted(getOrCreateDeviceId(), { API_URL, authH, addSecret });
-  setTimeout(maybeShowPushBanner, 1500);
   onWatchlistSave(function () { schedulePushWatchlist(); renderRolodexFromWatchlist(); });
   onTickersAdded(function () { rolodex.goRolo(0); });
 
@@ -1588,6 +1736,7 @@ async function boot(): Promise<void> {
   }, {
     getWatchlist: () => watchlist,
     onActivate: (sym) => {
+      requestPushOfferOnFirstGesture();
       const state = tickerState.get(sym);
       if (state && !state.result && !state.analyzing) analyzeOne(sym);
     },
@@ -1633,6 +1782,8 @@ async function boot(): Promise<void> {
   });
   const comebackClose = document.getElementById('comeback-close-btn');
   if (comebackClose) comebackClose.addEventListener('click', closeComebackScreen);
+  const signinNudgeDismiss = document.getElementById('signin-nudge-dismiss');
+  if (signinNudgeDismiss) signinNudgeDismiss.addEventListener('click', closeSignInNudge);
 
   initApp();
 }

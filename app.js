@@ -108,12 +108,6 @@ function shouldOfferPush() {
   }
   return true;
 }
-function dismissPushOffer() {
-  try {
-    localStorage.setItem(DISMISSED_KEY, "1");
-  } catch {
-  }
-}
 async function postSubscription(deviceId, sub, config) {
   await fetch(config.addSecret(config.API_URL + "/push/subscribe"), {
     method: "POST",
@@ -1761,6 +1755,18 @@ try {
 } catch (e) {
 }
 var storedForRedirect;
+var SIGNIN_SEEN_FLAG = "tv_free_seen_signed_in";
+var wasFirstSignedInLoad = false;
+if (sbSession) {
+  if (!localStorage.getItem(SIGNIN_SEEN_FLAG)) wasFirstSignedInLoad = true;
+  localStorage.setItem(SIGNIN_SEEN_FLAG, "1");
+}
+function shouldShowSignInNudge() {
+  return !sbSession;
+}
+function shouldShowAnalyzeSpotlight() {
+  return !sbSession || wasFirstSignedInLoad;
+}
 async function fetchCreditStatus() {
   try {
     var res = await fetch(addSecret2(API_URL2 + "/status"), { headers: authH2() });
@@ -1985,6 +1991,7 @@ function renderRoloCard(sym) {
   const btn = card.querySelector("[data-analyze]");
   if (btn) btn.addEventListener("click", () => {
     vibrateTap();
+    requestPushOfferOnFirstGesture();
     analyzeOne(sym);
   });
   const resetEl = card.querySelector("[data-reset]");
@@ -2768,6 +2775,7 @@ var TUTORIAL_STEPS = [
 async function runTutorialStep(index) {
   if (index >= TUTORIAL_STEPS.length) {
     endTutorial();
+    nudgeOrSpotlight();
     return;
   }
   const step = TUTORIAL_STEPS[index];
@@ -2794,33 +2802,90 @@ function startTutorial() {
   runTutorialStep(0);
 }
 window.startTutorial = startTutorial;
-function maybeShowPushBanner() {
-  const banner = document.getElementById("pushBanner");
-  if (!banner) return;
-  if (shouldOfferPush()) banner.hidden = false;
+function maybeShowSignInNudge() {
+  if (!shouldShowSignInNudge()) return;
+  const el = document.getElementById("signin-nudge");
+  if (el) el.style.display = "flex";
 }
-async function onPushEnableClick() {
-  const btn = document.getElementById("pushEnableBtn");
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = "ENABLING\u2026";
+function nudgeOrSpotlight() {
+  if (shouldShowSignInNudge()) maybeShowSignInNudge();
+  else maybeShowAnalyzeSpotlight();
+}
+function closeSignInNudge() {
+  const el = document.getElementById("signin-nudge");
+  if (el) el.style.display = "none";
+  maybeShowAnalyzeSpotlight();
+}
+function activeAnalyzeButton() {
+  const cards = Array.from(roloStage.querySelectorAll(".rolo-card"));
+  const active = cards[getRoloCurrent()];
+  if (!active) return null;
+  return active.querySelector("[data-analyze]");
+}
+var ANALYZE_SPOTLIGHT_COPY = "tap to ANALYZE - Could be your next favorite company!";
+function removeAnalyzeSpotlight() {
+  const el = document.getElementById("analyze-spotlight");
+  if (el) el.remove();
+  scroller.removeEventListener("scroll", removeAnalyzeSpotlight);
+  window.removeEventListener("resize", removeAnalyzeSpotlight);
+}
+function buildAnalyzeSpotlight(btn) {
+  removeAnalyzeSpotlight();
+  const r = btn.getBoundingClientRect();
+  const pad = 8;
+  const holeTop = r.top - pad, holeLeft = r.left - pad, holeRight = r.right + pad, holeBottom = r.bottom + pad;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const root = document.createElement("div");
+  root.id = "analyze-spotlight";
+  ["top", "bottom", "left", "right"].forEach(function(pos) {
+    const s = document.createElement("div");
+    s.className = "spotlight-strip";
+    s.addEventListener("click", removeAnalyzeSpotlight);
+    if (pos === "top") s.style.cssText = "top:0;left:0;right:0;height:" + Math.max(0, holeTop) + "px;";
+    else if (pos === "bottom") s.style.cssText = "top:" + holeBottom + "px;left:0;right:0;bottom:0;";
+    else if (pos === "left") s.style.cssText = "top:" + holeTop + "px;left:0;width:" + Math.max(0, holeLeft) + "px;height:" + (holeBottom - holeTop) + "px;";
+    else s.style.cssText = "top:" + holeTop + "px;left:" + holeRight + "px;right:0;height:" + (holeBottom - holeTop) + "px;";
+    root.appendChild(s);
+  });
+  const ring = document.createElement("div");
+  ring.className = "spotlight-ring";
+  ring.style.cssText = "top:" + holeTop + "px;left:" + holeLeft + "px;width:" + (holeRight - holeLeft) + "px;height:" + (holeBottom - holeTop) + "px;";
+  root.appendChild(ring);
+  const callout = document.createElement("div");
+  callout.className = "spotlight-callout";
+  const calloutMaxW = 190;
+  if (holeLeft >= calloutMaxW + 16) {
+    callout.style.cssText = "right:" + (vw - holeLeft + 10) + "px;top:" + (holeTop + holeBottom) / 2 + "px;transform:translateY(-50%);max-width:" + calloutMaxW + "px;";
+    callout.innerHTML = "<span>" + ANALYZE_SPOTLIGHT_COPY + '</span><span class="spotlight-arrow">&rarr;</span>';
+  } else {
+    callout.classList.add("spotlight-callout-above");
+    callout.style.cssText = "left:" + Math.max(12, holeLeft) + "px;bottom:" + (vh - holeTop + 10) + "px;max-width:" + Math.min(calloutMaxW, vw - 24) + "px;";
+    callout.innerHTML = "<span>" + ANALYZE_SPOTLIGHT_COPY + '</span><span class="spotlight-arrow">&darr;</span>';
   }
-  const ok = await enablePush(getOrCreateDeviceId(), { API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
-  const banner = document.getElementById("pushBanner");
-  if (banner) banner.hidden = true;
-  if (!ok && btn) {
-    btn.disabled = false;
-    btn.textContent = "Enable";
-  }
-  dismissPushOffer();
+  callout.addEventListener("click", removeAnalyzeSpotlight);
+  root.appendChild(callout);
+  document.body.appendChild(root);
+  scroller.addEventListener("scroll", removeAnalyzeSpotlight, { passive: true });
+  window.addEventListener("resize", removeAnalyzeSpotlight);
+  btn.addEventListener("click", removeAnalyzeSpotlight, { once: true });
 }
-window.onPushEnableClick = onPushEnableClick;
-function onPushDismissClick() {
-  dismissPushOffer();
-  const banner = document.getElementById("pushBanner");
-  if (banner) banner.hidden = true;
+function maybeShowAnalyzeSpotlight() {
+  if (!shouldShowAnalyzeSpotlight()) return;
+  scrollToActiveCard();
+  setTimeout(function() {
+    const btn = activeAnalyzeButton();
+    if (!btn) return;
+    buildAnalyzeSpotlight(btn);
+  }, TUTORIAL_STEP_SETTLE_MS);
 }
-window.onPushDismissClick = onPushDismissClick;
+var pushOfferInFlight = false;
+function requestPushOfferOnFirstGesture() {
+  if (pushOfferInFlight || !shouldOfferPush()) return;
+  pushOfferInFlight = true;
+  enablePush(getOrCreateDeviceId(), { API_URL: API_URL2, authH: authH2, addSecret: addSecret2 }).finally(() => {
+    pushOfferInFlight = false;
+  });
+}
 function initApp() {
   cleanLS();
   document.getElementById("ticker-count").textContent = "CRF \xB7 " + watchlist.length + " TICKERS";
@@ -2828,9 +2893,11 @@ function initApp() {
   sizeGateSpacer();
   renderRolodexFromWatchlist();
   setTimeout(fetchCreditStatus, 2e3);
-  setTimeout(function() {
-    if (!localStorage.getItem("tv_tutorial_seen_free")) startTutorial();
-  }, 900);
+  if (!localStorage.getItem("tv_tutorial_seen_free")) {
+    setTimeout(startTutorial, 900);
+  } else {
+    setTimeout(nudgeOrSpotlight, 3e3);
+  }
   setInterval(function() {
     fetchMarket();
   }, 4 * 60 * 1e3);
@@ -2843,7 +2910,6 @@ async function boot() {
   initTickerCache({ API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
   pingDeviceVisit({ API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
   resyncPushIfGranted(getOrCreateDeviceId(), { API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
-  setTimeout(maybeShowPushBanner, 1500);
   onWatchlistSave(function() {
     schedulePushWatchlist();
     renderRolodexFromWatchlist();
@@ -2863,6 +2929,7 @@ async function boot() {
   }, {
     getWatchlist: () => watchlist,
     onActivate: (sym) => {
+      requestPushOfferOnFirstGesture();
       const state = tickerState.get(sym);
       if (state && !state.result && !state.analyzing) analyzeOne(sym);
     },
@@ -2904,6 +2971,8 @@ async function boot() {
   });
   const comebackClose = document.getElementById("comeback-close-btn");
   if (comebackClose) comebackClose.addEventListener("click", closeComebackScreen);
+  const signinNudgeDismiss = document.getElementById("signin-nudge-dismiss");
+  if (signinNudgeDismiss) signinNudgeDismiss.addEventListener("click", closeSignInNudge);
   initApp();
 }
 boot();
