@@ -1784,6 +1784,13 @@ async function boot(): Promise<void> {
   if (comebackClose) comebackClose.addEventListener('click', closeComebackScreen);
   const signinNudgeDismiss = document.getElementById('signin-nudge-dismiss');
   if (signinNudgeDismiss) signinNudgeDismiss.addEventListener('click', closeSignInNudge);
+  // Tap-outside-the-card-to-dismiss, the standard modal affordance now
+  // that the nudge is a real floating window over a blurred backdrop
+  // rather than a full-bleed takeover -- a separate element sitting
+  // behind the card (not a click-target-check on the outer container),
+  // since the card itself is a sibling, not a descendant, of this one.
+  const signinNudgeBackdrop = document.getElementById('signin-nudge-backdrop-close');
+  if (signinNudgeBackdrop) signinNudgeBackdrop.addEventListener('click', closeSignInNudge);
 
   initApp();
 }

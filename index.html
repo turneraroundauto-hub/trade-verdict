@@ -619,13 +619,25 @@
      account but isn't signed in on this device -- same single
      SIGN UP / SIGN IN destination as the header's own auth-action-btn,
      matching how that link already works rather than inventing two
-     separate buttons that would both lead to the same place. -->
-<div id="signin-nudge" style="display:none;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;background:var(--bg);position:fixed;inset:0;z-index:999">
-  <div style="width:100%;max-width:340px;text-align:center">
-    <div style="font-size:50px;margin-bottom:16px">&#128274;</div>
-    <h2 style="font-family:var(--mono);font-size:18px;color:var(--white);margin-bottom:8px;letter-spacing:.1em">SAVE YOUR WATCHLIST</h2>
-    <p style="font-family:var(--mono);font-size:14px;color:var(--dim);line-height:1.8;margin-bottom:24px">It's free to create an account — sync your watchlist across devices and keep it if you ever upgrade.<br>Already have one? The same link signs you in.</p>
-    <a id="signin-nudge-cta" href="https://tradetribunal.app/starter/" style="display:block;font-family:var(--mono);font-size:14px;font-weight:700;color:var(--green);background:var(--green-dim);border:1px solid rgba(0,230,118,.4);border-radius:6px;padding:12px 20px;text-decoration:none;margin-bottom:20px">SIGN UP / SIGN IN</a>
+     separate buttons that would both lead to the same place.
+
+     Redesigned (Sep 2026, direct feedback: "the whole screen seems
+     invasive") from a full-bleed opaque takeover (matching
+     #comeback-screen's own real-blocker treatment, which stays as-is --
+     that one genuinely halts use until credits refresh) into a real
+     floating modal window: a translucent, blurred backdrop the app
+     content stays visible/legible through, with the actual copy living
+     in its own bordered/shadowed card instead of floating directly on a
+     blank page. #signin-nudge-backdrop-close closes it on a tap outside
+     the card, the standard modal affordance -- on top of the explicit
+     "Not now" link, not instead of it. -->
+<div id="signin-nudge" style="display:none;align-items:center;justify-content:center;padding:24px;background:rgba(8,12,18,.72);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);position:fixed;inset:0;z-index:999">
+  <div id="signin-nudge-backdrop-close" style="position:absolute;inset:0"></div>
+  <div style="position:relative;width:100%;max-width:320px;text-align:center;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:26px 22px;box-shadow:0 20px 60px rgba(0,0,0,.55)">
+    <div style="font-size:42px;margin-bottom:14px">&#128274;</div>
+    <h2 style="font-family:var(--mono);font-size:17px;color:var(--white);margin-bottom:8px;letter-spacing:.08em">SAVE YOUR WATCHLIST</h2>
+    <p style="font-family:var(--mono);font-size:13px;color:var(--dim);line-height:1.7;margin-bottom:20px">It's free to create an account — sync your watchlist across devices and keep it if you ever upgrade.<br>Already have one? The same link signs you in.</p>
+    <a id="signin-nudge-cta" href="https://tradetribunal.app/starter/" style="display:block;font-family:var(--mono);font-size:13px;font-weight:700;color:var(--green);background:var(--green-dim);border:1px solid rgba(0,230,118,.4);border-radius:8px;padding:12px 20px;text-decoration:none;margin-bottom:16px">SIGN UP / SIGN IN</a>
     <button type="button" id="signin-nudge-dismiss"
       style="background:none;border:none;font-family:var(--mono);font-size:12px;color:var(--dim);cursor:pointer;text-decoration:underline">
       Not now
@@ -791,7 +803,7 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=101"></script>
+<script type="module" src="./app.js?v=102"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));

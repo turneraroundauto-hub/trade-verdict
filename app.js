@@ -2973,6 +2973,8 @@ async function boot() {
   if (comebackClose) comebackClose.addEventListener("click", closeComebackScreen);
   const signinNudgeDismiss = document.getElementById("signin-nudge-dismiss");
   if (signinNudgeDismiss) signinNudgeDismiss.addEventListener("click", closeSignInNudge);
+  const signinNudgeBackdrop = document.getElementById("signin-nudge-backdrop-close");
+  if (signinNudgeBackdrop) signinNudgeBackdrop.addEventListener("click", closeSignInNudge);
   initApp();
 }
 boot();
