@@ -1707,6 +1707,10 @@ function getStoredSession() {
     return null;
   }
 }
+function storeSession(s) {
+  if (s) localStorage.setItem("tv_session", JSON.stringify(s));
+  else localStorage.removeItem("tv_session");
+}
 function isSessionValid(s) {
   if (!s || !s.token) return false;
   if (s.expiresAt && Date.now() / 1e3 > s.expiresAt - 60) return false;
@@ -1741,6 +1745,114 @@ function updateAuthButton() {
   }
 }
 updateAuthButton();
+var authMode = "login";
+function bindAuthEvents() {
+  var eyeBtn = document.getElementById("eye-btn");
+  var resetLink = document.getElementById("reset-link");
+  var authBtn = document.getElementById("auth-btn");
+  var authToggle = document.getElementById("auth-toggle");
+  var pwInput = document.getElementById("auth-password");
+  var emailInput = document.getElementById("auth-email");
+  if (eyeBtn) eyeBtn.addEventListener("click", function() {
+    var inp = document.getElementById("auth-password");
+    inp.type = inp.type === "password" ? "text" : "password";
+    eyeBtn.innerHTML = inp.type === "password" ? "&#128065;" : "&#128584;";
+  });
+  if (resetLink) resetLink.addEventListener("click", function() {
+    var email = document.getElementById("auth-email").value.trim();
+    var err = document.getElementById("auth-error");
+    if (!email) {
+      err.style.color = "var(--red)";
+      err.textContent = "Enter your email first";
+      return;
+    }
+    err.style.color = "var(--dim)";
+    err.textContent = "Sending reset link...";
+    fetch(API_URL2 + "/auth/reset", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) }).then(function(r) {
+      return r.json();
+    }).then(function() {
+      err.style.color = "var(--green)";
+      err.textContent = "Reset link sent! Check your email.";
+    }).catch(function(e) {
+      err.style.color = "var(--red)";
+      err.textContent = e.message;
+    });
+  });
+  if (authBtn) authBtn.addEventListener("click", function() {
+    if (authMode === "login") handleLogin();
+    else handleSignup();
+  });
+  if (authToggle) authToggle.addEventListener("click", () => toggleAuthMode());
+  if (pwInput) pwInput.addEventListener("keydown", function(e) {
+    if (e.key === "Enter") authBtn && authBtn.click();
+  });
+  if (emailInput) emailInput.addEventListener("keydown", function(e) {
+    if (e.key === "Enter") pwInput && pwInput.focus();
+  });
+}
+function toggleAuthMode(mode) {
+  authMode = mode || (authMode === "login" ? "signup" : "login");
+  var isL = authMode === "login";
+  document.getElementById("auth-title").textContent = isL ? "SIGN IN" : "CREATE ACCOUNT";
+  document.getElementById("auth-btn").textContent = isL ? "SIGN IN" : "CREATE ACCOUNT";
+  document.getElementById("auth-toggle").innerHTML = isL ? 'New user? <span style="text-decoration:underline">Create Account</span>' : 'Already have an account? <span style="text-decoration:underline">Sign in</span>';
+  document.getElementById("auth-error").textContent = "";
+  document.getElementById("auth-error").style.color = "var(--red)";
+  var rl = document.getElementById("reset-link");
+  if (rl) rl.style.display = isL ? "inline" : "none";
+}
+async function handleLogin() {
+  var email = document.getElementById("auth-email").value.trim(), password = document.getElementById("auth-password").value, btn = document.getElementById("auth-btn"), err = document.getElementById("auth-error");
+  err.textContent = "";
+  btn.disabled = true;
+  btn.textContent = "SIGNING IN...";
+  try {
+    var r = await fetch(API_URL2 + "/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
+    if (!r.ok) {
+      var e = await r.json();
+      throw new Error(e.error || "Login failed");
+    }
+    var session = await r.json();
+    storeSession(session);
+    btn.textContent = "SIGN IN";
+    btn.disabled = false;
+    window.location.reload();
+  } catch (e2) {
+    err.textContent = e2.message;
+    btn.textContent = "SIGN IN";
+    btn.disabled = false;
+  }
+}
+async function handleSignup() {
+  var email = document.getElementById("auth-email").value.trim(), password = document.getElementById("auth-password").value, btn = document.getElementById("auth-btn"), err = document.getElementById("auth-error");
+  err.textContent = "";
+  err.style.color = "var(--red)";
+  if (!email || !password) {
+    err.textContent = "Email and password required";
+    return;
+  }
+  if (password.length < 6) {
+    err.textContent = "Password must be at least 6 characters";
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = "CREATING...";
+  try {
+    var r = await fetch(API_URL2 + "/auth/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
+    if (!r.ok) {
+      var e = await r.json();
+      throw new Error(e.error || "Signup failed");
+    }
+    toggleAuthMode("login");
+    err.style.color = "var(--green)";
+    err.textContent = "Account created! Check your email to confirm, then sign in.";
+    btn.disabled = false;
+  } catch (e2) {
+    err.textContent = e2.message;
+    btn.textContent = "CREATE ACCOUNT";
+    btn.disabled = false;
+  }
+}
 var redirectingToPaidTier = false;
 try {
   storedForRedirect = getStoredSession();
@@ -2975,6 +3087,7 @@ async function boot() {
   if (signinNudgeDismiss) signinNudgeDismiss.addEventListener("click", closeSignInNudge);
   const signinNudgeBackdrop = document.getElementById("signin-nudge-backdrop-close");
   if (signinNudgeBackdrop) signinNudgeBackdrop.addEventListener("click", closeSignInNudge);
+  bindAuthEvents();
   initApp();
 }
 boot();

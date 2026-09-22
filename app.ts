@@ -141,6 +141,7 @@ function newsHref(sym: string): string { return 'https://finance.yahoo.com/quote
 
 // ── Anonymous / optional-signed-in session ─────────────────────────────
 function getStoredSession(): any { try { return JSON.parse(localStorage.getItem('tv_session') || 'null'); } catch (e) { return null; } }
+function storeSession(s: any): void { if (s) localStorage.setItem('tv_session', JSON.stringify(s)); else localStorage.removeItem('tv_session'); }
 function isSessionValid(s: any): boolean { if (!s || !s.token) return false; if (s.expiresAt && Date.now() / 1000 > s.expiresAt - 60) return false; return true; }
 var sbSession: any = isSessionValid(getStoredSession()) ? getStoredSession() : null;
 
@@ -167,6 +168,37 @@ function updateAuthButton(): void {
   }
 }
 updateAuthButton();
+
+// ── AUTH FLOW (embedded sign-in screen, #signin-nudge) ─────────────────
+// The real Starter/Pro handleLogin()/handleSignup()/toggleAuthMode() logic,
+// ported verbatim -- same /auth/login, /auth/signup, /auth/reset calls, same
+// validation/error copy. The one real adaptation: Starter's handleLogin()
+// calls checkTierAccess(session), a tier-gating function Free has no
+// equivalent of (Free never gates access at all). Free instead stores the
+// session and reloads -- the exact same "a tv_session already in
+// localStorage on load" path this file's own redirectingToPaidTier guard
+// and sbSession-conditional watchlist sync already handle correctly for a
+// session bounced back from a lapsed Starter/Pro/Shark subscription, so a
+// fresh sign-in here picks up every already-correct piece of that
+// architecture for free instead of duplicating any of it.
+var authMode = 'login';
+function bindAuthEvents(): void {
+  var eyeBtn = document.getElementById('eye-btn');
+  var resetLink = document.getElementById('reset-link');
+  var authBtn = document.getElementById('auth-btn');
+  var authToggle = document.getElementById('auth-toggle');
+  var pwInput = document.getElementById('auth-password') as HTMLInputElement;
+  var emailInput = document.getElementById('auth-email') as HTMLInputElement;
+  if (eyeBtn) eyeBtn.addEventListener('click', function () { var inp = document.getElementById('auth-password') as HTMLInputElement; inp.type = inp.type === 'password' ? 'text' : 'password'; eyeBtn!.innerHTML = inp.type === 'password' ? '&#128065;' : '&#128584;'; });
+  if (resetLink) resetLink.addEventListener('click', function () { var email = (document.getElementById('auth-email') as HTMLInputElement).value.trim(); var err = document.getElementById('auth-error') as HTMLElement; if (!email) { err.style.color = 'var(--red)'; err.textContent = 'Enter your email first'; return; } err.style.color = 'var(--dim)'; err.textContent = 'Sending reset link...'; fetch(API_URL + '/auth/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email }) }).then(function (r) { return r.json(); }).then(function () { err.style.color = 'var(--green)'; err.textContent = 'Reset link sent! Check your email.'; }).catch(function (e) { err.style.color = 'var(--red)'; err.textContent = e.message; }); });
+  if (authBtn) authBtn.addEventListener('click', function () { if (authMode === 'login') handleLogin(); else handleSignup(); });
+  if (authToggle) authToggle.addEventListener('click', () => toggleAuthMode());
+  if (pwInput) pwInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') authBtn && (authBtn as HTMLElement).click(); });
+  if (emailInput) emailInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') pwInput && pwInput.focus(); });
+}
+function toggleAuthMode(mode?: string): void { authMode = mode || (authMode === 'login' ? 'signup' : 'login'); var isL = authMode === 'login'; document.getElementById('auth-title')!.textContent = isL ? 'SIGN IN' : 'CREATE ACCOUNT'; document.getElementById('auth-btn')!.textContent = isL ? 'SIGN IN' : 'CREATE ACCOUNT'; document.getElementById('auth-toggle')!.innerHTML = isL ? 'New user? <span style="text-decoration:underline">Create Account</span>' : 'Already have an account? <span style="text-decoration:underline">Sign in</span>'; document.getElementById('auth-error')!.textContent = ''; (document.getElementById('auth-error') as HTMLElement).style.color = 'var(--red)'; var rl = document.getElementById('reset-link'); if (rl) (rl as HTMLElement).style.display = isL ? 'inline' : 'none'; }
+async function handleLogin(): Promise<void> { var email = (document.getElementById('auth-email') as HTMLInputElement).value.trim(), password = (document.getElementById('auth-password') as HTMLInputElement).value, btn = document.getElementById('auth-btn') as HTMLButtonElement, err = document.getElementById('auth-error') as HTMLElement; err.textContent = ''; btn.disabled = true; btn.textContent = 'SIGNING IN...'; try { var r = await fetch(API_URL + '/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) }); if (!r.ok) { var e = await r.json(); throw new Error(e.error || 'Login failed'); } var session = await r.json(); storeSession(session); btn.textContent = 'SIGN IN'; btn.disabled = false; window.location.reload(); } catch (e: any) { err.textContent = e.message; btn.textContent = 'SIGN IN'; btn.disabled = false; } }
+async function handleSignup(): Promise<void> { var email = (document.getElementById('auth-email') as HTMLInputElement).value.trim(), password = (document.getElementById('auth-password') as HTMLInputElement).value, btn = document.getElementById('auth-btn') as HTMLButtonElement, err = document.getElementById('auth-error') as HTMLElement; err.textContent = ''; err.style.color = 'var(--red)'; if (!email || !password) { err.textContent = 'Email and password required'; return; } if (password.length < 6) { err.textContent = 'Password must be at least 6 characters'; return; } btn.disabled = true; btn.textContent = 'CREATING...'; try { var r = await fetch(API_URL + '/auth/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) }); if (!r.ok) { var e = await r.json(); throw new Error(e.error || 'Signup failed'); } toggleAuthMode('login'); err.style.color = 'var(--green)'; err.textContent = 'Account created! Check your email to confirm, then sign in.'; btn.disabled = false; } catch (e: any) { err.textContent = e.message; btn.textContent = 'CREATE ACCOUNT'; btn.disabled = false; } }
 
 // A *paid* tv_session redirects away before any watchlist state
 // initializes -- tv_wl is the SAME localStorage key every tier reads
@@ -1791,6 +1823,7 @@ async function boot(): Promise<void> {
   // since the card itself is a sibling, not a descendant, of this one.
   const signinNudgeBackdrop = document.getElementById('signin-nudge-backdrop-close');
   if (signinNudgeBackdrop) signinNudgeBackdrop.addEventListener('click', closeSignInNudge);
+  bindAuthEvents();
 
   initApp();
 }
