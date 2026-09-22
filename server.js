@@ -3982,8 +3982,16 @@ app.get("/agitator", async (req, res) => {
 // `platform` comes from `document.referrer` — Chrome itself sets that to
 // `android-app://<package>` on the one navigation that launches a page
 // inside an installed Trusted Web Activity, a passive signal the browser
-// already exposes, not anything fingerprinted. No IP, no user-agent, no
-// email is accepted or stored here, on purpose.
+// already exposes, not anything fingerprinted. No IP, no user-agent is
+// accepted or stored here, on purpose.
+//
+// user_email is NOT sent by the client at all — it's read off req.userEmail,
+// which the same global auth middleware every other route already goes
+// through sets whenever the request carries a real Supabase session token.
+// A signed-in user's device correlates to their account automatically,
+// using auth data that was already reaching this route. An anonymous ping
+// never has req.userEmail set and never overwrites a device's already-known
+// email with null.
 const DEVICE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 app.post("/device-ping", async (req, res) => {
   const { deviceId, platform } = req.body || {};
@@ -4002,6 +4010,7 @@ app.post("/device-ping", async (req, res) => {
       device_id:     deviceId,
       platform:      plat,
       first_tier:    existing ? undefined : (req.userTier || null),
+      user_email:    req.userEmail || undefined,
       last_seen_at:  new Date().toISOString(),
       visit_count:   (existing?.visit_count || 0) + 1,
     }, { onConflict: "device_id" });
