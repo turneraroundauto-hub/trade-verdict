@@ -148,7 +148,7 @@ function bindAuthEvents(): void {
   if (emailInput) emailInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') pwInput && pwInput.focus(); });
 }
 function toggleAuthMode(mode?: string): void { authMode = mode || (authMode === 'login' ? 'signup' : 'login'); var isL = authMode === 'login'; document.getElementById('auth-title')!.textContent = isL ? 'SIGN IN' : 'CREATE ACCOUNT'; document.getElementById('auth-btn')!.textContent = isL ? 'SIGN IN' : 'CREATE ACCOUNT'; document.getElementById('auth-toggle')!.innerHTML = isL ? 'New user? <span style="text-decoration:underline">Create Account</span>' : 'Already have an account? <span style="text-decoration:underline">Sign in</span>'; document.getElementById('auth-error')!.textContent = ''; (document.getElementById('auth-error') as HTMLElement).style.color = 'var(--red)'; var rl = document.getElementById('reset-link'); if (rl) (rl as HTMLElement).style.display = isL ? 'inline' : 'none'; }
-async function handleLogin(): Promise<void> { var email = (document.getElementById('auth-email') as HTMLInputElement).value.trim(), password = (document.getElementById('auth-password') as HTMLInputElement).value, btn = document.getElementById('auth-btn') as HTMLButtonElement, err = document.getElementById('auth-error') as HTMLElement; err.textContent = ''; btn.disabled = true; btn.textContent = 'SIGNING IN...'; try { var r = await fetch(API_URL + '/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) }); if (!r.ok) { var e = await r.json(); throw new Error(e.error || 'Login failed'); } var session = await r.json(); storeSession(session); sbSession = session; btn.textContent = 'SIGN IN'; btn.disabled = false; checkTierAccess(session); } catch (e: any) { err.textContent = e.message; btn.textContent = 'SIGN IN'; btn.disabled = false; } }
+async function handleLogin(): Promise<void> { var email = (document.getElementById('auth-email') as HTMLInputElement).value.trim(), password = (document.getElementById('auth-password') as HTMLInputElement).value, btn = document.getElementById('auth-btn') as HTMLButtonElement, err = document.getElementById('auth-error') as HTMLElement; err.textContent = ''; btn.disabled = true; btn.textContent = 'SIGNING IN...'; try { var r = await fetch(API_URL + '/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) }); if (!r.ok) { var e = await r.json(); throw new Error(e.error || 'Login failed'); } var session = await r.json(); storeSession(session); sbSession = session; btn.textContent = 'SIGN IN'; btn.disabled = false; checkTierAccess(session); pingDeviceVisit({ API_URL: API_URL, authH: authH, addSecret: addSecret }); } catch (e: any) { err.textContent = e.message; btn.textContent = 'SIGN IN'; btn.disabled = false; } }
 async function handleSignup(): Promise<void> { var email = (document.getElementById('auth-email') as HTMLInputElement).value.trim(), password = (document.getElementById('auth-password') as HTMLInputElement).value, btn = document.getElementById('auth-btn') as HTMLButtonElement, err = document.getElementById('auth-error') as HTMLElement; err.textContent = ''; err.style.color = 'var(--red)'; if (!email || !password) { err.textContent = 'Email and password required'; return; } if (password.length < 6) { err.textContent = 'Password must be at least 6 characters'; return; } btn.disabled = true; btn.textContent = 'CREATING...'; try { var r = await fetch(API_URL + '/auth/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) }); if (!r.ok) { var e = await r.json(); throw new Error(e.error || 'Signup failed'); } toggleAuthMode('login'); err.style.color = 'var(--green)'; err.textContent = 'Account created! Check your email to confirm, then sign in.'; btn.disabled = false; } catch (e: any) { err.textContent = e.message; btn.textContent = 'CREATE ACCOUNT'; btn.disabled = false; } }
 
 // ── GATE 0 (market) — real fetch, Rolodex sticky-dock/marquee rendering ──
@@ -1802,11 +1802,18 @@ async function checkAuth(): Promise<void> {
   } catch (e) { }
   checkTierAccess(stored);
   bindAuthEvents();
+  // sbSession is guaranteed set here (the early-return above covers the
+  // no-session/invalid-session case) -- ping only once we have a real
+  // token, so device_visits.user_email is always populated for a
+  // returning signed-in visitor instead of racing ahead of checkAuth()
+  // and going out with no credential at all (Starter/Pro ship no
+  // fallback tier secret the way Free does -- there is no legitimate
+  // anonymous ping to send here).
+  pingDeviceVisit({ API_URL: API_URL, authH: authH, addSecret: addSecret });
 }
 
 initWatchlist({ defaultTickers: ['SMMT', 'VCYT', 'TWST', 'IMVT', 'IREN', 'ALAB', 'MU'], maxTickers: 7, upgradeMessage: 'Starter tier supports up to 7 tickers.\n\nUpgrade to Pro for more.' });
 initTickerCache({ API_URL: API_URL, authH: authH, addSecret: addSecret });
-pingDeviceVisit({ API_URL: API_URL, authH: authH, addSecret: addSecret });
 
 rolodex.initRolodex({
   scroller: scroller,
