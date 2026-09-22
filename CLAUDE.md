@@ -11262,3 +11262,99 @@ spotlight was working after this was checked.
   file (`tra-zacg.onrender.com` unreachable from here). Spot-check a
   real device once Phase 3 lands, same as the open items already listed
   for Phase 1/2's own backend half above.
+
+## Frontend: `/device-ping` never actually authenticated on Starter/Pro — the Sep 22 user_email column had nothing real to capture (Sep 22, 2026, `trade-verdict`)
+
+Direct follow-up to the same-day `device_visits.user_email` backend fix:
+"I don't see my personal account emails listed on the device visit
+table... do a deep dive." Correct call — the backend half (capturing
+`req.userEmail` on `/device-ping`) was genuinely right, but the frontend
+on Starter and Pro never sent a request the backend could attribute to
+anyone, real bug, not a propagation delay.
+
+**Two real, compounding bugs, both only on Starter/Pro — Free was never
+affected.** Free's `sbSession` is a module-level `var` initialized
+synchronously from `localStorage` at parse time (`var sbSession: any =
+isSessionValid(getStoredSession()) ? getStoredSession() : null;`), so by
+the time `boot()` calls `pingDeviceVisit()` it already reflects any real
+signed-in session. Starter and Pro are structured completely differently:
+`var sbSession: any = null;` with the real value only ever assigned
+inside `checkAuth()`, an **async** function — and `pingDeviceVisit()` was
+called at plain module top level, several hundred lines **before**
+`checkAuth()` was even invoked (`starter/app.ts` line 1809 vs. `checkAuth()`'s
+call at line 1853; same shape in `pro/app.ts`, lines 2327/2362). So
+`authH()`/`addSecret()` always read `sbSession` while it was still `null`
+at ping time, regardless of whether the visitor was actually signed in.
+
+**This wasn't just "anonymous instead of attributed" — it likely meant
+zero rows at all from these two tiers.** Unlike Free, Starter/Pro embed
+no client-visible fallback tier secret (confirmed via grep — no
+`APP_SECRET`/`STARTER_KEY`/`PRO_KEY` literal anywhere in either file, by
+design: these tiers are 100% sign-in-gated, there's no legitimate
+anonymous access to hand a public secret to). So a `sbSession`-less ping
+went out with `authH()` returning only `{'Content-Type':
+'application/json'}` — no `x-app-secret`, no `x-supabase-token` — and
+`addSecret()` returning the bare URL with no `supabase_token` query
+param either. Tra's global auth middleware 401s any request with neither
+credential present, before the handler that writes `device_visits` ever
+runs. In effect, every Starter/Pro page load has likely been failing to
+record a `device_visits` row at all since the feature shipped Sep 17,
+2026 — not silently mis-attributing to `null`, just never landing.
+
+**Fix, both files, no backend change needed:** removed the top-level
+`pingDeviceVisit()` call; added it in two places instead, both guaranteed
+to run only once `sbSession` genuinely holds a real token:
+1. **Inside `checkAuth()`**, as the last line, right after
+   `checkTierAccess(stored); bindAuthEvents();` — reached only when the
+   function's own early return (`if (!stored || !isSessionValid(stored))`)
+   didn't fire, so `sbSession` is guaranteed set by this point. Covers
+   the common case: a returning visitor whose browser already has a
+   valid `tv_session`.
+2. **Inside `handleLogin()`**, right after `checkTierAccess(session)` on
+   a successful login — covers a visitor typing credentials and signing
+   in fresh within the same page load, which never goes through
+   `checkAuth()` at all.
+
+No anonymous fallback ping was added for the "no stored session" case
+(the auth-screen bounce) — there's no tier secret to send and, per the
+sign-in-gated nature of these two tiers, no legitimate anonymous visit to
+attribute a row to; verified this produces zero requests and zero errors,
+not a silent failed attempt.
+
+**Verified via real headless Chromium, not just re-reading the diff:**
+primed a fake-but-valid `tv_session` in `localStorage` before navigation
+on both tiers (mocked `/auth/me`/`/market`/`/watchlist`) and confirmed
+exactly one `/device-ping` request fires per tier, with a real
+`supabase_token=FAKE_TOKEN_XYZ` present in the request URL's query
+string — the exact value the backend's auth middleware resolves
+`req.userEmail` from. Separately confirmed the no-session case: loading
+either tier with no stored session at all fires zero `/device-ping`
+requests and zero page errors. `node --check`/`npm test` (92/92)
+unaffected — pure frontend, doesn't touch `gates-extended.ts`/
+`analyze-helpers.ts`; `node esbuild.config.mjs` rebuilt `starter/app.js`/
+`pro/app.js` cleanly (Free's `app.js` correctly untouched, since Free was
+never part of this bug); chunk-header grep confirmed no duplicate-module
+regression. **A real near-miss caught before committing:** the branch
+had to restart from `origin/main` mid-fix (a prior PR on this same
+branch had already merged), and `main` had independently bumped these
+exact two `?v=` numbers in the meantime for unrelated content (`a9d8b49`,
+a sign-up/sign-in screen change) — reusing that same number for this
+fix's different bytes would have meant a browser that already cached
+that URL never saw this fix, the exact failure mode the cache-busting
+rule exists to prevent. Caught by diffing against `origin/main` before
+committing, not assumed clean just because the local edit "looked like"
+a normal increment. `?v=` bumped on `starter/index.html` (118→119) and
+`pro/index.html` (65→66) — one past whatever `main` already held, not
+just one past this branch's own stale baseline — since each tier's own
+bundled `app.js` content
+changed; no shared module was touched, so no further cascade applies.
+
+**Not yet verified against a live deploy** — same standing posture as
+every frontend change in this file; `tra-zacg.onrender.com` is
+unreachable from this sandbox. To confirm: sign in on a real Starter or
+Pro device once this deploys and check the corresponding
+`device_visits` row for the account's real, non-null `user_email` — this
+is likely the first time these two tiers have ever produced a row in
+that table at all, so a jump in total row count (not just newly-filled
+emails) is the expected live signal, not just an email appearing on an
+already-existing row.

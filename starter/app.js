@@ -1977,6 +1977,7 @@ async function handleLogin() {
     btn.textContent = "SIGN IN";
     btn.disabled = false;
     checkTierAccess(session);
+    pingDeviceVisit({ API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
   } catch (e2) {
     err.textContent = e2.message;
     btn.textContent = "SIGN IN";
@@ -3297,10 +3298,10 @@ async function checkAuth() {
   }
   checkTierAccess(stored);
   bindAuthEvents();
+  pingDeviceVisit({ API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
 }
 initWatchlist({ defaultTickers: ["SMMT", "VCYT", "TWST", "IMVT", "IREN", "ALAB", "MU"], maxTickers: 7, upgradeMessage: "Starter tier supports up to 7 tickers.\n\nUpgrade to Pro for more." });
 initTickerCache({ API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
-pingDeviceVisit({ API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
 initRolodex({
   scroller,
   gateCard: document.getElementById("gateCard"),
