@@ -11358,3 +11358,72 @@ is likely the first time these two tiers have ever produced a row in
 that table at all, so a jump in total row count (not just newly-filled
 emails) is the expected live signal, not just an email appearing on an
 already-existing row.
+
+## Backend: device_accounts — a shared/multi-account device no longer collapses to one user_email (Sep 22, 2026, `Tra` patch18 / `trade-verdict` patch19)
+
+Direct report the moment Starter/Pro's `/device-ping` fix above started
+producing real rows: "if a person has multiple accounts, there's a
+duplicate collapse that removes the other login's." Confirmed real by
+reading the actual code, not guessed: `device_visits` is one row per
+`device_id` with a single `user_email` column, upserted on every
+signed-in ping with `onConflict:"device_id"` and
+`user_email:req.userEmail||undefined`. A single column can only ever
+hold one email — so Account A signing into a device, then Account B
+signing into that same device later, silently overwrites A's
+association with zero way to see it ever existed. This isn't a bug in
+the Sep 22 fix; it's the same design `device_visits` had since it
+shipped Sep 17, 2026 (documented at the time as "the field tracks the
+*last known* signed-in account for that device, not a first-seen
+snapshot") — it just had nothing real to overwrite until Starter/Pro's
+own ping actually started authenticating.
+
+**Fix: a new, purely additive `device_accounts` table** — one row per
+`(device_id, user_email)` pair, never collapsed, with its own
+independent `first_seen_at`/`last_seen_at`/`visit_count`. Created and
+locked down directly via the Supabase MCP connection (project
+`oinomcikdyisrbfeeirp`), same two-step RLS-disable + explicit-revoke
+pattern every service-role table in this project uses, confirmed via the
+standard grants-check query (zero `anon`/`authenticated` rows). `/device-ping`
+(both repos) now upserts into this table alongside its existing
+`device_visits` write, whenever `req.userEmail` is present — best-effort,
+logs and falls through on failure rather than failing the whole ping,
+same posture as this app's other secondary analytics writes
+(`corroboration_log`). `device_visits.user_email` is completely
+untouched — it stays a convenient last-known-account pointer for a quick
+single-value lookup; `device_accounts` is the real record when a
+device's full account history actually matters.
+
+**Per the Sep 17, 2026 `device_visits` incident, flagged in the
+migration file itself rather than assumed clean:** whether
+`device_accounts` needs adding to Project Settings → Data API → Exposed
+tables is unconfirmed — watch Render logs for `device_accounts` upsert
+errors on `POST /device-ping` after deploy. If it does need exposing,
+immediately re-run the grants-check query afterward and revoke again if
+anything reopens, since that exact toggle has been directly observed on
+this project to silently re-grant `anon`/`authenticated` privileges as a
+side effect.
+
+**Verified:** `node --check` clean on both repos' `server.js`; a real
+local boot of `Tra`'s actual `server.js` (dummy env vars, a matching
+tier secret) reaches the real handler and the new `device_accounts`
+upsert block through to the expected network failure against the dummy
+Supabase URL — confirms the code path executes, not that the write
+itself succeeds. A 12-assertion standalone simulation of the extracted
+upsert logic (not reimplemented — the real onConflict/select/upsert
+shape) confirmed: two different accounts signing into the same device
+produce two independent, preserved `device_accounts` rows (not one
+overwritten row); a repeat visit from the same account increments that
+row's own `visit_count` in place rather than duplicating it; an
+anonymous ping never touches `device_accounts` at all; and
+`device_visits.user_email`'s existing last-known-account behavior is
+completely unchanged — it still reflects whichever account signed in
+most recently, exactly as before. `git diff origin/main --stat` reviewed
+in both repos after a required branch restart (this branch's own prior
+PR — the Starter/Pro auth-timing fix — had already merged) to confirm a
+clean, minimal diff with zero stale-branch drift.
+
+**Not yet verified against a live deploy** — same standing posture as
+every backend change in this file. To confirm: sign the same real device
+into two different accounts (or check an existing shared/family device)
+and confirm `device_accounts` shows a row for each account rather than
+only the most recently signed-in one.
