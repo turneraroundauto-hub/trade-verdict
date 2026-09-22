@@ -1755,6 +1755,18 @@ try {
 } catch (e) {
 }
 var storedForRedirect;
+var SIGNIN_SEEN_FLAG = "tv_free_seen_signed_in";
+var wasFirstSignedInLoad = false;
+if (sbSession) {
+  if (!localStorage.getItem(SIGNIN_SEEN_FLAG)) wasFirstSignedInLoad = true;
+  localStorage.setItem(SIGNIN_SEEN_FLAG, "1");
+}
+function shouldShowSignInNudge() {
+  return !sbSession;
+}
+function shouldShowAnalyzeSpotlight() {
+  return !sbSession || wasFirstSignedInLoad;
+}
 async function fetchCreditStatus() {
   try {
     var res = await fetch(addSecret2(API_URL2 + "/status"), { headers: authH2() });
@@ -2763,6 +2775,7 @@ var TUTORIAL_STEPS = [
 async function runTutorialStep(index) {
   if (index >= TUTORIAL_STEPS.length) {
     endTutorial();
+    nudgeOrSpotlight();
     return;
   }
   const step = TUTORIAL_STEPS[index];
@@ -2789,6 +2802,82 @@ function startTutorial() {
   runTutorialStep(0);
 }
 window.startTutorial = startTutorial;
+function maybeShowSignInNudge() {
+  if (!shouldShowSignInNudge()) return;
+  const el = document.getElementById("signin-nudge");
+  if (el) el.style.display = "flex";
+}
+function nudgeOrSpotlight() {
+  if (shouldShowSignInNudge()) maybeShowSignInNudge();
+  else maybeShowAnalyzeSpotlight();
+}
+function closeSignInNudge() {
+  const el = document.getElementById("signin-nudge");
+  if (el) el.style.display = "none";
+  maybeShowAnalyzeSpotlight();
+}
+function activeAnalyzeButton() {
+  const cards = Array.from(roloStage.querySelectorAll(".rolo-card"));
+  const active = cards[getRoloCurrent()];
+  if (!active) return null;
+  return active.querySelector("[data-analyze]");
+}
+var ANALYZE_SPOTLIGHT_COPY = "tap to ANALYZE - Could be your next favorite company!";
+function removeAnalyzeSpotlight() {
+  const el = document.getElementById("analyze-spotlight");
+  if (el) el.remove();
+  scroller.removeEventListener("scroll", removeAnalyzeSpotlight);
+  window.removeEventListener("resize", removeAnalyzeSpotlight);
+}
+function buildAnalyzeSpotlight(btn) {
+  removeAnalyzeSpotlight();
+  const r = btn.getBoundingClientRect();
+  const pad = 8;
+  const holeTop = r.top - pad, holeLeft = r.left - pad, holeRight = r.right + pad, holeBottom = r.bottom + pad;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const root = document.createElement("div");
+  root.id = "analyze-spotlight";
+  ["top", "bottom", "left", "right"].forEach(function(pos) {
+    const s = document.createElement("div");
+    s.className = "spotlight-strip";
+    s.addEventListener("click", removeAnalyzeSpotlight);
+    if (pos === "top") s.style.cssText = "top:0;left:0;right:0;height:" + Math.max(0, holeTop) + "px;";
+    else if (pos === "bottom") s.style.cssText = "top:" + holeBottom + "px;left:0;right:0;bottom:0;";
+    else if (pos === "left") s.style.cssText = "top:" + holeTop + "px;left:0;width:" + Math.max(0, holeLeft) + "px;height:" + (holeBottom - holeTop) + "px;";
+    else s.style.cssText = "top:" + holeTop + "px;left:" + holeRight + "px;right:0;height:" + (holeBottom - holeTop) + "px;";
+    root.appendChild(s);
+  });
+  const ring = document.createElement("div");
+  ring.className = "spotlight-ring";
+  ring.style.cssText = "top:" + holeTop + "px;left:" + holeLeft + "px;width:" + (holeRight - holeLeft) + "px;height:" + (holeBottom - holeTop) + "px;";
+  root.appendChild(ring);
+  const callout = document.createElement("div");
+  callout.className = "spotlight-callout";
+  const calloutMaxW = 190;
+  if (holeLeft >= calloutMaxW + 16) {
+    callout.style.cssText = "right:" + (vw - holeLeft + 10) + "px;top:" + (holeTop + holeBottom) / 2 + "px;transform:translateY(-50%);max-width:" + calloutMaxW + "px;";
+    callout.innerHTML = "<span>" + ANALYZE_SPOTLIGHT_COPY + '</span><span class="spotlight-arrow">&rarr;</span>';
+  } else {
+    callout.classList.add("spotlight-callout-above");
+    callout.style.cssText = "left:" + Math.max(12, holeLeft) + "px;bottom:" + (vh - holeTop + 10) + "px;max-width:" + Math.min(calloutMaxW, vw - 24) + "px;";
+    callout.innerHTML = "<span>" + ANALYZE_SPOTLIGHT_COPY + '</span><span class="spotlight-arrow">&darr;</span>';
+  }
+  callout.addEventListener("click", removeAnalyzeSpotlight);
+  root.appendChild(callout);
+  document.body.appendChild(root);
+  scroller.addEventListener("scroll", removeAnalyzeSpotlight, { passive: true });
+  window.addEventListener("resize", removeAnalyzeSpotlight);
+  btn.addEventListener("click", removeAnalyzeSpotlight, { once: true });
+}
+function maybeShowAnalyzeSpotlight() {
+  if (!shouldShowAnalyzeSpotlight()) return;
+  scrollToActiveCard();
+  setTimeout(function() {
+    const btn = activeAnalyzeButton();
+    if (!btn) return;
+    buildAnalyzeSpotlight(btn);
+  }, TUTORIAL_STEP_SETTLE_MS);
+}
 var pushOfferInFlight = false;
 function requestPushOfferOnFirstGesture() {
   if (pushOfferInFlight || !shouldOfferPush()) return;
@@ -2804,9 +2893,11 @@ function initApp() {
   sizeGateSpacer();
   renderRolodexFromWatchlist();
   setTimeout(fetchCreditStatus, 2e3);
-  setTimeout(function() {
-    if (!localStorage.getItem("tv_tutorial_seen_free")) startTutorial();
-  }, 900);
+  if (!localStorage.getItem("tv_tutorial_seen_free")) {
+    setTimeout(startTutorial, 900);
+  } else {
+    setTimeout(nudgeOrSpotlight, 3e3);
+  }
   setInterval(function() {
     fetchMarket();
   }, 4 * 60 * 1e3);
@@ -2880,6 +2971,8 @@ async function boot() {
   });
   const comebackClose = document.getElementById("comeback-close-btn");
   if (comebackClose) comebackClose.addEventListener("click", closeComebackScreen);
+  const signinNudgeDismiss = document.getElementById("signin-nudge-dismiss");
+  if (signinNudgeDismiss) signinNudgeDismiss.addEventListener("click", closeSignInNudge);
   initApp();
 }
 boot();
