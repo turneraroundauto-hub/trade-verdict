@@ -240,7 +240,13 @@ try {
 // down: the one load right after a fresh Starter signup (or a first-time
 // sign-in to an existing account) bounces back here, never a later
 // sign-out/sign-in cycle on the same device.
-const SIGNIN_SEEN_FLAG = 'tv_free_seen_signed_in';
+// v2 suffix (Sep 22, 2026): a deliberate one-time reset -- bumping this key
+// name is what actually re-triggers the spotlight for every already-onboarded
+// visitor's next load, since their real browser's localStorage still only
+// holds the old, now-unrecognized key. Once a visitor's new key is set here,
+// they go back to the normal "only once" behavior -- this isn't meant to
+// re-fire forever, just to push the sequence out to everyone one more time.
+const SIGNIN_SEEN_FLAG = 'tv_free_seen_signed_in_v2';
 let wasFirstSignedInLoad = false;
 if (sbSession) {
   if (!localStorage.getItem(SIGNIN_SEEN_FLAG)) wasFirstSignedInLoad = true;
@@ -1570,7 +1576,11 @@ async function runTutorialStep(index: number): Promise<void> {
 }
 
 function startTutorial(): void {
-  localStorage.setItem('tv_tutorial_seen_free', '1');
+  // v2 suffix (Sep 22, 2026) -- see SIGNIN_SEEN_FLAG's own comment above for
+  // why: a deliberate one-time reset so every already-onboarded visitor's
+  // real browser (still only holding the old key) sees the tutorial again on
+  // their next load, then reverts to normal "only once" behavior from here.
+  localStorage.setItem('tv_tutorial_seen_free_v2', '1');
   runTutorialStep(0);
 }
 (window as any).startTutorial = startTutorial;
@@ -1737,7 +1747,7 @@ function initApp(): void {
   // compete for the same moment -- per the answered "splash after
   // tutorial, or 3 seconds after opening" spec, a visitor who's already
   // seen the tutorial gets the nudge on the plain 3s timer instead.
-  if (!localStorage.getItem('tv_tutorial_seen_free')) {
+  if (!localStorage.getItem('tv_tutorial_seen_free_v2')) {
     setTimeout(startTutorial, 900);
   } else {
     setTimeout(nudgeOrSpotlight, 3000);
