@@ -375,6 +375,27 @@ function etWeekday() {
   return new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" })).getDay();
 }
 
+// Human-readable Pacific-time string for device_visits' first_seen_pt/
+// last_seen_pt columns. timestamptz always stores (and Supabase's own table
+// editor always displays) UTC -- that's normal Postgres behavior and isn't
+// something this app's schema can change. These are plain sortable text
+// siblings written alongside the real timestamptz columns so the table
+// reads in PT directly, without depending on the dashboard's own display
+// settings. Pacific, not Eastern, because this pair is for Mr. T's own
+// reading of a device/account admin table -- not tied to market hours the
+// way etWeekday() above is, so it's not this app's usual ET convention.
+// Mirror only -- real function is in Tra's server.js.
+function ptTimestampStr(date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour12: false,
+  }).formatToParts(date).reduce((acc, p) => { acc[p.type] = p.value; return acc; }, {});
+  const hh = parts.hour === "24" ? "00" : parts.hour; // ICU midnight quirk
+  return `${parts.year}-${parts.month}-${parts.day} ${hh}:${parts.minute}:${parts.second} PT`;
+}
+
 // Gate 3's weekly-carryover decay label for today, or null on Mon/Fri/
 // weekend (those days keep their own same-day overlay rule instead — see
 // fetchWeeklyCarryover's comment). Sessions-since-Monday is just today's
@@ -4051,9 +4072,19 @@ app.get("/agitator", async (req, res) => {
 // which the same global auth middleware every other route already goes
 // through sets whenever the request carries a real Supabase session token.
 // A signed-in user's device correlates to their account automatically,
-// using auth data that was already reaching this route. An anonymous ping
-// never has req.userEmail set and never overwrites a device's already-known
-// email with null.
+// using auth data that was already reaching this route.
+//
+// device_visits is keyed by (device_id, user_email), not device_id alone —
+// a device signed into by 2+ accounts (a shared device, or one person's own
+// second account) gets one row PER account, never collapsing one login's
+// history into another's. Anonymous activity (no session on this ping) gets
+// its own row too, keyed by the empty-string sentinel below rather than
+// NULL — Postgres treats every NULL as distinct within a unique/primary
+// key, so NULL would insert a fresh "anonymous" row on every single
+// anonymous ping instead of updating one running counter.
+//
+// first_seen_pt/last_seen_pt are plain human-readable Pacific-time text
+// siblings of the real timestamptz columns — see ptTimestampStr() above.
 const DEVICE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 app.post("/device-ping", async (req, res) => {
   const { deviceId, platform } = req.body || {};
@@ -4063,48 +4094,26 @@ app.post("/device-ping", async (req, res) => {
   const plat = platform === "twa" ? "twa" : "web";
   if (!supabase) return res.json({ success: true, stored: false });
   try {
+    const accountKey = req.userEmail || "";
+    const nowDate = new Date();
+    const nowIso  = nowDate.toISOString();
     const { data: existing } = await supabase
       .from("device_visits")
       .select("visit_count")
       .eq("device_id", deviceId)
+      .eq("user_email", accountKey)
       .maybeSingle();
     const { error } = await supabase.from("device_visits").upsert({
       device_id:     deviceId,
+      user_email:    accountKey,
       platform:      plat,
       first_tier:    existing ? undefined : (req.userTier || null),
-      user_email:    req.userEmail || undefined,
-      last_seen_at:  new Date().toISOString(),
+      last_seen_at:  nowIso,
+      last_seen_pt:  ptTimestampStr(nowDate),
+      first_seen_pt: existing ? undefined : ptTimestampStr(nowDate),
       visit_count:   (existing?.visit_count || 0) + 1,
-    }, { onConflict: "device_id" });
+    }, { onConflict: "device_id,user_email" });
     if (error) throw error;
-
-    // device_accounts: every (device, account) pairing this device has
-    // EVER signed into, never collapsed down to one. device_visits'
-    // user_email above is a convenience "last known account" pointer on
-    // a one-row-per-device table -- it can only ever hold a single email,
-    // so a second account signing in on the same device (a shared
-    // device, or one person's own second account) silently overwrote the
-    // first account's association with no way to see it had happened.
-    // This table is the real record: a row per (device_id, user_email)
-    // pair, so every account a device has ever been used for stays
-    // visible. Best-effort -- a failure here logs and falls through
-    // rather than failing the whole ping, same posture as this app's
-    // other secondary analytics writes (e.g. corroboration_log).
-    if (req.userEmail) {
-      const { data: existingAccount } = await supabase
-        .from("device_accounts")
-        .select("visit_count")
-        .eq("device_id", deviceId)
-        .eq("user_email", req.userEmail)
-        .maybeSingle();
-      const { error: acctError } = await supabase.from("device_accounts").upsert({
-        device_id:    deviceId,
-        user_email:   req.userEmail,
-        last_seen_at: new Date().toISOString(),
-        visit_count:  (existingAccount?.visit_count || 0) + 1,
-      }, { onConflict: "device_id,user_email" });
-      if (acctError) console.error("POST /device-ping (device_accounts):", acctError.message);
-    }
 
     res.json({ success: true });
   } catch (e) {
