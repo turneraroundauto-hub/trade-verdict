@@ -11427,3 +11427,74 @@ every backend change in this file. To confirm: sign the same real device
 into two different accounts (or check an existing shared/family device)
 and confirm `device_accounts` shows a row for each account rather than
 only the most recently signed-in one.
+
+## Backend: device_accounts reversed — folded back into device_visits, plus real ET display columns (Sep 23, 2026, `Tra` patch19 / `trade-verdict` patch20)
+
+Direct correction, same day the entry above shipped, after live-checking it
+in Supabase and finding both complaints still real: "I don't see both of
+those emails at the same time, only the latest one that logged in" (a real
+screenshot confirmed he had `device_visits` open, not the new
+`device_accounts` table) and "the Supabase table is showing UTC." Then,
+mid-explanation of that split-table design: **"I specifically ask you to
+change the timestamps and the user email correlation in the device visit
+table. NO OTHER TABLE WAS MENTIONED."** — a direct rejection of the
+`device_accounts` design itself, not just a request to find the right tab.
+
+**Reversed the split.** `device_accounts` (patch18/`Tra`, patch19/
+`trade-verdict`) is dropped. `device_visits` is re-keyed from `device_id`
+alone to `(device_id, user_email)` — an anonymous ping now writes `''`
+(empty string) for `user_email`, never `NULL` (Postgres treats every `NULL`
+as distinct within a unique/PK constraint, which would insert a fresh
+"anonymous" row on every single anonymous ping instead of updating one
+running counter); a signed-in ping writes the real account email. A device
+used by 2+ accounts now gets one row per account, in the one table, never
+collapsing one login's history into another's — the actual fix, just
+relocated to where it was asked for.
+
+**Timestamps: plain Eastern-time text columns added directly to
+`device_visits`, not a view, not another table.** `first_seen_et`/
+`last_seen_et` are written by `/device-ping`'s own new `etTimestampStr()`
+helper (both repos' `server.js`, next to `etWeekday()`) alongside the real
+`timestamptz` columns. Said plainly, not oversold: the *underlying*
+`first_seen_at`/`last_seen_at` columns still store (and Supabase's table
+editor still displays) UTC — that's inherent to `timestamptz` and to how
+any client renders it, not something a schema change can alter. The two
+new text columns are the actual fix — a human-readable Eastern-time string
+sitting right in the same row, in the same table, so the table itself
+reads correctly without needing a second query or a Studio setting.
+
+**Migration order mattered and was caught by a real constraint violation,
+not assumed correct.** First attempt tried to migrate `device_accounts`'
+rows into `device_visits` before re-keying the primary key — failed with
+`duplicate key value violates unique constraint "device_visits_pkey"` on
+the one real multi-account device, since the old `device_id`-only PK was
+still active at that point and rejected the second row. Fixed by
+reordering: normalize `user_email` to non-null first, drop the old PK and
+add the new composite `(device_id, user_email)` PK, *then* migrate in any
+`device_accounts` row not already represented under that same pair (a
+`device_accounts` row that already matched `device_visits`' existing
+last-known-account row was a pure duplicate of already-collapsed history
+and was correctly skipped, not double-inserted), then backfill the ET text
+columns for every row, then drop `device_accounts`.
+
+**Verified against the real, reported device, not a synthetic case.**
+Directly queried `device_visits` for `ed98d63f-...` (the actual shared
+device from the live report) after the migration: both
+`turneraroundauto@gmail.com` and `j_m_turner@outlook.com` now show as
+separate rows in `device_visits` itself, with real ET timestamps
+(`"2026-09-22 21:47:18 ET"`, not a `+00` offset). Confirmed `device_accounts`
+is genuinely gone (`to_regclass('public.device_accounts')` returns `null`,
+not just emptied). Re-ran the standard grants-check query immediately after,
+since this migration alters `device_visits` itself: zero `anon`/
+`authenticated` rows, unchanged — the Sep 17, 2026 incident's lesson
+(re-check grants after touching a table's schema) applied here too, even
+though this wasn't a Data-API-exposure toggle.
+
+`node --check` clean on both `server.js` files; `device_accounts` confirmed
+fully absent from both (`grep` returns zero matches) — no dead references,
+no half-migrated code path left behind.
+
+**Not yet verified against a live deploy** — same standing posture as every
+backend change in this file. To confirm: check a real `device_visits` row
+for a device with 2+ signed-in accounts and confirm both show as separate
+rows with real ET-formatted `first_seen_et`/`last_seen_et` values.
