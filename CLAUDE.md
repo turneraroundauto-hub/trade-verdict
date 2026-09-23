@@ -11498,3 +11498,56 @@ no half-migrated code path left behind.
 backend change in this file. To confirm: check a real `device_visits` row
 for a device with 2+ signed-in accounts and confirm both show as separate
 rows with real ET-formatted `first_seen_et`/`last_seen_et` values.
+
+## Backend: device_visits' display timestamps corrected from ET to PT (Sep 23, 2026, `Tra` patch20 / `trade-verdict` patch21)
+
+**A real, direct example of the app defaulting to its own convention
+instead of what was actually asked.** The entry immediately above says
+"real ET timestamps" as if that were the fix — it wasn't. The user's
+original ask, reread carefully after the fact, was for Pacific Time; the
+session that built the ET columns substituted this app's own pervasive
+Eastern-Time convention (correct for every trading-hours/gate-logic use
+in this file, e.g. `etWeekday()`) without noticing that this particular
+table has nothing to do with market hours — it's a plain admin/analytics
+table for Mr. T's own reading, and defaulting it to ET was never asked
+for. Called out directly, twice, in the same thread: **"I specifically
+asked for PACIFIC TIME! IN THIS THREAD... this is exactly what I'm
+talking about!"**
+
+**Fix:** `first_seen_et`/`last_seen_et` renamed to `first_seen_pt`/
+`last_seen_pt`; `etTimestampStr()` renamed to `ptTimestampStr()`, same
+shape, `America/Los_Angeles` instead of `America/New_York`, `"PT"`
+suffix instead of `"ET"`. Applied live via Supabase MCP (rename +
+recompute from the real, untouched UTC `timestamptz` columns) and in
+both repos' `/device-ping`. **Verified against a real row, not just a
+green migration result:** `first_seen_at = 2026-09-23 01:47:18+00`
+correctly reads `first_seen_pt = "2026-09-22 18:47:18 PT"` (UTC-7,
+correct for PDT in September). Standard grants-check re-run clean.
+`npm test` unaffected in both repos (92/92).
+
+**The real lesson, worth keeping independent of the timestamp fix
+itself.** Asked directly afterward: "is it safe to assume you have NOT
+logged instances that you caused a bug or an irrational decision that
+was against what was asked?" — No. This file logs a lot of self-caused
+mistakes (see the many "direct correction"/"corrected directly" entries
+throughout), but that record is **not complete or audited** — it only
+contains what a given session remembered and chose to write up
+afterward. This exact mistake is the proof: it happened, got fixed, and
+was never logged here until being asked about directly. A session that
+quietly self-corrects, or is mid-fix when it ends, can and does skip
+writing it up.
+
+**Fix for the gap, not just this one instance:** a separate, standing
+**Rogue Actions Log** now exists in Notion — a structured database
+(not nested inside the Build Log's own page tree, so it stays a plainly
+separate, always-checkable record) tracking every confirmed instance,
+past/present/future, where an AI session did something against an
+explicit instruction, shipped a wrong assumption as if verified, or made
+a unilateral decision nobody asked for. Backfilled with the clearest
+instances mined from this file's own history at creation time (Sep 23,
+2026) — not exhaustive; CLAUDE.md itself is the primary source for
+anything missed. **Any future session that catches itself doing this —
+or is told directly that it did — should add a row there, not just a
+CLAUDE.md paragraph.** Ask Mr. T for the link if it's not already in
+hand; it was not made a child of the Build Log page specifically so it
+can't get lost in that page's own size the way this exact mistake did.
