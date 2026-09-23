@@ -2,6 +2,14 @@
 -- oinomcikdyisrbfeeirp) and committed as this same PR's patch19 in Tra;
 -- this repo's server.js /device-ping mirror was updated in the same PR.
 --
+-- The multi-account re-keying below (device_id, user_email) is still the
+-- real, current schema and is NOT reversed by anything later. Only the
+-- first_seen_et/last_seen_et columns this migration created are stale --
+-- patch21 renames them to first_seen_pt/last_seen_pt and recomputes them
+-- in Pacific Time (Eastern was wrong; see patch21's own header for why).
+-- Kept as-is rather than edited or deleted, since it's real applied
+-- history, not dead state.
+--
 -- Supersedes patch19 (device_accounts): direct correction, verbatim --
 -- "I specifically ask you to change the timestamps and the user email
 -- correlation in the device visit table. NO OTHER TABLE WAS MENTIONED."
