@@ -11582,3 +11582,26 @@ the old token; >24h and legacy-expired sessions show the login screen with
 no refresh attempted. Local boot of `Tra`'s `server.js` confirmed
 `/auth/refresh` is reachable pre-auth. **Not verified against live
 Supabase** — confirm a real sign-in survives past the 1h mark.
+
+## Backend: failed ANALYZE no longer charges a credit + friendly error (Sep 28, 2026, `Tra` + `trade-verdict`)
+
+Live report: every card showed a raw "Anthropic error 400". Cause (reproduced via the
+`Trade_Tribunal` MCP `analyze` tool, not guessed): the Anthropic account behind Tra hit its
+**monthly API usage cap** ("You have reached your specified API usage limits... regain access
+on 2026-10-01"). Account-level, not a code bug; Agitator scoring had been 400ing the same way
+since Sep 27 20:49 UTC. Fix for the cap itself is Anthropic Console → Settings → Limits (Mr. T).
+
+Found while checking: `/analyze` deducts before the Anthropic call and never refunded, so every
+failed ANALYZE (outage, cap, timeout, unparseable response) still cost the user. Fixed:
+- New `refund_user_credit` RPC (`supabase-ddl-patch22-refund-credit.sql`, applied via Supabase
+  MCP) exactly reverses one `deduct_user_credit`: rolls `pending_analyses` back, and a whole
+  credit crossed comes back as a *purchased* credit (never expires). EXECUTE revoked from
+  anon/authenticated since it can create credits. Verified via a rolled-back SQL round trip.
+- `credits.refundCredit()`; `/analyze` tracks `charged` and refunds once on all three
+  no-verdict exits (non-ok Anthropic, parse/enforce failure, thrown error/timeout).
+- Users now see "Analysis is temporarily unavailable. You weren't charged a credit — please try
+  again later." (`code: AI_UNAVAILABLE`/`AI_BAD_RESPONSE`); raw Anthropic body goes to Render logs
+  only. No frontend change needed — every tier already renders `errData.error`.
+Verified by booting real `server.js` locally with Anthropic stubbed to the exact production 400:
+4 failures left the balance unchanged; 3 successes still charged 1 credit. Not verified against
+a live deploy. Scope: `/analyze` only — Agitator/Pulse are free and unaffected by this.
