@@ -11662,3 +11662,30 @@ three prompts are far under Haiku's caching minimum, so it would do nothing ther
 
 **Next lever, not done (needs Mr. T's call — quality trade-off):** shorten ANALYZE's output
 (tighter gate notes), since output is now the biggest cost per analysis.
+
+## Backend: ANALYZE output trimmed — model writes only Gates 2/3, as single-line JSON (Sep 28, 2026, `Tra` + `trade-verdict`)
+
+Follow-up to the caching work above, approved by Mr. T. With caching in, the written verdict
+(output, ~650 tokens at Sonnet's output price) became the biggest cost per analysis — and about a
+third of it was pure copying: the model re-typed Pre-Gate, Gate 0, Gate 1, Gate 4 and Gate 5
+(all server-computed, handed to it as "USE EXACTLY THIS"), and `/analyze` then threw that copy away
+and overwrote it with the server's own values.
+
+**Change:** the model now outputs only `g2_catalyst` and `g3_openbar` in `gates` (the two gates it
+genuinely judges). It still receives all five server gates in its input and still uses them for
+congruency — only the re-typing is gone. Right after `JSON.parse`, `/analyze` rebuilds `parsed.gates`
+in the original canonical order (pre_gate, sector, g1, g2, g3, g4, g5) and fills the five server
+gates exactly as before, so the response every tier receives is unchanged in shape. Also a guard:
+a missing `gates` object no longer throws.
+
+**Compact JSON:** the output spec now asks for minified single-line JSON instead of the indented,
+multi-line layout the old example showed (which the model mimicked). Whitespace/newlines are real
+output tokens; after `JSON.parse` the two are byte-for-byte the same object, so nothing downstream
+can tell the difference.
+
+Estimated ~35-40% fewer output tokens per analysis (~$0.0035-0.004 saved each). Verify live by
+comparing `out=` on `[CLAUDE USAGE] analyze` lines before/after (was ~630-710). SYSTEM_PROMPT
+changed, so the cache rewrites once on the first analysis after deploy. Verified by booting real
+`server.js` locally with Anthropic stubbed to return only Gates 2/3: response carried all 7 gates in
+order with server statuses; `npm test` 92/92. **Watch after deploy:** a handful of real verdicts, to
+confirm UP/DOWN/FLAT calls look the same as before the format change.
