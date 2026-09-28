@@ -44,6 +44,7 @@
 //   no ticker-card upgrade prompt, no bottom-of-page teaser card. Pro is
 //   still the only tier with a real tracker.
 import { initTickerCache, fetchTickerData } from './shared/ticker-cache';
+import { getStoredSession, storeSession, isSessionValid, stampNewSession, ensureFreshSession, startSessionKeepAlive } from './shared/session';
 import { pingDeviceVisit, getOrCreateDeviceId } from './shared/device-id';
 import { shouldOfferPush, enablePush, resyncPushIfGranted } from './shared/push';
 import { initWatchlist, watchlist, addTickers, addKnownTicker, removeTicker, onWatchlistSave, onTickersAdded } from './shared/watchlist';
@@ -140,9 +141,6 @@ function tickerHref(sym: string): string { return 'https://finance.yahoo.com/quo
 function newsHref(sym: string): string { return 'https://finance.yahoo.com/quote/' + encodeURIComponent(sym) + '/news/'; }
 
 // ── Anonymous / optional-signed-in session ─────────────────────────────
-function getStoredSession(): any { try { return JSON.parse(localStorage.getItem('tv_session') || 'null'); } catch (e) { return null; } }
-function storeSession(s: any): void { if (s) localStorage.setItem('tv_session', JSON.stringify(s)); else localStorage.removeItem('tv_session'); }
-function isSessionValid(s: any): boolean { if (!s || !s.token) return false; if (s.expiresAt && Date.now() / 1000 > s.expiresAt - 60) return false; return true; }
 var sbSession: any = isSessionValid(getStoredSession()) ? getStoredSession() : null;
 
 // Logged-in visitors are keyed per-account server-side via their Supabase
@@ -197,7 +195,7 @@ function bindAuthEvents(): void {
   if (emailInput) emailInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') pwInput && pwInput.focus(); });
 }
 function toggleAuthMode(mode?: string): void { authMode = mode || (authMode === 'login' ? 'signup' : 'login'); var isL = authMode === 'login'; document.getElementById('auth-title')!.textContent = isL ? 'SIGN IN' : 'CREATE ACCOUNT'; document.getElementById('auth-btn')!.textContent = isL ? 'SIGN IN' : 'CREATE ACCOUNT'; document.getElementById('auth-toggle')!.innerHTML = isL ? 'New user? <span style="text-decoration:underline">Create Account</span>' : 'Already have an account? <span style="text-decoration:underline">Sign in</span>'; document.getElementById('auth-error')!.textContent = ''; (document.getElementById('auth-error') as HTMLElement).style.color = 'var(--red)'; var rl = document.getElementById('reset-link'); if (rl) (rl as HTMLElement).style.display = isL ? 'inline' : 'none'; }
-async function handleLogin(): Promise<void> { var email = (document.getElementById('auth-email') as HTMLInputElement).value.trim(), password = (document.getElementById('auth-password') as HTMLInputElement).value, btn = document.getElementById('auth-btn') as HTMLButtonElement, err = document.getElementById('auth-error') as HTMLElement; err.textContent = ''; btn.disabled = true; btn.textContent = 'SIGNING IN...'; try { var r = await fetch(API_URL + '/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) }); if (!r.ok) { var e = await r.json(); throw new Error(e.error || 'Login failed'); } var session = await r.json(); storeSession(session); btn.textContent = 'SIGN IN'; btn.disabled = false; window.location.reload(); } catch (e: any) { err.textContent = e.message; btn.textContent = 'SIGN IN'; btn.disabled = false; } }
+async function handleLogin(): Promise<void> { var email = (document.getElementById('auth-email') as HTMLInputElement).value.trim(), password = (document.getElementById('auth-password') as HTMLInputElement).value, btn = document.getElementById('auth-btn') as HTMLButtonElement, err = document.getElementById('auth-error') as HTMLElement; err.textContent = ''; btn.disabled = true; btn.textContent = 'SIGNING IN...'; try { var r = await fetch(API_URL + '/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) }); if (!r.ok) { var e = await r.json(); throw new Error(e.error || 'Login failed'); } var session = stampNewSession(await r.json()); storeSession(session); btn.textContent = 'SIGN IN'; btn.disabled = false; window.location.reload(); } catch (e: any) { err.textContent = e.message; btn.textContent = 'SIGN IN'; btn.disabled = false; } }
 async function handleSignup(): Promise<void> { var email = (document.getElementById('auth-email') as HTMLInputElement).value.trim(), password = (document.getElementById('auth-password') as HTMLInputElement).value, btn = document.getElementById('auth-btn') as HTMLButtonElement, err = document.getElementById('auth-error') as HTMLElement; err.textContent = ''; err.style.color = 'var(--red)'; if (!email || !password) { err.textContent = 'Email and password required'; return; } if (password.length < 6) { err.textContent = 'Password must be at least 6 characters'; return; } btn.disabled = true; btn.textContent = 'CREATING...'; try { var r = await fetch(API_URL + '/auth/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) }); if (!r.ok) { var e = await r.json(); throw new Error(e.error || 'Signup failed'); } toggleAuthMode('login'); err.style.color = 'var(--green)'; err.textContent = 'Account created! Check your email to confirm, then sign in.'; btn.disabled = false; } catch (e: any) { err.textContent = e.message; btn.textContent = 'CREATE ACCOUNT'; btn.disabled = false; } }
 
 // A *paid* tv_session redirects away before any watchlist state
@@ -1759,6 +1757,11 @@ function initApp(): void {
 
 async function boot(): Promise<void> {
   if (redirectingToPaidTier) return;
+  // A signed-in session's access token may have lapsed (Supabase ~1h) while
+  // the sign-in itself is still inside its 24h window -- renew it before any
+  // API call goes out, then keep it fresh while the page stays open.
+  if (sbSession) { sbSession = await ensureFreshSession(API_URL); updateAuthButton(); }
+  startSessionKeepAlive(API_URL, function (s) { if (s) sbSession = s; });
   initWatchlist({ defaultTickers: ['MU', 'IREN', 'ALAB'], maxTickers: 3, upgradeMessage: 'Free tier supports up to 3 tickers.\n\nUpgrade to Starter for more.' });
   initTickerCache({ API_URL, authH, addSecret });
   pingDeviceVisit({ API_URL, authH, addSecret });
