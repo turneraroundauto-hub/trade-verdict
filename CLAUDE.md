@@ -11626,3 +11626,39 @@ Savings are estimates from token counts, not yet measured. Sonnet 5 ($2/$10) con
 /analyze and deferred: it rejects `temperature`, needs a before/after check first.
 Verified via local boot with Anthropic stubbed (Pulse: 4 identical refreshes → 1 call on Haiku;
 /analyze sends the cached block on Sonnet). Agitator paths need live Finnhub, verified by code only.
+
+### Sep 28, 2026 follow-up: shipped, live-confirmed, and what was measured
+
+**PRs:** credit refund + friendly error = `Tra` #124 / `trade-verdict` #363; caching/Haiku/Pulse
+dedupe = `Tra` #125 / `trade-verdict` #364. All four merged; Render deployed both `Tra` merges.
+
+**Refund confirmed live** in Render logs (e.g. `/analyze BB: refunded credit (anthropic 400)`,
+`/analyze STWD: refunded credit ...`) — every capped call after deploy cost nobody a credit.
+
+**One-time manual refund for the pre-fix leak** (credits lost Sep 27-28 before #124 shipped):
++2 *purchased* credits each to the three real affected accounts, found via `credits.updated_at` +
+`verdict_log` (Render request logs aren't available): `ip:69.7.52.80`, `sub:the360doctor@gmail.com`,
+`ip:166.198.252.92` (the last one had also been auto-refunded, so it came out slightly ahead —
+accepted, not clawed back). `turneraroundauto@gmail.com` and `mcp:agent` deliberately skipped.
+
+**The cap fix — a real point of confusion worth keeping.** Mr. T first raised "usage" in
+**claude.ai → Settings → Usage (extra usage)**, which funds his own Claude app/Claude Code use and
+does **nothing** for Tra's `ANTHROPIC_API_KEY`. The error kept firing until he raised the
+**monthly spend limit in console.anthropic.com → Settings → Limits** (the org that owns the key).
+Tell-tale: the API error says "your *specified* API usage limits … regain access on <1st of
+month>" — that's the Console spend limit, not a subscription. A Claude.ai subscription cannot pay
+for API calls. Once raised, a live MCP `analyze MU` succeeded immediately, no redeploy needed.
+
+**Caching measured live, not estimated** (`[CLAUDE USAGE]` lines, first ~4h after the limit was
+raised): the rules block is 4,556 tokens. 11 analyses: 6 `cache_write=4556` (first call after >5
+quiet min) and 5 `cache_read=4556` (a follow-up inside 5 min — MU→MU, XRP→NBIS→AXON, MU→IREN,
+TSLA→BTC). Net ≈ 25% off the rules portion and ≈ 15% off total /analyze cost (~$0.022 vs
+~$0.026) — lower than the ~40% estimate above because output (~650 tokens at Sonnet's output
+price) dominates each call and can't be cached, and low traffic means many cold writes (which
+cost 1.25×). Savings grow with Analyze All / concurrent users; on very quiet days caching can
+cost slightly more than no caching. Pulse dedupe confirmed: 6 paid Pulse calls in ~4h instead of
+one every 4 min, each ~300 tokens on Haiku. Only `/analyze` uses `cache_control` — the other
+three prompts are far under Haiku's caching minimum, so it would do nothing there.
+
+**Next lever, not done (needs Mr. T's call — quality trade-off):** shorten ANALYZE's output
+(tighter gate notes), since output is now the biggest cost per analysis.
