@@ -11551,3 +11551,34 @@ or is told directly that it did — should add a row there, not just a
 CLAUDE.md paragraph.** Ask Mr. T for the link if it's not already in
 hand; it was not made a child of the Build Log page specifically so it
 can't get lost in that page's own size the way this exact mistake did.
+
+## Auth: sign-in now lasts 24h, not 1h (Sep 28, 2026, `Tra` + `trade-verdict`)
+
+Live complaint: users had to log in constantly. Root cause: the client
+stored only Supabase's access token (~1h lifetime) and `isSessionValid()`
+treated its `expiresAt` as "signed out" — so every signed-in user got
+bounced to the login screen once an hour, on every tier.
+
+**Fix.** `/auth/login` now also returns Supabase's `refreshToken`; new
+`POST /auth/refresh` (auth-middleware allowlisted, runs on the throwaway
+`authClient()`, never the shared admin client — Aug 4, 2026 lesson) trades
+it for a fresh access token. New bundler-only `shared/session.ts` owns
+`getStoredSession`/`storeSession`/`isSessionValid` for Free/Starter/Pro
+(the three hand-copied versions were removed), stamps `loginAt` on sign-in,
+and treats a session as valid for `SESSION_MAX_AGE_MS` (24h, per direct
+instruction "login once per day") regardless of the access token's own
+expiry. `ensureFreshSession()` renews the token before any API call on
+load (Starter/Pro `checkAuth()`, Free `boot()`), and
+`startSessionKeepAlive()` re-checks every 4 min and on
+`visibilitychange` (phone waking), so a long-open page never goes stale.
+A 401 from `/auth/refresh` signs out; a network error keeps the session
+while its token still works. Legacy sessions (no refresh token) keep the
+old 1h rule once, then the next sign-in gets the 24h behavior. Shark
+(shelved) untouched.
+
+Verified: headless Chromium (Starter/Pro/Free) — expired access token
+within 24h silently refreshes and loads the app with zero requests sent on
+the old token; >24h and legacy-expired sessions show the login screen with
+no refresh attempted. Local boot of `Tra`'s `server.js` confirmed
+`/auth/refresh` is reachable pre-auth. **Not verified against live
+Supabase** — confirm a real sign-in survives past the 1h mark.

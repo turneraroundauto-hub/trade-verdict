@@ -37,6 +37,76 @@ async function fetchTickerData(symbol, force) {
   return p;
 }
 
+// shared/session.ts
+var SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1e3;
+var REFRESH_LEAD_SEC = 5 * 60;
+var KEEPALIVE_MS = 4 * 60 * 1e3;
+function getStoredSession() {
+  try {
+    return JSON.parse(localStorage.getItem("tv_session") || "null");
+  } catch (e) {
+    return null;
+  }
+}
+function storeSession(s) {
+  if (s) localStorage.setItem("tv_session", JSON.stringify(s));
+  else localStorage.removeItem("tv_session");
+}
+function stampNewSession(s) {
+  if (s) s.loginAt = Date.now();
+  return s;
+}
+function accessTokenExpired(s, leadSec) {
+  return !!(s && s.expiresAt && Date.now() / 1e3 > s.expiresAt - leadSec);
+}
+function isSessionValid(s) {
+  if (!s || !s.token) return false;
+  if (s.refreshToken && s.loginAt) return Date.now() - s.loginAt < SESSION_MAX_AGE_MS;
+  return !accessTokenExpired(s, 60);
+}
+var inFlight2 = null;
+function ensureFreshSession(apiUrl) {
+  var s = getStoredSession();
+  if (!isSessionValid(s)) return Promise.resolve(null);
+  if (!accessTokenExpired(s, REFRESH_LEAD_SEC) || !s.refreshToken) return Promise.resolve(s);
+  if (inFlight2) return inFlight2;
+  inFlight2 = (async () => {
+    try {
+      var r = await fetch(apiUrl + "/auth/refresh", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refreshToken: s.refreshToken }) });
+      if (r.ok) {
+        var fresh = await r.json();
+        if (fresh && fresh.token) {
+          var cur = getStoredSession() || s;
+          cur.token = fresh.token;
+          cur.refreshToken = fresh.refreshToken || cur.refreshToken;
+          cur.expiresAt = fresh.expiresAt;
+          storeSession(cur);
+          return cur;
+        }
+      }
+      if (r.status === 401) {
+        storeSession(null);
+        return null;
+      }
+    } catch (e) {
+    }
+    return accessTokenExpired(s, 0) ? null : s;
+  })();
+  inFlight2.finally(() => {
+    inFlight2 = null;
+  });
+  return inFlight2;
+}
+function startSessionKeepAlive(apiUrl, onChange) {
+  var tick = function() {
+    ensureFreshSession(apiUrl).then(onChange);
+  };
+  setInterval(tick, KEEPALIVE_MS);
+  document.addEventListener("visibilitychange", function() {
+    if (document.visibilityState === "visible") tick();
+  });
+}
+
 // shared/device-id.ts
 var DEVICE_ID_KEY = "tv_device_id";
 var DEVICE_PLATFORM_KEY = "tv_device_platform";
@@ -1700,22 +1770,6 @@ function tickerHref2(sym) {
 function newsHref2(sym) {
   return "https://finance.yahoo.com/quote/" + encodeURIComponent(sym) + "/news/";
 }
-function getStoredSession() {
-  try {
-    return JSON.parse(localStorage.getItem("tv_session") || "null");
-  } catch (e) {
-    return null;
-  }
-}
-function storeSession(s) {
-  if (s) localStorage.setItem("tv_session", JSON.stringify(s));
-  else localStorage.removeItem("tv_session");
-}
-function isSessionValid(s) {
-  if (!s || !s.token) return false;
-  if (s.expiresAt && Date.now() / 1e3 > s.expiresAt - 60) return false;
-  return true;
-}
 var sbSession = isSessionValid(getStoredSession()) ? getStoredSession() : null;
 function authH2() {
   return sbSession && sbSession.token ? { "Content-Type": "application/json", "x-supabase-token": sbSession.token } : { "Content-Type": "application/json", "x-app-secret": APP_SECRET };
@@ -1812,7 +1866,7 @@ async function handleLogin() {
       var e = await r.json();
       throw new Error(e.error || "Login failed");
     }
-    var session = await r.json();
+    var session = stampNewSession(await r.json());
     storeSession(session);
     btn.textContent = "SIGN IN";
     btn.disabled = false;
@@ -3018,6 +3072,13 @@ function initApp() {
 }
 async function boot() {
   if (redirectingToPaidTier) return;
+  if (sbSession) {
+    sbSession = await ensureFreshSession(API_URL2);
+    updateAuthButton();
+  }
+  startSessionKeepAlive(API_URL2, function(s) {
+    if (s) sbSession = s;
+  });
   initWatchlist({ defaultTickers: ["MU", "IREN", "ALAB"], maxTickers: 3, upgradeMessage: "Free tier supports up to 3 tickers.\n\nUpgrade to Starter for more." });
   initTickerCache({ API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
   pingDeviceVisit({ API_URL: API_URL2, authH: authH2, addSecret: addSecret2 });
