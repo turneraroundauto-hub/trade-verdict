@@ -11605,3 +11605,24 @@ failed ANALYZE (outage, cap, timeout, unparseable response) still cost the user.
 Verified by booting real `server.js` locally with Anthropic stubbed to the exact production 400:
 4 failures left the balance unchanged; 3 successes still charged 1 credit. Not verified against
 a live deploy. Scope: `/analyze` only — Agitator/Pulse are free and unaffected by this.
+
+## Backend: stretching the Anthropic budget — prompt caching, Haiku for side jobs, Pulse dedupe (Sep 28, 2026, `Tra` + `trade-verdict`)
+
+Follow-up to the usage-cap outage above, all four levers approved by Mr. T:
+1. **/analyze prompt caching.** `SYSTEM_PROMPT` (~4k tokens, byte-identical every call — all
+   per-ticker data is in the user message) is now sent as a `cache_control: ephemeral` system
+   block. Repeats within ~5 min read it at ~10% of input price (~40% off a warm ANALYZE).
+   **Never interpolate per-request data into SYSTEM_PROMPT** — it silently kills the cache.
+   Stays on Sonnet 4.6 (`CLAUDE_MODEL_ANALYZE`).
+2. **Sector Pulse dedupe.** `generatePulse()` reuses its last result when the market-%-change
+   input text is byte-identical (nights/weekends it was re-buying the same summary every 4 min).
+3. **Agitator scoring + topical fallback → Haiku 4.5** (`CLAUDE_MODEL_LIGHT`, 1/3 Sonnet price).
+   Topical extraction still passes through `classifyEntityMatch()`. Both prompts are below
+   Haiku's 4096-token caching minimum, so no caching there.
+4. **Sector Pulse → Haiku 4.5.**
+New `logClaudeUsage()` writes `[CLAUDE USAGE] <label> in= out= cache_read= cache_write=` per call —
+grep Render logs to confirm `cache_read>0` on warm `/analyze` and to check spend against the bill.
+Savings are estimates from token counts, not yet measured. Sonnet 5 ($2/$10) considered for
+/analyze and deferred: it rejects `temperature`, needs a before/after check first.
+Verified via local boot with Anthropic stubbed (Pulse: 4 identical refreshes → 1 call on Haiku;
+/analyze sends the cached block on Sonnet). Agitator paths need live Finnhub, verified by code only.
