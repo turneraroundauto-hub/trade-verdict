@@ -11689,3 +11689,53 @@ changed, so the cache rewrites once on the first analysis after deploy. Verified
 `server.js` locally with Anthropic stubbed to return only Gates 2/3: response carried all 7 gates in
 order with server statuses; `npm test` 92/92. **Watch after deploy:** a handful of real verdicts, to
 confirm UP/DOWN/FLAT calls look the same as before the format change.
+
+## Backend: Scorecard grades each verdict on its own dial horizon, market hours only (Sep 29, 2026, `Tra` + `trade-verdict`)
+
+Mr. T questioned the Scorecard's accuracy. A `verdict_log` breakdown by issue window and grading window
+showed two real problems:
+- **Off-hours verdicts were graded like live calls.** Pre-market, after-close, weekend and holiday
+  verdicts were logged and graded even though the frontend already forces them to display HOLD
+  (`isMarketClosed()`). They were built on inputs that don't exist yet off-hours. Pre-market UP calls
+  were right 1 in 15 times at 24h; weekend UP calls 0 in 10. Logged in the Notion Rogue Actions Log
+  at Mr. T's request.
+- **One fixed window for everyone.** UP calls scored 27% at 24h but 71% at 5 days (n=35); FLAT scored
+  64% at 24h but 32% at 5 days. The grading window, not the call, decided the score.
+
+**Fix (`supabase-ddl-patch23` here / `patch21` in Tra, applied via Supabase MCP, grants re-checked
+clean):** new `verdict_log` columns `issued_market_open`, `horizon_sessions`, `horizon_target_date`,
+`horizon_due_at`, `grade_horizon`, `actual_return_pct_horizon`, `graded_at_horizon`.
+- `logVerdict()` stamps `issued_market_open` via the new `isMarketOpenAt()`, which is holiday- and
+  early-close-aware. Off-hours rows get no horizon and are never graded into any stat.
+- Horizon = the close of the Nth session after issue, set by the Aggression Dial's own recheck cadence
+  (`HORIZON_SESSIONS_BY_DIAL`):
+  - Aggressive: 0, the same session.
+  - Light Aggressive, CRF Default, and Free (no dial): 1.
+  - Light Passive: 2.
+  - Passive: 5.
+
+  These mappings are my calibration from the dial text, not a spec.
+- `gradeHorizonRows()` grades against that session's Alpaca daily-bar close (IEX feed, raw prices).
+  Rows it can't grade (no entry price, or no bar for the ticker, e.g. crypto) are closed out with no
+  grade 3 days after they fall due, instead of retrying forever.
+- `backfillHorizonFields()` stamps pre-existing rows using the same helpers. A sweep also runs 60s after
+  boot, so the backfill starts right away.
+- Every accuracy reader now selects `grade:grade_horizon` (and the horizon return) and filters on
+  `issued_market_open = true`. That covers the Scorecard (Free and personal), the pooled UP/DOWN split
+  and top tickers, the ticker card's TRACK RECORD, and the historical-accuracy confidence ceiling.
+- The 24h/5-day grades still run, for the record only. `strictPct` is now always null (no UI used it).
+- Starter/Pro Scorecard help text explains the horizon and the off-hours rule. `?v=` bumped:
+  Starter 121, Pro 68.
+
+**Verified:**
+- A simulation of the real `isMarketOpenAt`/`horizonTargetFor` covered: Friday→Monday, the Labor Day
+  skip, the DST change, the Nov 27 early close, 9am/4:30pm/weekend/holiday.
+- A fake-DB run of the backfill and grader covered: not-yet-due, off-hours excluded, crypto closed out,
+  DOWN −5% graded TRUE.
+- Real `server.js` boots. `npm test` passes 92/92.
+
+**Not yet verified:** a live deploy, and the backfill filling in real rows. Expect the Scorecard to
+show "accumulating" or a smaller graded count until the backfill finishes.
+
+**Planned next, not yet built:** grade the trade path (did the price hit the dial's own target or stop
+first) instead of just the endpoint, and size the FLAT band to each ticker's normal daily move.
