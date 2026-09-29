@@ -11765,3 +11765,12 @@ Verified: 15-case simulation of `walkTradePath`/`classifyFlatReturn`/`computeAcc
 `server.js` boot, `npm test` 92/92, tsc baseline unchanged, bundle chunk counts unchanged.
 Not verified: live Alpaca 15-min bars and real re-graded numbers — check Render logs for
 `fetchSessionBars`/`fetchNormalDailyMovePct` errors and `verdict_log.path_outcome` filling in.
+
+**Correction, same day (Mr. T): the stop no longer decides the grade.** The first-touch rule above let
+an Aggressive UP call that hit +4% and then closed red count as fully right, and let a small wrong-way
+close escape as long as it didn't reach the stop. New rule (`gradeDirectionalCall()`): closing in the
+call's direction by any amount = TRUE; closing against it = FALSE; closing against it after reaching the
+dial's target at any point in the window = MARGINAL. The stop only feeds `path_return_pct` (avg return
+per trade). `computeAccuracyStats()` now weights TRUE 1 / MARGINAL 0.5 / FALSE 0 for UP/DOWN and FLAT
+alike (MARGINAL used to count as fully right). FLAT: any move under 0.1% is always TRUE. Verified by a
+12-case simulation of the extracted functions; `npm test` 92/92.
