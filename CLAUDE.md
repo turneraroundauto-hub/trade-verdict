@@ -11739,3 +11739,29 @@ show "accumulating" or a smaller graded count until the backfill finishes.
 
 **Planned next, not yet built:** grade the trade path (did the price hit the dial's own target or stop
 first) instead of just the endpoint, and size the FLAT band to each ticker's normal daily move.
+
+## Backend: Scorecard grades the trade path, sizes FLAT to each ticker, shows FLAT separately (Sep 29, 2026, `Tra` + `trade-verdict`)
+
+Follow-up to the horizon-grading entry above. Mr. T picked all three options via `AskUserQuestion`:
+- **UP/DOWN = trade path.** `gradeHorizonRows()` walks regular-session 15-min Alpaca bars (IEX, raw) from
+  `issued_at` to the horizon close and asks which came first: the dial's target or its stop
+  (`TRADE_PATH_BY_DIAL`: Aggressive +4/−1, Light Aggressive +4/−3, CRF Default +6/−3, Light Passive +10/−5,
+  Passive +16/−8 — target = 2× stop where the dial only lists a stop). Both in one bar = stop (conservative).
+  A bar opening past a level fills at its open. Neither hit = graded on the close with the old rule.
+  New columns `path_outcome` (TARGET/STOP/NEITHER), `path_return_pct` (signed in the verdict's favor).
+  Expectancy ("avg return / trade") now uses `path_return_pct`.
+- **FLAT = ½ a normal day.** `fetchNormalDailyMovePct()` = mean |daily % move| over the 20 sessions
+  before issue (split-adjusted). TRUE within ½ of it, MARGINAL within 1×, else FALSE; falls back to the
+  old fixed band with no history. Stored as `flat_band_pct`. Applied literally to every horizon — note a
+  Passive (5-session) FLAT is judged against a one-day band, which is strict; revisit if FLAT scores look
+  harsh on Passive.
+- **FLAT shown separately.** `computeAccuracyStats()` headline (`directionalPct`, `gradedCount`) is UP/DOWN
+  only; `flatPct`/`flatGradedCount` returned alongside (flatPct needs 5+). Every accuracy reader now
+  selects `verdict`. This also makes the ticker card's TRACK RECORD and the Top Tickers list UP/DOWN-only.
+  Starter/Pro Scorecard gets a "FLAT calls (separate)" row; help text rewritten.
+Migration: `supabase-ddl-patch24` here / `patch22` in Tra (applied via MCP, grants re-checked clean).
+Already horizon-graded rows are reset after Tra deploys so they re-grade under the new rules.
+Verified: 15-case simulation of `walkTradePath`/`classifyFlatReturn`/`computeAccuracyStats`, real
+`server.js` boot, `npm test` 92/92, tsc baseline unchanged, bundle chunk counts unchanged.
+Not verified: live Alpaca 15-min bars and real re-graded numbers — check Render logs for
+`fetchSessionBars`/`fetchNormalDailyMovePct` errors and `verdict_log.path_outcome` filling in.
