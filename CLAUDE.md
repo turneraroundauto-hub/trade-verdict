@@ -11774,3 +11774,12 @@ dial's target at any point in the window = MARGINAL. The stop only feeds `path_r
 per trade). `computeAccuracyStats()` now weights TRUE 1 / MARGINAL 0.5 / FALSE 0 for UP/DOWN and FLAT
 alike (MARGINAL used to count as fully right). FLAT: any move under 0.1% is always TRUE. Verified by a
 12-case simulation of the extracted functions; `npm test` 92/92.
+
+**Shipped Sep 29, 2026 (`Tra` #128 / `trade-verdict` #368, both merged; Render live 04:22 UTC).** Right
+after deploy, every horizon grade was cleared (300 rows: `graded_at_horizon`, `grade_horizon`,
+`actual_return_pct_horizon`, `path_outcome`, `path_return_pct`, `flat_band_pct` set null — nothing
+deleted) so all past verdicts re-grade under the new rules. The first post-deploy sweep graded 150 with
+no Alpaca errors; 476 more were due and queued. `gradeHorizonRows()` takes `HORIZON_GRADING_BATCH_SIZE`
+(150) per 30-min sweep, so a full re-grade takes ~1.5-2h — the Scorecard shows a smaller, shifting count
+until it finishes. Off-hours verdicts (220 of 854 at the time) stay excluded by design. Old baseline for
+comparison: 55.1% directional, +0.48% avg return per sized trade (Sep 13, 2026).
