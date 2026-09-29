@@ -1287,7 +1287,7 @@ async function renderScorecardCard(): Promise<void> {
     if (res.status === 401) { el.innerHTML = '<div class="track-empty">Sign in to see your personal scorecard.</div>'; return; }
     var data = await res.json();
     if (data.insufficientData) {
-      el.innerHTML = '<div class="track-empty">Accumulating — ' + (data.gradedCount || 0) + '/20 graded verdicts so far. Check back once more verdicts have been scored.</div>';
+      el.innerHTML = '<div class="track-empty">Accumulating — ' + (data.gradedCount || 0) + '/20 graded UP/DOWN verdicts so far. Check back once more verdicts have been scored.</div>';
       return;
     }
     // Strict accuracy dropped from this card (Sep 2026, direct feedback --
@@ -1315,6 +1315,11 @@ async function renderScorecardCard(): Promise<void> {
     }
     var html = '<div class="sc-head-row"><div class="track-log-title" style="margin:0">VERDICT ACCURACY</div><span class="sc-pooled-badge">Pooled &middot; ' + data.gradedCount + ' graded</span></div>'
       + '<div class="sc-tile-grid"><div class="sc-tile"><div class="sc-tile-lbl">Directional accuracy</div><div class="sc-tile-val">' + data.directionalPct + '%</div></div>' + retTileHTML + '</div>';
+    // FLAT calls on their own line (Sep 29, 2026) -- the headline tile is
+    // UP/DOWN only, so a run of easy FLATs can't prop it up.
+    html += (data.flatPct != null)
+      ? '<div class="trigger-row"><span class="trigger-lbl">FLAT calls (separate)</span><span class="trigger-val">' + data.flatPct + '%</span><span class="trigger-sub">' + data.flatGradedCount + '</span></div>'
+      : '<div class="trigger-row"><span class="trigger-lbl">FLAT calls (separate)</span><span class="trigger-val" style="color:var(--ink-dim)">—</span><span class="trigger-sub">' + (data.flatGradedCount || 0) + '/5</span></div>';
     // BY TICKER breakdown removed Sep 2, 2026; the by-gate1-branch/
     // pre-gate-state/gate0-read/gate2-corroboration breakdown removed Sep
     // 13, 2026 -- direct feedback: real signal for tuning the framework's
@@ -2057,7 +2062,7 @@ const HELP_CONTENT: Record<string, string> = {
   watchlist: 'Every <a class="help-glossary-link" href="#" data-term="ticker">ticker</a> beyond your top 15 cards lives here. Tap + on any row to move it up into your main list.',
   proxy: 'Shows which sector or stock each ticker is compared against for <a class="help-glossary-link" href="#" data-term="gate 5">Gate 5</a>, and whether they’re still moving together right now.',
   heatmap: 'A color-coded snapshot of major sectors and every ticker in your watchlist, sorted by today’s % change.',
-  scorecard: 'Two accuracy views in one card. The top half is automatic — every verdict made while the market is open is automatically checked against the closing price at the end of your Aggression Dial horizon (Aggressive: same session · Light Aggressive and CRF Default: next session · Light Passive: 2 sessions · Passive: 5 sessions). Verdicts pulled pre-market, after close, on weekends or holidays aren\'t counted — they aren\'t tradable when issued. Nothing for you to log — and stays hidden until at least 20 verdicts are graded. "If followed at recommended size" simulates the return you\'d have realized sizing exactly as recommended — FLAT and no-size calls aren\'t counted as a trade either way. The UP vs DOWN split and Top 5 Tickers are pooled across every user and every tier, not just your own account — each side needs 5+ graded verdicts before it shows a number. "Your Log" below is your own record — tap ✓ RIGHT or ✗ WRONG after a session closes to build it.',
+  scorecard: 'Two accuracy views in one card. The top half is automatic — UP and DOWN calls are graded at the end of your Aggression Dial horizon (Aggressive: same session · Light Aggressive and CRF Default: next session · Light Passive: 2 sessions · Passive: 5 sessions). Closing in the call\'s direction by any amount is right; closing against it by any amount is wrong. If the stock reached your dial\'s profit target along the way (Aggressive +4% · Light Aggressive +4% · CRF Default +6% · Light Passive +10% · Passive +16%) but still closed against the call, it counts as half right. FLAT calls are right when the stock stayed within half its normal daily move (or moved under 0.1%), half right within one normal day, and are shown on their own line — the headline accuracy counts UP and DOWN calls only. Verdicts pulled pre-market, after close, on weekends or holidays aren\'t counted — they aren\'t tradable when issued. Nothing for you to log — and stays hidden until at least 20 verdicts are graded. "If followed at recommended size" simulates the return you\'d have realized sizing exactly as recommended, exiting at the dial\'s target or stop — FLAT and no-size calls aren\'t counted as a trade either way. The UP vs DOWN split and Top 5 Tickers are pooled across every user and every tier, not just your own account — each side needs 5+ graded verdicts before it shows a number. "Your Log" below is your own record — tap ✓ RIGHT or ✗ WRONG after a session closes to build it.',
   agitator: 'Check out a new stock idea or a rumor before it earns a spot on your watchlist — always free. Type a ticker, a company name, or paste a headline, and get one LOW/MEDIUM/HIGH read built from 6 real signals, plus a few related companies worth a look.',
   'agitator-score': 'One overall score, 0–10, averaging the 6 signals below — a fast read on how big a deal this news might be, not an exact measurement.',
   'agitator-surprise': 'How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.',
