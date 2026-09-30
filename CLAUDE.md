@@ -11825,3 +11825,17 @@ AskUserQuestion: grade every call both ways; remove avg return).
 - **Not verified live.** After deploy, the Day/Long tiles read
   "accumulating" until the backfill and graders catch up. Long grades lag 5
   trading days by design.
+
+## Backend: Free (no dial) verdicts log as CRF Default, not null (Sep 30, 2026)
+
+Direct correction from Mr. T: "the no dial calls should have been part of the
+original grading change." Free has no Aggression Dial, but it has always run
+under CRF Default rules (`effectiveDialPosition` falls back to NEUTRAL). Yet
+`logVerdict` wrote `dial_position: null` for any tier without a dial. That
+made "no dial" look like a separate population in accuracy breakdowns, when
+it was the same rules as CRF Default. `/analyze` now always logs
+`effectiveDialPosition`, both repos. The 290 existing null rows were
+backfilled to NEUTRAL via Supabase MCP. Grades are unchanged: horizon and
+trade-path grading already mapped null to NEUTRAL, and Day/Long grading
+doesn't use the dial. Logged in the Rogue Actions Log as a miss in the Sep 29
+grading change.
