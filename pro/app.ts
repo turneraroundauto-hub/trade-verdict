@@ -1294,13 +1294,26 @@ async function renderScorecardCard(): Promise<void> {
     // is pooled across all users, so the tiles, rows and top tickers all
     // describe the same set of calls.
     var pctColor = (p: number) => p >= 65 ? 'var(--green)' : p >= 50 ? 'var(--amber)' : 'var(--red)';
-    var tile = (label: string, w: any) => '<div class="sc-tile"><div class="sc-tile-lbl">' + label + '</div>'
+    // Pro-only proof line (Sep 30, 2026): the tile's margin of error and how it
+    // compares to calling UP every time on the same calls. "Beats" only when
+    // the gap is bigger than the margin -- otherwise it's not proven yet.
+    var proofHTML = (w: any, pf: any) => {
+      if (!pf) return '';
+      var out = '<div class="sc-tile-proof">&plusmn;' + pf.margin + ' pts</div>';
+      if (pf.alwaysUpPct == null) return out;
+      var gap = w.pct - pf.alwaysUpPct;
+      var verdict = gap > pf.margin ? ['beats it', 'var(--green)']
+        : gap < -pf.margin ? ['trails it', 'var(--red)'] : ['not proven yet', 'var(--amber)'];
+      return out + '<div class="sc-tile-proof">Always-UP ' + pf.alwaysUpPct + '% &middot; <span style="color:' + verdict[1] + '">' + verdict[0] + '</span></div>';
+    };
+    var tile = (label: string, w: any, pf: any) => '<div class="sc-tile"><div class="sc-tile-lbl">' + label + '</div>'
       + (w && w.pct != null
-        ? '<div class="sc-tile-val" style="color:' + pctColor(w.pct) + '">' + w.pct + '%</div><div class="sc-tile-sub">' + w.gradedCount + ' graded</div>'
+        ? '<div class="sc-tile-val" style="color:' + pctColor(w.pct) + '">' + w.pct + '%</div><div class="sc-tile-sub">' + w.gradedCount + ' graded</div>' + proofHTML(w, pf)
         : '<div class="sc-tile-val" style="font-size:12px;color:var(--ink-dim)">' + (w ? w.gradedCount : 0) + '/20 graded</div>')
       + '</div>';
+    var proof = data.proof || {};
     var html = '<div class="sc-head-row"><div class="track-log-title" style="margin:0">VERDICT ACCURACY</div><span class="sc-pooled-badge">Pooled &middot; all users</span></div>'
-      + '<div class="sc-tile-grid">' + tile('Day trade', data.day) + tile('Long (5 days)', data.long) + '</div>';
+      + '<div class="sc-tile-grid">' + tile('Day trade', data.day, proof.day) + tile('Long (5 days)', data.long, proof.long) + '</div>';
     var cell = (w: any) => w && w.pct != null
       ? '<span class="sc-split-val" style="color:' + pctColor(w.pct) + '">' + w.pct + '%</span>'
       : '<span class="sc-split-val" style="color:var(--ink-dim)">—</span>';
@@ -2028,7 +2041,7 @@ const HELP_CONTENT: Record<string, string> = {
   watchlist: 'Every <a class="help-glossary-link" href="#" data-term="ticker">ticker</a> beyond your top 15 cards lives here. Tap + on any row to move it up into your main list.',
   proxy: 'Shows which sector or stock each ticker is compared against for <a class="help-glossary-link" href="#" data-term="gate 5">Gate 5</a>, and whether they’re still moving together right now.',
   heatmap: 'A color-coded snapshot of major sectors and every ticker in your watchlist, sorted by today’s % change.',
-  scorecard: 'Pooled across every user and tier, so every number here describes the same set of calls. Each verdict is graded twice. Day trade: did it close in the call\'s direction at that same session\'s close? Long: did it close in the call\'s direction 5 trading days later? Closing against the call by any amount is wrong. If the stock reached +4% (day) or +16% (long) in the call\'s direction along the way but still closed against it, it counts as half right. FLAT calls are right when the stock stayed within half its normal move for that window (or moved under 0.1%), half right within one normal move. The two tiles count UP and DOWN calls only; the rows below split UP, DOWN and FLAT. Verdicts pulled pre-market, after close, on weekends or holidays aren\'t counted — they aren\'t tradable when issued. Each tile stays hidden until 20 calls are graded; each row and ticker needs 5. "Your Log" below is your own record — tap ✓ RIGHT or ✗ WRONG after a session closes to build it.',
+  scorecard: 'Pooled across every user and tier, so every number here describes the same set of calls. Each verdict is graded twice. Day trade: did it close in the call\'s direction at that same session\'s close? Long: did it close in the call\'s direction 5 trading days later? Closing against the call by any amount is wrong. If the stock reached +4% (day) or +16% (long) in the call\'s direction along the way but still closed against it, it counts as half right. FLAT calls are right when the stock stayed within half its normal move for that window (or moved under 0.1%), half right within one normal move. The two tiles count UP and DOWN calls only; the rows below split UP, DOWN and FLAT. Verdicts pulled pre-market, after close, on weekends or holidays aren\'t counted — they aren\'t tradable when issued. Each tile stays hidden until 20 calls are graded; each row and ticker needs 5. Under each tile: the \u00b1 range is the margin of error (the true rate is likely within it), and Always-UP is what calling UP on every one of those same calls would have scored. "Beats it" only shows when the gap is bigger than the range. "Your Log" below is your own record — tap ✓ RIGHT or ✗ WRONG after a session closes to build it.',
   agitator: 'Check out a new stock idea or a rumor before it earns a spot on your watchlist — always free. Type a ticker, a company name, or paste a headline, and get one LOW/MEDIUM/HIGH read built from 6 real signals, plus a few related companies worth a look.',
   'agitator-score': 'One overall score, 0–10, averaging the 6 signals below — a fast read on how big a deal this news might be, not an exact measurement.',
   'agitator-surprise': 'How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.',
