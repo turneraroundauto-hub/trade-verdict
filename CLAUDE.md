@@ -11783,3 +11783,45 @@ no Alpaca errors; 476 more were due and queued. `gradeHorizonRows()` takes `HORI
 (150) per 30-min sweep, so a full re-grade takes ~1.5-2h — the Scorecard shows a smaller, shifting count
 until it finishes. Off-hours verdicts (220 of 854 at the time) stay excluded by design. Old baseline for
 comparison: 55.1% directional, +0.48% avg return per sized trade (Sep 13, 2026).
+
+## Backend/Frontend: Scorecard becomes Day trade + Long, fully pooled; Pro gets a margin and an always-UP baseline (Sep 30, 2026, `Tra` #129 / `trade-verdict` #370)
+
+Mr. T asked why larger samples looked less accurate. Cause: the Scorecard
+headline was the viewer's own calls (118, 52.5%), but the rows below it
+were pooled across all users, all under a "Pooled" badge. Grades are
+recorded once and frozen, never re-scored. He asked to swap direction/
+avg-return for "day trade and long position accuracy" (confirmed via
+AskUserQuestion: grade every call both ways; remove avg return).
+
+- New `verdict_log` columns (`supabase-ddl-patch25` here / `patch23` in
+  Tra, grants re-checked clean). `GRADE_WINDOWS`:
+  - Day = the same session's close, target +4%.
+  - Long = the close 5 sessions later, target +16%, FLAT band ×√5.
+  - Both reuse `gradeDirectionalCall`/`classifyFlatReturn`.
+  - `backfillDayLongFields()` stamps past market-open rows.
+  - `gradeWindowRows("day"|"long")` runs in the 30-min sweep, 150 rows per
+    window per sweep.
+- `/scorecard` is pooled for every tier:
+  - Day/Long tiles need 20 graded UP/DOWN calls.
+  - The UP/DOWN/FLAT rows are split day vs long, with top tickers below.
+    Rows and tickers need 5.
+  - Avg return/expectancy is removed from the card.
+- Horizon grading (`grade_horizon`) is unchanged. It still feeds the
+  confidence ceiling and the ticker-card TRACK RECORD.
+- **Pro only (server sends `proof` only when `tierConfig.tracker`):** each
+  tile shows a ±95% margin of error, plus "Always-UP X%". That's the share
+  of the same graded calls whose window closed up.
+  - "beats it" (green): the tile beats Always-UP by more than the margin.
+  - "trails it" (red): the reverse.
+  - "not proven yet" (amber): anything in between.
+  - The margin ignores day-to-day clustering (calls on one market day move
+    together), so it's optimistic.
+- `?v=`: Starter 123, Pro 71.
+- Verified:
+  - Headless Chromium on both tiers: Starter shows no proof line even when
+    the mock includes one.
+  - A `tileProof` simulation.
+  - `npm test` 92/92.
+- **Not verified live.** After deploy, the Day/Long tiles read
+  "accumulating" until the backfill and graders catch up. Long grades lag 5
+  trading days by design.
