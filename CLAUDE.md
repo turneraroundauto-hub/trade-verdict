@@ -11839,3 +11839,30 @@ backfilled to NEUTRAL via Supabase MCP. Grades are unchanged: horizon and
 trade-path grading already mapped null to NEUTRAL, and Day/Long grading
 doesn't use the dial. Logged in the Rogue Actions Log as a miss in the Sep 29
 grading change.
+
+## Backend: grading sweep catches up in one pass; accuracy caches clear on new grades (Sep 30, 2026, `Tra` + `trade-verdict`)
+
+After the Day/Long launch the Scorecard sat at "0/20 graded" for a while. Two causes:
+- Each 30-min sweep graded only one batch of 150 rows per window (horizon, day, long).
+  A backlog of ~500 took hours.
+- `fetchScorecardPool()` cached its first (empty) read for 30 min. The historical and
+  directional accuracy caches do the same for up to an hour.
+
+Fix, in `runVerdictGradingSweep()`:
+- `gradeUntilCaughtUp()` repeats a window's grader until a batch grades nothing. That means
+  it's caught up, or only rows whose bars fetch keeps failing are left; those retry next sweep.
+  It's capped at `GRADING_MAX_BATCHES_PER_SWEEP` (10 batches, 1,500 rows) per window per
+  sweep, so a stuck row can't loop forever. Alpaca calls still go through `alpacaGet()`'s throttle.
+- `clearAccuracyCaches()` resets `scorecardPoolCache`, `historicalReactionCache`, and
+  `directionalAccuracyCache` whenever a sweep grades any horizon, day, or long rows.
+- A `verdictGradingSweepRunning` guard stops a long catch-up sweep from overlapping the next
+  timer tick.
+
+Verified:
+- A simulation: a 476-row backlog graded in 5 batches; a stuck queue stopped after 1 batch;
+  a never-empty queue capped at 10.
+- `node --check`; `npm test` 92/92.
+- A local boot of Tra's `server.js`.
+
+Not yet verified live: check Render logs for one `Verdict grading sweep:` line clearing the
+backlog in a single sweep.
