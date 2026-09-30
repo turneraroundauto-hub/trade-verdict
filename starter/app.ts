@@ -1190,61 +1190,34 @@ async function renderScorecardCard(): Promise<void> {
   try {
     var res = await fetch(addSecret(API_URL + '/scorecard'), { headers: authH() });
     if (res.status === 403) { el.innerHTML = '<div class="track-empty">Scorecard not available on this tier yet.</div>'; return; }
-    if (res.status === 401) { el.innerHTML = '<div class="track-empty">Sign in to see your personal scorecard.</div>'; return; }
     var data = await res.json();
     if (data.insufficientData) {
       el.innerHTML = '<div class="track-empty">Accumulating — ' + (data.gradedCount || 0) + '/20 graded UP/DOWN verdicts so far. Check back once more verdicts have been scored.</div>';
       return;
     }
-    // Strict accuracy dropped (Sep 2026, direct feedback -- mirror of
-    // pro/app.ts's own comment). `data.strictPct` is still on the wire,
-    // unread here on purpose.
-    //
-    // Rebuilt to match the approved "Unified Stack" sandbox mockup, which
-    // a first build had drifted from (direct screenshot feedback) --
-    // mirror of pro/app.ts's own rebuild, same reasoning.
-    var exp = data.expectancy;
-    var retTileHTML = '';
-    if (exp && exp.insufficientSizedData) {
-      retTileHTML = '<div class="sc-tile"><div class="sc-tile-lbl">Avg return / trade</div><div class="sc-tile-val" style="font-size:12px;color:var(--ink-dim)">' + exp.sizedGradedCount + '/5 sized</div></div>';
-    } else if (exp) {
-      var retColor = exp.avgSimulatedReturnPct >= 0 ? 'var(--green)' : 'var(--red)';
-      var retSign = exp.avgSimulatedReturnPct >= 0 ? '+' : '';
-      // Win rate dropped too, same reasoning as pro/app.ts.
-      retTileHTML = '<div class="sc-tile"><div class="sc-tile-lbl">Avg return / trade</div><div class="sc-tile-val" style="color:' + retColor + '">' + retSign + exp.avgSimulatedReturnPct + '%</div></div>';
-    }
-    var html = '<div class="sc-head-row"><div class="track-log-title" style="margin:0">VERDICT ACCURACY</div><span class="sc-pooled-badge">Pooled &middot; ' + data.gradedCount + ' graded</span></div>'
-      + '<div class="sc-tile-grid"><div class="sc-tile"><div class="sc-tile-lbl">Directional accuracy</div><div class="sc-tile-val">' + data.directionalPct + '%</div></div>' + retTileHTML + '</div>';
-    // FLAT calls on their own line (Sep 29, 2026) -- the headline tile is
-    // UP/DOWN only, so a run of easy FLATs can't prop it up.
-    html += (data.flatPct != null)
-      ? '<div class="trigger-row"><span class="trigger-lbl">FLAT calls (separate)</span><span class="trigger-val">' + data.flatPct + '%</span><span class="trigger-sub">' + data.flatGradedCount + '</span></div>'
-      : '<div class="trigger-row"><span class="trigger-lbl">FLAT calls (separate)</span><span class="trigger-val" style="color:var(--ink-dim)">—</span><span class="trigger-sub">' + (data.flatGradedCount || 0) + '/5</span></div>';
-    // BY TICKER breakdown removed Sep 2, 2026; the by-gate1-branch/
-    // pre-gate-state/gate0-read/gate2-corroboration breakdown removed Sep
-    // 13, 2026 -- mirror of pro/app.ts's own comment. Replaced by the
-    // tiles above -- directional accuracy answers "was the call right";
-    // avg return answers "would following it at the recommended size
-    // have made money," which % accuracy alone can't.
-    //
-    // UP/DOWN split + top-5 pooled tickers (Sep 13, 2026, direct follow-up
-    // ask). Both fields are pooled across every user AND every tier -- not
-    // this account's own data -- so they're the same for every viewer
-    // regardless of scope; server omits either side of the split that
-    // hasn't cleared its own 5-graded floor yet (insufficientData) rather
-    // than publishing a noisy early percentage.
-    var db = data.directionBreakdown;
-    if (db) {
-      var dirRow = (label: string, d: any) => d && !d.insufficientData
-        ? '<div class="trigger-row"><span class="trigger-lbl">' + label + '</span><span class="trigger-val">' + d.directionalPct + '%</span><span class="trigger-sub">' + d.gradedCount + '</span></div>'
-        : '<div class="trigger-row"><span class="trigger-lbl">' + label + '</span><span class="trigger-val" style="color:var(--ink-dim)">—</span><span class="trigger-sub">' + (d ? d.gradedCount : 0) + '/5</span></div>';
-      html += dirRow('UP verdicts', db.up) + dirRow('DOWN verdicts', db.down);
-    }
+    // Rebuilt Sep 30, 2026 (Mr. T's call): Day trade and Long accuracy
+    // replace directional accuracy + avg return. Every number on this card
+    // is pooled across all users, so the tiles, rows and top tickers all
+    // describe the same set of calls.
+    var pctColor = (p: number) => p >= 65 ? 'var(--green)' : p >= 50 ? 'var(--amber)' : 'var(--red)';
+    var tile = (label: string, w: any) => '<div class="sc-tile"><div class="sc-tile-lbl">' + label + '</div>'
+      + (w && w.pct != null
+        ? '<div class="sc-tile-val" style="color:' + pctColor(w.pct) + '">' + w.pct + '%</div><div class="sc-tile-sub">' + w.gradedCount + ' graded</div>'
+        : '<div class="sc-tile-val" style="font-size:12px;color:var(--ink-dim)">' + (w ? w.gradedCount : 0) + '/20 graded</div>')
+      + '</div>';
+    var html = '<div class="sc-head-row"><div class="track-log-title" style="margin:0">VERDICT ACCURACY</div><span class="sc-pooled-badge">Pooled &middot; all users</span></div>'
+      + '<div class="sc-tile-grid">' + tile('Day trade', data.day) + tile('Long (5 days)', data.long) + '</div>';
+    var cell = (w: any) => w && w.pct != null
+      ? '<span class="sc-split-val" style="color:' + pctColor(w.pct) + '">' + w.pct + '%</span>'
+      : '<span class="sc-split-val" style="color:var(--ink-dim)">—</span>';
+    var b = data.breakdown || {};
+    var splitRow = (label: string, r: any) => '<div class="sc-split"><span class="trigger-lbl">' + label + '</span>' + cell(r && r.day) + cell(r && r.long) + '</div>';
+    html += '<div class="sc-split sc-split-head"><span></span><span>DAY</span><span>LONG</span></div>'
+      + splitRow('UP calls', b.up) + splitRow('DOWN calls', b.down) + splitRow('FLAT calls', b.flat);
     if (data.topTickers && data.topTickers.length) {
-      var topRows = data.topTickers.map((t: any) => {
-        var color = t.directionalPct >= 65 ? 'var(--green)' : t.directionalPct >= 50 ? 'var(--amber)' : 'var(--red)';
-        return '<div class="trigger-row"><span class="trigger-lbl"><a class="ticker-a" href="' + tickerHref(t.ticker) + '" target="_blank">' + t.ticker + '</a></span><span class="trigger-val" style="color:' + color + '">' + t.directionalPct + '%</span><span class="trigger-sub">' + t.gradedCount + '</span></div>';
-      }).join('');
+      var topRows = data.topTickers.map((t: any) =>
+        '<div class="trigger-row"><span class="trigger-lbl"><a class="ticker-a" href="' + tickerHref(t.ticker) + '" target="_blank">' + t.ticker + '</a></span><span class="trigger-val" style="color:' + pctColor(t.pct) + '">' + t.pct + '%</span><span class="trigger-sub">' + t.gradedCount + '</span></div>'
+      ).join('');
       html += '<div class="track-log-title" style="margin-top:12px">TOP TICKERS (POOLED)</div>' + topRows;
     }
     el.innerHTML = html;
@@ -1589,7 +1562,7 @@ const HELP_CONTENT: Record<string, string> = {
   gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against — feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read — tap the docked bar to jump back to top. Pre/post-market prices are IEX-only and may vary from the full consolidated tape; built for regular-session (9:30am–4pm ET) analysis.',
   pulse: 'A quick, AI-written summary of today’s market mood and which <a class="help-glossary-link" href="#" data-term="sector rotation">sectors</a> are leading or lagging. For your information only — it never changes a gate or a verdict.',
   io: 'Type or paste <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names — one per line, or separated by commas. All caps (AAPL) adds a ticker directly; type it any other way (Tesla) and it resolves to the right symbol. Analyze All runs your full watchlist, up to 7 credits.',
-  scorecard: 'Real, server-graded accuracy — UP and DOWN calls are graded at the end of your Aggression Dial horizon (Aggressive: same session · Light Aggressive and CRF Default: next session · Light Passive: 2 sessions · Passive: 5 sessions). Closing in the call\'s direction by any amount is right; closing against it by any amount is wrong. If the stock reached your dial\'s profit target along the way (Aggressive +4% · Light Aggressive +4% · CRF Default +6% · Light Passive +10% · Passive +16%) but still closed against the call, it counts as half right. FLAT calls are right when the stock stayed within half its normal daily move (or moved under 0.1%), half right within one normal day, and are shown on their own line — the headline accuracy counts UP and DOWN calls only. Verdicts pulled pre-market, after close, on weekends or holidays aren\'t counted — they aren\'t tradable when issued. No manual logging needed. Suppressed until at least 20 verdicts have been graded. "If followed at recommended size" simulates the return you\'d have realized sizing exactly as recommended, exiting at the dial\'s target or stop — FLAT and no-size calls aren\'t counted as a trade either way. The UP vs DOWN split and Top 5 Tickers are pooled across every user and every tier, not just your own account — each side needs 5+ graded verdicts before it shows a number. "Your Log" — your own manually-logged ✓/✗ record — is a Pro feature.',
+  scorecard: 'Pooled across every user and tier, so every number here describes the same set of calls. Each verdict is graded twice. Day trade: did it close in the call\'s direction at that same session\'s close? Long: did it close in the call\'s direction 5 trading days later? Closing against the call by any amount is wrong. If the stock reached +4% (day) or +16% (long) in the call\'s direction along the way but still closed against it, it counts as half right. FLAT calls are right when the stock stayed within half its normal move for that window (or moved under 0.1%), half right within one normal move. The two tiles count UP and DOWN calls only; the rows below split UP, DOWN and FLAT. Verdicts pulled pre-market, after close, on weekends or holidays aren\'t counted — they aren\'t tradable when issued. Each tile stays hidden until 20 calls are graded; each row and ticker needs 5. "Your Log" — your own manually-logged ✓/✗ record — is a Pro feature.',
   agitator: 'Check out a new stock idea or a rumor before it earns a spot on your watchlist — always free. Type a ticker, a company name, or paste a headline, and get one LOW/MEDIUM/HIGH read built from 6 real signals, plus a few related companies worth a look.',
   'agitator-score': 'One overall number, 0-10, averaging the 6 signals below it — a quick read on how big a deal this news might be for the stock, not a precise measurement.',
   'agitator-surprise': 'How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.',
