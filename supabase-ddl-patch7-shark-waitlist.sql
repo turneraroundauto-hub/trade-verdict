@@ -25,3 +25,9 @@ create policy "anon can join shark waitlist"
 -- Remember: Data API → Exposed tables requires this table to be listed
 -- (or "Automatically expose new tables" left ON) before PostgREST will
 -- serve it — same gotcha as every other table added to this project.
+
+-- Fix (Oct 14, 2026): the insert policy above never had a matching GRANT —
+-- anon had zero table privileges, so every submission was rejected
+-- ("Something went wrong"). Column-level INSERT only, no read access.
+revoke all on public.shark_waitlist from anon, authenticated;
+grant insert (email) on public.shark_waitlist to anon;
