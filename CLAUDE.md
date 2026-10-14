@@ -11866,3 +11866,32 @@ Verified:
 
 Not yet verified live: check Render logs for one `Verdict grading sweep:` line clearing the
 backlog in a single sweep.
+
+## Frontend: Google Play rating prompt — Free tier, Play app only (Oct 14, 2026)
+
+Mr. T asked for a "do you like the app? 1-5 stars → send to Play" prompt. Flagged before
+building: showing stars and sending only happy users to Play is **review gating**, banned by
+Play's ratings policy (and Play's in-app review guidelines say not to ask "do you like it"
+first) — risky on an app already under review. Also: closed-testing testers can't post public
+reviews at all, only private feedback. Chosen via `AskUserQuestion`: no stars, everyone → Play,
+after the 3rd analysis.
+
+`shared/rate-prompt.ts` (bundler-only, Free only — the TWA wraps Free): counts successful
+analyses in `tv_rate_analyses`; shows `#rate-prompt` (a floating card on the same blurred
+backdrop as the sign-in nudge) 1.5s after the 3rd one. "Rate on Google Play" opens an Android
+`intent://` URL for `com.android.vending` (falls back to the web listing) and stops it for good;
+"Later"/tap-outside snoozes 7 days; "Don't ask again" stops it. Only shown inside the Play app:
+`isPlayApp()` = `android-app://` referrer this session, or `tv_device_platform === 'twa'`.
+**Preview in a normal browser with `?ratepreview`** (then run 3 analyses).
+
+Two real collisions found in headless testing and fixed: the first-run tutorial swallows clicks
+while active, so the prompt won't open during it (`rolodex.isTutorialActive()`); and the sign-in
+nudge (3s after load) won't open on top of an already-open rating prompt. The prompt also skips
+while the nudge, ANALYZE spotlight, or out-of-credits screen is up and retries after the next
+analysis. Test note: the tutorial's "seen" key is now `tv_tutorial_seen_free_v2` — set it, not
+just the old key, or a test's clicks get swallowed.
+
+Verified via headless Chromium: web never shows it; Play app shows after 3 analyses; Rate/Later/
+Never set the right state and Later/Never stay hidden across reloads; below 3 analyses it stays
+hidden; it never stacks over the nudge. `index.html` `?v=` 105→106. **Not verified on a real
+device** — confirm on the Play-installed app that "Rate" opens the Play Store listing.
