@@ -11895,3 +11895,21 @@ Verified via headless Chromium: web never shows it; Play app shows after 3 analy
 Never set the right state and Later/Never stay hidden across reloads; below 3 analyses it stays
 hidden; it never stacks over the nudge. `index.html` `?v=` 105→106. **Not verified on a real
 device** — confirm on the Play-installed app that "Rate" opens the Play Store listing.
+
+**Follow-up, same day: extended to Starter and Pro.** Mr. T, signed in to Pro, saw no prompt after
+analyzing 15 tickers. Cause: the Play app launches the root (Free) page, and Free redirects a signed-in
+paid session to `/starter/` or `/pro/` before its own code runs. The `android-app://` referrer only
+exists on that first page, so after the redirect nothing knew it was the Play app, and Starter/Pro had
+no prompt anyway. Fix:
+- `notePlayAppLaunch()` runs at the top of Free's `app.ts`, before the redirect, and stores
+  `tv_twa_session` in sessionStorage. It's the same tab and origin, so `/starter/` and `/pro/` can read it.
+- `shared/rate-prompt.ts` now owns the whole feature (show, busy checks, button wiring). All three tiers
+  call `initRatePrompt()` once and `onAnalysisSucceeded()` after each successful `/analyze`. Starter/Pro
+  `index.html` carry the same `#rate-prompt` markup.
+- Showing is debounced to 2s after the LAST success, so Analyze All (15 at once on Pro) shows it once,
+  after the batch, not mid-batch. The settings modal joins the blocking-overlay list.
+Test note: headless Chromium drops an `android-app://` referrer from `goto({referer})`, so fake it with
+an init script that overrides `document.referrer` on the root page only.
+Verified: Play launch → redirect to Pro → Analyze All 15 shows it exactly once after the batch; Pro on the
+web never shows it; Starter via `?ratepreview` shows it and "Don't ask again" sticks; Free still works.
+`?v=`: Free 107, Starter 124, Pro 72.
