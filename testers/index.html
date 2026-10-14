@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Become a Tester | Trade Tribunal</title>
+<style>
+:root{--bg:#080c12;--surface:#121a24;--border:rgba(255,255,255,.12);--green:#00e676;--red:#ff1744;--ink:#e9edf3;--ink-dim:#98a1ad}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh;min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px 16px}
+.wrap{width:100%;max-width:380px;text-align:center}
+.logo{width:56px;height:56px;border-radius:12px;margin-bottom:10px}
+h1{font-size:22px;margin:0 0 6px}
+.tag{font-size:14px;color:var(--ink-dim);line-height:1.5;margin:0 0 20px}
+form{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;text-align:left}
+label{display:block;font-size:12px;color:var(--ink-dim);margin:0 0 6px;letter-spacing:.04em}
+input,select{width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:6px;padding:12px;color:var(--ink);font-size:16px;margin-bottom:14px}
+select{appearance:none}
+button{width:100%;background:rgba(0,230,118,.14);border:1px solid rgba(0,230,118,.5);color:var(--green);border-radius:6px;padding:13px;font-size:15px;font-weight:700;letter-spacing:.06em;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+.status{font-size:13px;margin-top:12px;min-height:18px;text-align:center}
+.ok{color:var(--green)}.err{color:var(--red)}
+.fine{font-size:11px;color:var(--ink-dim);margin-top:14px;line-height:1.5}
+.fine a{color:var(--ink-dim)}
+.hp{position:absolute;left:-9999px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <img class="logo" src="../shared/assets/logo-mark.png" alt="">
+  <h1>Become a Trade Tribunal tester</h1>
+  <p class="tag">Get early access to the Android app and help shape it. Takes 10 seconds.</p>
+  <form id="f" novalidate>
+    <label for="email">EMAIL (the one on your Google Play account)</label>
+    <input id="email" type="email" autocomplete="email" placeholder="you@gmail.com" required>
+    <label for="phone">PHONE</label>
+    <input id="phone" type="tel" autocomplete="tel" placeholder="(555) 555-0100" required>
+    <label for="device">PHONE TYPE</label>
+    <select id="device"><option value="android">Android</option><option value="iphone">iPhone</option><option value="other">Other</option></select>
+    <input id="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+    <button id="btn" type="submit">SIGN ME UP</button>
+    <div id="status" class="status"></div>
+  </form>
+  <p class="fine">We'll only use this to invite you to testing. <a href="../privacy/">Privacy policy</a></p>
+</div>
+<script>
+const SUPABASE_URL='https://oinomcikdyisrbfeeirp.supabase.co';
+const SUPABASE_ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9pbm9tY2lrZHlpc3JiZmVlaXJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ2NzM3NzgsImV4cCI6MjEwMDI0OTc3OH0.PiMDYsSZjNd4Iw-0wbQH4niDvUmW8ymycmiyb5Raf1w';
+const f=document.getElementById('f'),btn=document.getElementById('btn'),st=document.getElementById('status');
+function say(cls,msg){st.className='status '+cls;st.textContent=msg;}
+f.addEventListener('submit',async function(e){
+  e.preventDefault();
+  if(document.getElementById('website').value)return; // bot honeypot
+  var email=document.getElementById('email').value.trim().toLowerCase();
+  var phone=document.getElementById('phone').value.trim();
+  var device=document.getElementById('device').value;
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return say('err','Enter a valid email.');
+  var digits=phone.replace(/\D/g,'');
+  if(digits.length<7||digits.length>15||!/^[0-9+()\-. ]+$/.test(phone))return say('err','Enter a valid phone number.');
+  btn.disabled=true;say('','');
+  try{
+    var res=await fetch(SUPABASE_URL+'/rest/v1/tester_signups',{method:'POST',
+      headers:{'apikey':SUPABASE_ANON,'Authorization':'Bearer '+SUPABASE_ANON,'Content-Type':'application/json','Prefer':'return=minimal'},
+      body:JSON.stringify({email:email,phone:phone,device:device})});
+    if(res.ok||res.status===409){say('ok',"You're in! Watch your email for the tester invite.");f.reset();}
+    else say('err','Something went wrong. Please try again.');
+  }catch(_){say('err','Something went wrong. Please try again.');}
+  finally{btn.disabled=false;}
+});
+</script>
+</body>
+</html>

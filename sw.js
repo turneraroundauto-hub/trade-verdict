@@ -26,7 +26,7 @@ self.addEventListener('activate', (event) => {
 // deliberately not linked from any tier's nav and never opened by the Play
 // TWA (which only ever navigates to the root URL). This worker must never
 // intercept or cache anything under it.
-const OTHER_TIER_PATHS = ['/starter/', '/pro/', '/shark/', '/reset/', '/privacy/', '/preview/'];
+const OTHER_TIER_PATHS = ['/starter/', '/pro/', '/shark/', '/reset/', '/privacy/', '/preview/', '/testers/'];
 
 // Network-first: always prefer a fresh response. Only fall back to the
 // cached shell when there's no network at all (this repo has been bitten
