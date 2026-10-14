@@ -1699,11 +1699,13 @@ var PLAY_LISTING_URL = "https://play.google.com/store/apps/details?id=" + PLAY_P
 var PLAY_INTENT_URL = "intent://details?id=" + PLAY_PACKAGE + "#Intent;scheme=market;package=com.android.vending;S.browser_fallback_url=" + encodeURIComponent(PLAY_LISTING_URL) + ";end";
 var RATE_MIN_ANALYSES = 3;
 var RATE_SNOOZE_MS = 7 * 24 * 60 * 60 * 1e3;
+var RATE_SHOW_DELAY_MS = 2e3;
 var COUNT_KEY = "tv_rate_analyses";
 var STATE_KEY = "tv_rate_state";
 var SNOOZE_KEY = "tv_rate_snooze_until";
 var TWA_SESSION_KEY = "tv_twa_session";
 var PLATFORM_KEY = "tv_device_platform";
+var BLOCKING_OVERLAY_IDS = ["signin-nudge", "comeback-screen", "settings-modal"];
 function lsGet(k) {
   try {
     return localStorage.getItem(k);
@@ -1717,9 +1719,15 @@ function lsSet(k, v) {
   } catch {
   }
 }
-function isPlayApp() {
+function notePlayAppLaunch() {
   try {
     if (document.referrer.indexOf("android-app://") === 0) sessionStorage.setItem(TWA_SESSION_KEY, "1");
+  } catch {
+  }
+}
+function isPlayApp() {
+  notePlayAppLaunch();
+  try {
     if (sessionStorage.getItem(TWA_SESSION_KEY) === "1") return true;
     if (/[?&]ratepreview\b/.test(location.search)) return true;
   } catch {
@@ -1734,23 +1742,58 @@ function shouldShowRatePrompt(now = Date.now()) {
   const snooze = Number(lsGet(SNOOZE_KEY) || 0);
   return !(snooze && now < snooze);
 }
-function recordAnalysisForRating() {
-  lsSet(COUNT_KEY, String(Number(lsGet(COUNT_KEY) || 0) + 1));
-  return shouldShowRatePrompt();
+function isVisible(el) {
+  return !!el && getComputedStyle(el).display !== "none";
 }
-function openPlayListing() {
-  lsSet(STATE_KEY, "rated");
-  try {
-    window.location.href = PLAY_INTENT_URL;
-  } catch {
-    window.open(PLAY_LISTING_URL, "_blank");
+function isRatePromptOpen() {
+  return isVisible(document.getElementById("rate-prompt"));
+}
+function showRatePromptIfAllowed() {
+  if (!shouldShowRatePrompt()) return;
+  const busy = BLOCKING_OVERLAY_IDS.some(function(id) {
+    return isVisible(document.getElementById(id));
+  }) || !!document.querySelector(".spotlight-ring") || isTutorialActive();
+  if (busy) return;
+  const el = document.getElementById("rate-prompt");
+  if (el) el.style.display = "flex";
+}
+var showTimer = null;
+function onAnalysisSucceeded() {
+  lsSet(COUNT_KEY, String(Number(lsGet(COUNT_KEY) || 0) + 1));
+  if (!shouldShowRatePrompt()) return;
+  if (showTimer) clearTimeout(showTimer);
+  showTimer = setTimeout(function() {
+    showTimer = null;
+    showRatePromptIfAllowed();
+  }, RATE_SHOW_DELAY_MS);
+}
+function closeRatePrompt(action) {
+  const el = document.getElementById("rate-prompt");
+  if (el) el.style.display = "none";
+  if (action === "rate") {
+    lsSet(STATE_KEY, "rated");
+    try {
+      window.location.href = PLAY_INTENT_URL;
+    } catch {
+      window.open(PLAY_LISTING_URL, "_blank");
+    }
+  } else if (action === "never") {
+    lsSet(STATE_KEY, "never");
+  } else {
+    lsSet(SNOOZE_KEY, String(Date.now() + RATE_SNOOZE_MS));
   }
 }
-function snoozeRatePrompt(now = Date.now()) {
-  lsSet(SNOOZE_KEY, String(now + RATE_SNOOZE_MS));
-}
-function neverAskRatePrompt() {
-  lsSet(STATE_KEY, "never");
+function initRatePrompt() {
+  const on = function(id, action) {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("click", function() {
+      closeRatePrompt(action);
+    });
+  };
+  on("rate-prompt-rate", "rate");
+  on("rate-prompt-later", "later");
+  on("rate-prompt-backdrop", "later");
+  on("rate-prompt-never", "never");
 }
 
 // app.ts
@@ -1970,6 +2013,7 @@ async function handleSignup() {
     btn.disabled = false;
   }
 }
+notePlayAppLaunch();
 var redirectingToPaidTier = false;
 try {
   storedForRedirect = getStoredSession();
@@ -2467,7 +2511,7 @@ async function analyzeOne(sym) {
     renderRoloCard(sym);
     renderPill(sym);
     fetchCreditStatus();
-    if (recordAnalysisForRating()) setTimeout(maybeShowRatePrompt, 1500);
+    onAnalysisSucceeded();
   } catch (e) {
     state.analyzing = false;
     state.error = e.message;
@@ -3038,8 +3082,7 @@ function maybeShowSignInNudge() {
   if (el) el.style.display = "flex";
 }
 function nudgeOrSpotlight() {
-  const rp = document.getElementById("rate-prompt");
-  if (rp && rp.style.display === "flex") return;
+  if (isRatePromptOpen()) return;
   if (shouldShowSignInNudge()) maybeShowSignInNudge();
   else maybeShowAnalyzeSpotlight();
 }
@@ -3047,23 +3090,6 @@ function closeSignInNudge() {
   const el = document.getElementById("signin-nudge");
   if (el) el.style.display = "none";
   maybeShowAnalyzeSpotlight();
-}
-function maybeShowRatePrompt() {
-  if (!shouldShowRatePrompt()) return;
-  const busy = ["signin-nudge", "comeback-screen"].some(function(id) {
-    const el2 = document.getElementById(id);
-    return !!el2 && el2.style.display !== "none" && el2.style.display !== "";
-  }) || !!document.querySelector(".spotlight-ring") || isTutorialActive();
-  if (busy) return;
-  const el = document.getElementById("rate-prompt");
-  if (el) el.style.display = "flex";
-}
-function closeRatePrompt(action) {
-  const el = document.getElementById("rate-prompt");
-  if (el) el.style.display = "none";
-  if (action === "rate") openPlayListing();
-  else if (action === "never") neverAskRatePrompt();
-  else snoozeRatePrompt();
 }
 function activeAnalyzeButton() {
   const cards = Array.from(roloStage.querySelectorAll(".rolo-card"));
@@ -3227,22 +3253,7 @@ async function boot() {
   });
   const comebackClose = document.getElementById("comeback-close-btn");
   if (comebackClose) comebackClose.addEventListener("click", closeComebackScreen);
-  const rateBtn = document.getElementById("rate-prompt-rate");
-  if (rateBtn) rateBtn.addEventListener("click", function() {
-    closeRatePrompt("rate");
-  });
-  const rateLater = document.getElementById("rate-prompt-later");
-  if (rateLater) rateLater.addEventListener("click", function() {
-    closeRatePrompt("later");
-  });
-  const rateBackdrop = document.getElementById("rate-prompt-backdrop");
-  if (rateBackdrop) rateBackdrop.addEventListener("click", function() {
-    closeRatePrompt("later");
-  });
-  const rateNever = document.getElementById("rate-prompt-never");
-  if (rateNever) rateNever.addEventListener("click", function() {
-    closeRatePrompt("never");
-  });
+  initRatePrompt();
   const signinNudgeDismiss = document.getElementById("signin-nudge-dismiss");
   if (signinNudgeDismiss) signinNudgeDismiss.addEventListener("click", closeSignInNudge);
   const signinNudgeBackdrop = document.getElementById("signin-nudge-backdrop-close");

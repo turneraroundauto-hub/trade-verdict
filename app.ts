@@ -53,7 +53,7 @@ import { initWatchlistSync, pullWatchlistFromServer, schedulePushWatchlist } fro
 import { getTzPref, getTzIana, forceDefaults } from './shared/prefs';
 import { highlightContextMatches } from './shared/context-highlight';
 import * as rolodex from './shared/rolodex';
-import { recordAnalysisForRating, shouldShowRatePrompt, openPlayListing, snoozeRatePrompt, neverAskRatePrompt } from './shared/rate-prompt';
+import { notePlayAppLaunch, initRatePrompt, onAnalysisSucceeded, isRatePromptOpen } from './shared/rate-prompt';
 import type { AnalyzeResponse, TickerData } from './shared/types.js';
 
 // Free has no Settings UI -- always ET, regardless of a preference set on
@@ -206,6 +206,9 @@ async function handleSignup(): Promise<void> { var email = (document.getElementB
 // execution) could otherwise leave a paid tier's real watchlist clobbered
 // to 3 tickers on the very next load. Guard everything below that touches
 // watchlist state behind this flag.
+// Must run before the paid-tier redirect below: it records that this tab
+// was launched by the Play app, which the redirect would otherwise lose.
+notePlayAppLaunch();
 var redirectingToPaidTier = false;
 try {
   var storedForRedirect = getStoredSession();
@@ -802,7 +805,7 @@ async function analyzeOne(sym: string): Promise<void> {
     vibrateResult();
     renderRoloCard(sym); renderPill(sym);
     fetchCreditStatus();
-    if (recordAnalysisForRating()) setTimeout(maybeShowRatePrompt, 1500);
+    onAnalysisSucceeded();
   } catch (e: any) {
     state.analyzing = false; state.error = e.message;
     renderRoloCard(sym); renderPill(sym);
@@ -1603,8 +1606,7 @@ function maybeShowSignInNudge(): void {
 function nudgeOrSpotlight(): void {
   // Never stack on top of an open Play rating prompt -- the user is already
   // mid-decision there; the nudge comes back on the next app open anyway.
-  const rp = document.getElementById('rate-prompt');
-  if (rp && rp.style.display === 'flex') return;
+  if (isRatePromptOpen()) return;
   if (shouldShowSignInNudge()) maybeShowSignInNudge();
   else maybeShowAnalyzeSpotlight();
 }
@@ -1613,30 +1615,6 @@ function closeSignInNudge(): void {
   const el = document.getElementById('signin-nudge');
   if (el) el.style.display = 'none';
   maybeShowAnalyzeSpotlight();
-}
-
-// ── Google Play rating prompt (Play app only; see shared/rate-prompt.ts) ──
-// Waits 1.5s so the verdict lands first, and never stacks on top of the
-// sign-in nudge, the ANALYZE spotlight, the first-run tutorial (which
-// swallows clicks while active), or the out-of-credits screen -- it
-// just tries again after the next analysis.
-function maybeShowRatePrompt(): void {
-  if (!shouldShowRatePrompt()) return;
-  const busy = ['signin-nudge', 'comeback-screen'].some(function (id) {
-    const el = document.getElementById(id);
-    return !!el && el.style.display !== 'none' && el.style.display !== '';
-  }) || !!document.querySelector('.spotlight-ring') || rolodex.isTutorialActive();
-  if (busy) return;
-  const el = document.getElementById('rate-prompt');
-  if (el) el.style.display = 'flex';
-}
-
-function closeRatePrompt(action: 'rate' | 'later' | 'never'): void {
-  const el = document.getElementById('rate-prompt');
-  if (el) el.style.display = 'none';
-  if (action === 'rate') openPlayListing();
-  else if (action === 'never') neverAskRatePrompt();
-  else snoozeRatePrompt();
 }
 
 function activeAnalyzeButton(): HTMLElement | null {
@@ -1857,14 +1835,7 @@ async function boot(): Promise<void> {
   });
   const comebackClose = document.getElementById('comeback-close-btn');
   if (comebackClose) comebackClose.addEventListener('click', closeComebackScreen);
-  const rateBtn = document.getElementById('rate-prompt-rate');
-  if (rateBtn) rateBtn.addEventListener('click', function () { closeRatePrompt('rate'); });
-  const rateLater = document.getElementById('rate-prompt-later');
-  if (rateLater) rateLater.addEventListener('click', function () { closeRatePrompt('later'); });
-  const rateBackdrop = document.getElementById('rate-prompt-backdrop');
-  if (rateBackdrop) rateBackdrop.addEventListener('click', function () { closeRatePrompt('later'); });
-  const rateNever = document.getElementById('rate-prompt-never');
-  if (rateNever) rateNever.addEventListener('click', function () { closeRatePrompt('never'); });
+  initRatePrompt();
   const signinNudgeDismiss = document.getElementById('signin-nudge-dismiss');
   if (signinNudgeDismiss) signinNudgeDismiss.addEventListener('click', closeSignInNudge);
   // Tap-outside-the-card-to-dismiss, the standard modal affordance now

@@ -603,6 +603,23 @@
 </style>
 </head>
 <body>
+<!-- GOOGLE PLAY RATING PROMPT (Play app only) -- shown after the
+     3rd analysis. No star picker and no gating: "Rate" sends everyone to
+     the Play listing (Play's ratings policy bans review gating). Logic in
+     shared/rate-prompt.ts. -->
+<div id="rate-prompt" style="display:none;align-items:center;justify-content:center;padding:24px;background:rgba(8,12,18,.72);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);position:fixed;inset:0;z-index:999">
+  <div id="rate-prompt-backdrop" style="position:absolute;inset:0"></div>
+  <div style="position:relative;width:100%;max-width:320px;background:var(--surface);border:1px solid var(--border-2);border-radius:12px;padding:22px 20px;box-shadow:0 12px 40px rgba(0,0,0,.5);text-align:center">
+    <div style="font-family:var(--mono);font-size:15px;font-weight:700;color:var(--ink);margin-bottom:8px">Enjoying Trade Tribunal?</div>
+    <div style="font-size:13px;color:var(--ink-dim);line-height:1.5;margin-bottom:18px">A quick rating on Google Play helps other traders find the app.</div>
+    <button id="rate-prompt-rate" type="button" style="width:100%;padding:12px;border:none;border-radius:8px;background:var(--green);color:#081008;font-family:var(--mono);font-size:13px;font-weight:700;letter-spacing:.06em;cursor:pointer">RATE ON GOOGLE PLAY</button>
+    <div style="display:flex;justify-content:space-between;margin-top:14px">
+      <a id="rate-prompt-later" href="javascript:void(0)" style="font-family:var(--mono);font-size:13px;color:var(--ink-dim);text-decoration:underline">Later</a>
+      <a id="rate-prompt-never" href="javascript:void(0)" style="font-family:var(--mono);font-size:13px;color:var(--ink-dim);text-decoration:underline">Don't ask again</a>
+    </div>
+  </div>
+</div>
+
 
 <!-- AUTH SCREEN -->
 <div id="auth-screen" style="display:none;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;background:var(--bg)">
@@ -856,6 +873,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=123"></script>
+<script type="module" src="./app.js?v=124"></script>
 </body>
 </html>

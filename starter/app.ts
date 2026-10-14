@@ -34,6 +34,7 @@ import { getTzPref, getTzIana, onPrefsChange, tickerHref, newsHref, refreshTicke
 import { highlightContextMatches } from '../shared/context-highlight';
 import '../shared/settings-modal';
 import * as rolodex from '../shared/rolodex';
+import { initRatePrompt, onAnalysisSucceeded } from '../shared/rate-prompt';
 import type { AnalyzeResponse, TickerData } from '../shared/types.js';
 
 const API_URL = 'https://tra-zacg.onrender.com';
@@ -809,6 +810,7 @@ async function analyzeOne(sym: string, holdThroughEarnings?: boolean): Promise<v
     vibrateResult();
     renderRoloCard(sym); renderPill(sym);
     fetchCreditStatus();
+    onAnalysisSucceeded();
   } catch (e: any) {
     state.analyzing = false; state.error = e.message;
     renderRoloCard(sym); renderPill(sym);
@@ -830,6 +832,7 @@ function analyzeAll(): void {
   watchlist.forEach((sym) => analyzeOne(sym));
 }
 document.getElementById('analyzeAllBtn')!.addEventListener('click', analyzeAll);
+initRatePrompt();
 document.getElementById('importBtn')!.addEventListener('click', addTickers);
 
 // ── Export watchlist as CSV (profile-menu, per the original plan flagged
