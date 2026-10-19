@@ -176,6 +176,9 @@
   .up{ color:var(--green); } .down{ color:var(--red); } .flat{ color:var(--amber); } .neutral{ color:var(--ink-dim); }
   .gate-note{ font-size:13px; color:var(--ink-dim); line-height:1.45; }
   .market-ts{ font-size:13px; color:var(--ink-dim); line-height:1.4; margin-top:4px; font-family:var(--mono); }
+  .gate-pulse{ margin-top:8px; padding-top:7px; border-top:1px solid var(--border); }
+  .gate-pulse-head{ display:flex; align-items:center; gap:6px; margin-bottom:3px; }
+  .gate-pulse-label{ font-size:13px; color:var(--ink-dim); letter-spacing:.05em; }
 
   .content{ padding:14px 14px 60px; display:flex; flex-direction:column; gap:10px; }
 
@@ -808,6 +811,10 @@
         <div class="gate-grid" id="gateGrid"></div>
         <div class="gate-note" id="gateNote">Fetching live data…</div>
         <div class="market-ts" id="marketTs"></div>
+        <div class="gate-pulse" id="gatePulse">
+          <div class="gate-pulse-head"><span class="gate-pulse-label">SECTOR PULSE</span><button type="button" class="help-btn" data-help="pulse" aria-label="What is this?">?</button></div>
+          <div id="pulse-text" class="pulse-loading text-pulse">Generating market pulse...</div>
+        </div>
       </div>
     </div>
     <div id="gateSpacer"></div>
@@ -829,20 +836,6 @@
         </div></div></div>
       </div>
 
-      <div class="card" data-card="pulse" id="card-pulse">
-        <div class="card-head" tabindex="0" role="button" aria-expanded="false">
-          <span class="card-icon">📡</span>
-          <div class="card-title-wrap">
-            <div class="card-label">Sector Pulse</div>
-            <div class="card-sub">AI market summary</div>
-          </div>
-          <button type="button" class="help-btn" data-help="pulse" aria-label="What is this?">?</button>
-          <svg class="chevron" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </div>
-        <div class="card-body"><div class="card-body-inner"><div class="card-body-pad">
-          <div id="pulse-text" class="pulse-loading text-pulse">Generating market pulse...</div>
-        </div></div></div>
-      </div>
 
       <div class="card" data-card="agitator" id="card-agitator">
         <div class="card-head" tabindex="0" role="button" aria-expanded="false">
@@ -1029,6 +1022,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=73"></script>
+<script type="module" src="./app.js?v=74"></script>
 </body>
 </html>

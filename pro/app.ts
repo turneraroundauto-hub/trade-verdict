@@ -2339,8 +2339,8 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     html: HELP_CONTENT.pulse,
-    getAnchor: () => tutorialAnchor('pulse', 'pulse'),
-    before: () => tutorialExpand('card-pulse'),
+    getAnchor: () => document.querySelector<HTMLElement>('[data-help="pulse"]'),
+    before: () => rolodex.jumpToTop(),
   },
   {
     html: HELP_CONTENT.agitator,

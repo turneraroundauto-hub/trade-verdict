@@ -8218,8 +8218,8 @@ var TUTORIAL_STEPS = [
   },
   {
     html: HELP_CONTENT.pulse,
-    getAnchor: () => tutorialAnchor("pulse", "pulse"),
-    before: () => tutorialExpand("card-pulse")
+    getAnchor: () => document.querySelector('[data-help="pulse"]'),
+    before: () => jumpToTop()
   },
   {
     html: HELP_CONTENT.agitator,

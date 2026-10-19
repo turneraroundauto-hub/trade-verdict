@@ -11930,3 +11930,17 @@ Built from the Oct 13-14 Gate 3 plan and Proposal 9 (Notion Build Log), Pro only
 ## Backend: `verdict_log.gates` — every gate's color on each verdict (Oct 19, 2026, `Tra` #133 / `trade-verdict` #378, both merged)
 
 New `gates jsonb` column: `{ pre_gate, sector, g1, g2, g3, g4, g5, g3_note }`. Statuses only, plus the G3 note (how many bars it saw); other notes are left out to keep rows small, and a missing gate is `null`. Built by `ah.gatesForLog()` (tested) from the statuses `/analyze` already has, so there are no new API or model calls. Order was migration (Tra patch25 / mirror patch28) → merge → deploy, because an insert naming an unknown column would silently drop the verdict (`logVerdict` doesn't check the insert error). Confirmed live: a fresh MU row (Oct 19, 00:22 UTC) had all seven filled. Grants re-checked after: zero anon/authenticated rows across all 14 service-role tables. In the Gate 3 beta (#132/#377), rows also get `g3_bars`, `g3_bars_note`, `g3_bars_done` and `g3_window`, because there the plain `g3` is the model's week read.
+
+## Frontend: Sector Pulse moved into the Gate box, all tiers (Oct 19, 2026)
+
+Mr. T asked for this. The Sector Pulse card is gone. Its text now sits inside the Gate's full view (`#gateFullOverlay`), right under the "Live · Updated" line (`#gatePulse`, still `#pulse-text` and `data-help="pulse"`).
+- It hides when the Gate docks on scroll, same as the rest of the Gate. Starter/Pro show the full text, the same as before.
+- Free shows the real first sentence. Under it is one short fogged line with the Starter upgrade link ("Read the rest?" + UPGRADE TO STARTER →). It's shorter than Starter/Pro on purpose.
+- Free already got the real pulse from `/market`, so there's no backend change.
+- The landscape ribbon no longer has a Pulse item.
+- The tutorial's Pulse step now points at the `?` inside the Gate, after jumping to the top.
+- The Gate box is taller now (about 105-140px more on a phone). Dock/spacer math measures it live, so nothing else changed.
+- `?v=`: Free 108, Starter 125, Pro 74.
+- Verified in headless Chromium on all three tiers, portrait and landscape: Pulse is inside the Gate after the timestamp, the old card is gone, Free shows the fog and upgrade link, and the Gate still docks and hides it on scroll. Zero page errors.
+
+Same day: `GATE3_WINDOW_TIERS=pro` is set on Render. Mr. T is the only Pro account, so nothing changes for anyone else yet.
