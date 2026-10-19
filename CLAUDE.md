@@ -11944,3 +11944,30 @@ Mr. T asked for this. The Sector Pulse card is gone. Its text now sits inside th
 - Verified in headless Chromium on all three tiers, portrait and landscape: Pulse is inside the Gate after the timestamp, the old card is gone, Free shows the fog and upgrade link, and the Gate still docks and hides it on scroll. Zero page errors.
 
 Same day: `GATE3_WINDOW_TIERS=pro` is set on Render. Mr. T is the only Pro account, so nothing changes for anyone else yet.
+
+## Backend: one set of Gate 0 rules, a steady factual Pulse (Oct 19, 2026, `Tra` + `trade-verdict`)
+
+Mr. T flagged Pulse/Gate text contradicting itself minutes apart. Three real causes:
+- **Two Gate 0 copies disagreed.** The boot/9:30 cache warm (`warmTrackedMarketCache`) called ONE
+  index down >1% RED ("both down"); `/market` correctly calls that YELLOW. RED forces DOWN in
+  `/analyze`. Real impact found in `verdict_log`: **15 verdicts on Sep 14, 2026 at 9:31 ET were forced
+  DOWN by a false RED** (SPY −0.74%, QQQ −1.66% per Robinhood 5-min bars — should have been YELLOW).
+  Every other RED row (Oct 14 4:23pm, Oct 18 Sunday) was off-hours, already excluded from grading.
+  Fix: `ah.computeGate0(data)` (analyze-helpers.ts, tested) is now the only Gate 0 rule set; both
+  paths call it.
+- **The Pulse rewrote itself constantly.** Input is now each move rounded to 1 decimal
+  (`ah.buildPulseInput`/`pulsePct`), and while the market is closed the BTC line is left out (it
+  trades 24/7 and forced a new Haiku call every 4 min all night). Note vs the approved plan
+  ("freeze while closed"): a hard freeze would let pre/post-market grid numbers drift away from a
+  frozen Pulse — dropping BTC instead keeps it frozen nights/weekends but still matches the grid in
+  extended hours. Concurrent identical requests share one in-flight call.
+- **The Pulse lagged the grid by one refresh.** `/market` and the warm now wait up to 8s
+  (`pulseForSnapshot`) for the Pulse built from the same numbers before sending; on timeout they send
+  the old one and swap in the new one when it lands.
+- **The prompt invited advice/themes.** `PULSE_PROMPT` now: 2 sentences (strongest up, weakest),
+  quote numbers exactly as given, no causes/themes ("defensive", "risk-off", "safe haven"...), no
+  advice/predictions, "broadly flat" when all moves are within ±0.3%.
+Verified: 107/107 tests (Sep 14 numbers → YELLOW); Tra booted with Finnhub/Anthropic stubbed —
+warm says YELLOW, first `/market` carries the matching Pulse, repeat refresh reuses it (1 model call).
+Not verified live: real Pulse wording from the new prompt — read the first few after deploy.
+The 15 Sep 14 verdicts were not regraded or removed — Mr. T's call.
