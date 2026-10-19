@@ -2535,7 +2535,7 @@ that's a separate, deliberate cleanup decision, not implied by this one.
 |---|---|---|
 | Free | `index.html` + `app.js` | Rebuilt onto the Rolodex UI Aug 16, 2026 (see "Frontend: Rolodex UI shipped to Free" below) — second real (non-preview) tier on the Rolodex UI, after Starter. **`app.js` is now a bundled build artifact, not hand-written** — the real source is `app.ts` (repo root), compiled via `node esbuild.config.mjs`; edit the `.ts`, never the `.js` directly. Consumes `shared/rolodex.ts` for Gate dock/marquee/stacked-card/swipe mechanics, same as Starter. Its top-level "redirect a paid session elsewhere" check still halts the rest of module init (`redirectingToPaidTier` flag, unchanged from before this rebuild) — see the testing note below for why that mattered. |
 | Starter | `starter/index.html` + `starter/app.js` | Rebuilt onto the Rolodex UI Aug 16, 2026 (see "Frontend: Rolodex UI shipped to Starter" below) — sticky-docking Gate, marquee ticker-pill strip, single-active-card stage with tap-pill-then-swipe-to-delete, real auth/credits/Settings/Session-Context-highlighting/server-sync unchanged. First real (non-preview) tier on the Rolodex UI; Pro/Shark still on their prior designs. **`starter/app.js` is now a bundled build artifact, not hand-written** (Phase 3 kickoff, same day) — the real source is `starter/app.ts`, compiled via `node esbuild.config.mjs`; edit the `.ts`, never the `.js` directly. Its Rolodex-mechanics half now lives in `shared/rolodex.ts`, shared with (and now also consumed by) Free's own Rolodex build rather than re-copied. |
-| Pro | `pro/index.html` + `pro/app.js` | Rebuilt onto the Rolodex UI Aug 16, 2026 (see "Frontend: Rolodex UI shipped to Pro" below) — third real (non-preview) tier on the Rolodex UI, after Starter and Free. **`pro/app.js` is now a bundled build artifact, not hand-written** — the real source is `pro/app.ts`, compiled via `node esbuild.config.mjs`; edit the `.ts`, never the `.js` directly. Consumes `shared/rolodex.ts` for Gate dock/marquee/stacked-card/swipe mechanics, same as Starter/Free. Keeps its pre-Rolodex Pro-exclusive features — Analyst View (per-card expandable subsection), Proxy Resolution Explorer + live coherence strip, Sector Heat Map, real (not teaser) server-synced Track Record with trigger/ticker accuracy breakdowns, CSV export — all ported forward, not dropped; see that section for exactly what changed shape (card/watchlist split → pill-strip cap + overflow accordion) vs. what ported unchanged. |
+| Pro | `pro/index.html` + `pro/app.js` | Rebuilt onto the Rolodex UI Aug 16, 2026 (see "Frontend: Rolodex UI shipped to Pro" below) — third real (non-preview) tier on the Rolodex UI, after Starter and Free. **`pro/app.js` is now a bundled build artifact, not hand-written** — the real source is `pro/app.ts`, compiled via `node esbuild.config.mjs`; edit the `.ts`, never the `.js` directly. Consumes `shared/rolodex.ts` for Gate dock/marquee/stacked-card/swipe mechanics, same as Starter/Free. Keeps its pre-Rolodex Pro-exclusive features — Analyst View (per-card expandable subsection), Proxy Resolution Explorer + live coherence strip, Sector Heat Map, real (not teaser) server-synced Track Record with trigger/ticker accuracy breakdowns, CSV export — all ported forward, not dropped; see that section for exactly what changed shape (card/watchlist split → pill-strip cap + overflow accordion) vs. what ported unchanged. **Gate 3 reads the last 3 completed 15-min bars here (Oct 19, 2026, `GATE3_WINDOW_TIERS=pro`); Free and Starter still read bar 1 only.** |
 | Shark | `shark/index.html` (no separate `app.js` — still monolithic) | **NOT rebuilt — shelved indefinitely as of Aug 17, 2026, not a backlog gap.** Earlier notes here framed this as blocked on an Alpaca "Plus" data-plan upgrade Mr. T might do at some point; that framing is retired per direct instruction — it's just off the table now, not "pending a decision." Don't pick this up proactively; it still carries the same reorder/log-button bugs Pro had before its rebuild (shared original template) whenever it does eventually happen. A separate, standalone `shark/coming-soon.html` splash (added Aug 2, 2026, licensed mascot art at `shared/assets/shark-mascot.png`) exists alongside it — email waitlist writes directly to Supabase's `shark_waitlist` table (anon insert-only via RLS) from the browser, no backend involvement. |
 
 Tier config (ticker cap, cache TTL, credits, tracker, `alpaca`, `iv`) is
@@ -11914,60 +11914,74 @@ Verified: Play launch → redirect to Pro → Analyze All 15 shows it exactly on
 web never shows it; Starter via `?ratepreview` shows it and "Don't ask again" sticks; Free still works.
 `?v=`: Free 107, Starter 124, Pro 72.
 
-## Backend/Frontend: Gate 3 rolling 3-bar window + Day verdict, Prop 9 live gate rows, Realtime Day push — Pro beta (Oct 19, 2026, `Tra` + `trade-verdict`)
+## Oct 19, 2026 — Gate 3 3-bar window (Pro), every gate logged, Pulse moved into the Gate, one Gate 0 rule set
 
-Built from the Oct 13-14 Gate 3 plan and Proposal 9 (Notion Build Log), Pro only, behind a switch Mr. T flips for full launch. Mr. T is the only beta tester.
-- **Switch (Render env on Tra):** `GATE3_BETA_EMAILS` (Pro accounts that get it) and `GATE3_WINDOW_TIERS` (whole tiers, for full launch). Unset = off; everyone else keeps the old bar-1 behavior, byte-for-byte (confirmed by a local boot test with the switch off). Full launch to Free/Starter also needs their frontends ported (only `pro/app.ts` has the new card).
-- **Gate 3 window (`gate3-window.ts`, pure, 5 tests):** last 3 COMPLETED 15-min bars (in-progress bar dropped), states FORMING n/3 → RESOLVED (first read 10:15 ET = 7:15 PT) → EXPIRED after 12:30 ET (9:30 PT cutoff, Long only) / CLOSED. Bars fetched once per symbol per candle (`fetchGate3Window`, reuses `fetchSessionBars`).
-- **Long vs Day:** the model's verdict is the Long call (user message tells it to skip intraday bars; SYSTEM_PROMPT untouched so caching still hits). `verdict_log` still grades the Long, so the Scorecard is unchanged. Day = Long refined by the bars with fixed rules (`refineDayVerdict`): confirms → same; mixed → size down one step; against → FLAT; FLAT stays FLAT; hard overrides (Gate 0 RED, Gate 1/5 forceDown, earnings block) are never changed; Friday with a non-flat week treats a one-way sequence as mixed. No second model call — these rules are my calibration, revisit with real data.
-- **Cache (beta, per user+ticker+dial):** same candle → cached, no credit. After the cutoff, a cached Long made after the cutoff is reused only if the catalyst check passes (same news headline + Pre-Gate status, via the existing 30-min news cadence) and Gate 0 is unchanged. A tap in a new candle before the cutoff is a fresh, charged analysis (unchanged cost per verdict).
-- **Pending Day reads:** an ANALYZE before the 3rd bar closes stores a job (`day_refinement_jobs`, patch24 in Tra / patch27 here; RLS disabled + revoked, zero open grants confirmed). A 60s sweep or `GET /day/:ticker` (free) resolves it from the stored Long when the bars are in, then broadcasts via Supabase Realtime to private topic `day:<auth uid>` (policy `day_read_own_topic` on `realtime.messages`). The card also asks `/day` at readyAt+20s as a fallback. Pro has no service worker, so there's no OS push for this yet — in-app only.
-- **Prop 9:** beta `/analyze` streams NDJSON (`gates` → `gate3` → `final`/`error`). Card rows: pulsing blue while reading, ✓ colored by status, red ✗ when not read (or "1/3 bars"), grey – when the Day window doesn't apply. DAY/LONG toggle + "Bars as of" line under the badges.
-- **Bundle:** `@supabase/realtime-js` added as a devDependency and bundled into `pro/app.js` only (~200 → ~350 KB unminified). `pro/index.html` `?v=73`.
-- **Verified:** Tra booted locally with Anthropic/Alpaca stubbed and a pinned clock: resolved stream, same-candle cache, forming → `/day` READY with zero extra model calls, expired, catalyst-unchanged cache hit, Gate 0 change forcing a fresh run, switch-off path plain JSON. Headless Chromium on the real Pro bundle against a streaming mock: progressive rows, toggle, forming ✗ → ✓ via `/day`, zero page errors.
-- **Not verified live:** real Alpaca bars, the Realtime broadcast/subscribe round trip (sandbox can't reach Supabase Realtime), and whether `day_refinement_jobs` needs Data API exposure — if it does, re-run the grants check right after (Sep 17, 2026 lesson).
+### Gate 3 "only one bar" bug — fixed on Pro only (`Tra` #132 / `trade-verdict` #377)
+Root cause (found Oct 13-14): `fetchOpeningBar()` asks Alpaca for five 15-min bars but returns only
+bar 1, so Gate 3 could never see a sequence. **Free and Starter still have this** — their path is unchanged.
+- **Switch (Render env on Tra):** `GATE3_WINDOW_TIERS=pro` is set (Mr. T is the only Pro account);
+  `GATE3_BETA_EMAILS` turns it on per account. Unset = old bar-1 behavior, byte-for-byte. Porting to
+  Starter/Free also needs their frontends (only `pro/app.ts` has the new card).
+- **Window (`gate3-window.ts`, pure, 5 tests):** last 3 COMPLETED 15-min bars (in-progress bar dropped).
+  FORMING n/3 → RESOLVED (first read 10:15 ET / 7:15 PT) → EXPIRED after 12:30 ET (9:30 PT, Long only)
+  / CLOSED. Bars fetched once per symbol per candle (`fetchGate3Window`, reuses `fetchSessionBars`).
+- **Long vs Day:** the model's verdict is the Long call (SYSTEM_PROMPT untouched, so caching still hits);
+  `verdict_log` grades the Long, so the Scorecard is unchanged. Day = Long refined by fixed rules
+  (`refineDayVerdict`): confirms → same; mixed → size down one step; against → FLAT; hard overrides
+  (Gate 0 RED, Gate 1/5 forceDown, earnings block) never change; Friday with a non-flat week treats a
+  one-way sequence as mixed. No second model call. These rules are my calibration — revisit with data.
+- **Cache (per user+ticker+dial):** same candle → cached, no credit. After the cutoff a cached Long is
+  reused only if the news headline, Pre-Gate status and Gate 0 are unchanged. A new candle before the
+  cutoff is a fresh, charged analysis.
+- **Pending Day reads:** ANALYZE before bar 3 stores a job (`day_refinement_jobs`, Tra patch24 /
+  mirror patch27, RLS off + revoked). A 60s sweep or `GET /day/:ticker` (free) resolves it and
+  broadcasts via Supabase Realtime to `day:<auth uid>` (policy `day_read_own_topic`); the card also asks
+  `/day` at readyAt+20s. In-app only — Pro has no service worker, so no OS push yet.
+- **Prop 9 live gate rows:** beta `/analyze` streams NDJSON (`gates` → `gate3` → `final`/`error`). Rows
+  pulse blue while reading, ✓ in the gate's color, red ✗ when not read (or "1/3 bars"), grey – when the
+  Day window doesn't apply. DAY/LONG toggle + "Bars as of" line. `@supabase/realtime-js` bundled into
+  `pro/app.js` only (~200 → ~350 KB).
+- **Verified:** Tra booted with Anthropic/Alpaca stubbed and a pinned clock (stream, same-candle cache,
+  forming → `/day` READY with zero extra model calls, expired, catalyst-unchanged hit, Gate 0 change
+  forcing a fresh run, switch-off plain JSON); headless Chromium on the real Pro bundle.
+- **Not verified live (Stage 0, first market day):** real Alpaca bars and the Realtime round trip. Check
+  Render logs for `fetchGate3Window` / `saveDayJob` / `broadcastDay` and `verdict_log.gates.g3_bars_done`.
+  If `day_refinement_jobs` turns out to need Data API exposure, re-run the grants check right after.
+- **Still to do:** port to Starter then Free; OS push for a ready Day read; plain-language copy with (?)
+  Glossary links; a fuller test list (holiday, DST, early close, partial bar).
 
-## Backend: `verdict_log.gates` — every gate's color on each verdict (Oct 19, 2026, `Tra` #133 / `trade-verdict` #378, both merged)
+### `verdict_log.gates` — every gate's color on each verdict (`Tra` #133 / `trade-verdict` #378)
+`gates jsonb`: `{ pre_gate, sector, g1, g2, g3, g4, g5, g3_note }`, statuses only (a missing gate is
+`null`), built by `ah.gatesForLog()` (tested) — no new API or model calls. In the Gate 3 beta rows also
+get `g3_bars`, `g3_bars_note`, `g3_bars_done`, `g3_window` (there the plain `g3` is the model's week
+read). Order was migration → merge → deploy, because `logVerdict` doesn't check the insert error and an
+unknown column would silently drop the verdict. Confirmed live (MU row, Oct 19 00:22 UTC); grants
+re-checked clean across all 14 service-role tables.
 
-New `gates jsonb` column: `{ pre_gate, sector, g1, g2, g3, g4, g5, g3_note }`. Statuses only, plus the G3 note (how many bars it saw); other notes are left out to keep rows small, and a missing gate is `null`. Built by `ah.gatesForLog()` (tested) from the statuses `/analyze` already has, so there are no new API or model calls. Order was migration (Tra patch25 / mirror patch28) → merge → deploy, because an insert naming an unknown column would silently drop the verdict (`logVerdict` doesn't check the insert error). Confirmed live: a fresh MU row (Oct 19, 00:22 UTC) had all seven filled. Grants re-checked after: zero anon/authenticated rows across all 14 service-role tables. In the Gate 3 beta (#132/#377), rows also get `g3_bars`, `g3_bars_note`, `g3_bars_done` and `g3_window`, because there the plain `g3` is the model's week read.
+### Sector Pulse moved into the Gate box, all tiers (`trade-verdict` #379, #380)
+The Pulse card is gone; its text sits inside `#gateFullOverlay` under the "Live · Updated" line
+(`#gatePulse` / `#pulse-text` / `data-help="pulse"`) and hides when the Gate docks. Starter/Pro show the
+full text; Free shows the first 5 words, then one fogged line with "Read the rest? UPGRADE TO STARTER →".
+No backend change. Landscape ribbon has no Pulse item; the tutorial's Pulse step points at the `?` in
+the Gate. The Gate box is ~105-140px taller on a phone; dock/spacer math measures it live.
 
-## Frontend: Sector Pulse moved into the Gate box, all tiers (Oct 19, 2026)
-
-Mr. T asked for this. The Sector Pulse card is gone. Its text now sits inside the Gate's full view (`#gateFullOverlay`), right under the "Live · Updated" line (`#gatePulse`, still `#pulse-text` and `data-help="pulse"`).
-- It hides when the Gate docks on scroll, same as the rest of the Gate. Starter/Pro show the full text, the same as before.
-- Free shows the first 5 words of the real pulse. Under them is one short fogged line with the Starter upgrade link ("Read the rest?" + UPGRADE TO STARTER →). It's shorter than Starter/Pro on purpose.
-- Free already got the real pulse from `/market`, so there's no backend change.
-- The landscape ribbon no longer has a Pulse item.
-- The tutorial's Pulse step now points at the `?` inside the Gate, after jumping to the top.
-- The Gate box is taller now (about 105-140px more on a phone). Dock/spacer math measures it live, so nothing else changed.
-- `?v=`: Free 108, Starter 125, Pro 74.
-- Verified in headless Chromium on all three tiers, portrait and landscape: Pulse is inside the Gate after the timestamp, the old card is gone, Free shows the fog and upgrade link, and the Gate still docks and hides it on scroll. Zero page errors.
-
-Same day: `GATE3_WINDOW_TIERS=pro` is set on Render. Mr. T is the only Pro account, so nothing changes for anyone else yet.
-
-## Backend: one set of Gate 0 rules, a steady factual Pulse (Oct 19, 2026, `Tra` + `trade-verdict`)
-
-Mr. T flagged Pulse/Gate text contradicting itself minutes apart. Three real causes:
-- **Two Gate 0 copies disagreed.** The boot/9:30 cache warm (`warmTrackedMarketCache`) called ONE
-  index down >1% RED ("both down"); `/market` correctly calls that YELLOW. RED forces DOWN in
-  `/analyze`. Real impact found in `verdict_log`: **15 verdicts on Sep 14, 2026 at 9:31 ET were forced
-  DOWN by a false RED** (SPY −0.74%, QQQ −1.66% per Robinhood 5-min bars — should have been YELLOW).
-  Every other RED row (Oct 14 4:23pm, Oct 18 Sunday) was off-hours, already excluded from grading.
-  Fix: `ah.computeGate0(data)` (analyze-helpers.ts, tested) is now the only Gate 0 rule set; both
-  paths call it.
-- **The Pulse rewrote itself constantly.** Input is now each move rounded to 1 decimal
-  (`ah.buildPulseInput`/`pulsePct`), and while the market is closed the BTC line is left out (it
-  trades 24/7 and forced a new Haiku call every 4 min all night). Note vs the approved plan
-  ("freeze while closed"): a hard freeze would let pre/post-market grid numbers drift away from a
-  frozen Pulse — dropping BTC instead keeps it frozen nights/weekends but still matches the grid in
-  extended hours. Concurrent identical requests share one in-flight call.
-- **The Pulse lagged the grid by one refresh.** `/market` and the warm now wait up to 8s
-  (`pulseForSnapshot`) for the Pulse built from the same numbers before sending; on timeout they send
-  the old one and swap in the new one when it lands.
-- **The prompt invited advice/themes.** `PULSE_PROMPT` now: 2 sentences (strongest up, weakest),
-  quote numbers exactly as given, no causes/themes ("defensive", "risk-off", "safe haven"...), no
-  advice/predictions, "broadly flat" when all moves are within ±0.3%.
-Verified: 107/107 tests (Sep 14 numbers → YELLOW); Tra booted with Finnhub/Anthropic stubbed —
-warm says YELLOW, first `/market` carries the matching Pulse, repeat refresh reuses it (1 model call).
-Not verified live: real Pulse wording from the new prompt — read the first few after deploy.
-The 15 Sep 14 verdicts were not regraded or removed — Mr. T's call.
+### One Gate 0 rule set, a steady factual Pulse (`Tra` #134 / `trade-verdict` #381)
+Mr. T saw the Pulse and Gate contradict each other minutes apart. Causes and fixes:
+- **Two Gate 0 copies disagreed.** The boot/9:30 warm (`warmTrackedMarketCache`) called ONE index
+  down >1% RED; `/market` correctly calls that YELLOW. RED forces DOWN. **15 verdicts on Sep 14, 2026 at
+  9:31 ET were forced DOWN by this** (SPY −0.74%, QQQ −1.66% per Robinhood 5-min bars). Other RED rows
+  (Oct 14 4:23pm, Oct 18 Sunday) were off-hours and never graded. The 15 rows were left as is — Mr.
+  T's call. Fix: `ah.computeGate0(data)` (tested) is the only Gate 0 rule set; both paths call it.
+- **The Pulse rewrote itself constantly.** Input is each move rounded to 1 decimal
+  (`ah.buildPulseInput`/`pulsePct`); while the market is closed the BTC line is left out (24/7 trading
+  forced a new Haiku call every 4 min all night). Chosen over a hard freeze, which would let pre/post-
+  market grid numbers drift away from a frozen Pulse. Identical concurrent requests share one call.
+- **The Pulse lagged the grid by one refresh.** `/market` and the warm wait up to 8s
+  (`pulseForSnapshot`) for the Pulse built from the same numbers; on timeout they send the old one and
+  swap the new one in when it lands.
+- **The prompt invited themes/advice.** `PULSE_PROMPT`: 2 sentences (strongest up, weakest), numbers
+  quoted exactly, no causes/themes ("defensive", "risk-off", "safe haven"), no advice/predictions,
+  "broadly flat" when everything is within ±0.3%.
+Verified: 107/107 tests; Tra booted with Finnhub/Anthropic stubbed (warm says YELLOW for the Sep 14
+numbers, first `/market` carries the matching Pulse, repeat refresh makes no new model call). Not
+verified live: the new Pulse wording on real data.
