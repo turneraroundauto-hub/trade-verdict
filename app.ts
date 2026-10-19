@@ -317,7 +317,7 @@ function escapeHTML(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// Free teaser: the real first sentence of Sector Pulse, then one fogged
+// Free teaser: the first 5 words of Sector Pulse, then one fogged
 // line under the Starter upgrade promo. The fog is deliberately short --
 // it's a preview, so it doesn't need Starter/Pro's full length.
 function renderPulse(): void {
@@ -326,9 +326,9 @@ function renderPulse(): void {
   if (!market) { pulseEl.className = 'pulse-loading'; pulseEl.textContent = 'Unavailable'; return; }
   if (!market.pulse) { pulseEl.className = 'pulse-loading text-pulse'; pulseEl.textContent = 'Generating pulse...'; return; }
   var text = String(market.pulse).trim();
-  var m = text.match(/^.*?[.!?](?=\s|$)/);
-  var first = m ? m[0] : text;
-  var rest = text.slice(first.length).trim() || 'Rotation signals and leaders for this session.';
+  var words = text.split(/\s+/);
+  var first = words.slice(0, 5).join(' ') + (words.length > 5 ? '…' : '');
+  var rest = words.slice(5).join(' ') || 'Rotation signals and leaders for this session.';
   pulseEl.className = '';
   pulseEl.innerHTML = '<div class="pulse-text">' + escapeHTML(first) + '</div>'
     + '<div class="pulse-fog"><div class="pulse-blur">' + escapeHTML(rest.slice(0, 120)) + '</div>'
