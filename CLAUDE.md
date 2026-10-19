@@ -2123,3 +2123,17 @@ verified live: the new Pulse wording on real data.
   modifier is NOT built — no validated cutoff, and the 50-day average isn't sent to `/analyze` yet.
 - Weekend rows (e.g. NU DOWN on Sun Oct 18) store the raw model verdict but have
   `issued_market_open = false`, so they're never graded; the card shows HOLD client-side.
+
+### Sector Pulse gives a market leaning again (`Tra` / `trade-verdict`, same day)
+Mr. T: the factual-only Pulse turned into a list of numbers instead of a distilled read. Now the
+server picks the leaning with fixed rules (`ah.computeMarketLeaning`, tested) and the model only
+phrases it, so it can't claim a leaning the numbers contradict. Rules, first match wins, on the same
+1-decimal values the Pulse quotes (BTC ignored): **Quiet** (every move within ±0.3%) → **Risk-off,
+safety bid** (SPY/QQQ average ≤ −0.3% and gold ≥ +0.3%) → **Broad selloff** (market down, SPY and QQQ
+both negative, most sectors negative) → **Commodity-led** (market not up, oil or gold ≥ +1% and above
+every stock move) → **Risk-on** (market ≥ +0.3% with QQQ/SOXX/NVDA/IWM beating SPY) → **Rotation**
+(market flat, one stock move ≥ +1% and one ≤ −1%) → fallback **Mild gains / Mild losses / Mixed**.
+Gold is the only safe-haven proxy tracked (no bonds/utilities). The input gets a
+"Market leaning (use exactly): …" line; `PULSE_PROMPT` asks for sentence 1 = leaning + direction,
+sentence 2 = leaders/laggards with 2-3 exact numbers, no causes, no advice. Thresholds are my
+calibration — revisit if a label reads wrong on a real day.
