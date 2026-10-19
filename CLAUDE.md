@@ -11935,7 +11935,7 @@ New `gates jsonb` column: `{ pre_gate, sector, g1, g2, g3, g4, g5, g3_note }`. S
 
 Mr. T asked for this. The Sector Pulse card is gone. Its text now sits inside the Gate's full view (`#gateFullOverlay`), right under the "Live · Updated" line (`#gatePulse`, still `#pulse-text` and `data-help="pulse"`).
 - It hides when the Gate docks on scroll, same as the rest of the Gate. Starter/Pro show the full text, the same as before.
-- Free shows the real first sentence. Under it is one short fogged line with the Starter upgrade link ("Read the rest?" + UPGRADE TO STARTER →). It's shorter than Starter/Pro on purpose.
+- Free shows the first 5 words of the real pulse. Under them is one short fogged line with the Starter upgrade link ("Read the rest?" + UPGRADE TO STARTER →). It's shorter than Starter/Pro on purpose.
 - Free already got the real pulse from `/market`, so there's no backend change.
 - The landscape ribbon no longer has a Pulse item.
 - The tutorial's Pulse step now points at the `?` inside the Gate, after jumping to the top.
