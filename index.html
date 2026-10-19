@@ -188,6 +188,9 @@
   .up{ color:var(--green); } .down{ color:var(--red); } .flat{ color:var(--amber); } .neutral{ color:var(--ink-dim); }
   .gate-note{ font-size:13px; color:var(--ink-dim); line-height:1.45; }
   .market-ts{ font-size:13px; color:var(--ink-dim); line-height:1.4; margin-top:4px; font-family:var(--mono); }
+  .gate-pulse{ margin-top:8px; padding-top:7px; border-top:1px solid var(--border); }
+  .gate-pulse-head{ display:flex; align-items:center; gap:6px; margin-bottom:3px; }
+  .gate-pulse-label{ font-size:13px; color:var(--ink-dim); letter-spacing:.05em; }
 
   .content{ padding:14px 14px 60px; display:flex; flex-direction:column; gap:10px; }
 
@@ -366,18 +369,21 @@
     .card-body, .chevron, .app-scroll, .gate-mini-row, .gate-full-overlay, #gateCard{ transition:none !important; }
   }
 
-  /* Sector Pulse is a static blurred teaser on Free (TIER.pulse:false) —
-     ported from preview/rolodex/'s own Free-scoped design, not real
-     content, so it needs no JS rendering at all. */
-  .pulse-blur{ filter:blur(4px); pointer-events:none; user-select:none; font-size:13px; color:var(--ink); line-height:1.6; }
+  /* Sector Pulse teaser (Free): the real first sentence, then one short
+     fogged line under the same upgrade promo. Lives inside the Gate
+     overlay, so it collapses with the Gate as you scroll. */
+  .pulse-text{ font-size:13.5px; color:var(--ink); line-height:1.5; }
+  .pulse-loading{ font-size:13px; color:var(--ink-dim); font-style:italic; }
+  .pulse-fog{ position:relative; margin-top:3px; height:40px; overflow:hidden; border-radius:6px; }
+  .pulse-blur{ filter:blur(3.5px); pointer-events:none; user-select:none; font-size:13.5px; color:var(--ink); line-height:1.5; max-height:40px; overflow:hidden; }
   .pulse-upsell{
-    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px;
-    margin-top:-56px; padding:12px; background:rgba(8,12,18,.82); border-radius:8px; position:relative;
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center; gap:8px;
+    background:rgba(8,12,18,.38); padding:0 6px;
   }
-  .pulse-upsell span{ font-size:13px; color:var(--ink); font-weight:700; }
+  .pulse-upsell span{ font-size:12px; color:var(--ink); font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
   .pulse-upsell a{
-    font-size:13px; font-weight:700; color:var(--green); background:var(--green-dim);
-    border:1px solid rgba(0,230,118,.4); border-radius:6px; padding:6px 14px; text-decoration:none;
+    flex:none; font-size:12px; font-weight:700; color:var(--green); background:var(--green-dim);
+    border:1px solid rgba(0,230,118,.4); border-radius:6px; padding:4px 10px; text-decoration:none; white-space:nowrap;
   }
 
   .ctx-box{ width:100%; background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:10px; font-family:var(--mono); color:var(--ink); font-size:13.5px; line-height:1.5; resize:none; margin-bottom:9px; }
@@ -756,30 +762,16 @@
         <div class="gate-grid" id="gateGrid"></div>
         <div class="gate-note" id="gateNote">Fetching live data…</div>
         <div class="market-ts" id="marketTs"></div>
+        <div class="gate-pulse" id="gatePulse">
+          <div class="gate-pulse-head"><span class="gate-pulse-label">SECTOR PULSE</span><button type="button" class="help-btn" data-help="pulse" aria-label="What is this?">?</button></div>
+          <div id="pulse-text" class="pulse-loading text-pulse">Generating market pulse...</div>
+        </div>
       </div>
     </div>
     <div id="gateSpacer"></div>
 
     <div class="content">
 
-      <div class="card" data-card="pulse" id="card-pulse">
-        <div class="card-head" tabindex="0" role="button" aria-expanded="false">
-          <span class="card-icon">📡</span>
-          <div class="card-title-wrap">
-            <div class="card-label">Sector Pulse</div>
-            <div class="card-sub">Starter+ feature</div>
-          </div>
-          <button type="button" class="help-btn" data-help="pulse" aria-label="What is this?">?</button>
-          <svg class="chevron" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </div>
-        <div class="card-body"><div class="card-body-inner"><div class="card-body-pad">
-          <div class="pulse-blur">Semiconductors leading with SOXX while biotech lags. Rotation signal favors momentum names this session.</div>
-          <div class="pulse-upsell">
-            <span>Want live sector rotation signals?</span>
-            <a href="https://buy.stripe.com/eVq3cw84pczR6lp0oV3VC03" target="_blank">UPGRADE TO STARTER →</a>
-          </div>
-        </div></div></div>
-      </div>
 
       <div class="card" data-card="agitator" id="card-agitator">
         <div class="card-head" tabindex="0" role="button" aria-expanded="false">
@@ -878,7 +870,7 @@
   </div>
 </div>
 
-<script type="module" src="./app.js?v=107"></script>
+<script type="module" src="./app.js?v=108"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));

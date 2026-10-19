@@ -2085,8 +2085,32 @@ async function fetchMarket() {
     market = null;
   }
   renderGate();
+  renderPulse();
   refreshGateMarquee();
   requestAnimationFrame(sizeGateSpacer);
+}
+function escapeHTML(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function renderPulse() {
+  var pulseEl = document.getElementById("pulse-text");
+  if (!pulseEl) return;
+  if (!market) {
+    pulseEl.className = "pulse-loading";
+    pulseEl.textContent = "Unavailable";
+    return;
+  }
+  if (!market.pulse) {
+    pulseEl.className = "pulse-loading text-pulse";
+    pulseEl.textContent = "Generating pulse...";
+    return;
+  }
+  var text = String(market.pulse).trim();
+  var m = text.match(/^.*?[.!?](?=\s|$)/);
+  var first = m ? m[0] : text;
+  var rest = text.slice(first.length).trim() || "Rotation signals and leaders for this session.";
+  pulseEl.className = "";
+  pulseEl.innerHTML = '<div class="pulse-text">' + escapeHTML(first) + '</div><div class="pulse-fog"><div class="pulse-blur">' + escapeHTML(rest.slice(0, 120)) + '</div><div class="pulse-upsell"><span>Read the rest?</span><a href="https://buy.stripe.com/eVq3cw84pczR6lp0oV3VC03" target="_blank">UPGRADE TO STARTER \u2192</a></div></div>';
 }
 function renderGate() {
   const status = market && market.gateStatus || "GREEN";
@@ -3027,8 +3051,8 @@ var TUTORIAL_STEPS = [
   },
   {
     html: HELP_CONTENT.pulse,
-    getAnchor: () => tutorialAnchor("pulse", "pulse"),
-    before: () => tutorialExpand("card-pulse")
+    getAnchor: () => document.querySelector('[data-help="pulse"]'),
+    before: () => jumpToTop()
   },
   {
     html: HELP_CONTENT.agitator,

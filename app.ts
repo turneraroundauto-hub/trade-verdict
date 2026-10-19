@@ -308,8 +308,32 @@ async function fetchMarket(): Promise<void> {
     market = await res.json();
   } catch (e) { market = null; }
   renderGate();
+  renderPulse();
   refreshGateMarquee();
   requestAnimationFrame(rolodex.sizeGateSpacer);
+}
+
+function escapeHTML(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Free teaser: the real first sentence of Sector Pulse, then one fogged
+// line under the Starter upgrade promo. The fog is deliberately short --
+// it's a preview, so it doesn't need Starter/Pro's full length.
+function renderPulse(): void {
+  var pulseEl = document.getElementById('pulse-text');
+  if (!pulseEl) return;
+  if (!market) { pulseEl.className = 'pulse-loading'; pulseEl.textContent = 'Unavailable'; return; }
+  if (!market.pulse) { pulseEl.className = 'pulse-loading text-pulse'; pulseEl.textContent = 'Generating pulse...'; return; }
+  var text = String(market.pulse).trim();
+  var m = text.match(/^.*?[.!?](?=\s|$)/);
+  var first = m ? m[0] : text;
+  var rest = text.slice(first.length).trim() || 'Rotation signals and leaders for this session.';
+  pulseEl.className = '';
+  pulseEl.innerHTML = '<div class="pulse-text">' + escapeHTML(first) + '</div>'
+    + '<div class="pulse-fog"><div class="pulse-blur">' + escapeHTML(rest.slice(0, 120)) + '</div>'
+    + '<div class="pulse-upsell"><span>Read the rest?</span>'
+    + '<a href="https://buy.stripe.com/eVq3cw84pczR6lp0oV3VC03" target="_blank">UPGRADE TO STARTER →</a></div></div>';
 }
 
 function renderGate(): void {
@@ -1543,8 +1567,8 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     html: HELP_CONTENT.pulse,
-    getAnchor: () => tutorialAnchor('pulse', 'pulse'),
-    before: () => tutorialExpand('card-pulse'),
+    getAnchor: () => document.querySelector<HTMLElement>('[data-help="pulse"]'),
+    before: () => rolodex.jumpToTop(),
   },
   {
     html: HELP_CONTENT.agitator,
