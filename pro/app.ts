@@ -62,6 +62,7 @@ import { highlightContextMatches } from '../shared/context-highlight';
 import '../shared/settings-modal';
 import * as rolodex from '../shared/rolodex';
 import { initRatePrompt, onAnalysisSucceeded } from '../shared/rate-prompt';
+import { watchDayReads } from '../shared/day-realtime';
 import type { AnalyzeResponse, TickerData } from '../shared/types.js';
 
 const API_URL = 'https://tra-zacg.onrender.com';
@@ -341,7 +342,7 @@ const roloStage = document.getElementById('roloStage') as HTMLElement;
 const roloIndex = document.getElementById('roloIndex') as HTMLElement;
 const scroller = document.getElementById('scroller') as HTMLElement;
 
-interface TickerState { td: TickerData | null; result: AnalyzeResponse | null; analyzing: boolean; error: string | null; }
+interface TickerState { td: TickerData | null; result: AnalyzeResponse | null; analyzing: boolean; error: string | null; progress?: any; view?: 'day' | 'long'; hold?: boolean; dayTimer?: any; }
 const tickerState = new Map<string, TickerState>();
 
 const TYPE_COLOR: Record<string, string> = { CANARY: 'var(--amber)', SENTIMENT: 'var(--blue)', FLOW: 'var(--green)' };
@@ -465,6 +466,90 @@ function analystViewHTML(sym: string, result: AnalyzeResponse | null, td: Ticker
     + '</div>';
 }
 
+// ── Gate 3 window + Day verdict + live gate rows (Oct 19, 2026, beta) ──
+// Only active when the server sends a `window` block (beta accounts, see
+// Tra's gate3WindowEnabled). Everyone else gets the old card unchanged.
+// Long = the full CRF verdict (what the Scorecard grades). Day = Long
+// refined by the last 3 completed 15-min bars, rules only, no extra cost.
+function dayWindow(result: any): any { return (result && result.window) || null; }
+function activeView(state: TickerState): 'day' | 'long' {
+  const w = dayWindow(state.result);
+  if (!w || !w.day) return 'long';
+  return state.view || 'day';
+}
+// The verdict the card shows: the Day call when that view is on.
+function viewResult(state: TickerState): AnalyzeResponse | null {
+  const r = state.result; const w = dayWindow(r);
+  if (!r || !w || !w.day || activeView(state) !== 'day') return r;
+  return Object.assign({}, r, { verdict: w.day.verdict, sizing: w.day.sizing }) as AnalyzeResponse;
+}
+function fmtClock(iso: string | null | undefined): string {
+  if (!iso) return '';
+  try { return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: getTzIana() }) + ' ' + getTzPref(); } catch (e) { return ''; }
+}
+// Prop 9 markers: pulsing blue while reading, colored ✓ once read (color =
+// the gate's own status), red ✗ if it could not be read, grey – when it
+// doesn't apply (Day window passed / market closed).
+function gateMark(kind: string, status?: string): string {
+  if (kind === 'reading') return '<span class="gate-dot gate-reading"></span>';
+  if (kind === 'ok') return `<span class="gate-mark" style="color:${sigColor(status || '')}">✓</span>`;
+  if (kind === 'miss') return '<span class="gate-mark" style="color:var(--red)">✗</span>';
+  return '<span class="gate-mark" style="color:var(--ink-dim)">–</span>';
+}
+function markRow(label: string, kind: string, status: string | undefined, note: string): string {
+  return `<div class="gate-row">${gateMark(kind, status)}<div class="gn"><span class="gl">${label}</span>${note ? ' - ' + autoLinkGlossaryTerms(note) : ''}</div></div>`;
+}
+function progressGateRows(state: TickerState): string {
+  const r: any = state.result;
+  const p = state.progress || {};
+  const gates: any = (r && r.gates) || p.gates || {};
+  const missing: any = (r && r.gateMissing) || p.gateMissing || {};
+  const win: any = (r && r.window) || p.window || null;
+  const done = !state.analyzing;
+  const pending = (g: any) => (done ? 'miss' : 'reading');
+  const serverRow = (label: string, key: string) => {
+    const g = gates[key];
+    if (missing[key]) return markRow(label, 'miss', '', 'not read (no data)');
+    if (!g) return markRow(label, pending(g), '', done ? 'not read' : 'reading…');
+    if (key === 'pre_gate' && g.status === 'GREEN') return '<div class="gate-clear">' + gateMark('ok', 'GREEN') + '<span>PRE-GATE clear</span></div>';
+    return markRow(label, 'ok', g.status, g.note || '');
+  };
+  let g3: string;
+  // The Long view shows the model's week/overlay read for G3 -- but only once
+  // there's a Day read to switch from, or the Day window is over. While the
+  // bars are forming, the row shows their progress (Prop 9: ✗ + "1/3 bars").
+  const showLongG3 = r && win && win.state !== 'FORMING' && activeView(state) === 'long';
+  if (showLongG3) {
+    const g = gates.g3_openbar || {};
+    g3 = markRow('G3  WEEK', 'ok', g.status, g.note || '');
+  } else if (!win) {
+    g3 = markRow('G3  LAST 3 BARS', pending(null), '', done ? 'not read' : 'reading bars…');
+  } else if (win.gate3 && win.gate3.status) {
+    g3 = markRow('G3  LAST 3 BARS', 'ok', win.gate3.status, win.gate3.note);
+  } else if (win.state === 'FORMING') {
+    g3 = markRow('G3  LAST 3 BARS', 'miss', '', `${win.barsDone}/${win.barsNeeded} bars. Day read at ${fmtClock(win.readyAt)}.`);
+  } else {
+    g3 = markRow('G3  LAST 3 BARS', 'na', '', (win.gate3 && win.gate3.note) || 'Long verdict only.');
+  }
+  const g2g = gates.g2_catalyst;
+  const g2 = g2g ? markRow('G2  CATALYST', 'ok', g2g.status, g2g.note || '') : markRow('G2  CATALYST', pending(null), '', done ? 'not read' : 'reading…');
+  return serverRow('PRE-GATE', 'pre_gate') + serverRow('G1  14D', 'g1_prewindow') + g2 + g3
+    + serverRow('G4  PHASE', 'g4_phase') + serverRow('G5  PROXY', 'g5_korea');
+}
+// Day/Long switch + when the Day read lands (or why there isn't one).
+function dayLongBarHTML(sym: string, state: TickerState): string {
+  const w = dayWindow(state.result);
+  if (!w) return '';
+  const view = activeView(state);
+  let status = '';
+  if (w.day) status = (view === 'day' ? w.day.note + ' ' : '') + (w.asOf ? 'Bars as of ' + fmtClock(w.asOf) + '.' : '');
+  else if (w.state === 'FORMING') status = `Day read at ${fmtClock(w.readyAt)} (${w.barsDone}/${w.barsNeeded} bars). It will show here on its own, no extra credit.`;
+  else status = (w.gate3 && w.gate3.note) || 'Long verdict only.';
+  const btn = (v: string, label: string, enabled: boolean) =>
+    `<button type="button" class="view-btn${view === v ? ' active' : ''}" data-view="${v}" ${enabled ? '' : 'disabled'}>${label}</button>`;
+  return `<div class="day-long-bar">${btn('day', 'DAY', !!w.day)}${btn('long', 'LONG', true)}</div><div class="day-note">${status}</div>`;
+}
+
 // historicalReaction (Sep 2, 2026): pooled, cross-user directional
 // accuracy for THIS ticker (verdict_log, floored at 5 graded) -- replaces
 // the removed /scorecard "BY TICKER" breakdown, shown at the bottom of
@@ -475,10 +560,23 @@ function analystViewHTML(sym: string, result: AnalyzeResponse | null, td: Ticker
 // own "bottom of the verdict card" framing, not the pre-analysis
 // placeholder state.
 function gateListHTML(sym: string, result: AnalyzeResponse | null, historicalReaction?: { directionalPct: number; gradedCount: number } | null): string {
+  const stp = tickerState.get(sym);
+  if ((!result || !result.gates) && stp && stp.progress) {
+    return '<div class="gate-list">' + progressGateRows(stp) + '</div>';
+  }
   if (!result || !result.gates) {
     return '<div class="gate-list"><div class="gate-clear"><span class="gate-dot" style="background:var(--ink-faint)"></span><span>Tap ANALYZE to run the gates</span></div></div>';
   }
   const g: any = result.gates;
+  const st = tickerState.get(sym);
+  if (st && (dayWindow(result) || st.progress)) {
+    const vr = viewResult(st) || result;
+    const conf0 = `<div class="conf-row"><span class="conf-lbl">CONFIDENCE</span><span class="conf-val" style="color:${confColor(result.confidence)}">${result.confidence || ''}</span></div>`;
+    const track0 = historicalReaction
+      ? `<div class="conf-row"><span class="conf-lbl">TRACK RECORD</span><span class="conf-val">${historicalReaction.directionalPct}% <span style="color:var(--ink-dim);font-weight:normal">(${historicalReaction.gradedCount} graded)</span></span></div>`
+      : '';
+    return '<div class="gate-list">' + progressGateRows(st) + logSectionHTML(sym, (vr.verdict || 'FLAT').toUpperCase()) + conf0 + track0 + '</div>';
+  }
   const rows = ([
     ['PRE-GATE', g.pre_gate], ['G1  14D', g.g1_prewindow], ['G2  CATALYST', g.g2_catalyst],
     ['G3  OPEN BAR', g.g3_openbar], ['G4  PHASE', g.g4_phase], ['G5  PROXY', g.g5_korea],
@@ -540,6 +638,7 @@ function roloCardHTML(sym: string, state: TickerState): string {
     : '';
   const analyzing = state.analyzing;
   const result = state.result;
+  const shown = viewResult(state);
   const dir = priceDirClass(td);
   // Proposal 8, Phase 1 -- pulse the placeholder text (price/headline/
   // meta values) while a ticker's first fetch is still in flight, rather
@@ -551,7 +650,7 @@ function roloCardHTML(sym: string, state: TickerState): string {
     + `<div class="ticker-left"><span class="ticker-sym ${dir}"><a href="${tickerHref(sym)}" target="_blank">${sym}</a></span><span class="ticker-price ${dir}${pulseCls}">${price}</span>`
     + '<div class="ticker-swipe-hint">← Swipe to delete</div></div>'
     + '<div class="ticker-action">'
-    + (result ? verdictAreaHTML(sym, result)
+    + (shown ? verdictAreaHTML(sym, shown)
       : `<button class="btn btn-blue btn-compact${analyzing ? ' btn-running' : ''}" data-analyze="${sym}" ${analyzing ? 'disabled' : ''}>${analyzing ? 'RUNNING…' : 'ANALYZE'}</button>`)
     + '</div>'
     + `</div>`
@@ -559,7 +658,8 @@ function roloCardHTML(sym: string, state: TickerState): string {
     + earningsBlockedRetryHTML(sym, result)
     + `<div class="headline${pulseCls}">${wrapHeadlineLinks(sym, headline)} <span class="age">${age}</span></div>`
     + `<div class="meta-row"><span>52W <b class="${pulseCls}">${w52}</b></span><span>PHASE <b class="${pulseCls}">${phase}</b></span><span>β <b class="${pulseCls}">${beta}</b></span><span>PROXY <b style="color:var(--blue)" class="${pulseCls}">${proxyHTML}</b></span>${decayHTML}</div>`
-    + badgesHTML(result)
+    + badgesHTML(shown)
+    + dayLongBarHTML(sym, state)
     + gateListHTML(sym, result, td && td.historicalReaction)
     + analystViewHTML(sym, result, td)
     + (state.error ? `<div class="gate-note" style="color:var(--red);margin-top:6px">${state.error}</div>` : '');
@@ -568,6 +668,12 @@ function roloCardHTML(sym: string, state: TickerState): string {
 function wireCardButtons(card: HTMLElement, sym: string): void {
   const btn = card.querySelector('[data-analyze]');
   if (btn) btn.addEventListener('click', () => { vibrateTap(); analyzeOne(sym); });
+  card.querySelectorAll<HTMLElement>('[data-view]').forEach((b) => b.addEventListener('click', () => {
+    const st = tickerState.get(sym);
+    if (!st || b.hasAttribute('disabled')) return;
+    st.view = b.dataset.view === 'long' ? 'long' : 'day';
+    vibrateTap(); renderRoloCard(sym); renderPill(sym);
+  }));
   const resetEl = card.querySelector('[data-reset]');
   if (resetEl) resetEl.addEventListener('click', () => resetTicker(sym));
   const analystToggle = card.querySelector('[data-toggle-analyst]');
@@ -596,8 +702,9 @@ function renderRoloCard(sym: string): void {
   card.innerHTML = roloCardHTML(sym, state);
   card.classList.remove('verdict-up', 'verdict-down');
   wireCardButtons(card, sym);
-  if (state.result && !isMarketClosed()) {
-    const v = (state.result.verdict || '').toUpperCase();
+  const shownR = viewResult(state);
+  if (shownR && !isMarketClosed()) {
+    const v = (shownR.verdict || '').toUpperCase();
     if (v === 'UP') card.classList.add('verdict-up');
     else if (v === 'DOWN') card.classList.add('verdict-down');
   }
@@ -607,7 +714,8 @@ function renderRoloCard(sym: string): void {
 function resetTicker(sym: string): void {
   const state = tickerState.get(sym);
   if (!state) return;
-  state.result = null; state.error = null;
+  state.result = null; state.error = null; state.progress = null; state.view = undefined;
+  if (state.dayTimer) { clearTimeout(state.dayTimer); state.dayTimer = null; }
   renderRoloCard(sym);
   renderPill(sym);
 }
@@ -912,7 +1020,10 @@ function wireDialDrag(): void {
 async function analyzeOne(sym: string, holdThroughEarnings?: boolean): Promise<void> {
   const state = tickerState.get(sym);
   if (!state || state.analyzing) return;
-  state.analyzing = true; state.error = null;
+  state.analyzing = true; state.error = null; state.progress = null; state.view = undefined;
+  state.hold = !!holdThroughEarnings;
+  if (state.dayTimer) { clearTimeout(state.dayTimer); state.dayTimer = null; }
+  watchDayReads(sbSession && sbSession.token, onDayPush);
   renderRoloCard(sym);
 
   const td = state.td || await fetchTickerData(sym);
@@ -957,6 +1068,7 @@ async function analyzeOne(sym: string, holdThroughEarnings?: boolean): Promise<v
         regimeData: td && td.regime ? td.regime : null,
         dialPosition: getDialPosition(),
         holdThroughEarnings: !!holdThroughEarnings,
+        stream: true, // beta accounts get gate-by-gate NDJSON; others plain JSON
       }),
     });
     if (!res.ok) {
@@ -968,7 +1080,8 @@ async function analyzeOne(sym: string, holdThroughEarnings?: boolean): Promise<v
       }
       throw new Error(errData.error || 'Server error ' + res.status);
     }
-    var _r = await res.json();
+    var ctype = res.headers.get('content-type') || '';
+    var _r = (ctype.indexOf('ndjson') >= 0 && res.body) ? await readAnalyzeStream(res, sym, state) : await res.json();
     cacheVerdict(sym, _r);
     lastAnalysis[sym] = _r;
     state.result = _r; state.analyzing = false;
@@ -976,10 +1089,78 @@ async function analyzeOne(sym: string, holdThroughEarnings?: boolean): Promise<v
     renderRoloCard(sym); renderPill(sym);
     fetchCreditStatus();
     onAnalysisSucceeded();
+    scheduleDayCheck(sym);
   } catch (e: any) {
     state.analyzing = false; state.error = e.message;
     renderRoloCard(sym); renderPill(sym);
   }
+}
+
+// Prop 9: read the NDJSON stream from /analyze, painting each gate as the
+// server actually resolves it. Returns the final result object.
+async function readAnalyzeStream(res: Response, sym: string, state: TickerState): Promise<any> {
+  state.progress = { gates: null, gateMissing: null, window: null };
+  renderRoloCard(sym);
+  const reader = res.body!.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (value) buf += dec.decode(value, { stream: true });
+    let nl;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+      if (!line) continue;
+      const msg = JSON.parse(line);
+      if (msg.type === 'gates') { state.progress.gates = msg.gates; state.progress.gateMissing = msg.gateMissing; renderRoloCard(sym); }
+      else if (msg.type === 'gate3') { state.progress.window = msg.window; renderRoloCard(sym); }
+      else if (msg.type === 'final') return msg.result;
+      else if (msg.type === 'error') throw new Error(msg.error || 'Analysis failed');
+    }
+    if (done) break;
+  }
+  throw new Error('Analysis was interrupted. You were not charged if no verdict came back.');
+}
+
+// Day read for an ANALYZE tapped before the 3rd bar closed. Realtime pushes
+// it (onDayPush); this is the fallback ask at readyAt, free of charge.
+function applyDayWindow(sym: string, win: any): void {
+  const st = tickerState.get(sym);
+  if (!st || !st.result || !win) return;
+  st.result = Object.assign({}, st.result, { window: win }) as AnalyzeResponse;
+  st.view = 'day';
+  if (st.dayTimer) { clearTimeout(st.dayTimer); st.dayTimer = null; }
+  cacheVerdict(sym, st.result);
+  lastAnalysis[sym] = st.result;
+  vibrateResult();
+  renderRoloCard(sym); renderPill(sym);
+}
+function onDayPush(payload: any): void {
+  if (!payload || !payload.ticker || !payload.window) return;
+  const st = tickerState.get(payload.ticker);
+  const w = st && dayWindow(st.result);
+  if (w && w.pending) applyDayWindow(payload.ticker, payload.window);
+}
+function scheduleDayCheck(sym: string): void {
+  const st = tickerState.get(sym);
+  const w = st && dayWindow(st.result);
+  if (!st || !w || !w.pending) return;
+  const wait = Math.max(5000, Date.parse(w.readyAt) - Date.now() + 20000);
+  st.dayTimer = setTimeout(() => checkDayRead(sym, 0), wait);
+}
+async function checkDayRead(sym: string, attempt: number): Promise<void> {
+  const st = tickerState.get(sym);
+  const w = st && dayWindow(st.result);
+  if (!st || !w || !w.pending) return;
+  try {
+    const url = API_URL + '/day/' + encodeURIComponent(sym) + '?dial=' + encodeURIComponent(getDialPosition()) + (st.hold ? '&hold=1' : '');
+    const r = await fetch(addSecret(url), { headers: authH() });
+    if (r.ok) {
+      const d = await r.json();
+      if (d.window && d.status !== 'PENDING') { applyDayWindow(sym, d.window); return; }
+    }
+  } catch (e) { /* retry below */ }
+  if (attempt < 10) st.dayTimer = setTimeout(() => checkDayRead(sym, attempt + 1), 60000);
 }
 
 // Proposal 6 -- the "one-time opt-in toggle" itself. Re-runs analysis for

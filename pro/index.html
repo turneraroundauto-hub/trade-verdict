@@ -448,6 +448,16 @@
   .gate-clear{ display:flex; align-items:center; gap:6px; opacity:.55; }
   .gate-clear .gate-dot{ margin-top:0; }
   .gate-clear span{ font-size:13px; color:var(--ink-dim); }
+  /* Prop 9 live gate rows + Gate 3 Day/Long (Oct 19, 2026, beta) */
+  .gate-dot.gate-reading{ background:var(--blue); animation:gateReadPulse 1s ease-in-out infinite; }
+  @keyframes gateReadPulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(74,168,255,.6)}50%{opacity:.45;box-shadow:0 0 0 4px rgba(74,168,255,0)}}
+  .gate-mark{ width:10px; flex:none; font-size:13px; font-weight:700; line-height:1.5; text-align:center; }
+  .gate-clear .gate-mark{ line-height:1; }
+  .day-long-bar{ display:flex; gap:6px; margin-top:8px; }
+  .view-btn{ font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.06em; padding:3px 10px; border-radius:4px; border:1px solid var(--border-3); background:transparent; color:var(--ink-dim); cursor:pointer; }
+  .view-btn.active{ color:var(--bg); background:var(--blue); border-color:var(--blue); }
+  .view-btn:disabled{ opacity:.35; cursor:default; }
+  .day-note{ font-size:11px; color:var(--ink-dim); margin-top:4px; line-height:1.45; }
   .conf-row{ display:flex; align-items:center; margin-top:2px; gap:6px; }
   .conf-lbl{ font-size:13px; color:var(--ink-dim); letter-spacing:.05em; }
   .conf-val{ font-size:13px; font-weight:700; }
@@ -1019,6 +1029,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=72"></script>
+<script type="module" src="./app.js?v=73"></script>
 </body>
 </html>
