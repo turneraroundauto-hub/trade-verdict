@@ -1,62 +1,37 @@
 # Trade Tribunal — CLAUDE.md
 
-Trade Tribunal (renamed from "Trade Verdict" on Aug 4, 2026 — see the
-domain/naming note below) is a systematic day-trading decision app (the
-Catalyst Response Framework — Pre-Gate + Gates 0-5) built by Mr. T, running
-as a Node.js backend + a four-tier GitHub Pages frontend, with Supabase
-auth/credits and Stripe subscriptions.
+Trade Tribunal (renamed from "Trade Verdict" on Aug 4, 2026) is a systematic
+day-trading decision app (the Catalyst Response Framework — Pre-Gate + Gates
+0-5) built by Mr. T: a Node.js backend + a four-tier GitHub Pages frontend,
+with Supabase auth/credits and Stripe subscriptions.
 
 **Full history, architecture rationale, and the debug playbook live in
-Notion, "Trade Tribunal — Full Build Log" (renamed to match, confirmed
-current as of Aug 10, 2026).** This file is a fast-orientation map for
-working in this repo; the Notion doc is the source of truth. Update both
-when you finish meaningful work here.
+Notion, "Trade Tribunal — Full Build Log" (the source of truth).** This file
+is a fast-orientation map for this repo. Update both when you finish
+meaningful work here.
 
-## Naming: Trade Verdict → Trade Tribunal (Aug 4, 2026) — DONE
+## Naming: Trade Verdict → Trade Tribunal (Aug 4-10, 2026; trade-verdict #47/#48/#83, Tra #15/#16) — DONE
 
-Renamed after discovering a live, unrelated competitor already using
-"TradeVerdict"/"theverdict.app" for a near-identical AI trade-evaluation
-pitch, plus `tradeverdict.com`/`.io` were already taken by them — kept
-looking bad for SEO/brand-confusion reasons even though legal risk was low
-(no registered trademark found, no Play Store presence). Custom domain
-`tradetribunal.app` (`CNAME` file in repo root) replaces the org's default
-`turneraroundauto-hub.github.io` Pages URL going forward — GitHub
-auto-redirects the old URL so existing links/bookmarks keep working.
+Renamed because an unrelated competitor already used "TradeVerdict"/
+"theverdict.app" and owned `tradeverdict.com`/`.io`. Custom domain
+`tradetribunal.app` (`CNAME` in repo root) replaces
+`turneraroundauto-hub.github.io`; GitHub auto-redirects the old URL.
 
-Landed in two passes, both merged in `trade-verdict` and `Tra`:
-1. **Cosmetic** (`trade-verdict` PR #47, `Tra` PR #15): page titles, in-app
-   headers/footers, comments, user-agent strings.
-2. **Functional redirect URLs** (`trade-verdict` PR #48, `Tra` PR #16):
-   the hardcoded `turneraroundauto-hub.github.io/trade-verdict` links used
-   for cross-tier sign-up/sign-in redirects, the backend `TIER_URLS` map,
-   and the Supabase auth `redirectTo` — all repointed at `tradetribunal.app`.
-   This required adding `https://tradetribunal.app/reset` to Supabase's
-   Auth → URL Configuration → Redirect URLs allowlist first (done, confirmed
-   by Mr. T Aug 4, 2026) — skipping that step would have broken password
-   reset for existing users the moment it deployed.
+- Cosmetic pass: page titles, headers/footers, comments, user-agent strings.
+- Functional pass: cross-tier sign-up/sign-in redirect links, backend
+  `TIER_URLS`, and Supabase auth `redirectTo` all point at
+  `tradetribunal.app`. This required adding `https://tradetribunal.app/reset`
+  to Supabase Auth → URL Configuration → Redirect URLs first (done) —
+  skipping that would have broken password reset.
+- Stripe product names renamed by Mr. T in the Stripe dashboard.
+- Aug 10 scrub (#83) fixed the Pro CSV filename, the mirrored `server.js`
+  banner, and the README heading.
 
-Stripe product names (Starter/Pro/Shark/Credits) also updated to "Trade
-Tribunal ..." directly in the Stripe dashboard by Mr. T (Aug 4, 2026) —
-`Tra`'s `STRIPE_SETUP.md` doc text was already updated to match in the
-cosmetic pass.
-
-Explicitly NOT touched, still open: the `tv_*` identifiers (`tv_session`,
-`tv_wl`, `tv_accuracy_log`, Supabase table/column names) — renaming those
-is a real breaking data migration for existing users and needs its own
-deliberate pass, not a side effect of a branding change. The GitHub repo
-itself is also still named `trade-verdict` — renaming that is a separate,
-bigger decision (breaks existing clone URLs/CI references) not covered by
-this pass. **Reconfirmed Aug 10, 2026:** asked directly whether to do
-either of these two now; got no go-ahead on either, so both stay exactly
-as described above — still open, still deliberate, not forgotten.
-
-**Follow-up brand scrub (Aug 10, 2026, `trade-verdict` PR #83):** a
-repo-wide case-insensitive grep for `trade[ -]?verdict` turned up three
-spots the cosmetic pass above missed — Pro's watchlist CSV export still
-downloaded as `trade-verdict-watchlist-*.csv` (user-visible), the mirrored
-`server.js`'s banner comment still read `TRADE VERDICT API`, and
-`README.md`'s heading was still the old repo slug. All three fixed; same
-deliberately-untouched exceptions as above.
+**Deliberately NOT done, still open (reconfirmed Aug 10, no go-ahead):** the
+`tv_*` identifiers (`tv_session`, `tv_wl`, `tv_accuracy_log`, Supabase
+table/column names) — renaming them is a breaking data migration that needs
+its own pass; and renaming the GitHub repo `trade-verdict` (breaks clone
+URLs/CI references).
 
 ## The two-repo trap — read this first
 
@@ -87,195 +62,88 @@ deliberately-untouched exceptions as above.
 
 ## Backend: Finnhub call budget (Aug 3, 2026)
 
-Every `finnhubGet()` call in `Tra`'s server.js now goes through a shared
-55-calls/min rolling-window queue (`finnhubThrottle()`) with retry-with-
-backoff on 429 — a cold `symbolMarketCache` (fresh deploy, or any ticker's
-first request of the day) used to fire enough unthrottled Finnhub calls at
-once to blow past the free-tier 60/min limit and fail nearly everything
-with "No quote." If you add a new Finnhub-backed feature, it rides this
-same queue automatically as long as it goes through `finnhubGet()` —
-don't call `fetch()` against Finnhub directly.
+Every `finnhubGet()` call in `Tra`'s server.js goes through a shared
+55-calls/min rolling-window queue (`finnhubThrottle()`) with retry-with-backoff
+on 429 (free tier is 60/min; a cold `symbolMarketCache` used to blow past it
+and fail everything with "No quote"). **New Finnhub-backed features must go
+through `finnhubGet()` — never `fetch()` Finnhub directly.**
 
 Slow-changing fundamentals (52W high/low, beta, market cap, IPO date, avg
 volume) live in their own 24h cache (`symbolFundamentalsCache`,
-`fetchTickerFundamentals()`), fully decoupled from the price-refresh
-clock — they used to re-fetch on every price refresh (as tight as every
-minute on Pro) for numbers that hadn't changed since yesterday, which was
-most of the call volume tripping the limiter above. **Known trade-off,
-confirmed with Mr. T:** 52-week high/low can lag up to 24h on a fresh
-intraday high/low — accepted because Gate 1's forceDown (fresh Alpaca
-60-day data, untouched by this cache) independently catches most of the
-cases where that would actually matter.
+`fetchTickerFundamentals()`), decoupled from price refresh. **Known
+trade-off, confirmed with Mr. T:** 52W high/low can lag up to 24h; accepted
+because Gate 1's forceDown uses fresh Alpaca 60-day data.
 
 ## Backend: Alpaca call budget, extended-hours pricing, dual-source news (Aug 4, 2026)
 
-Same shape of problem as the Finnhub throttle above, found the same way
-(live 429s in Render logs) and fixed the same way: every `fetchOpeningBar`/
-`fetchDailyCloses`/`fetchImpliedVolatility`/`fetchExtendedHoursPrice` call
-now goes through `alpacaGet()`, which has its own shared 180-calls/min
-rolling-window queue (`alpacaThrottle()`, Alpaca's free-plan limit is
-200/min) with retry-with-backoff on 429. Before this, a full watchlist load
-(main cards + Proxy Resolution Explorer + Heat Map each independently
-triggering `/ticker/:symbol`) fired 2-3 unthrottled Alpaca calls per
-ticker, burst well past 200/min, and a chunk of them 429'd — not just
-slow, a correctness bug: `fetchDailyCloses` failing to `null` on a 429
-silently degrades Gate 1's evaluation instead of visibly erroring. If you
-add a new Alpaca-backed feature, route it through `alpacaGet()` — don't
-call `fetch()` against `data.alpaca.markets` directly.
+- Every `fetchOpeningBar`/`fetchDailyCloses`/`fetchImpliedVolatility`/
+  `fetchExtendedHoursPrice` call goes through `alpacaGet()`, with a shared
+  180-calls/min queue (`alpacaThrottle()`; free plan is 200/min) and
+  retry-with-backoff on 429. A 429 isn't just slow: `fetchDailyCloses`
+  failing to `null` silently degrades Gate 1. **New Alpaca-backed features
+  must go through `alpacaGet()` — never `fetch()` `data.alpaca.markets`
+  directly.**
+- **Pre/post-market pricing comes from Alpaca during `isExtendedHoursWindow()`
+  (8-9:30am / 4-8pm ET).** Finnhub's free `/quote` `c` holds the last
+  regular-session price until 9:30am. Alpaca's `feed=iex` bars/latest-trade
+  include IEX's own pre/post-market prints by default.
+  `fetchExtendedHoursPrice()` (latest trade) substitutes for Finnhub's price
+  and recomputes %change against Finnhub's `pc`. Thinner liquidity than the
+  consolidated tape — imprecise but far better than a stale value. The data
+  window stays 8am-8pm.
+- **News comes from Finnhub *and* Alpaca (`/v1beta1/news`, Benzinga)
+  concurrently; whichever headline is newer wins** — not an empty-only
+  fallback (a Finnhub result can be non-empty but stale; root-caused on BB).
+  **UNVERIFIED against live Alpaca news entitlement**; fails safe to
+  Finnhub-only. Check Render logs for `fetchAlpacaNews` errors or a card
+  showing "Benzinga".
+- **Market-open cache warm** (`setInterval`): once per trading day in a
+  9:30-9:35am ET window, refreshes `marketCache` (`warmTrackedMarketCache()`,
+  shared with boot-time warm) and every symbol in `symbolMarketCache`
+  (`refreshMarketEntry()`).
 
-**Pre/post-market pricing now comes from Alpaca, not Finnhub, during
-`isExtendedHoursWindow()` (8-9:30am / 4-8pm ET).** Finnhub's free `/quote`
-`c` field doesn't track pre/post-market trades — it holds the last
-regular-session price until 9:30am, confirmed live (CIFR showing $24.16
-pre-market against a real $21.80). First attempt narrowed
-`isMarketDataWindow()` to 9:30am-8pm to just stop refreshing during that
-gap, on the wrong assumption that Alpaca's free IEX feed couldn't cover it
-either. It can: IEX Exchange runs its own formal pre-market
-(4:00am-9:30am ET) and post-market (4:00pm-8:00pm ET) sessions, and
-Alpaca's `feed=iex` bars/latest-trade endpoints include those prints by
-default (no extra param needed — confirmed via a GitHub issue on Alpaca's
-Python client where users were asking to *exclude* extended-hours bars).
-So the window stayed at 8am-8pm, and `fetchExtendedHoursPrice()`
-(Alpaca latest-trade) substitutes for Finnhub's frozen price during that
-sub-window, recomputing %change against Finnhub's `pc` (previous close,
-reliable at any hour). Thinner liquidity than the regular consolidated
-tape — a real but imprecise read, not equivalent to a regular-session
-quote, but a large improvement over silently re-serving a stale value.
+**Known follow-up, not built:** `fetchDailyCloses` refetches all 130 days on
+every price refresh (as often as every 1 min on Pro) though only the latest
+bar can change — a low-risk win to cache like fundamentals.
 
-**News is now sourced from Finnhub *and* Alpaca (`/v1beta1/news`,
-Benzinga) concurrently, using whichever headline is actually more
-recent — not "fall back to Alpaca only when Finnhub is empty."**
-Root-caused via BB (Aug 4, 2026): Finnhub's `/company-news` returned a
-real, non-empty article that was simply 313.5 hours old against the app's
-300-hour cutoff — a materially newer BB story the user had seen elsewhere
-wasn't in Finnhub's feed for that ticker at all. An empty-only fallback
-wouldn't have caught that, since Finnhub's result wasn't empty, just
-stale. **UNVERIFIED AGAINST LIVE ALPACA NEWS ENTITLEMENT** — same posture
-as the IV feature below: written from Alpaca's documented response shape,
-fails safe to Finnhub-only behavior on any error (including a 403 if the
-account lacks the entitlement), never confirmed against a real response.
-Check Render logs for `fetchAlpacaNews` errors, or watch for a card whose
-news source shows "Benzinga" to confirm it's actually working.
-
-**Market-open cache warm** (`setInterval`, this codebase's first): fires
-once per trading day in a 9:30-9:35am ET window, refreshing the fixed
-tracked-symbol list (`marketCache`, via `warmTrackedMarketCache()`,
-shared with the existing boot-time warm) and every symbol currently in
-`symbolMarketCache` (via `refreshMarketEntry()`, shared with
-`/ticker/:symbol`'s own staleness check) — so the bell ringing itself
-triggers the refresh instead of whoever loads their watchlist first after
-open eating the cost alone.
-
-**Known follow-ups, not yet built:**
-- `fetchDailyCloses` refetches all 130 days of Alpaca bars on every price
-  refresh (as often as every 1 min on Pro), even though only the
-  most-recent day's bar can actually change. Fundamentals got decoupled
-  into their own 24h cache for exactly this reason (see above) — daily
-  closes never did. Real, low-risk win for reducing steady-state Alpaca
-  call volume, not just the throttled-burst case.
-
-**Resolved:**
-- ~~No in-flight de-duplication~~ — fixed: `shared/ticker-cache.js`'s
-  `fetchTickerData()` tracks an in-flight promise per symbol, so
-  concurrent callers (cards, PRE, Heat Map) asking for the same symbol
-  within milliseconds of each other share one request instead of each
-  firing their own.
-- ~~Proxy Resolution Explorer and Sector Heat Map iterate the entire
-  watchlist~~ — see "Watchlist load-time fixes" below (Aug 5, 2026):
-  rebuilt as priority-first + progressive rather than scoped to top-15
-  only, so large watchlists stay fully visible in both panels.
+**Resolved:** `shared/ticker-cache.js`'s `fetchTickerData()` de-dupes
+in-flight requests per symbol. PRE/Heat Map load priority-first (see next
+section).
 
 ## Backend: watchlist load-time fixes (Aug 5, 2026)
 
-Reported live: a Pro watchlist was taking 2+ minutes to populate even
-after everything else on the page had loaded, with Render logs showing
-repeated `[SUB LOOKUP]` entries all resolving to the same tier. Two
-compounding causes, both fixed:
+A Pro watchlist took 2+ minutes to populate. Fixes:
+- **Auth-lookup stampede.** `resolveAuth()`'s 60s `authCache` didn't help
+  concurrent requests with the same token. Added an in-flight-promise map
+  (`authInFlight`) so concurrent callers share one lookup.
+- **Compact-list batching removed.** `renderCompactList()`'s 5-at-a-time
+  `mapBatched()` became a plain `Promise.all` (redundant with Tra's throttles
+  and ticker-cache de-dupe).
+- **PRE and Heat Map load priority-first.** They paint the top-15 card-window
+  tickers first, then stream in the rest. Both use a render-generation counter
+  so a stale paint can't clobber a newer render. Tickers 16+ still get full
+  coverage.
+- **The real cause: `evaluatePreGate()` (SEC EDGAR full-text search, runs in
+  every `/ticker/:symbol`) had no throttle**, and its result cache and
+  ticker→CIK map are in-memory, cold after every deploy. Fixed with
+  `secThrottle()` (8 req/sec rolling window) around the CIK map fetch and the
+  full-text search, plus `tickerCikInFlight` guarding the cold CIK-map load.
+  Unverified against a live deploy at the time.
 
-**Auth-lookup stampede.** `resolveAuth()`'s existing time-based cache
-(`authCache`, 60s TTL) only helps a request that lands *after* an earlier
-one already finished and populated it. A burst of concurrent requests
-carrying the identical token — exactly what card hydration, the compact
-overflow list, and (when open) PRE/Heat Map all produce simultaneously on
-a large watchlist — all check the cache before any of them has had time
-to fill it, so every single one independently re-ran both Supabase round
-trips (`validateSupabaseToken` + `getSubscriber`). Fixed in `Tra`'s
-server.js (mirrored into this repo's `server.js`) with an in-flight-
-promise map (`authInFlight`), the same pattern `shared/ticker-cache.js`
-already used for per-symbol de-duplication — concurrent callers now share
-one real lookup instead of each starting their own.
-
-**Compact-list batching, still there after the cards were fixed.** The
-Aug 4 batching removal (see Frontend architecture below) only touched
-`hydrateCards()` for the main 15 cards. `renderCompactList()` — the
-overflow list covering everything beyond the card window — still ran its
-fetches 5-at-a-time through a `mapBatched()` helper, serializing a
-33-ticker overflow list (on a 48-ticker watchlist) into 7 sequential
-waves. Removed; now a plain `Promise.all`, same reasoning as the cards'
-fix (redundant now that Tra's Finnhub/Alpaca throttles and the ticker-
-cache in-flight de-dupe exist).
-
-**Proxy Resolution Explorer and Sector Heat Map now load priority-first.**
-Both used to block their entire render on `Promise.all` over the *full*
-watchlist — on a large watchlist, one slow ticker anywhere in the list
-held up every row/tile, including the ones for the top 15 tickers users
-actually look at first. Both now resolve and paint the card-window
-(top 15) tickers first, then stream in the rest as each one's own fetch
-completes — PRE re-sorts and repaints as each additional result arrives,
-Heat Map updates each tile in place. Both use a render-generation counter
-so a stale in-flight paint from a superseded render (panel closed/
-reopened, sort changed) can't clobber a newer one. Nothing scoped away —
-tickers 16+ still get full coverage, just not gating on it.
-
-**Follow-up, same day: none of the above actually fixed it.** Reported
-back live — top-15 cards were still slow, "loading with everything
-else," no perceptible improvement from any of the three fixes above.
-Root cause was a fourth, bigger one those three didn't touch:
-`evaluatePreGate()` (SEC EDGAR full-text search, runs inside *every*
-`/ticker/:symbol` request, not just Analyze) had **no throttle at all**,
-unlike Finnhub/Alpaca. Worse, both the per-symbol Pre-Gate result cache
-and the ticker→CIK map it depends on are plain in-memory state that goes
-cold on every deploy — and the auth-stampede fix just above had, minutes
-earlier, forced exactly that deploy. So the very fix meant to help
-instead guaranteed a fully-cold Pre-Gate cache for the next test: every
-ticker, including the top 15, now needed a fresh unthrottled SEC call
-before its `/ticker/:symbol` response could return at all, and a burst of
-concurrent different-symbol requests right after a cold start could
-plausibly get slowed or rate-limited by SEC itself with nothing local
-pacing them. Fixed with `secThrottle()` (8 req/sec rolling window, same
-shape as `finnhubThrottle`) wrapping both the CIK map fetch and the
-full-text search call, plus an in-flight-promise guard
-(`tickerCikInFlight`) on the CIK map's own cold-cache population so a
-burst landing while it's null doesn't each independently re-fetch and
-re-parse the entire SEC ticker list. **Unverified against a live deploy
-as of this writing** — reasoned from code (this is the one path with
-zero rate-limiting protection, on the one deploy that would have gone in
-completely cold), not confirmed by watching Render logs post-deploy.
-
-## Supabase tables: "RLS disabled" ≠ "access blocked" (Aug 4, 2026)
+## Supabase tables: "RLS disabled" ≠ "access blocked" (Aug 4-13, 2026; Tra #22)
 
 Every service-role-only table in this project (`subscribers`, `credits`,
-`proxy_resolution`, `pre_gate_triggers`, `watchlists`, `accuracy_log`) is
-documented as "RLS disabled, server-only access via the service_role key."
-**That description is incomplete and was actively dangerous:** disabling
-RLS just means Postgres stops filtering rows by policy — it does nothing
-about the underlying `anon`/`authenticated` role GRANTs. Supabase's
-Security Advisor flagged `public.subscribers` as CRITICAL ("Policy Exists
-RLS Disabled"), which led to actually checking every table's real grants
-via `information_schema.role_table_grants` — and `credits`,
-`accuracy_log`, and `proxy_resolution` all had full `anon` **and**
-`authenticated` SELECT/INSERT/UPDATE/DELETE, unrevoked, this whole time.
-Anyone with the public anon key (sitting in every tier's page source)
-could have rewritten their own credit balance, tampered with any user's
-track record, or corrupted the proxy-resolution cache directly via the
-REST API — no backend, no auth, no rate limit. `subscribers` and
-`watchlists` happened to already have no such grants (likely a Supabase
-project-default-privileges quirk at table-creation time, not anything
-this repo did intentionally) — that was luck, not design.
-
-**Fixed (Aug 4, 2026):** `revoke all on <table> from anon, authenticated;`
-run against `credits`, `accuracy_log`, `proxy_resolution` — confirmed
-closed via the same grants query returning zero rows afterward.
+`proxy_resolution`, `pre_gate_triggers`, `watchlists`, `accuracy_log`, and
+every later one) is documented as "RLS disabled, server-only access via the
+service_role key." **That description is incomplete and was actively
+dangerous:** disabling RLS just means Postgres stops filtering rows by
+policy — it does nothing about the underlying `anon`/`authenticated` role
+GRANTs. `credits`, `accuracy_log`, and `proxy_resolution` were found with
+full `anon` **and** `authenticated` SELECT/INSERT/UPDATE/DELETE — anyone with
+the public anon key (in every tier's page source) could have rewritten
+credit balances, track records, or the proxy cache via the REST API.
+`subscribers`/`watchlists` happened to have no such grants — luck, not
+design.
 
 **Rule for every future service-role-only table:** `disable row level
 security` is not sufficient by itself. Always pair it with an explicit
@@ -288,99 +156,37 @@ where table_schema = 'public' and table_name = '<table>'
 ```
 Zero rows back is the only thing that actually confirms it — "RLS shows
 disabled in the dashboard" does not. All `supabase-ddl-patch*.sql` files
-for existing service-role-only tables now include this revoke; any new
-patch creating one must too.
+for existing service-role-only tables include this revoke; any new patch
+creating one must too.
 
-Separately, unrelated to the grants issue: on this project, bundling
-`alter table ... disable row level security` in the *same* SQL editor
-run as the `create table` it follows did not reliably stick (patch8,
-`accuracy_log` — the table still showed RLS-enabled after running the
-combined script). Running it as its own separate execution, after the
-table already exists, is what actually worked. Structure future patches
-as explicit separate steps rather than assuming one combined run is
-equivalent.
+**Run RLS-disable as its own separate SQL execution**, after the table
+exists. Bundling `alter table ... disable row level security` in the same
+SQL editor run as `create table` did not reliably stick (patch8,
+`accuracy_log`). Structure patches as explicit separate steps.
 
-**Root cause confirmed (Aug 4, 2026) — fix shipped as `Tra` PR #22
-(merged/deployed same day).** `credits` had its `anon`/`authenticated`
-grants put back as a live stopgap (the vulnerability above re-opened on
-this one table until the fix below deployed and held — see the Aug 13
-resolution below for how this closed out). Revoking `credits`'
-grants broke real production traffic within minutes — `credits.
-get_or_create_user_credits failed: permission denied for table
-credits` in Render logs — even though `service_role` provably had full
-grants on every one of these tables (`set role service_role; select * from
-public.get_or_create_user_credits(...)` succeeded cleanly from the SQL
-editor).
+**The Aug 4 outage and its root cause (fixed, Tra #22).** Revoking `credits`'
+grants broke production (`permission denied for table credits`). Cause: the
+`credits` RPC functions (`get_or_create_user_credits`, `deduct_user_credit`,
+etc., `supabase-ddl-patch5-credits.sql`) are `SECURITY INVOKER` (the
+default), so they run as the caller's role. Tra used one module-level
+Supabase client (built with `SUPABASE_SERVICE_KEY`) for everything,
+including `/auth/login`/`/auth/signup`. In `@supabase/supabase-js` v2,
+`signInWithPassword`/`signUp` persist a session onto that client, after
+which its `.from()/.rpc()` calls send the user's `authenticated` JWT
+instead of the service key. **Fix:** the admin client sets
+`persistSession: false`, and login/signup run on a fresh, throwaway anon-key
+client (`authClient()`). **Never call auth sign-in/sign-up on the shared
+admin client.** Mirrored into this repo's `server.js`.
 
-Actual cause: none of `credits`' RPC functions
-(`get_or_create_user_credits`, `deduct_user_credit`, etc., in
-`supabase-ddl-patch5-credits.sql`) are `SECURITY DEFINER` — Postgres
-defaults to `SECURITY INVOKER`, so each one runs with whatever role the
-*calling* request resolves to, not `service_role` automatically. `Tra`'s
-`server.js` used one module-level Supabase client (built with
-`SUPABASE_SERVICE_KEY`) for everything, including `/auth/login` and
-`/auth/signup`, which call `signInWithPassword`/`signUp` — and in
-`@supabase/supabase-js` v2, those calls persist a session onto whatever
-client instance they're called on, after which that instance's own
-`.from()/.rpc()` calls send the *session's* access token instead of the
-key it was constructed with. So the moment any user logged in, the shared
-client's session flipped to that user's `authenticated`-role JWT, and
-every other concurrent/subsequent request's privileged calls (`credits`
-included) silently started executing as `authenticated` instead of
-`service_role` — until the next login/signup overwrote it again. This
-also explains why it wasn't 100% reproducible: it only manifests once a
-login/signup has happened recently in that server process. The same
-shared-client pattern affects `upsertSubscriber`/watchlist/track-record
-sync too, just not caught yet since those didn't have their grants
-tightened to expose it.
-
-**Fix (PR #22, `Tra`):** the admin client now sets `persistSession:
-false`, and `/auth/login`/`/auth/signup` call `signInWithPassword`/
-`signUp` on a fresh, throwaway anon-key client instead of the shared
-admin one — so a login/signup can no longer contaminate the client used
-for `service_role` work. Mirrored into this repo's `server.js` too (same
-`authClient()` pattern). **Once this deploys and holds under real
-traffic for a few days, `credits`' `anon`/`authenticated` grants can
-likely be safely re-revoked** — do that as its own follow-up, not in the
-same change, so a regression is easy to isolate.
-
-**`credits` stopgap closed, Aug 13, 2026 (first pass).** A follow-up
-Supabase Security Advisor email (dated Aug 9, 2026 — "Table publicly
-accessible" / "Sensitive data publicly accessible", CRITICAL) turned out
-to just be Supabase correctly still flagging this exact open item, nine
-days after PR #22 merged and with nobody having circled back to actually
-run the re-revoke it unblocked. Ran `revoke all on public.credits from
-anon, authenticated;` and confirmed zero rows on the standard grants-check
-query. Verified this didn't repeat the Aug 4 outage two ways: (1) a real
-login against production (`turneraroundauto@gmail.com`, tier pro) came
-back clean in Render logs, no `permission denied for table credits`; (2) a
-real `/analyze` call immediately after deducted a credit successfully with
-no error — the actual path that broke in the original incident.
-
-**Bigger regression found the same day, same session.** Prompted by the
-`credits` scare, re-ran the grants-check query scoped to all five
-service-role tables instead of just `credits` — and found `accuracy_log`,
-`proxy_resolution`, `pre_gate_triggers`, and `watchlists` had **all**
-regained full `anon`/`authenticated` grants (`INSERT`/`SELECT`/`UPDATE`/
-`DELETE`, plus `TRUNCATE` on `pre_gate_triggers` and `watchlists`) —
-directly contradicting this file's own Aug 4 note that those four were
-"properly revoked and never affected." `credits` alone was clean
-(confirming the revoke above held), meaning something re-opened the
-*other four* independently of anything done today. **Root cause
-unconfirmed** — nobody had re-run this check since Aug 4, so there's no
-way to tell from here whether this was a single event (e.g. a dashboard
-action or a script re-granting broadly) or whether the Aug 4 "confirmed
-via zero rows" fix on these tables never actually held long-term. Flagged
-to Mr. T as an open question, not guessed at.
-
-Fixed the same way as `credits`: `revoke all on public.<table> from anon,
-authenticated;` run against all four, re-verified zero rows across all
-five tables (`credits`, `accuracy_log`, `proxy_resolution`,
-`pre_gate_triggers`, `watchlists`) in one query this time, not scoped to a
-single table like the first pass was. **Given the surprise here, don't
-assume this stays fixed either — re-run the full five-table grants query
-periodically instead of trusting this note, the same lesson the first
-regression itself just taught.**
+**Closed out Aug 13, 2026.** `credits`' stopgap grants were re-revoked (a
+real login and a real `/analyze` credit deduction both worked afterward).
+The same day, `accuracy_log`, `proxy_resolution`, `pre_gate_triggers`, and
+`watchlists` were found to have **regained** full `anon`/`authenticated`
+grants (plus TRUNCATE on two). Root cause unconfirmed at the time (see the
+Sep 17, 2026 Data API exposure finding later in this file for the first
+real trigger caught). All re-revoked and verified in one query. **Don't
+assume grants stay fixed — re-run the grants query across every
+service-role table periodically, not just the one you touched.**
 
 ## Frontend architecture
 
@@ -399,20 +205,22 @@ single-file version — see Tier status below). All non-free tiers share:
   `getAccuracyLog()`, `clearLog()`.
 - `shared/track-record-sync.js` (added Aug 4, 2026, **Pro only** — only
   `pro/app.js` wires it up) — syncs `tv_accuracy_log` to the account via the
-  new `GET`/`POST /track` endpoints in `Tra`, structurally identical to
+  `GET`/`POST /track` endpoints in `Tra`, structurally identical to
   `watchlist-sync.js`/`GET`/`POST /watchlist`: same debounced push, same
   seed/`ignoreDuplicates` write on an ambiguous empty pull. Free/Starter/
-  Shark are untouched, still localStorage-only. Backing table:
-  `public.accuracy_log` (`supabase-ddl-patch8-track-record-sync.sql`).
+  Shark are localStorage-only. Backing table: `public.accuracy_log`
+  (`supabase-ddl-patch8-track-record-sync.sql`).
 - `shared/prefs.js` / `shared/settings-modal.js` / `shared/context-highlight.js`
   (added Aug 9-10, 2026, **Starter + Pro only**) — see "Frontend: user
   preferences" below.
 
-`shared/watchlist.js`'s `hydrateCards()` (populates each card's price/52W/
-news strip) fires every card's fetch concurrently rather than in gated
-batches of 5 (removed Aug 4, 2026) — the batching predated `Tra`'s Finnhub
-throttle and is now redundant with it; keeping it only added tail latency
-(a slow ticker blocked the *next* batch from even starting).
+`shared/watchlist.js`'s `hydrateCards()` fires every card's fetch
+concurrently (the old batches-of-5 were removed Aug 4, 2026 as redundant
+with Tra's throttle; they only added tail latency).
+
+(Since Aug 16, 2026, shared modules are `.ts` sources with committed
+compiled `.js`, and Free/Starter/Pro `app.js` are esbuild bundles — see the
+TypeScript and Rolodex sections later in this file.)
 
 ### The cache-busting rule — this is not optional
 
@@ -452,2091 +260,475 @@ shared file's content (its import line), that file's OWN version needs
 bumping too, and so on up through every `app.js` to each tier's
 `<script>` tag — check every hop, not just the first one.
 
-## Frontend: user preferences — time zone, ticker/news links, session-context highlighting (Aug 9-10, 2026)
+**Same bug hit again Aug 9-10 with `prefs.js`:** bumping only
+`settings-modal.js`'s import created two live `prefs.js` instances, and
+`pro/app.js`'s `onPrefsChange` listener sat on the stale one. Bump every
+importer in lockstep.
 
-**Starter + Pro only.** Free must never show the Settings UI and must be
-immune to preferences set by another tier sharing the same browser/
-localStorage origin — `shared/prefs.js`'s `forceDefaults()` runs on Free's
-`app.js` load and always resolves to ET + Yahoo regardless of what's in
-localStorage. Free's `app.js` does not import `settings-modal.js` at all.
+## Frontend: user preferences — time zone, ticker/news links, session-context highlighting (Aug 9-10, 2026; trade-verdict #75-#80, #82, #84-#89)
 
-**Time zone.** The market timestamp used to render in unlabeled
-browser-local time next to an already-ET-labeled live clock — confusing
-whenever the two disagreed. `prefs.js` exports `TIMEZONES` (ET/CT/MT/PT)
-and `getTzPref`/`setTzPref`/`getTzIana`; both the live clock and the
-market timestamp on Starter/Pro now render in the user's chosen zone,
-always labeled.
+**Starter + Pro only.** Free must never show Settings and must ignore prefs
+set by another tier in the same browser: `shared/prefs.js`'s
+`forceDefaults()` runs on Free's load and always resolves to ET + Yahoo.
+Free does not import `settings-modal.js`.
 
-**Ticker/news links.** `LINK_SITES` (`yahoo`/`tradingview`/`stocktwits`/
-`google`/`robinhood`/`custom`) drives `tickerHref(t)` (what a ticker
-symbol links to) and `newsHref(t)` (what a news headline links to —
-defaults to the same site, TradingView overrides to its `/news/` path).
-The paywalled-news problem was originally attacked with a keyword-search
-test bench trying to find a reliably-free source per headline — abandoned
-after live testing kept surfacing 404s and Google's `site:` search
-banner, nothing usable as a real link target. **Pivoted to a simpler
-model:** route both ticker and news links through the user's own site
-preference — "paywalled" is relative to the individual user, and someone
-with their own TradingView/Robinhood subscription doesn't have a paywall
-problem to solve for. Finnhub/Alpaca remain the underlying data source for
-headline text and gate logic; only the *link* changed. `robinhood` was
-added as a built-in option alongside a `custom` option for a fully
-user-defined link template.
+- **Time zone.** `prefs.js` exports `TIMEZONES` (ET/CT/MT/PT) and
+  `getTzPref`/`setTzPref`/`getTzIana`; Starter/Pro times render in the chosen
+  zone, always labeled.
+- **Ticker/news links.** `LINK_SITES` (`yahoo`/`tradingview`/`stocktwits`/
+  `google`/`robinhood`/`custom`) drives `tickerHref(t)` and `newsHref(t)`.
+  Design decision: route links through the user's own site preference
+  ("paywalled" is relative to the user) instead of hunting for a free source
+  per headline (abandoned — 404s and `site:` search banners). Finnhub/Alpaca
+  stay the data source; only the link changes. Current routes: Yahoo news
+  `/quote/{TICKER}/news/`; Google news via `news.google.com`, Google ticker
+  via plain `google.com/search?q={TICKER}+stock`; StockTwits news
+  `stocktwits.com/symbol/{TICKER}/news`; TradingView ticker via a plain web
+  search with a `tradingview` keyword (bare `tradingview.com/symbols/{TICKER}/`
+  and Google Finance beta both mis-routed ARCC to an Egyptian company — they
+  need a `TICKER:EXCHANGE` qualifier, and this app has no per-symbol exchange
+  field). Yahoo, Robinhood, StockTwits, Custom left unchanged after audit (bare
+  US tickers resolve to the US listing / US-only product / low collision /
+  user's own choice). Unverified live: the sandbox egress proxy blocks
+  google/tradingview/yahoo/stocktwits.
+- **Custom link.** One URL field (`#settings-custom-ex-url`): paste an example
+  URL, `detectTickerInUrl()` finds the ticker (path segments from the end,
+  non-ticker blocklist, hyphen-split for Webull-style, query-param fallback
+  like `?symbol=NASDAQ:AAPL`); auto-prepends `https://`; blank/invalid falls
+  back to Yahoo. Helpers: `buildTemplateFromExample`, `isValidCustomTemplate`.
+  Two independent templates: `getCustomTemplate`/`setCustomTemplate` (original
+  key, now news link only — no migration needed) and
+  `getCustomMarketTemplate`/`setCustomMarketTemplate`
+  (`tv_link_custom_market_template`, ticker link).
+- **Session Context highlighting.** `shared/context-highlight.js`'s
+  `highlightContextMatches(headline, contextText)` HTML-escapes the headline
+  (fixed a latent XSS-style missing escape) and wraps matches in
+  `<mark class="ctx-match">` only when 2+ distinct stopword-filtered words
+  overlap. (The Session Context card itself was later retired, Aug 26-27 —
+  see the Agitator section.)
+- **Watchlist ordering.** `addTickers()` prepends new tickers as a block
+  (`watchlist.unshift.apply(watchlist, newOnes)`, preserving typed order).
+  Also mirrored into `shark/index.html`.
 
-**Custom link template** (`buildTemplateFromExample`, `detectTickerInUrl`,
-`isValidCustomTemplate`, `getCustomTemplate`/`setCustomTemplate` in
-`prefs.js`) went through three rounds of simplification, each a direct
-user correction: (1) originally required manually typing `{TICKER}` into
-a template — replaced with `detectTickerInUrl()`, a heuristic that scans
-a pasted example URL's path segments from the end (with a non-ticker-word
-blocklist, a hyphen-split fallback for Webull-style URLs, and a
-query-param fallback for chart-style URLs like `?symbol=NASDAQ:AAPL`) so
-the user never types the ticker at all; (2) then simplified from two
-fields (ticker + URL) to one — the Settings modal's Custom-link UI is now
-a single URL input (`#settings-custom-ex-url`) that auto-prepends
-`https://` if missing and shows a save/error status line, nothing else;
-(3) the placeholder text ("Paste your favorite market news URL") was
-shortened after the original wording visually truncated on mobile.
-Blank/invalid custom input silently falls back to Yahoo Finance.
-
-**Session Context highlighting.** `shared/context-highlight.js`'s
-`highlightContextMatches(headline, contextText)` HTML-escapes the
-headline (this also fixed a latent missing-escape bug — headline text was
-going straight into `innerHTML` before) and wraps matches in
-`<mark class="ctx-match">` only when 2+ distinct stopword-filtered words
-overlap between the Session Context textarea and a given headline —
-single coincidental word overlaps are intentionally ignored to avoid
-false-positive highlighting. Wired to a 250ms-debounced input listener on
-`#context-input` (`wireContextHighlight()` in starter/app.js and
-pro/app.js) that re-renders already-cached card/compact-list news via
-`refreshNewsHighlights()` (new export in `shared/watchlist.js`) — no new
-network calls.
-
-**Watchlist ordering.** `addTickers()` used to append new tickers to the
-bottom; it now collects the not-already-present tickers and prepends them
-as a block (`watchlist.unshift.apply(watchlist, newOnes)`, not a
-naive per-item loop, which would reverse the typed order) so newly added
-tickers appear at the top in the order they were entered. Mirrored into
-`shark/index.html` as a mechanical fix (not the rest of this section's
-feature work, which stayed Starter/Pro-only per instruction).
-
-**Gotcha hit again during this work, same class already documented in the
-cache-busting rule below:** bumping `settings-modal.js`'s own `prefs.js`
-import to a new `?v=` without bumping the other importers
-(`watchlist.js`, `track-record.js`, `app.js`, `starter/app.js`,
-`pro/app.js`) created two live ES module instances of `prefs.js` in the
-same page — `pro/app.js`'s `onPrefsChange` listener was registered on the
-stale one and never fired. Fixed by bumping every importer in lockstep;
-re-confirm with the unanchored grep from the cache-busting rule whenever
-`prefs.js` changes again.
-
-Shipped as `trade-verdict` PRs #76-#80, all merged to `main`.
-
-**Evening follow-up (Aug 10, 2026): news-link correctness sweep, `trade-verdict`
-PRs #82, #84-#86.** `newsHref()` only ever special-cased TradingView with a
-real per-ticker news route — Yahoo (the default for every user, and the
-*only* option Free can use) and Google both silently fell back to `href()`
-(a plain quote page / generic web search) instead of landing on actual
-news. Fixed: Yahoo now has its own `newsHref` (`/quote/{TICKER}/news/`);
-Google's `newsHref` routes through `news.google.com` instead of a plain
-web search; StockTwits got its own `newsHref`
-(`stocktwits.com/symbol/{TICKER}/news`) — previously assumed (wrong) that
-StockTwits had no distinct news route, corrected via a live example the
-user supplied. Separately, Google Finance's *ticker* link (`href`, not
-`newsHref`) was still routing through a plain `google.com` web search —
-per direct instruction, changed to `google.com/finance/beta/?q={TICKER}`
-instead. **Unverified against a live response** — this sandbox's network
-egress proxy blocks `google.com` outright (confirmed via both `curl` and
-`WebFetch`, both returned 403/`EGRESS_BLOCKED`) — spot-check after deploy.
-**Custom link split into two independent templates**
-(`getCustomMarketTemplate`/`setCustomMarketTemplate`, new key
-`tv_link_custom_market_template`) — the Custom option previously had one
-saved template serving both ticker and news links; the original
-template/key keeps its exact prior behavior and now serves only the news
-link, so existing users' saved link keeps working unchanged, no migration
-needed. Also found and merged `trade-verdict` PR #75 ("Back to Free tier"
-link on the Starter/Pro login screens) — opened by a *different*, earlier
-session on Aug 6 and left unmerged ever since, found by fetching every
-remote branch and diffing each against `main` for unmerged commits.
-Reminder: "pushed" and "merged" are not the same claim, and nothing
-surfaces that gap automatically.
-
-**Late-night follow-up (Aug 10, 2026): live bug caught by the user, `trade-verdict`
-PRs #88, #89.** Clicking ARCC (Ares Capital Corporation, NASDAQ) landed on
-Egypt's EGX-listed Arabian Cement Company instead — the exact failure mode
-flagged as an unverified risk when the Google Finance beta-search change
-above shipped. **First response was wrong**: assumed the report was about
-that just-shipped Google change without confirming which link-site
-preference was actually active, and fixed only Google (reverted
-`google.com/finance/beta/?q=` back to a plain `google.com/search?q={TICKER}+stock`
-web search). The user corrected this directly — the report was actually
-about the **TradingView** preference. Re-verified with the same `prefs.js`
-node-script test used throughout this session's link work and confirmed
-TradingView's bare `tradingview.com/symbols/{TICKER}/` has the identical
-missing-exchange-context problem (both need a `TICKER:EXCHANGE` qualifier
-this app has no way to supply — there is no per-symbol exchange field
-anywhere in the frontend or the mirrored `server.js`). Fixed the same way:
-routes through a plain web search with a `tradingview` keyword instead of
-the `site:tradingview.com` operator (already known unreliable — see the
-news-link section above). **Both fixes are unverified against a live
-response** — this sandbox's network egress proxy blocks every finance/social
-site tried outright (`google.com`, `tradingview.com`, `finance.yahoo.com`,
-`stocktwits.com` all returned `EGRESS_BLOCKED`/403 via both `curl` and
-`WebFetch`) — flagged for a human spot-check. **Lesson: don't infer which
-of several similar, recently-changed things a bug report is about — confirm
-the actual state (which preference was selected) before fixing.**
-
-Prompted a direct instruction to verify *every* link route lands on the
-correct company. Clarified first via `AskUserQuestion` whether that meant a
-literal NASDAQ-only restriction or "the correct US company, not a foreign
-lookalike" — confirmed the latter; a literal NASDAQ-only rule would have
-broken routing for the many NYSE-listed tickers a real watchlist contains
-(Ares Capital is incidentally NASDAQ-listed, but that's not the actual bug
-class). Audited every remaining `LINK_SITES` option by design reasoning
-(live verification isn't possible from this sandbox, per above): **Yahoo**
-left unchanged — `finance.yahoo.com/quote/{TICKER}` resolves a bare
-US-style ticker to the primary US listing by design (non-US listings need
-an explicit suffix in Yahoo's own convention), and it's the app's
-default/most-used option all session with zero misroute reports even
-through the testing that caught the other two. **Robinhood** left
-unchanged — structurally safe, since Robinhood's own product only lists
-US-tradable securities at all, so there's no foreign listing a bare ticker
-could resolve to on that domain. **StockTwits** left unchanged —
-materially thinner international coverage than Yahoo/Google/TradingView,
-lower collision risk, no reported issues. **Custom** left unchanged —
-routes through whichever site the user themselves pastes an example from;
-correctness there is inherently the user's own choice.
+**Lessons:** "pushed" and "merged" are different claims — #75 sat unmerged
+from another session for days, found only by diffing every remote branch
+against `main`. **Don't infer which of several recently-changed things a bug
+report is about — confirm the actual state (e.g. which preference was
+selected) before fixing.** Clarify ambiguous scope (e.g. "NASDAQ only" meant
+"correct US company") before building.
 
 ## Deploying: GitHub Pages deployments can get stuck in `queued` forever (Aug 10, 2026)
 
-Merged `trade-verdict` PR #80 and the live site kept serving the *previous*
-build after multiple hard refreshes and several real minutes — longer than
-the documented ~22-minute CDN-propagation ceiling elsewhere in this file
-would explain as "still propagating." Diagnosed via the GitHub Actions API
-(`actions_list`/`actions_get`, workflow name "pages build and deployment"):
-the deployment run for that commit was stuck at `status: queued`
-indefinitely, never advancing to `in_progress`. Calling `rerun_workflow_run`
-on it directly failed with `403 This workflow is already running` — it
-can't be kicked back to life that way.
-
-**Fix: push any new commit to `main`.** GitHub Pages spawns a brand-new,
-independent deployment run for the new SHA — confirmed the stuck run's
-`conclusion` flipped to `cancelled` the moment the new run was created, and
-the new run deployed cleanly within about a minute. If a deploy seems
-stuck beyond a couple of minutes, check the Actions run status (`pages
-build and deployment`, filtered to `main`) before assuming it's just
-propagation lag — a genuinely stuck run won't be fixed by waiting or by
-hard-refreshing the browser.
-
-Root cause unconfirmed — five PRs were merged in quick succession that
-evening (roughly 10-20 minutes apart), which is the leading suspect for
-GitHub Pages' deployment queue getting confused, but this wasn't proven.
-If it recurs, check whether it correlates with rapid successive merges
-again.
+A merged PR's "pages build and deployment" run can sit at `status: queued`
+indefinitely; `rerun_workflow_run` fails with `403 This workflow is already
+running`. **Fix: push any new commit to `main`** — a new run starts, the
+stuck one flips to `cancelled`, and the new one deploys in about a minute.
+If a deploy seems stuck beyond a couple of minutes, check the Actions run
+status (filtered to `main`) before assuming propagation lag. Root cause
+unconfirmed; suspect rapid successive merges.
 
 ## Google Play launch (Aug 11-12, 2026) — Free tier live in Internal testing
 
-Mr. T wanted Trade Tribunal on the Play Store. Scope agreed up front and
-still in force: **no in-app purchases** — the Android app is a Trusted Web
-Activity (TWA) wrapper around the Free tier only; sign-up/upgrade still
+Scope (still in force): **no in-app purchases.** The Android app is a
+Trusted Web Activity (TWA) wrapper around the Free tier only; sign-up/upgrade
 happens on the website via Stripe. Package ID `app.tradetribunal.twa`.
-Starter/Pro/Shark as their own Play listings is explicitly a later,
-separate decision, not started.
+Starter/Pro/Shark Play listings are a separate, unstarted decision.
 
-### PWA groundwork (Free tier only, `trade-verdict` PRs #91, #93-#97)
+### PWA groundwork (Free tier only, trade-verdict #91, #93-#97)
 
-Added `manifest.json`, app icons generated from `shared/assets/logo-mark.png`
-(`shared/assets/icons/`), and `sw.js` (network-first service worker —
-deliberately not cache-first, given this file's whole cache-busting-rule
-history above; a cache-first worker would reintroduce that exact failure
-mode at a new layer). `sw.js` is served from the site root so its default
-scope covers the *entire* origin even though only Free registers it —
-fixed by having the fetch handler explicitly ignore `/starter/`, `/pro/`,
-`/shark/`, `/reset/`, `/privacy/` so a network hiccup can never fall back
-to serving Free's cached homepage for another tier. Also added
-`/privacy/index.html` (plain-language privacy policy, required by Play
-Console) and a root `.nojekyll` file (see "Domain verification" below for
-why that one mattered).
+`manifest.json`, icons from `shared/assets/logo-mark.png`
+(`shared/assets/icons/`), `sw.js` (**network-first, deliberately not
+cache-first** — cache-first would reintroduce the cache-busting failure mode
+at a new layer), `/privacy/index.html` (Play requirement), root `.nojekyll`.
+`sw.js` sits at the root so its scope is the whole origin; its fetch handler
+explicitly ignores `/starter/`, `/pro/`, `/shark/`, `/reset/`, `/privacy/`
+(and `/preview/`) so it can never serve Free's cached page for another tier.
 
 ### The sandbox can't reach `dl.google.com` — plan accordingly
 
-Any sandbox/session working on this needs to know: outbound network
-policy in this kind of environment blocks `dl.google.com` (where the
-Android SDK itself is distributed from) and, discovered later the same
-session, blocks `tradetribunal.app` too. **Both are real org policy
-denials (403 from the egress proxy), not bugs — don't retry them, don't
-hunt for a workaround/mirror, just route around the *need* for them
-instead:**
-- Can't download the Android SDK → can't run `bubblewrap build` locally →
-  the actual Gradle compile has to happen somewhere with normal internet
-  access. Solved with a GitHub Actions workflow (below) — Actions runners
-  aren't network-restricted the way this sandbox is.
-- Can't fetch `tradetribunal.app` → Bubblewrap's own `init` wizard (which
-  fetches the live manifest/icons over HTTP) can't run directly either.
-  Worked around by feeding it the repo's own local copies of
-  `manifest.json`/icons via a throwaway `localhost` HTTP server (loopback
-  traffic doesn't go through the egress proxy at all — not a policy
-  workaround, just avoiding an unnecessary fetch of data already on disk).
-- Bubblewrap's CLI wizard is also fully interactive (inquirer prompts)
-  and doesn't handle piped/non-TTY stdin reliably. Went one layer down
-  and scripted directly against `@bubblewrap/core` (the library the CLI
-  wraps) — `TwaManifest.fromWebManifestJson()`, `TwaGenerator.
-  createTwaProject()`, `KeyTool.createSigningKey()`,
-  `DigitalAssetLinks.generateAssetLinks()` — with zero interactive
-  prompts. This is a reusable pattern if Bubblewrap needs touching again
-  from a sandbox like this: don't fight the CLI, use the library.
+The egress proxy blocks `dl.google.com` (Android SDK) and `tradetribunal.app`.
+**These are real org policy denials — don't retry, don't hunt for mirrors,
+route around the need:**
+- Gradle/`bubblewrap build` runs in GitHub Actions (not network-restricted).
+- Bubblewrap `init` was fed the repo's local `manifest.json`/icons via a
+  throwaway `localhost` server (loopback skips the proxy).
+- Bubblewrap's CLI is interactive and breaks on non-TTY stdin. **Script
+  against `@bubblewrap/core` instead** (`TwaManifest.fromWebManifestJson()`,
+  `TwaGenerator.createTwaProject()`, `KeyTool.createSigningKey()`,
+  `DigitalAssetLinks.generateAssetLinks()`).
 
 ### CI build pipeline: `.github/workflows/build-android.yml`
 
-The generated Android project lives in `android/` (gradle files,
-`twa-manifest.json`, resources — **the signing keystore is deliberately
-never committed**, guarded by a root `.gitignore`). The workflow
-(`workflow_dispatch`-triggered, so it can be run with one tap from the
-Play Console app or a phone browser, no desktop needed) sets up JDK 21 +
-`android-actions/setup-android` + Node, installs the Bubblewrap CLI,
-decodes the keystore from a repo secret, and runs `bubblewrap build` with
-`BUBBLEWRAP_KEYSTORE_PASSWORD`/`BUBBLEWRAP_KEY_PASSWORD` env vars (the
-mechanism Bubblewrap's own `build` command supports natively for
-non-interactive password input), then uploads `app-release-bundle.aab` +
-the signed `.apk` as run artifacts.
+The Android project lives in `android/`. **The signing keystore is never
+committed** (root `.gitignore`). The workflow (`workflow_dispatch`, one tap
+from a phone) sets up JDK 21 + `android-actions/setup-android` + Node,
+installs Bubblewrap, decodes the keystore from a secret, runs
+`bubblewrap build` with `BUBBLEWRAP_KEYSTORE_PASSWORD`/
+`BUBBLEWRAP_KEY_PASSWORD`, and uploads the `.aab` + signed `.apk`.
 
-Getting this green took three real, separate bugs, each with a
-non-obvious root cause — worth knowing all three if this workflow ever
-needs touching again:
-
-1. **`base64: invalid input` decoding the keystore secret.** The
-   `ANDROID_KEYSTORE_BASE64` secret is a ~4,700-character blob;
-   copy-pasting it into GitHub's secret field from a phone reliably picks
-   up stray whitespace/line-wrapping. Fixed by piping through
-   `tr -d '[:space:]'` then `base64 -d -i` (ignore-garbage), plus a size
-   check on the decoded output that fails fast with a clear
-   `::error::` message instead of a cryptic downstream failure if the
-   secret is still wrong/empty.
-2. **`Wrong password?` / `BadPaddingException` signing the APK, even
-   with both passwords freshly re-verified correct.** Root cause,
-   confirmed by reproducing locally with plain `keytool`: **PKCS12
-   keystores (the default keystore type since JDK 9) do not support a
-   separate key password from the store password** — `keytool` silently
-   prints `Warning: Different store and key passwords not supported for
-   PKCS12 KeyStores. Ignoring user-specified -keypass value.` and
-   actually encrypts the private key entry with the *store* password
-   regardless of what `-keypass` was given. `BUBBLEWRAP_KEY_PASSWORD`
-   must equal `BUBBLEWRAP_KEYSTORE_PASSWORD` for this exact reason — not
-   a workaround, the only password that was ever actually in effect.
-   Also trimmed whitespace on both password secrets the same way as the
-   base64 fix, in case that was compounding it.
-3. Both fixes are permanent, in the committed workflow — a future
-   keystore rotation just needs both secrets set to the same value.
+Gotchas, all fixed permanently in the workflow:
+1. **`base64: invalid input`.** The ~4,700-char `ANDROID_KEYSTORE_BASE64`
+   secret picks up whitespace when pasted from a phone. Decoded via
+   `tr -d '[:space:]'` then `base64 -d -i`, with a size check that fails
+   fast with `::error::`.
+2. **`Wrong password?` / `BadPaddingException`.** **PKCS12 keystores (default
+   since JDK 9) don't support a separate key password** — `keytool` silently
+   ignores `-keypass` and uses the store password. **`BUBBLEWRAP_KEY_PASSWORD`
+   must equal `BUBBLEWRAP_KEYSTORE_PASSWORD`.** Both secrets are
+   whitespace-trimmed. A future keystore rotation just needs both set to the
+   same value.
 
 ### Domain verification (`.well-known/assetlinks.json`)
 
-Two separate, sequential bugs, both now fixed:
-
-1. **404 even though the file was correctly committed on `main`.**
-   Root cause: no `.nojekyll` file in the repo, so GitHub Pages ran the
-   site through Jekyll before publishing, and Jekyll's default behavior
-   excludes dotfiles/dot-directories — `.well-known` included —
-   regardless of what's actually in the repo. Added an empty `.nojekyll`
-   at repo root; fixed it immediately.
-2. **Sideloaded APK opened with no browser bar; the real Play
-   Store-installed copy still showed one.** Root cause: Google Play
-   re-signs every app it distributes with its own certificate (Play App
-   Signing) — different from the keystore used to sign the uploaded
-   `.aab`. `assetlinks.json` only listed the upload keystore's
-   fingerprint. Fixed by extracting the actual Play-installed APK's
-   certificate directly (`keytool -printcert -jarfile <apk>` — no
-   Android SDK needed, works on any APK since it's a signed JAR/zip
-   under the hood) and adding *that* fingerprint to `assetlinks.json`
-   alongside the original one. `assetlinks.json` now lists both;
-   confirmed working on a real Play-distributed install. **If the
-   keystore is ever rotated, or if this ever regresses after a Play
-   Console change, re-pull the actual installed APK and re-check its
-   cert this same way rather than assuming the fingerprint on file is
-   still right** — Play's re-signing cert is Google's to change, not
-   ours to assume.
+1. **404 despite the file being on `main`:** without `.nojekyll`, Jekyll
+   drops dot-directories. Root `.nojekyll` fixes it — keep it.
+2. **Play-installed copy showed a browser bar:** Play App Signing re-signs
+   with Google's own cert. `assetlinks.json` now lists both the upload
+   keystore's and the Play-installed APK's fingerprints (pulled with
+   `keytool -printcert -jarfile <apk>`, no SDK needed). **If the keystore is
+   rotated or this regresses after a Play Console change, re-pull the
+   installed APK's cert this way** — don't assume the fingerprint on file.
 
 ### Adaptive icon showed a white background/border (PR #97)
 
-The installed app's icon didn't fill its home-screen badge shape the way
-every other app's does — showed a white ring around it instead. Root
-cause: Bubblewrap's generated `android/app/src/main/res/mipmap-anydpi-v26/
-ic_launcher.xml` hardcodes the adaptive icon's background layer to
-`@android:color/white`, and insets the actual icon art 8.5dp from every
-edge (Bubblewrap's own template, meant to mimic WebAPK icon proportions).
-Any launcher mask shape (circle, squircle, etc.) wider than that inset
-shows white bleeding through. The icon PNGs themselves were already
-correct (`#080C12`, confirmed by sampling their corner pixels) — only the
-background layer needed fixing. Added `ic_launcher_background` (`#080C12`)
-to `colors.xml`, pointed `ic_launcher.xml` at it. **Not yet bench-tested
-against a rebuilt APK as of this writing** — merged but no fresh build
-triggered/sideloaded yet to visually confirm.
+Bubblewrap's `android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml`
+hardcodes the background layer to white with an 8.5dp inset. Added
+`ic_launcher_background` (`#080C12`) to `colors.xml` and pointed
+`ic_launcher.xml` at it. Not bench-tested against a rebuilt APK at the time.
 
 ### Keystore handling — read this before ever touching the signing key
 
-The keystore was generated twice this session. The first one's
-credentials file reportedly didn't make it into the handoff zip Mr. T
-received (root cause never confirmed — this session's own local copy had
-already been deleted on the assumption delivery succeeded, so the
-passwords couldn't be recovered either way). Rather than debug further,
-regenerated a fresh keystore from scratch, since nothing had been
-uploaded to Play Console yet — zero cost to switching. **Lesson,
-applied on the second handoff and worth keeping permanent: always
-`unzip -l`/verify a secrets handoff archive's actual contents before
-calling `SendUserFile`, and don't delete the local copy until the
-recipient explicitly confirms receipt** — assumed-success was exactly
-the failure mode the first time.
+The keystore was generated twice (the first handoff lost its credentials;
+the local copy had already been deleted). **Always `unzip -l`/verify a
+secrets handoff archive before sending it, and don't delete the local copy
+until the recipient confirms receipt.** The live keystore's credentials are
+with Mr. T only. **If you need to touch signing and don't have them, ask —
+don't regenerate, a real Play Console app depends on the current key.**
 
-The live keystore's credentials are with Mr. T only (never committed,
-never logged anywhere retrievable) — if this session needs to touch
-signing again and doesn't have them, ask, don't regenerate a third time
-now that a real Play Console app/track depends on the current one.
+### Play Console submission — decisions made
 
-### Play Console submission — decisions made, still in progress
-
-- **Not a paid app.** Confirmed with Mr. T: Free tier stays free on Play
-  too — charging for what's identically free on the website would just
-  add friction against the real monetization funnel (Starter/Pro/Shark
-  subscriptions on the website).
-- **Not a prediction markets app.** Flagged explicitly during the
-  content-declaration questionnaire — Trade Tribunal doesn't facilitate
-  wagers or hold funds; mischecking that box risks unnecessary
-  compliance requirements or a rejected declaration.
-- **Sign-in details: "No."** Free tier requires no account for any of
-  its functionality; the visible Sign Up/Sign In link is an optional
-  path to a different (paid, out-of-scope-for-this-app) product tier,
-  not gated content within this submission.
-- **Financial features declaration**: guided (not yet confirmed against
-  the live questionnaire's exact wording) toward "no lending, no
-  brokerage/account management, no crypto, no personalized investment
-  advice" — the app gives generic pattern-based analysis with an
-  explicit not-financial-advice disclaimer, not tailored recommendations.
-- Accidentally toggled **"Managed Google Play"** (an enterprise/MDM
-  distribution feature, unrelated to normal public Play Store listing)
-  under Advanced settings — flagged to turn back off; not confirmed
-  done.
-- Store listing copy (short + long description), the feature graphic
-  (1024×500, generated by padding — not cropping — the existing
-  "Catalyst Response Framework" promo graphic to hit the exact ratio
-  without losing any content), and 7"/10" tablet screenshots (this app
-  has no distinct tablet layout, so these were made by resizing real
-  phone screenshots to the required 9:16 dimensions rather than
-  capturing on an actual tablet or emulator) have all been produced and
-  handed off.
-- **First-time-publisher propagation delay is real and expected**, not
-  a bug: a brand-new app's first release to internal testers can take
-  several hours to become fetchable from Play even after Console shows
-  it as fully rolled out ("Item not found" / the native Play Store
-  error, not a browser 404). Hit this twice — once for Mr. T's own
-  account, once for a separate tester. Standard troubleshooting order:
-  confirm the Play Store app's signed-in account matches the invited
-  tester email exactly, confirm they've visited the explicit opt-in link
-  (`https://play.google.com/apps/testing/<packageId>`) and tapped
-  "Become a tester" (being on the list alone isn't enough), then just
-  wait if both check out.
-- Content rating questionnaire, final Production promotion: not reached
-  yet.
+- **Not a paid app** (Free stays free on Play; monetization is website
+  subscriptions).
+- **Not a prediction markets app** (no wagers, no funds held).
+- **Sign-in details: "No"** — Free needs no account; the Sign Up link is an
+  optional path to a different tier.
+- **Financial features:** guided toward no lending, no brokerage/account
+  management, no crypto, no personalized advice (generic analysis with a
+  not-financial-advice disclaimer). Not confirmed against the live wording.
+- "Managed Google Play" (enterprise/MDM) was toggled by accident under
+  Advanced settings — flagged to turn off; not confirmed done.
+- Store listing copy, feature graphic (1024×500, padded not cropped), and
+  7"/10" tablet screenshots (resized phone shots) were handed off.
+- **First-time-publisher delay is expected:** a new app's first internal
+  release can take hours to become fetchable ("Item not found"). Check, in
+  order: the Play Store account matches the invited email; the tester opened
+  `https://play.google.com/apps/testing/<packageId>` and tapped "Become a
+  tester"; then wait.
+- Content rating questionnaire and Production promotion: not reached at the
+  time.
 
 ### Delivering files to Mr. T when `SendUserFile` doesn't work
 
-Discovered mid-session: whatever client Mr. T is using for this
-conversation cannot render `SendUserFile` as an actual downloadable
-attachment — tried both `render` and `attach` display modes, PNG and
-JPEG, no luck; he only ever sees an inline (re-encoded, lower-quality)
-image. **Working fallback: commit the file to a scratch branch in this
-repo (a `store-assets/` folder, clearly not app code) and give him the
-`raw.githubusercontent.com` URL for that branch/path** — opens as a
-plain image in his phone's browser, where long-press-to-save reliably
-works. Used repeatedly this session (icon, feature graphic, tablet
-screenshots) — reach for this immediately for any future file handoff to
-him rather than re-attempting `SendUserFile` first.
+Mr. T's client can't download `SendUserFile` attachments (only shows a
+re-encoded inline image). **Fallback, use it first: commit the file to a
+scratch branch (`store-assets/` folder) and give him the
+`raw.githubusercontent.com` URL** — long-press-to-save works on his phone.
 
 ## UI staging: the `/preview/` subpath convention (Aug 14, 2026)
 
-Prompted by a direct question: since the Play Store app is a TWA (see
-above) that just opens the live `tradetribunal.app` root URL rather than
-bundling its own content, pushing a UI change to `main` — which GitHub
-Pages deploys immediately — goes live for web visitors **and** existing
-Play Store installs at the same instant. There's no built-in "preview on
-web, promote to Play later" step, because Play isn't loading a separate
-bundled copy to promote in the first place.
-
-**Fix: a hidden subpath, not a separate deploy pipeline.** Real
-in-progress UI work can be staged at `tradetribunal.app/preview/<name>/`
-— a real deploy through the existing Pages pipeline (so relative
-paths/fetches to the real `Tra` backend all behave exactly like
-production), but invisible to everyone who isn't given the direct URL:
-- Never linked from any tier's nav or from `/preview/`'s own placeholder
-  index (`preview/index.html`).
-- Excluded from `sw.js`'s fetch handler (`OTHER_TIER_PATHS`, same
-  mechanism/list as `/starter/`, `/pro/`, `/shark/`) — the service worker
-  never intercepts or caches anything under it.
-- Disallowed in `robots.txt` — never crawled/indexed.
-- **Never reached by the Play app** — the TWA's `twa-manifest.json` only
-  ever opens the root URL; nothing links from there to `/preview/`.
-
-**Deliberately not a full PR-preview-deploys pipeline.** That would mean
-switching GitHub Pages' source from "deploy from branch" to "deploy via
-Actions" — a real change to the currently-working live-site deploy
-config, on a pipeline this file has already documented as occasionally
-getting stuck (see "GitHub Pages deployments can get stuck in `queued`
-forever" below) — not something to take on casually just for staging.
-The subpath approach gets a real, working preview with zero changes to
-how the live site actually deploys.
-
-**How to use it for a real change:** copy the tier files being previewed
-into `preview/<name>/` on a feature branch (adjust relative asset paths
-as needed for the extra path depth), PR it, merge to `main` like normal
-— the preview only becomes reachable at that point, but stays invisible
-to everyone else per the exclusions above. Visit the URL directly to
-review. Once approved, a **separate** follow-up change actually wires the
-real tier's `index.html`/nav to point at the new code — that's the actual
-"go live" step, not the merge that populated `/preview/`.
-
-**Status as of this writing:** the convention and its plumbing
-(`sw.js` exclusion, `robots.txt`, a placeholder `preview/index.html`
-explaining the convention) are shipped. No real UI work is staged under
-it yet — the Rolodex UI exploration (below) is still 100% prototype in an
-Artifact, not real repo files, so there's nothing to move into
-`/preview/` until that work actually gets picked up for real.
-
-## Backend: Gate 3 Mon/Fri overlay — timezone bug fix + weekly carryover (Aug 12, 2026)
-
-Reported live: Gate 3 kept saying "no Monday/Friday overlay." Two separate
-issues surfaced back to back, one a real bug, one a framework-intent gap —
-worth keeping both straight since they look similar from the symptom.
-
-**Bug 1 — timezone, `Tra` PR #29 / `trade-verdict` PR #99 (both merged).**
-The `/analyze` prompt's `Today:` weekday was built with
-`new Date().toLocaleDateString(...)` and no explicit `timeZone`, so it
-formatted in the server process's own timezone (UTC on Render) instead of
-the Eastern trading day — same class of bug as the Gate 5 Proxy Resolution
-"Last checked" date fixed earlier (`Tra` PR #28). Once it's roughly 8pm ET
-or later — inside this app's own 4-8pm ET extended-hours window — UTC has
-already rolled to the next calendar day, so a real **Friday-evening**
-session got stamped `Today: Saturday`, and Gate 3's own rules treat
-weekends as no-overlay. Fixed by anchoring to `America/New_York`, matching
-every other day-of-week check in this file. **Unverified against a live
-Friday-evening run** — the fix is confirmed correct by code inspection
-(matches the established pattern everywhere else in this file) but not
-watched end-to-end against a real deploy yet.
-
-**False alarm along the way, same session:** a screenshot showed Gate
-3/4/5 rendering horizontally in Pro's Gate Breakdown instead of stacked
-like every other gate. Investigated before touching anything — the CSS
-(`.gate-row{display:flex}` etc.) and the JS that builds the gate list are
-from the *same* commit (Aug 2, 2026 Pro rebuild) and haven't been touched
-since by anyone, including this session, which only touched `server.js`
-and docs at that point. Diagnosed as stale client-side cache, not a code
-regression — confirmed by the user after a hard refresh fixed it. No code
-change made. Worth remembering as a live example of the cache-busting
-rule's failure mode actually happening, not just a hypothetical.
-
-**Bug 2 (really a framework-intent gap) — weekly carryover, `Tra` PR #30 /
-`trade-verdict` PR #100 (both merged).** After the timezone fix, Gate 3
-still said "no Monday/Friday overlay" — correctly, since it was a
-Wednesday and the overlay was coded as a same-day-only flag (today must
-literally equal Monday or Friday). **Corrected directly by Mr. T:** that's
-not what the gate is supposed to mean. The Friday close → weekend → Monday
-reaction is part of the broader week's narrative, not an isolated
-same-day event, and should keep informing Gate 3 through the rest of that
-week on a decay schedule — not replace the existing same-day Mon/Fri
-rules, sit alongside them. Scoped via `AskUserQuestion` before touching
-code: carryover persists through the week (not just a label), as an
-explicit codified decay rule (not left to the model's judgment), added
-alongside the same-day rules rather than replacing them.
-
-Shipped:
-- `fetchWeeklyCarryover(symbol)` — a small, **separate** dated-bars fetch
-  (~10 days via Alpaca), deliberately NOT derived from `fetchDailyCloses`'s
-  existing 130-day array. That array is bare closes with no dates attached
-  and is explicitly commented "Do NOT date-anchor into this array; index
-  positionally (sessions)" — reusing it would have reintroduced exactly
-  the calendar-vs-position-counting bug class documented in the Gate 1
-  Patch 4 story above. This fetch instead locates the most recent
-  Friday/Monday close pair by each bar's own timestamp, robust to
-  holidays. Only invoked on Tue/Wed/Thu (`carryoverDecayLabel()` returns
-  null on Mon/Fri/weekend), so it adds zero extra Alpaca calls the other
-  4 days of the week.
-- `carryoverDecayLabel()` — Tuesday (1 session removed) = MODERATE,
-  Wednesday (2 sessions) = REDUCED, Thursday (3 sessions) = MINIMAL/faded.
-  Computed server-side from the real ET weekday, same "never trust the
-  client for what day it is" reasoning as the `Today:` line above.
-- A new Gate 3 prompt section spelling out how to weight each tier, and a
-  `Gate 3 weekly carryover` context block in the `/analyze` prompt.
-- `weeklyCarryover` threaded through `/ticker/:symbol`'s response and
-  `refreshMarketEntry`'s cache entry, and `weeklyCarryoverData` forwarded
-  by every tier's `analyzeTicker()` (including Shark's monolithic file) in
-  the `/analyze` POST body — same relay pattern as `gate1Data`/`proxyRule`.
-- Mirror (`trade-verdict`) needed its own version of `fetchWeeklyCarryover`
-  adapted to its `alpacaGet()`'s different contract (full URL + `Response`
-  object, vs `Tra`'s path-only URL + pre-parsed JSON) — not a straight
-  copy-paste; flagged in the code comment so it doesn't read as accidental
-  drift. Client `app.js` content changed in Free/Starter/Pro, so each
-  tier's own `?v=` got bumped (`index.html` 39→40, `pro`/`starter` 40→41)
-  per the cache-busting rule — these are each tier's own top-level file,
-  not a shared module, so no cascade into other importers was needed.
-
-**Explicitly flagged as needing a revisit once real data exists — this is
-the reason to keep this entry around, not just a changelog note.** The
-reaction-classification threshold (±0.3% Friday→Monday move = CONFIRMED_UP/
-DOWN vs FLAT) and the three decay-weight labels (MODERATE/REDUCED/MINIMAL)
-are this session's own reasonable-but-arbitrary calibration — Mr. T did
-not specify either numerically. **Unverified against any live Tue/Wed/Thu
-run** — there's no way to test this from a sandbox without real Alpaca
-entitlements and an actual mid-week analysis. Once enough real Tue/Wed/Thu
-verdicts have accumulated (ideally cross-referenced against
-`tv_accuracy_log`/the synced track record), revisit whether: (1) the
-±0.3% threshold is picking up real signal vs noise for the tickers this
-app actually tracks, (2) the three-tier MODERATE/REDUCED/MINIMAL decay
-curve is the right shape (vs., say, a smoother numeric decay), and (3)
-Thursday's "MINIMAL — mention only to break a tie" framing is actually
-how the model is using it in practice, not just how it was instructed to.
-
-## Backend: Pre-Gate fund-ticker CIK fallback (Aug 12, 2026)
-
-Reported live, same session as the Gate 3 work above: Pre-Gate kept
-showing "No SEC CIK found for DRAM" — user pushed back directly, having
-independently confirmed DRAM does have a real SEC CIK.
-
-**Root-caused via web research, not a live SEC fetch** — this sandbox's
-egress proxy blocks `sec.gov` outright (confirmed via both `curl`, 403,
-and `WebFetch`, `EGRESS_BLOCKED`). Found: **DRAM = Roundhill Memory
-ETF**, launched Apr 2, 2026, registered under **Roundhill ETF Trust, CIK
-1976517** — confirmed via SEC's own EDGAR filing URLs directly
-referencing DRAM (an 8-A Cert PDF under
-`/Archives/edgar/data/1976517/.../8A_Cert_DRAM.pdf`, found via
-`WebSearch`). `getCik()` only ever checked `company_tickers.json` (SEC's
-primary, operating-company-oriented ticker file) — a fund this recently
-launched, sharing a trust CIK with many other Roundhill funds, plausibly
-isn't (yet, or ever reliably) indexed by ticker in that specific file.
-
-**Fix (`Tra` PR #31 / `trade-verdict` PR #102, both merged):** `getCik()`
-now falls back to `company_tickers_mf.json` (SEC's fund/series/class
-ticker file — "mf" = mutual fund, but shares the series/class
-registration structure most ETFs use) whenever the primary map misses.
-Fetched **lazily** — only on an actual primary-map miss, not eagerly
-alongside it — so it adds zero extra SEC call volume for the overwhelming
-majority of tickers that already resolve fine. Parsed defensively (field
-lookup by name against the documented `{fields:[...], data:[[...]]}`
-shape, not hardcoded position) and fails safe to `null` on any shape
-mismatch, same fail-safe posture as every other unverified-from-sandbox
-integration in this file.
-
-**Still unverified against SEC's actual live file** — same limitation as
-above, this was researched, not fetched and inspected directly. If
-`company_tickers_mf.json` genuinely doesn't cover DRAM either (plausible
-for a security this recently listed), a small hardcoded ticker→CIK
-override map would be a reasonable stopgap — not added preemptively,
-since it's unconfirmed whether it's even needed yet.
-
-**Expectation-setting, worth knowing before assuming this "didn't work":**
-`PRE_GATE_FORMS` is `8-K,10-Q,10-K` — operating-company forms a fund like
-DRAM will never file. So this fix changes DRAM's Pre-Gate note from "No
-SEC CIK found" to a clean GREEN pass-through ("No solvency, dilution, or
-guidance-cut language found"), **not** to an active RED/YELLOW trigger.
-Pre-Gate's trigger categories are operating-company risk concepts
-(insolvency language, dilutive raises, guidance cuts) that don't really
-map onto a passively-tracked ETF — a quiet pass-through is the correct,
-expected outcome, not a sign the fix silently failed.
-
-**To actually confirm this landed:** analyze DRAM after `Tra` redeploys
-and check the Pre-Gate note changed as described above, or check Render
-logs for `getCikFromFundMap` errors.
-
-**Follow-up, same day — the fund-file fallback did NOT work.** Confirmed
-live: no change to DRAM's Pre-Gate note. User asked for further research
-specifically because this could affect more tickers than just DRAM, not
-just a one-off patch. Further research: `company_tickers_mf.json`'s "mf"
-naming most likely means it's genuinely scoped to traditional NAV-priced
-open-end mutual funds, not exchange-traded funds — DRAM was probably
-never going to resolve through that file regardless of any
-staleness/coverage-lag theory. Rather than ship a third unverified guess
-alone, **two tiers landed together (`Tra` PR #32 / `trade-verdict` PR
-#104, both merged):**
-- `KNOWN_CIK_OVERRIDES` — a small, explicit, hand-confirmed map, starting
-  with `DRAM → 1976517`. Guaranteed to work regardless of the tier below
-  — zero risk, not dependent on any unverified parsing, immediately
-  fixes the actually-reported ticker.
-- `getCikFromEdgarSearch()` — SEC's own **live** company/ticker search
-  (the same mechanism that powers EDGAR's search box itself), queried
-  only when every static file above misses. Hits SEC's current database
-  directly instead of a periodically-cached snapshot, so it should catch
-  future new listings without needing a hardcoded entry added for each
-  one. SEC's classic `browse-edgar` endpoint accepts a ticker directly in
-  its `CIK` parameter (well-documented, long-standing SEC behavior), atom
-  output wraps a match in a `<company-info><cik>` element. **Still
-  unverified against a live response** — `sec.gov` remains unreachable
-  from this sandbox — parsed defensively (primary `<cik>` tag match, a
-  `"CIK#:"` label fallback deliberately narrow enough not to false-positive
-  on an echoed `CIK=` query string) and fails safe to `null`.
-
-**Lesson for next time this pattern comes up:** when a fix depends on
-unverifiable assumptions about an external data source's exact coverage/
-format and there's no way to test it live, pair the speculative general
-mechanism with a small, guaranteed, hand-confirmed override for the
-specific case actually reported — don't stake the whole fix on one
-untested guess a second time. Check Render logs for
-`getCikFromEdgarSearch` errors to see whether the general tier is
-actually working for tickers beyond DRAM.
-
-## Backend/Frontend: Pre-Gate robustness — wider SEC form coverage + de-emphasized GREEN UI (Aug 12, 2026)
-
-Follow-up to the DRAM CIK saga above, prompted by a direct design
-question: is Pre-Gate actually a robust pre-check, and — since a GREEN
-result is the overwhelming common case and mostly redundant info — should
-it sit in the background unless it actually finds something. Two
-separate, independent fixes landed together.
-
-**Coverage gap, `Tra` PR #33 / `trade-verdict` PR #106 (both merged).**
-`PRE_GATE_FORMS` was `8-K,10-Q,10-K` only — an operating-company-
-disclosure view. Real gap for the "dilution" trigger category: an ATM
-program, shelf registration, or registered-direct offering is disclosed
-via a registration statement (S-1/S-3) or its prospectus supplement
-(424B2/3/4/5), and doesn't always also get a fresh 8-K — especially a
-periodic draw under an ATM program already set up under an existing
-shelf. Widened to
-`8-K,10-Q,10-K,S-1,S-3,424B2,424B3,424B4,424B5`; benefits the
-solvency/guidance-cut categories too, since a going-concern risk factor
-can show up in a new S-1's risk factors section, not just 10-K/10-Q.
-**Still open, not touched by this pass:** the trigger keyword table
-itself (`PRE_GATE_TRIGGERS`) is still explicitly flagged in its own code
-comment as "first draft, needs review, tune against real false-
-positive/negative rates" — this pass only widened which forms get
-searched, not the keywords being searched for.
-
-**UI de-emphasis, `trade-verdict` PR #106 only (Tra has no frontend).** A
-GREEN Pre-Gate was rendering with the exact same visual weight — full
-row, label, status, note text — as every substantive gate below it, even
-though it's almost always just "nothing to see here." Now collapses to a
-single compact, muted row ("PRE-GATE clear") when GREEN; YELLOW/RED still
-render at full prominence with their note text, unchanged. Implemented
-with a reference-equality check against `data.gates.pre_gate` (not
-label-string matching or an array index), so the special-casing can't
-silently apply to the wrong gate if the array order ever changes. Applied
-identically to Free/Starter/Pro — Shark's old monolithic template doesn't
-render Pre-Gate at all, so nothing to touch there. Bumped each tier's own
-`app.js` `?v=` since its content changed (`index.html` 40→41,
-`pro`/`starter` 41→42) per the cache-busting rule.
-
-**Actually verified this time, not just simulated:** ran a real headless-
-Chromium smoke test (Playwright) rendering both a GREEN-Pre-Gate card and
-a RED-Pre-Gate card side by side against the real extracted CSS —
-screenshot confirmed the GREEN row visibly collapses/dims while RED stays
-full-weight and every other gate renders unaffected regardless of its own
-status. A first-pass Node-only logic simulation (no browser) also passed
-before that. The SEC form-widening half is still unverified against live
-data, same limitation as the rest of Pre-Gate's SEC integration — watch
-Render logs / real analyses for any change in trigger rate on tickers
-known to have run ATM programs.
-
-## Backend: Proposal 4 — Context-Weighted Gate 2 Corroboration (Aug 13, 2026)
-
-Landed from the Notion Build Log's "Formal Rule Proposals" section (`Tra`
-PR #34 / `trade-verdict` PR #108, mirrored per the two-repo rule).
-Session Context (the free-text textarea every tier's client already sends
-as `marketContext`) previously had zero backend awareness at all — purely
-a client-side keyword-highlight cosmetic (`shared/context-highlight.js`),
-with zero influence on the actual verdict. It's now checked against three
-independent corroboration sources; **≥2 of 3 agreeing** promotes it to a
-`CONTEXT-CORROBORATED` modifier that both the prompt (Gate 2 Step 5) and
-the response carry — the LLM is told to weight it as real Gate 2 evidence
-only when corroborated, and to treat it as informational-only otherwise.
-
-**No separate credit cost** — folds into the existing per-analysis charge,
-per the proposal's own scoping. All four tiers were already sending
-`marketContext`, so no frontend change was needed to enable it on Free —
-the proposal's "first Free-tier use" framing turned out to already be true
-in the current code by the time this was picked up.
-
-**The three sources (`gates-extended.js`, section 6 — `contextTextMatches`,
-`buildupPatternCheck`, `corroborateSessionContext`; fetches live in
-`server.js`):**
-1. **News-content match** — full-body article text (Alpaca `content`/
-   `summary`, Finnhub `summary`), matched against the typed context using
-   the *exact same* 2-distinct-word-overlap heuristic as
-   `shared/context-highlight.js`'s `highlightContextMatches()`, kept in
-   lockstep on purpose so "corroborated" and "highlighted" never silently
-   disagree. `newsData` (already on the request) is headline-only and too
-   short for this, so a new `fetchNewsBodiesForCorroboration()` re-queries
-   both sources — only when Session Context is non-blank, so it adds zero
-   extra Alpaca/Finnhub call volume on every other analysis.
-2. **Gate 3 buildup pattern** — per the proposal's own definition
-   (sustained volume 1.5x+, sector-proxy outperformance, no fresh material
-   news yet priced, clean earnings-reaction history). The last of those has
-   no data source anywhere in this app — no per-ticker earnings-reaction
-   history is tracked — so it's deliberately omitted rather than faked;
-   `buildupPatternCheck()` requires every one of the *other three* signals
-   that's actually computable to agree, and at least 2 of 3 to be
-   computable at all, so one lone signal can't carry the pattern alone.
-   "Outperformance" is read as magnitude (`|tickerPct| > |proxyPct|`), not
-   direction — the intent is "something ticker-specific is happening,"
-   not a bull/bear call.
-3. **Real dated calendar event** — new `fetchEarningsCalendarFlag()`,
-   silent/boolean only against Finnhub's existing `/calendar/earnings`,
-   routed through the shared `finnhubThrottle()`. Same lazy/only-on-real-
-   context-input posture as source 1.
-
-**A real pre-existing bug found and flagged, not fixed, while building
-this.** The buildup pattern's outperformance signal needs the ticker's own
-same-session % move and its Gate 5 proxy's % move as numbers. The existing
-Proxy Coherence Check (Proposal 2, already shipped) reads exactly those
-same two values via `metricsData?.pct` and `sectorContext?.tsm?.pct` — but
-every tier's client-side `analyzeTicker()` only ever sends
-`sectorContext[symbol]` as the formatted `.change` **string** (e.g.
-`"+1.23%"`), never a raw `.pct` number, and `metricsData` (built server-side
-in `/ticker/:symbol`) never carries a `.pct` field either. Both conditions
-are therefore always false in production, meaning **the Proxy Coherence
-Check's coherence-comparison branch has never actually executed** —
-`/analyze` always falls through to the plain forceDown `else` branch
-instead. This predates this session's work and wasn't introduced or
-touched by it; flagged here rather than silently fixed, since Proposal 2
-wasn't in this pass's scope and changing live forceDown behavior deserves
-its own deliberate pass. This new feature avoids the same trap by parsing
-the ticker's move from `openingBarData`'s own bar-1 open→close and the
-proxy's move from `sectorContext`'s change strings directly (via a new
-`parsePctString()` helper), both of which are actually populated.
-
-**Explicitly out of scope for this pass, per the proposal itself:** Gate 4
-phase-sizing influence (stays Gate 2-only); a Shark-tier visible earnings-
-calendar feature (the proposal's own earnings-calendar fetch is reusable
-for that later, but it's a separate future feature). Also not done this
-pass, as a deliberate scope call rather than an oversight: the proposal's
-"recommend logging every corroborated-vs-uncorroborated event to
-`accuracy_log`" suggestion — that table is currently Pro-only
-(`shared/track-record-sync.js`) and wiring a new event type into it is a
-real follow-up, not a one-line addition.
-
-**Unverified against live data** — same posture as every other
-sandbox-built integration in this file: Alpaca's `content` field on
-`/v1beta1/news` and Finnhub's `/calendar/earnings` response shape are both
-implemented from documented shapes, fail safe (empty array / `null`) on
-any mismatch, and haven't been confirmed against a real response. Node-only
-logic simulation of `contextTextMatches`/`buildupPatternCheck`/
-`corroborateSessionContext` passed before shipping (see git history), but
-that only proves the pure logic, not the live fetches. To confirm after
-deploy: type real Session Context on a ticker with known matching news and
-check the Gate 2 card's note for the `[Session Context: CONTEXT-
-CORROBORATED, N/3]` tag; check Render logs for `fetchNewsBodiesForCorroboration`/
-`fetchEarningsCalendarFlag` errors.
-
-## Backend: Gate 5 forceDown was silently unreachable — evaluateProxyStatus data-shape bug (Aug 13, 2026)
-
-Follow-up to the "dead code" note flagged while building Proposal 4 above.
-Went to fix what was described there as "the Proxy Coherence Check
-(Proposal 2) never runs" and found the actual root cause is bigger than
-that framing suggested — **worth reading even if you only care about
-Gate 5, not Session Context.**
-
-**The real bug.** `evaluateProxyStatus()` (the function `/analyze` calls to
-compute `gate5Result.status` — literally what the Gate 5 card badge shows,
-and the gate behind Proposal 1/2/3's whole forceDown-authority mechanism)
-reads `marketData[symbol].pct` and `.change` off each proxy symbol,
-expecting an object. But every tier's client (`app.js`'s `sc` object in
-`analyzeTicker()`) only ever sends `sectorContext[symbol]` as the
-**formatted `.change` string** (e.g. `"+1.23%"`) — never an object, never a
-raw `.pct` number. `.pct` on a string is always `undefined`, so `avgPct`
-was always `0` and `anyRedFlag` was always `false`. Confirmed directly: fed
-the real function a real `-6.20%` TSM string (the actual Jul 29, 2026
-KOSPI-crash-scale move referenced in Proposal 2's own writeup) and it
-returned GREEN.
-
-**What this actually means:** Gate 5's RED (and YELLOW) status has never
-been reachable through `/analyze`, for any ticker, regardless of how far
-the resolved proxy has actually moved. Not "the coherence check's extra
-confirmation step doesn't run" (a narrower, safer-sounding framing) —
-**the whole Gate 5 hard-trigger path (Proposal 1's forceDown authority,
-Proposal 2's coherence check) has been unreachable dead code since it
-shipped.** `/analyze` always fell through to whatever Gate 2/Gate 0 alone
-implied. Gate 0 (SPY/QQQ) is unaffected — it reads a pre-computed
-`gateStatus` string the server already resolved correctly server-side
-before the client ever sees it, a different code path entirely.
-
-**Fix (`Tra` PR #34 / `trade-verdict` PR #108, same PRs as
-Proposal 4 above, one merge for both):**
-- New `normalizeMarketReading()` parses the real string wire format via the
-  `parsePctString()` helper Proposal 4 already added, while still accepting
-  a real `{pct, change}` object (lenient superset, not a breaking change —
-  nothing that already passed objects here stops working).
-- `evaluateProxyStatus()` now uses it, so Gate 5 RED/YELLOW actually fires.
-  Verified: the same `-6.20%` TSM string now correctly returns RED.
-- Fixed a second, smaller latent bug in the same function while it was
-  already open: `changeStr`'s label re-indexed the post-filter `readings`
-  array against the pre-filter `symbols` array, which mislabels a reading
-  whenever an earlier symbol in a multi-symbol rule (the TSM+KOSPI combined
-  rule) fails to resolve. Symbol and reading are now kept paired together.
-  Verified with a KOSPI-missing/TSM-present case — correctly labels "TSM",
-  not "KOSPI".
-- The Proxy Coherence Check (Proposal 2) call site had the identical shape
-  bug one level up (`metricsData?.pct`/`sectorContext?.tsm?.pct`, both
-  always null) — fixed to use `tickerPct`/`proxyPct`, the same two values
-  Proposal 4's buildup-pattern check needed, now computed once and shared
-  by both rather than duplicated. `tickerPct` comes from `openingBarData`'s
-  bar-1 open→close (not `metricsData.pct`, which never existed); `proxyPct`
-  comes from parsing `sectorContext`'s change strings (not
-  `sectorContext.tsm.pct`, which never existed either).
-
-**Verified by simulation, not yet by a live deploy** — same posture as
-everything else unverifiable from this sandbox. Ran the real
-`evaluateProxyStatus`/`proxyCoherenceCheck` code (extracted, not
-reimplemented) against: a real crash-scale string (`-6.20%` → RED,
-previously GREEN), a mild move (`-1.50%` → YELLOW), a flat move (`+0.20%`
-→ GREEN), a multi-symbol rule with one missing symbol (label pairing
-correct), and the still-supported object shape (backward compatible). The
-downstream coherence check was also run with the fixed `tickerPct`/
-`proxyPct` and produced a real Case 1 "DOWN — proxy confirmed" result. To
-confirm live: watch for a real Gate 5 RED card during an actual TSM/KOSPI
-move of 3%+ (previously impossible to see at all), and check that its note
-reads `TSM -X.XX%` with a correctly-labeled multi-symbol proxy if one ever
-applies.
-
-## Backend: Proposal 3 — Fixed-Proxy Regime Validation, weekly persistence (Aug 13, 2026)
-
-Bridges the gap flagged in the Proposal 4/Gate 5-bug sessions above:
-`gates-extended.js`'s `regimeValidation()`/`resolveFixedProxyBreak()` have
-existed since Patch 4 (Jul 29, 2026) but were never wired into `/analyze` —
-the code literally said so (`const regime = null; // Proposal 3
-(regimeValidation) is NOT wired yet — it needs its own weekly-cadence
-persistence layer`). This lands that persistence layer and wires it up.
-
-**Why it needed its own persistence, not just a function call.**
-`regimeValidation(tickerCloses, proxyCloses)` needs ~41 days of daily
-closes for both the ticker and its fixed proxy (TSM) to compute a
-rolling-20-day vs. full-history correlation. Recomputing that on every
-single `/analyze` call would be wasteful — same reasoning that already
-gave the *quarterly* Dynamic Proxy Resolution (Patch 2) its own
-`proxy_resolution` table. This is the same shape, at a weekly cadence.
-
-**What shipped (`supabase-ddl-patch9-proxy-regime.sql`, new
-`proxy_regime_state` table — same two-step RLS-disable + explicit
-`revoke` pattern every service-role table here uses; `Tra` +
-`trade-verdict` mirror, same PRs as Proposal 4/the Gate 5 bug fix above):**
-
-- `getCachedRegimeState()`/`saveRegimeState()` — mirror
-  `getCachedProxyResolution()`/`saveProxyResolution()` almost line for
-  line, `REGIME_RECOMPUTE_MAX_AGE_MS` = 7 days instead of 90.
-- `resolveProxyRegime(symbol, tickerCloses)` — on a cache miss, fetches
-  TSM's own closes (`fetchDailyCloses("TSM", 130)`, the one extra Alpaca
-  call this adds, at most once a week per gated ticker) and calls
-  `gx.regimeValidation()`; reuses the ticker's own `dailyCloses`
-  (`refreshMarketEntry` already fetches it for Gate 1 — no extra fetch for
-  that half).
-- **Wired into `resolveGate5()` itself, not just consumed downstream.**
-  `resolveGate5` now takes a 5th `regime` param: when the ticker's static
-  classification is the fixed Taiwan/Korea rule AND its regime state is
-  `BROKEN`, it skips the static early-return and falls through to the
-  Dynamic Proxy Resolution Algorithm below — exactly like a `DEFAULT_PROXY`
-  (ambiguous) ticker would. This is the "graduates into the dynamic system,
-  triggered by breakdown instead of onboarding" fallback the proposal
-  describes, not just a passive flag. `refreshMarketEntry()` computes
-  `regime` *before* calling `resolveGate5` (via a cheap, pure
-  `classifyTicker()` check) so both share one value instead of resolving it
-  twice. Every other static category (Biotech/XBI, Defense/LMT, etc.) has
-  no regime tracking — `regime` is always `null` for them, so this is a
-  no-op outside Taiwan/Korea-gated tickers, and defensively checked on
-  `staticRule.category === "AI/Semiconductor"` inside `resolveGate5`
-  itself, not just relied on via how it happens to be called today.
-- `regime` threaded through `/ticker/:symbol`'s response and
-  `symbolMarketCache`, and `regimeData` forwarded by every tier's client
-  `analyzeTicker()` in the `/analyze` POST body — same relay pattern as
-  `gate1Data`/`weeklyCarryoverData`. The hardcoded `const regime = null;`
-  in `/analyze` is now `const regime = regimeData || null;`.
-- **DEGRADING's "coherence check becomes mandatory" requirement needed no
-  new code.** The Proxy Coherence Check already runs unconditionally for
-  every Taiwan/Korea-gated ticker whenever Gate 5 reads RED (guarded only
-  by `tickerGating.length`, not by regime state) — so once the Gate 5
-  data-shape bug fix above made `tickerPct`/`proxyPct` actually populate,
-  the coherence check was already "mandatory" in practice for every
-  DEGRADING (and INTACT) case. `hasForceDownAuthority()`'s
-  `requiresCoherenceCheck` flag is returned but not separately consumed —
-  nothing left for it to gate that isn't already happening.
-- **BROKEN correctly suspends blind forceDown.**
-  `hasForceDownAuthority()` returns `authorized: false` on a BROKEN regime,
-  so `/analyze`'s existing "not independently exempt" fallback path
-  applies — the ticker needs 2+ RED gates for DOWN, same safe degrade
-  already used for a decoupled/lagging Coherence Check result. No new
-  `/analyze`-level branching was needed for this either — routing through
-  `resolveGate5` already handles the actual re-resolution.
-- Free/Starter/Pro's client `app.js` and Shark's monolithic file all had
-  `regimeData:td&&td.regime?td.regime:null` added to their `/analyze` POST
-  body, mirroring `weeklyCarryoverData`'s pattern exactly. Each tier's own
-  `app.js` `?v=` bumped per the cache-busting rule (`index.html` 41→42,
-  `pro`/`starter` 42→43) — these are each tier's own top-level file, no
-  cascade needed. Shark's `index.html` has no separate versioned `app.js`
-  (still monolithic), so no `?v=` bump applies there.
-
-**Verified by simulation, not a live deploy** — same posture as
-everything else unverifiable from this sandbox. Ran the real
-`resolveGate5` branching logic (extracted) across every regime state
-(null/INTACT/DEGRADING/BROKEN) for a Taiwan-gated ticker, confirmed
-`BROKEN` is the only one that falls through to dynamic resolution, and
-confirmed a `BROKEN` regime on a *non*-Taiwan/Korea ticker (shouldn't ever
-happen given how it's called, but checked defensively) is correctly
-ignored. Also ran `gx.regimeValidation()` against a synthetic perfectly-
-correlated series (→ INTACT) and one with the last 20 days deliberately
-decorrelated (→ DEGRADING, `REQUIRE_COHERENCE_CHECK`), and confirmed
-`hasForceDownAuthority()` responds correctly to all three states plus
-`null`. To confirm live: watch Render logs for `resolveProxyRegime`/
-`getCachedRegimeState`/`saveRegimeState` errors, and check
-`proxy_regime_state` actually accumulates rows for AI/Semiconductor-gated
-tickers (IREN, CIFR, etc.) after a week of real traffic. **BROKEN is
-expected to be rare** — `gates-extended.js`'s own `regimeValidation()`
-docstring already flags that correlations tend to *converge* under market
-stress, so this is a calm-market detector, not something likely to fire
-during an actual crisis; don't read an absence of BROKEN states as proof
-this isn't working.
-
-## Frontend: collapsing-card UI exploration — not built, but a reusable lesson (Aug 13, 2026)
-
-Separate from the backend work above (Proposal 3/4, Gate 5 bug fix — all
-shipped, merged, live). This is a design exploration only — **nothing
-below is in the deployed app** — kept here because the lesson it produced
-is worth not re-learning the hard way on future UI work.
-
-**The ask:** Mr. T wants the watchlist to stop being a plain scroll —
-too easy to lose the Gate status once you've scrolled down into a big
-watchlist, especially in the first 60 minutes when he's re-checking it
-often. Explored via a live interactive prototype (Artifact, not real
-app code), iterated through several rounds directly against his phone,
-not just described.
-
-**Round 1:** built a 3-way comparison — Accordion (tap one ticker open,
-opening a new one closes the last), Scroll-collapse (cards auto-expand/
-collapse as they cross the top of the viewport), and Rolodex (one ticker
-fully open at a time, swipeable stack, horizontal chip index). **He
-picked Rolodex.**
-
-**Rounds 2-6, the actual lesson:** refining Rolodex into a real design
-(Gate docks into a pinned strip as you scroll, watchlist chips pin under
-it, tap a chip to load that ticker's full analysis) hit the same failure
-mode three separate times, confirmed live on his device each time, each
-attempt making it worse, not better:
-- Round 3: Gate collapsed via an animated `grid-template-rows` transition,
-  triggered by an IntersectionObserver watching scroll position. Result:
-  "very jumpy."
-- Round 4: removed the animation, made the collapse instant, on the
-  theory that the animation was fighting the scroll gesture. Result:
-  worse — "not scrolling at all, just jumps."
-- Round 5: kept the sticky element's own layout height perfectly
-  constant (never animated OR instantly changed) and faked the visual
-  collapse with an absolutely-positioned overlay + opacity crossfade,
-  reasoning that literally zero layout change during scroll should be
-  bulletproof. Result: still worse — "gate doesn't scroll up, it's just
-  pinned full open."
-
-**The actual conclusion, confirmed by three different techniques all
-failing the same way:** on his real device, changing a `position:sticky`
-element's rendered height reactively while the user is actively
-touch-scrolling breaks scroll tracking — animated, instant, or disguised
-behind an opacity fade, it doesn't matter, all three are still "the
-sticky element's box changes shape while a scroll gesture is in
-flight," and that's what's fragile, not any one implementation detail
-of how the change was expressed. This wasn't diagnosable by reasoning
-about the CSS alone — it only showed up against live touch scrolling on
-an actual phone, not in any static review of the code.
-
-**Round 6, what actually worked:** stopped trying to auto-collapse the
-Gate from scroll position at all. Made it sticky (always pinned, height
-never changes, ever) with a plain **tap** to expand/collapse — the exact
-same accordion mechanic already used by the Pulse/Session Context/
-Import cards elsewhere on the page, which had zero issues through every
-round of this because nothing about a tap-driven accordion depends on
-scroll position in the first place.
-
-**Rule for next time this class of feature comes up:** if a UI element
-needs to visually "dock" or "collapse" as part of scrolling, don't
-reach for scroll-position-driven height/layout changes on a sticky
-element — that's the fragile pattern, confirmed three independent ways
-on real hardware in this session, not a one-off bug in any single
-attempt. Prefer either (a) a plain tap/click toggle, which is what
-actually shipped here, or (b) if a true scroll-linked motion is a hard
-requirement, drive it through `transform`/`opacity` exclusively (never a
-property that changes layout — height, padding, grid-template-rows) and
-test on a real device before considering it done, not just in a desktop
-browser resize.
-
-**Status as of this writing (superseded by the Aug 14 follow-up directly
-below — kept for the history):** Mr. T asked to go back to the Round 1
-3-way comparison and restart the decision from there with this lesson
-in hand — Round 6's tap-based Rolodex refinement is not the final
-direction, just the point where the scroll-jank chase stopped. Nothing
-from any round has been built into the real app (`index.html`/`app.js`/
-etc.) — this is 100% prototype, parked in an Artifact, not a repo file.
-
-## Frontend: collapsing-card UI exploration — Rolodex finalized, still 100% prototype (Aug 14, 2026)
-
-Direct continuation of the session above, same Artifact
-(`https://claude.ai/code/artifact/a4c3fd53-111b-4c05-8e71-ddaf59f8b878`),
-same rule applies — **nothing in this section is in the deployed app.**
-Restarted from the Round 1 3-way comparison as planned, then Mr. T
-picked Rolodex again and this time confirmed it as final: **"this
-roladex is the only option we're sticking with, you can remove the
-others."** Accordion and Scroll-collapse (including their dead code —
-`setPlainMode`, the `IntersectionObserver` scroll-collapse branch,
-`#plainList`, the mode-switcher UI, `cardHeadHTML`/`cardBodyHTML`/
-`chevronSVG`) were fully removed from the prototype, not just hidden —
-Rolodex is what the page loads into now, no picker.
-
-**Misinterpretation caught and corrected: "gate tickers" meant the
-Gate's own market indices, not the watchlist.** Asked to make "the gate
-tickers auto scroll horizontal — only when it's collapsed," first pass
-wired the auto-scroll marquee onto the wrong element (the watchlist chip
-strip, `#roloIndex`) instead of the Gate's own SPY/QQQ/BTC/etc. row.
-Corrected directly: *"you scrolled the wrong tickers, the top gate
-tickers are supposed to scroll not the watchlist pills, but I kinda like
-that too if it had price with them also."* Fixed by adding a second,
-separate marquee (`#gateMarquee` / `GATE_INDICES`, docked-only) for the
-Gate's own indices, and keeping the watchlist marquee as a distinct,
-intentional feature — enhanced with each pill now showing price next to
-its symbol (`.rc-price`), per the second half of that same correction.
-
-**Watchlist pills, several rounds of direct correction, in order:**
-1. **Card switching restricted to pill-tap only.** *"I don't want the
-   tiles to cycle up with the scroll... only analyze when you tap the
-   pill."* Removed swipe (touchstart/touchend) and mouse-wheel paging on
-   the Rolodex stage, and removed the prev/next buttons entirely — a
-   tap on a pill in `#roloIndex` is now the only thing that changes
-   which ticker's card is open, full stop.
-2. **Manual drag re-enabled, then a real bug in doing so.** Asked to
-   let the pill strip "also manually scroll" even while its own marquee
-   is auto-scrolling. First attempt paused the marquee via a boolean
-   flag set `true` then immediately `false` around the marquee's own
-   `scrollLeft` write — broke on his phone: *"it move extremely slow .5
-   mm jump."* Root cause: browsers dispatch `scroll` asynchronously, so
-   the flag was already back to `false` before the marquee's own scroll
-   event arrived, and every single frame's own 0.5px nudge was
-   misread as a manual scroll and instantly re-paused itself for 1.8s —
-   moves a hair, stalls, moves a hair, stalls. Fixed by comparing the
-   scroll event's actual `scrollLeft` against the value the marquee
-   itself last wrote (state comparison), not a timing-dependent flag —
-   immune to the async-dispatch race by construction.
-3. **Pills recolored by real performance, not the AI verdict.** *"all
-   pills need the performance red/green color frame and font with dark
-   grey background color, make the one pill that is selected background
-   red or green depending on performance and font the background
-   color."* Added a `chg` (day % change) field per ticker, independent
-   of the existing `verdict` field (up/down/flat/pending) — a flat or
-   pending-analysis ticker still has a real day move, so it still gets a
-   real green/red read instead of falling back to neutral. Selected pill
-   inverts: solid green/red fill, text set to the same dark grey every
-   other pill uses as its own background.
-4. **Marquee changed to run continuously, not gated on the Gate.**
-   *"I don't remember the pills not scrolling horizontal until the gate
-   starts... make the pills scroll horizontal all the time."* The
-   `gateCard.classList.contains("docked")` condition gating
-   `stepRoloMarquee` was dropped — it now runs from page load. Also
-   removed a now-conflicting bit of logic that scrolled a newly-tapped
-   pill into view, but only while the Gate was *not* docked (to avoid
-   fighting the marquee mid-animation) — now that the marquee always
-   runs, that scrollIntoView would fight it constantly, so it was
-   dropped in favor of just the `.active` color highlight.
-
-**Pulse/Session Context/Import now dock under the Gate too, in order,
-as you scroll.** Previously these three scrolled off normally. Now each
-is its own `position:sticky` element (`#card-pulse`/`#card-context`/
-`#card-io`, descending z-index 19/18/17, below the Gate's 20) with a
-`top` offset computed in JS (`updateStickyOffsets()`) as
-`GATE_DOCKED_H` plus the real height of every card ahead of it — so the
-stack grows underneath the Gate's 44px docked bar like a second, third,
-fourth pinned bar, in Pulse → Context → Import order. Each card's own
-height is computed from its head's real rendered height plus (if
-expanded) its body's `scrollHeight` — readable immediately on tap
-without waiting for the `.22s` accordion transition to settle, since
-`grid-template-rows:0fr` only clips the grid track, not the child's own
-layout box. This is deliberately **not** the same failure pattern as
-the Aug 13 Gate scroll-jank lesson above: nothing here changes a sticky
-element's height reactively *during* a scroll gesture — the accordion
-expand/collapse is tap-triggered same as it always was, sticky
-positioning just responds to that afterward, which is the safe
-"(a) plain tap toggle" option that lesson already called out.
-
-**A real bug caught by headless-Chromium pixel measurement, not just
-eyeballing.** First version of `updateStickyOffsets()` summed each
-card's head height + body `scrollHeight` only, which undercounts the
-outer `.card`'s own 1px top + 1px bottom border — caught as a 2-3px
-overlap between Pulse and Context once Pulse was expanded, via a real
-Playwright script that measured `getBoundingClientRect()` on each
-card and printed the actual gaps, not just a screenshot glance. Fixed
-by adding `getComputedStyle(card).borderTopWidth +
-borderBottomWidth` into the height sum. Re-verified the same way with
-all three cards expanded simultaneously (the worst case) — sub-pixel
-gaps only, invisible in practice. Worth repeating as a technique: for
-any future layout-math change like this (cumulative offsets, stacked
-sticky elements), measure real rendered rects in a headless browser
-before calling it done — this bug was real and would not have been
-caught by reading the code or a single screenshot.
-
-**Collapsed row height, tightened twice on direct feedback.** First
-pass shaved a flat 3px off the existing padding. Mr. T: *"I still think
-the collapsed cards can get a lot shorter still, like the same height
-as the collapsed gate."* Rebuilt `.card-head` to share the literal
-`--gate-docked-h` CSS variable (fixed height, no vertical padding, flex
-`align-items:center`) instead of guessing another padding number — so
-Pulse/Context/Import's collapsed rows are now pixel-identical to the
-Gate's own docked height and will track it automatically if that value
-is ever changed.
-
-**Import/Export split: Export is leaving, Import was missing its own
-input.** Mr. T: *"the import is missing the input window. remove the
-export button and write a print to add it to the profile badge
-drop-down."* Renamed the card to plain "Import," added the ticker-entry
-textarea it was missing (matching the existing `.ctx-box` style used by
-Session Context), and removed the Export CSV button outright. Left a
-code comment flagging that Export should move into a profile/account
-badge's dropdown instead — **not built here**, since this prototype has
-no profile badge component at all yet (the "72 CREDITS" chip is the
-closest thing to one); that placement is a real-app decision for
-whenever this actually gets built, not something to mock up inside an
-exploration prototype.
-
-**Superseded by the real build below — kept for the history.** At the
-time this was written, every item above lived only in the Artifact;
-nothing in `index.html`/`starter/`/`pro/`/`shark/`/`shared/` had changed.
-
-## Frontend: Rolodex UI built for real, staged at `/preview/rolodex/` (Aug 14, 2026)
-
-Asked directly to build the finalized Rolodex prototype for real and
-merge it to the live site's hidden `/preview/` staging subpath (see "UI
-staging: the `/preview/` subpath convention" above) — not into any real
-tier's actual nav yet, per that convention's own intended use.
-
-**Scope: Free tier's feature set, as its own fully standalone page —
-`preview/rolodex/index.html` + `preview/rolodex/app.js`.** Free was
-picked as the pilot (simplest surface: no card/watchlist split, no
-Analyst View/Proxy Explorer/Heat Map) without asking first, since the
-whole point of `/preview/` is that a wrong guess costs nothing — it's
-reviewed before it ever touches a real tier's nav either way.
-
-**Real backend, real data, zero coupling to `shared/watchlist.js`.**
-The page calls the real `/market`, `/ticker/:symbol`, `/analyze`, and
-`/status` endpoints with the exact same request shapes and auth pattern
-(`authH()`/`addSecret()`, `tv_session`) as Free's real `app.js` — so
-credits, sign-in state, and the Gate all behave exactly like production.
-It reuses `shared/ticker-cache.js` (pure data-fetching, no DOM coupling,
-safe the same way every tier already shares it) but deliberately
-**reimplements** watchlist state and all rendering standalone rather
-than touching `shared/watchlist.js` — that file is what every real tier
-imports, and its rendering functions are tightly coupled to the old
-`.card-wrap` DOM shape the Rolodex replaces. Keeping this page 100%
-self-contained means it can be merged straight to `main` with zero risk
-to Free/Starter/Pro, matching the whole reason `/preview/` exists.
-
-**A real, visible cost, disclosed on the page itself:** tapping ANALYZE
-here spends a real credit, from the real account if signed in or the
-shared anonymous weekly pool if not — same backend, same credit system,
-not a sandboxed copy. A banner says so at the top of the page.
-
-**One safety measure beyond what production itself does:** if a paid
-(`tier !== 'free'`) `tv_session` is present, this page never reads or
-writes the shared `tv_wl` localStorage key — it falls back to Free's
-hardcoded default tickers (`MU`/`IREN`/`ALAB`) in-memory only. Real
-`/analyze` calls still use the real signed-in account (auth doesn't
-depend on which tickers are shown), but the watchlist itself can't be
-corrupted by Free's 3-ticker cap the way `app.js`'s own
-`redirectingToPaidTier` guard exists to prevent elsewhere — a redirect
-would defeat the entire point of a preview page, so this does the
-narrower thing that actually matters instead: never touch the shared key.
-
-**Two real bugs found and fixed by actually testing it, not just
-porting the prototype's code:**
-1. **Overlay height measured before it had real content.**
-   `sizeGateSpacer()` (reserves scroll room for the Gate's full-detail
-   overlay) ran once at page load, while the overlay still held
-   placeholder text and an empty grid — before the async `/market` fetch
-   populated the real 3×4 stat grid. Once real data landed, the overlay
-   grew taller than the spacer had reserved, so it visually (and
-   interactively — Playwright's own click failed with "element intercepts
-   pointer events") covered the Sector Pulse and Session Context cards
-   sitting right below it. Fixed by re-running `sizeGateSpacer()` after
-   `renderGate()` populates the grid, not just once at init — same root
-   cause as the border-height measurement bug from the Aug 13 prototype
-   work: measure the real rendered content, and re-measure whenever that
-   content can change size.
-2. **The whole page scrolled instead of `#scroller`.** The prototype's
-   sticky/dock/marquee mechanism only worked because it lived inside a
-   fixed-`height` `.device` phone-mockup frame; this build correctly
-   dropped that frame (it's not meant to look like it's inside a phone
-   mockup) but kept `.app-shell{min-height:100vh}` — `min-height` doesn't
-   constrain, so once content exceeded the viewport the *page* scrolled
-   natively and `#scroller`'s own `overflow-y:auto` never activated,
-   silently breaking gate-docking entirely (`scroller.scrollTop` stayed
-   `0` no matter how far down the page you were). Fixed by changing
-   `.app-shell` to a real `height:100vh`/`100dvh`.
-
-**Verified, not assumed — same headless-Chromium discipline as the Aug
-13 prototype work:** a real local static server + Playwright, confirmed
-via `getBoundingClientRect()` (not just a screenshot glance) that Pulse/
-Context/Import all render at sane, non-overlapping positions; confirmed
-the Gate actually docks on scroll after the height fix; confirmed
-tapping a pill switches the open card and highlights the right pill;
-confirmed the utility-card accordion expand/collapse correctly reflows
-the sticky stack beneath it; confirmed ANALYZE degrades to a visible
-inline error with zero thrown JS exceptions when the backend is
-unreachable (expected in this sandbox, same limitation documented
-throughout this file); confirmed Import correctly blocks at the
-3-ticker cap with the same upgrade alert Free's real `app.js` shows.
-**Not verified:** a real end-to-end `/analyze` call against live
-credentials (this sandbox can't reach `tra-zacg.onrender.com` — same
-standing limitation as everywhere else in this file) — check Render
-logs or just try it live to confirm the real request/response round
-trip once this deploys.
-
-**Explicitly not done in this pass (superseded in part below):**
-Starter/Pro's own versions of this build. Actually wiring any of this
-into a real tier's `index.html`/nav — that's a deliberate next step
-requiring an explicit go-ahead, not a side effect of merging to
-`/preview/`.
-
-## Frontend: Rolodex preview fidelity pass — real analyzed cards, matching production (Aug 14, 2026)
-
-Direct correction from Mr. T after reviewing `/preview/rolodex/` live:
-the analyzed card "doesn't look anything like the original" — missing
-the thumb/hold verdict badge, only showing 3 of 6 gates (G4/G5 and the
-confidence row missing), missing the type/sizing badges ("sentiment with
-risk level"), missing hyperlinks, missing the Glossary and Track Record
-teaser after the ticker list, and the header "disorganized" — needed to
-match the real deployed Free tier, not the prototype's own alt styling.
-
-**"Only 3 gates" was a real, confirmed layout bug, not a missing
-feature.** `gateListHTML()` always built all 6 gate rows — the code was
-never actually dropping G4/G5. The real cause: `.rolo-stage`/`.rolo-card`
-had a fixed `min-height:280px` with `overflow:hidden`, sized for the
-prototype's own curated, short demo gate notes. Real gate note text runs
-longer and more variably, so a real analyzed card (6 gates + verdict +
-meta + headline + confidence) easily exceeds 280px and the fixed-height
-overflow:hidden container silently clipped everything past it — visually
-indistinguishable from the gates just not being there. Confirmed via a
-mocked `/analyze` response in headless Chromium (this sandbox can't reach
-the real backend) showing `stageHeight ≈ cardScrollHeight` and all 6
-`.gate-row`/`.gate-clear` elements present after the fix. Fixed by
-dropping the fixed height/`overflow:hidden` entirely — `.rolo-card` now
-sizes to its own real content (`top/left/right`, no `bottom`/`inset`),
-and a new `syncRoloStageHeight()` sets `.rolo-stage`'s height to match
-the *active* card's real `offsetHeight` on every render/switch, the same
-"measure the real thing, don't assume" lesson as the sizeGateSpacer bug
-from the initial build.
-
-**Everything else ported from production, not reinvented:** the big
-👍/👎/HOLD verdict treatment (`thumbUp`/`thumbDown`/`holdPulse` keyframes,
-market-closed always forces HOLD regardless of the real verdict — ported
-`isMarketClosed()` verbatim) now replaces the ANALYZE button on a result,
-tapping it resets back to ANALYZE exactly like production's
-`resetCard()`; TYPE badge (CANARY/SENTIMENT/FLOW) and SIZING badge
-(Full/Half/¼ size, or "Defined risk" for `NONE`) now render, matching
-production's exact badge-color mapping; the CONFIDENCE row now appends
-to the gate list; a Pre-Gate strip (Gate 5 dot + `wait_for` guidance)
-now renders above the meta row, independent of the Gate Breakdown list,
-matching production; ticker symbol and headline are now real hyperlinks
-to Yahoo Finance's quote/news pages (Free forces Yahoo regardless of any
-saved preference — hardcoded here rather than importing `shared/prefs.js`,
-keeping this page's isolation from `shared/` complete); the full
-Glossary (all real terms, search/filter) and the Track Record upsell
-teaser now render after the ticker list, matching production's real
-order and copy exactly.
-
-**Header rebuilt to match production, not approximated.** Was using the
-prototype's own alt monospace brand treatment; now uses the real
-`logo-mark.png` + Playfair Display serif title + plain "FREE" badge
-(shortened from "FREE · ROLODEX PREVIEW" — redundant with the
-preview-banner already at the top of the page, and also the direct fix
-for the bug below).
-
-**A second real bug, caught by the same discipline (measure, don't
-eyeball):** the rebuilt header overflowed horizontally
-(`scrollWidth 453px` vs `barWidth 390px`, confirmed via
-`getBoundingClientRect`) — the credits chip and half the sign-in text
-were being cut off outside the viewport, invisible in a static
-screenshot glance until actually measured. Root cause: `.app-topbar` had
-no `flex-wrap`, and the tier badge's longer text
-("FREE · ROLODEX PREVIEW") pushed total content past 390px. Fixed both
-(added `flex-wrap:wrap` to `.app-topbar` as a safety net, shortened the
-badge text) and re-confirmed `scrollWidth === barWidth` after.
-
-**Verified the same way as the initial build — headless Chromium,
-measured not eyeballed:** mocked a full realistic `/analyze` response
-(clock-pinned to real market hours via Playwright's clock API, since
-`isMarketClosed()` is time-of-day dependent and the sandbox's real clock
-falls outside market hours) to confirm the 👍/👎 thumb, all badges, and
-gate rows actually render end-to-end; confirmed the Glossary's search
-correctly filters by both term name and definition text; re-ran the
-original pill-tap/accordion/dock regression checks to confirm nothing
-broke. **Still not verified:** a real end-to-end `/analyze` round trip
-against live credentials — same standing sandbox limitation as the
-initial build.
-
-## Frontend: Rolodex preview — ANALYZE mocked, no longer a real credit spend (Aug 14, 2026)
-
-Direct follow-up: no practical way to add credits just to keep reviewing
-this page, and a page reload can't reset a real, server-enforced
-balance no matter what the frontend does — credits.js checks and
-deducts server-side in `Tra`, not something a client reload touches.
-Scoped via `AskUserQuestion` (mock vs. "keep it real, clearer messaging
-when blocked") — mock was the clear pick, since this page exists to
-review the UI, not to re-validate the real backend round trip (real
-production Free tier already does that).
-
-**ANALYZE on `/preview/rolodex/` no longer calls the real `/analyze`
-endpoint at all.** `analyzeOne()` now picks from `MOCK_ANALYZE_PROFILES`
-— five hand-written, realistic full responses (clean full-size UP,
-Gate 1 forceDown DOWN/NONE sizing, mixed FLAT/LOW confidence, clean
-HIGH-confidence UP, Gate 5 forceDown DOWN with a proxy `wait_for`) —
-covering the verdict/badge/gate-color states actually worth reviewing.
-Cycles through them per ticker (`state.mockIndex`) so repeatedly tapping
-ANALYZE on the same ticker shows different states instead of the
-identical result every time. A ~400-700ms randomized delay keeps the
-RUNNING… loading state meaningful rather than resolving instantly.
-
-**Ticker price/news/52W/phase/beta/proxy stayed real, unchanged** —
-`fetchTickerData()`/`/ticker/:symbol` has no credit cost in production
-either (only `/analyze` does), so there was no reason to fake that half
-along with it.
-
-**The preview banner's own claim was fixed to match** — it previously
-said ANALYZE spends a real credit, which would now be false. Rewritten
-to say ticker/news/Gate 0 are real (and free) while ANALYZE is
-simulated and costs nothing, so it's safe to tap repeatedly.
-
-**Verified via headless Chromium:** confirmed zero real `/analyze`
-network requests fire across repeated ANALYZE taps (network-request
-listener, not just reading the code); confirmed the mock profiles
-actually cycle (four successive taps showed three distinct `wait_for`
-states); confirmed `isMarketClosed()` still correctly overrides a mocked
-UP/DOWN to HOLD outside market hours, same as it does for a real
-result — the mock only replaces where the verdict data comes from, not
-any of the rendering/override logic downstream of it.
-
-**Follow-up, same day: the fixes above didn't actually reach the user's
-browser at first.** Reported live: the dismiss button didn't close the
-banner, and ANALYZE still showed a no-credits error — both symptoms of
-running an *old* cached `app.js`, not of either fix being wrong. Root
-cause: `preview/rolodex/index.html` was built without the two things
-every real tier page has for exactly this reason — a
-`Cache-Control: no-cache,no-store,must-revalidate` meta tag, and a
-`?v=N` query string on its own `<script src="./app.js">` tag (see the
-cache-busting rule earlier in this file). This page had gone through
-four rounds of content changes to `app.js` in one session with zero
-cache-busting the whole time, so a browser that loaded it early was
-never guaranteed to see any of the later fixes. Fixed by adding both to
-`index.html` (`?v=1` as the starting baseline — the *un*versioned URL a
-browser may have already cached is a different cache key regardless of
-what number this starts at, so correctness didn't depend on picking a
-"right" starting value, only on bumping it from here on).
-
-**Going forward: `preview/rolodex/app.js` needs its `?v=` bumped on
-every future content change**, exactly like every other real
-`app.js`/shared module in this repo — this page was the one exception
-that had fallen through, not a deliberate opt-out.
-
-**Follow-up, same day: verdict badge moved to the top, empty Pre-Gate
-strip hidden (`?v=2`).** Direct comparison against a real production
-screenshot: the thumb/HOLD badge was buried below the full gate list in
-this build's single-column layout, while production puts it right next
-to the ticker row at the top (production's real 2-column `card-left`/
-`card-right` split). Restructured `.ticker-row` into two columns —
-ticker symbol/price on the left, the verdict (or the ANALYZE button,
-pre-analysis) on the right in a new `.ticker-action` slot — matching
-where production puts that element without adopting its full 2-column
-body layout (Rolodex's single-column card content below the top row is
-unchanged, still the approved design from the earlier prototype rounds).
-Added `.btn-compact` (width auto, not the card-wide default) so ANALYZE
-fits that slot before a result exists.
-
-**Also fixed in the same pass, prompted by the same screenshot:** the
-Pre-Gate strip now renders **only** when there's real `wait_for` text —
-matching the earlier "hide it, don't show an empty box" plan — and the
-label changed from production's "WAIT FOR " to "LOOK FOR:" (direct
-request, same pass) — this preview's own copy, not a claim about what
-production says.
-
-**Verified via headless Chromium:** confirmed no horizontal overflow in
-the restructured ticker row across both the pre-analysis (ANALYZE
-button) and post-analysis (verdict badge) states; confirmed the
-Pre-Gate strip is absent for a mocked profile with `wait_for:null` and
-present with the colon for one that has real guidance text; visually
-confirmed via screenshot that the layout now matches the production
-reference (ticker/price top-left, thumb badge top-right).
-
-## Frontend: Rolodex preview — Gate docking race + inactive-card interactivity (Aug 14, 2026, `?v=3`)
-
-Reported live: "the top Gate card should start collapsing when the
-sector pulse drop-down hits the bottom of the Gate card" — it wasn't.
-Confirmed via `AskUserQuestion` that this was a timing bug (the dock
-snap happening at the wrong moment), not a request to redesign the
-snap into a continuous scroll-linked animation — important to pin down
-given the Aug 13 collapsing-card lesson elsewhere in this file found
-exactly that pattern broken three separate ways on a real device.
-
-**Root cause, found by deliberately simulating real network latency
-(this sandbox's own tests had never done that before) — a two-part
-race:** `sizeGateSpacer()` (measures the Gate overlay's real height,
-sets the scroll-room spacer, and previously also set the module-level
-`spacerHeight` variable the scroll handler compared against) only runs
-once at page load — against placeholder content ("LOADING…", empty
-grid) — and again after the real `/market` fetch resolves. On a real
-phone with real network latency, a user can start scrolling in that gap
-and reach the dock threshold while it's still sized against placeholder
-content, docking early. Confirmed by delaying a mocked `/market`
-response by 900ms in a headless test and scrolling immediately —
-reproduced cleanly, something the earlier build's instant-fake-response
-tests structurally could not have caught.
-
-**Two-part fix, both parts necessary:**
-1. The dock/undock comparison (`updateGateDockState()`) now always
-   re-measures the overlay's real height fresh (`currentGateFullHeight()`,
-   a pure read, no DOM writes) instead of comparing against a value that
-   could be stale — this alone fixed docking-while-still-on-placeholder-
-   content.
-2. That comparison only ever ran in response to a `scroll` event. If
-   real data landed while the user had already stopped scrolling, the
-   dock class never re-evaluated against the new (correct) content
-   size — visibly stuck in the wrong state until the *next* scroll.
-   Fixed by also calling `updateGateDockState()` from inside
-   `sizeGateSpacer()` itself, so content changing size alone (without a
-   new scroll event) also triggers a re-check. Confirmed both parts
-   together via a headless test: scrolled past the placeholder-sized
-   threshold, waited for a delayed `/market` response with zero further
-   scroll input, and confirmed the Gate correctly un-docks the moment
-   real (taller) content lands, then correctly re-docks at the real
-   threshold.
-
-**A second, unrelated real bug found by chasing a flaky headless test
-of the fix above, not by user report — worth fixing regardless:**
-inactive Rolodex cards (stacked behind the active one via
-transform/opacity, per the approved design) never got
-`pointer-events:none`. `positionRoloStack()` now sets it explicitly
-(`auto` only on the active card). Their buttons/links were genuinely
-clickable/focusable the whole time despite being visually stacked
-behind the active card — a real interaction/accessibility gap that
-predates this session's testing, not something the dock-race fix
-introduced. Caught because `document.querySelector('[data-analyze]')`
-(both in a test script and in Playwright's own element-resolution)
-grabbed the *first* matching button in DOM order rather than the
-visually active one, intercepted by whatever was actually on top —
-confirmed by scoping the query to the active card's `data-sym` and
-re-testing; also confirmed via `getComputedStyle` that only the active
-card now reports `pointer-events: auto`.
-
-## Frontend: Rolodex preview — Gate compaction, verified via real incremental scroll (Aug 15, 2026)
-
-Follow-up report, same live-scroll feedback loop: "the gate is not
-collapsing until those drop-downs are completely under the gate" and
-the utility cards "don't stack... taking too much real estate." Before
-touching anything, verified the previous dock-race fix (`?v=3`) with a
-**real incremental scroll gesture** for the first time this session —
-`page.mouse.wheel()` dispatched in small repeated steps rather than a
-single programmatic `scrollTo()` jump, which is what every earlier
-verification in this file used. That confirmed the mechanism itself
-was actually working correctly: cards do stick, in the right order, at
-the right relative spacing, and the Gate docks at a real, defensible
-scroll point (not never, not at the very end) — ruling out a second
-"sticky is silently broken" bug like the ones found earlier.
-
-**The real issue was proportions, not a bug.** The Gate's full-detail
-view (a 10-item stat grid + note) is inherently tall, and the dock
-threshold is correctly tied to scrolling past that entire height (see
-`currentGateFullHeight()`) — so on a short, not-yet-analyzed watchlist
-(cards are just a one-line "Tap ANALYZE" placeholder before that),
-there's little scrollable content below the Gate+3-utility-card zone,
-compressing the whole "Gate shrinks → cards stack → tickers appear"
-sequence into a narrow scroll range near the bottom of the page. That
-reads exactly like "nothing happens, then everything happens at once."
-
-**Why the dock threshold couldn't just be lowered on its own.** The
-threshold and the reserved scroll room (`gateSpacer`'s height) have to
-stay in lockstep — the overlay is always rendered at its full natural
-height while undocked, absolutely positioned with nothing clipping it.
-Shrinking only the trigger point without also shrinking the reserved
-room would reopen the exact overlay-bleeds-into-Sector-Pulse bug fixed
-in the initial build (CLAUDE.md, "Overlay height measured before it had
-real content"). The actual fix has to reduce the overlay's own real
-height, since everything downstream (threshold, spacer, dock timing) is
-already correctly derived from that one measurement.
-
-**Fix: tightened the full-detail overlay's own CSS** — padding
-(`14px 16px 16px` → `10px 16px 12px`), the stat grid's row gap
-(`8px`→`5px`) and bottom margins (`10px`→`7px` on both the label and the
-grid), and the note's line-height (`1.6`→`1.45`). Purely a density
-change, no content removed. Measured overlay height dropped from
-~208px to ~185px in the same test scenario, moving the dock threshold
-from ~166px to ~141px scrollTop — a real, measured reduction in how far
-you have to scroll before the Gate gets out of the way, not a guessed
-one.
-
-**Verified, not assumed:** re-ran the real-incremental-scroll test
-against the tightened CSS and confirmed sticky stacking, spacing, and
-dock/undock all still behave correctly; re-ran the full pill/accordion/
-analyze regression suite — all pass; directly measured the overlay's
-`getBoundingClientRect().height` before and after to confirm the actual
-pixel reduction rather than eyeballing it.
-
-## Frontend: Rolodex preview — utility cards un-stuck, ticker pills dock instead (Aug 15, 2026, `?v=4`)
-
-Direct follow-up, same day: an `AskUserQuestion` diagnostic re-ask (the
-first attempt's answer came back malformed — a UI glitch on the
-asking side, not a real answer) got a clean, decisive answer this time:
-Sector Pulse/Session Context/Import sticking in a stack was never
-wanted — "they are taking too much room... they should just scroll
-away." Instead: dock the ticker pill strip (`#roloIndex`) under the
-collapsed Gate, and let everything else — the three utility cards, the
-open ticker card, Glossary, Track Record, disclaimer, footer — scroll
-normally.
-
-**This is a real simplification, not just a different look.** The old
-mechanism needed `updateStickyOffsets()`/`utilityCardHeight()` — JS-
-computed cumulative `top` offsets recalculated on every accordion
-toggle, resize, and data load, so each of 3 stacked sticky cards knew
-where to pin relative to the one ahead of it. All of that is gone.
-`#roloIndex` is the *only* other sticky element besides the Gate now,
-sitting directly under it — a single static CSS `top:var(--gate-docked-h)`
-is enough, no JS offset math needed at all, and scroll-up undocking is
-native `position:sticky` behavior, free.
-
-**Utility cards (`.card[data-card]`) dropped `position:sticky`/`z-index`
-entirely** — same plain tap-to-expand accordion as before, just no
-longer pinned; they scroll off normally like the rest of the page.
-`#roloIndex` picked up `position:sticky; top:var(--gate-docked-h)` plus
-an opaque background (`var(--bg)`) so content scrolling underneath
-doesn't show through once it's pinned, with a small negative-margin/
-padding trick to bleed it edge-to-edge while docked.
-
-**Verified via the same real-incremental-scroll technique as the Gate
-compaction fix:** confirmed Sector Pulse now scrolls fully off-screen
-(`pulseTop` goes negative) instead of sticking; confirmed `#roloIndex`
-freezes in place once scrolled far enough and stays frozen across
-repeated samples; confirmed scrolling back to the top undocks both the
-Gate and the pill strip back to their normal positions. Re-ran the full
-pill-tap/accordion/analyze/glossary-search regression suite — all pass.
-
-## Frontend: Rolodex preview — ticker pill count moved into the strip (Aug 15, 2026, `?v=5`)
-
-Direct follow-up, same day: "move the ticker pill count to between the
-first and last in the row with a dash on each side, to show the
-beginning and end of the list. this will help for starter and pro as the
-list gets longer." The count previously lived above the pill strip
-(`.list-head`'s `#roloCount` badge, "Analysis Cards · N") — removed
-entirely (both the HTML element and its CSS), replaced with a single
-`— N —` divider chip (`.rolo-divider`) built directly into `#roloIndex`
-itself.
-
-**Where exactly "between the first and last" landed, given the strip's
-existing marquee mechanism.** `#roloIndex` already renders the watchlist
-*twice* back to back (`renderRolodexFromWatchlist`'s two-pass loop) so
-the auto-scroll marquee can wrap seamlessly — the visible strip is never
-just one pass through the list. The `— N —` divider is appended once,
-right after the real (first) pass and before the duplicate (second)
-pass — i.e., literally between the first pass's last ticker and the
-second pass's first ticker, which reads to the user as a single
-landmark marking where the list wraps back to its own beginning as it
-scrolls by. Free's own watchlist is capped at 3 tickers so this is
-subtle here, but the whole point (per the request) is Starter/Pro-scale
-lists, where a long unbroken stream of pills has no landmark at all
-without it — confirmed by direct math below, not just reasoned about.
-
-**The marquee's wrap-distance calculation had to change, not just cosmetic
-placement.** It previously assumed the strip's total width split into two
-exactly-equal halves (`roloMarqueeOneSetW = roloIndex.scrollWidth / 2`) —
-true only because both passes were identical chip sets with nothing else
-between them. Adding a divider after the *first* pass only (not the
-second) breaks that symmetry on purpose, matching "between the first and
-last," so the assumed-half-width math would now be wrong by roughly one
-divider-width. Replaced with a direct measurement:
-`roloCountDivider.offsetLeft + roloCountDivider.offsetWidth` — the real,
-live boundary of "first pass + its divider," regardless of list length.
-This is more correct than the old assumption ever was, not just adjusted
-to compensate for the new element.
-
-**Verified the math actually holds at Starter/Pro scale, not just for
-Free's real 3-ticker cap.** This page's own `MAX_TICKERS = 3` (mirroring
-Free's real limit) means it can't structurally demonstrate a long list
-by itself, so the wrap math was checked two ways: (1) the real page with
-its real 3-ticker watchlist — divider renders correctly (`"— 3 —"`), old
-`#roloCount` element and its CSS confirmed gone, pill tap-to-switch and
-the real-incremental-scroll dock/undock regression both still pass; (2)
-a synthetic 15-ticker (Starter/Pro-scale) rebuild of the exact same
-`#roloIndex` markup/CSS shape, confirming the measured `oneSetW` (1538px)
-stays well under the container's actual max scroll distance (2626px) —
-so the wraparound branch actually triggers at that scale — and that the
-chip immediately after the divider is pixel-identical (same symbol) to
-the strip's very first chip, confirming the loop is seamless at the
-point the divider sits. Free's own 3-ticker case was independently
-confirmed to have too little overflow to ever visibly wrap, both before
-and after this change — not a regression this change introduced, just
-the pre-existing ceiling of a 3-ticker cap on a ~390px-wide strip.
-
-`preview/rolodex/app.js` bumped to `?v=5` per the cache-busting rule.
-
-## Frontend: Rolodex preview — marquee stalling, card bleed-through, auto-analyze on tap (Aug 15, 2026, `?v=6`)
-
-Three live-reported issues from the same round of feedback, all in
-`preview/rolodex/`, landed together.
-
-**1. Marquee "stopping a lot."** The pause-on-manual-scroll mechanism had
-*two* independent triggers: pointerdown/pointerup (correct, tied to a real
-tap/drag) and a `#roloIndex` `scroll` listener that paused whenever the
-observed `scrollLeft` didn't match the marquee's own last self-write —
-added earlier specifically to catch manual drags the pointer events might
-miss. That comparison was supposed to ignore the marquee's own writes
-(state-comparison, not a timing flag — see the earlier "moves a hair,
-stalls" fix elsewhere in this file), but in practice was still
-mis-detecting the marquee's own async-dispatched scroll events as manual
-scrolls often enough on a real device to repeatedly self-pause — a
-broader recurrence of the same bug *class* that earlier fix addressed,
-not the identical bug. **Fix: removed the scroll-listener pause path
-entirely**, rather than re-tuning its threshold again — pointerdown/up/
-cancel alone already covers both a pill tap and a manual drag of the
-strip, with no self-detection ambiguity to get wrong. Resume delay
-tightened from 1800ms to a flat 2000ms per the direct request ("should
-only pause for 2 seconds").
-
-Verified on the real page: tapped a pill immediately after load (before
-the strip's ~42px native scroll room on this 3-ticker Free-tier page gets
-used up, which would otherwise mask any pause/resume signal) and sampled
-`scrollLeft` through the window — flat for the full ~2s pause, then
-visibly incrementing again right after, with no in-between stalls.
-
-**2. Analyzed-card bleed-through on ticker switch.** Reported live,
-screenshot showed faded gate rows and a stray "3 / 3" overlapping the
-Glossary/Track Record area below the pill strip. Root cause:
-`.rolo-stage` lost its `overflow:hidden` in the Aug 14 fidelity pass (so
-a real analyzed card's full content wouldn't get clipped — see "Only 3
-gates" earlier in this file) and never got it back once the stage height
-was made fully dynamic. Once a ticker's card is genuinely taller than
-whatever's currently active (e.g. a previously-analyzed full result,
-sitting inactive/faded behind a freshly-selected still-idle card), that
-taller inactive card's bottom edge extends straight past the (shorter)
-stage box into whatever comes after it in the page — confirmed via
-`getBoundingClientRect`: MU's analyzed card (373px tall) sitting behind a
-120px-tall active IREN card, its bottom ~250px past both the stage's own
-bottom and the Glossary tile's top. Re-adding `overflow:hidden` is safe
-now in a way it wasn't during the original "Only 3 gates" bug, because
-the stage's height is unconditionally synced to the *active* card's real
-`offsetHeight` on every render (`syncRoloStageHeight()`) — it can never
-end up shorter than the one card that's actually supposed to be fully
-visible, only shorter than the inactive ones, which are supposed to stay
-mostly hidden behind it anyway (that's the whole stacked-deck illusion).
-
-**Caught a testing pitfall worth remembering for any future check of this
-kind: `getBoundingClientRect()` reports a child's own layout geometry
-regardless of an ancestor's `overflow:hidden` — it doesn't reflect what's
-actually painted.** A first verification pass reused the same
-rect-overlap check that reproduced the bug pre-fix, and got flaky
-true/false results post-fix, because the geometry itself is unchanged by
-`overflow:hidden` — only the paint is clipped. Re-verified two ways that
-actually reflect what a user sees: confirmed `getComputedStyle(stage).
-overflow === 'hidden'` structurally, and took a real screenshot after
-switching tickers with one already analyzed — clean, no ghosted text
-anywhere on or below the card.
-
-**3. Tapping a ticker pill now runs its analysis automatically.** Direct
-request: "when tapping a new ticker should invoke a[n] analysis" — the
-idle "Tap ANALYZE to run the gates" state was an unnecessary extra tap
-for a ticker being viewed for the first time. `goRolo(i)` now calls the
-existing (mocked) `analyzeOne(sym)` immediately after switching, but only
-when that ticker has no result yet and isn't already mid-analysis —
-revisiting an already-analyzed ticker just shows what's already there
-(same as tapping into any other open card), rather than needlessly
-re-cycling its mock profile on every visit. Verified: switching to a
-fresh ticker shows RUNNING… then a real verdict within the mock's normal
-~400-700ms delay with no extra tap; switching back to an already-analyzed
-one shows its existing result immediately, no RUNNING… flash.
-
-`preview/rolodex/app.js` bumped to `?v=6` per the cache-busting rule.
-
-## Frontend: Rolodex preview — Gate dock retargeted to Sector Pulse's real position, marquee self-healing pause (Aug 15, 2026, `?v=7`)
-
-Two more live-reported issues, same page.
-
-**1. Gate collapsing far too late against real data.** Live screenshot:
-scrolled well past Sector Pulse *and* Session Context, with Import's tail
-end barely visible — and the Gate still hadn't docked. Root cause:
-the dock trigger (`scrollTop >= currentGateFullHeight()`) was only ever a
-*proxy* for "has Sector Pulse scrolled under the docked bar," correct
-only as long as it stayed exactly coupled to Sector Pulse's real
-position. It was — by construction, `gateSpacer`'s reserved height came
-from the same `currentGateFullHeight()` measurement, which set Sector
-Pulse's real top offset to exactly equal the overlay's own height. That
-held up fine against the earlier synthetic mocks this session's tests
-used (2 indices, a short note), but real live data — 10 real indices
-plus a real, often multi-clause note — makes the overlay considerably
-taller, and the derived threshold grew right along with it, without
-anything to point out it had drifted away from where Sector Pulse
-actually was on screen.
-
-Confirmed via `AskUserQuestion` which drop-down was meant (this Free
-preview has no card literally called "Proxy" — that's Pro-only; the
-report meant Sector Pulse, the first of the three utility cards).
-**Fixed by measuring Sector Pulse's own position directly** instead of
-deriving a threshold from the Gate's own height: `updateGateDockState()`
-now reads `#card-pulse`'s live `getBoundingClientRect()` every tick and
-docks once its top has scrolled up to the docked bar's own height
-(`GATE_DOCKED_H`). Nothing left to fall out of sync — the measurement is
-never cached, so it can't drift from reality the way a derived value
-could. `currentGateFullHeight()` is still used for what it was always
-also doing — sizing `gateSpacer` so the un-docked overlay doesn't visually
-overlap Sector Pulse — just no longer for the dock decision itself.
-
-Verified with a real incremental scroll against a realistic 10-index/
-long-note mocked `/market` response (matching what was actually live,
-not the earlier lighter mocks): found the exact transition sample —
-docks the instant Sector Pulse's measured top crosses `GATE_DOCKED_H`
-(44px), confirmed both just-before (58px, still fully clear) and
-at-transition (33px, already under the bar) samples bracket it correctly.
-
-**2. Marquee could get stuck stopped indefinitely.** The pause/resume
-mechanism only ever scheduled a resume from `pointerup`/`pointercancel`.
-On a real device, a touch that starts on `#roloIndex` but resolves as
-(or gets interpreted as) a page scroll doesn't reliably fire either of
-those on that element — so a pause with no matching release event had no
-way out, matching the live report ("the marquee is stopping here… should
-be continuous"). Fixed by having `pauseRoloMarquee()` (on `pointerdown`)
-schedule its own 2s resume immediately, making that the hard ceiling on
-any pause regardless of what happens next; `pointerup`/`pointercancel`,
-when they do fire, just reset the same timer to 2s from that later point
-(the right behavior for a normal tap or drag), rather than being the
-only way out of the paused state.
-
-Verified by dispatching a synthetic `pointerdown` with **no** matching
-`pointerup`/`pointercancel` ever fired (the exact real-device gap this
-targets) and sampling `scrollLeft`: stayed flat for the full pause
-window, then resumed moving on its own at the 2s mark regardless.
-
-Full pill-tap/auto-analyze/accordion/glossary-search/dock-undock
-regression suite re-run against both fixes together — all pass.
-`preview/rolodex/app.js` bumped to `?v=7` per the cache-busting rule.
-
-## Frontend: Rolodex preview — corrected dock reference height, marquee wrap on short lists (Aug 15, 2026, `?v=8`)
-
-Reported live, immediately after the `?v=7` fixes above deployed: "both
-problems are still there." Deploy was independently confirmed correct
-(raw file fetched straight from `main` at the deployed SHA, byte-matched
-the intended fix) — so this wasn't a repeat of the caching class of bug.
-Both turned out to be real, distinct bugs the `?v=7` fixes didn't
-actually address, found by direct measurement rather than another guess.
-
-**1. Gate still collapsing late — the `?v=7` fix targeted the wrong
-reference height.** That fix compared Sector Pulse's live top against
-`GATE_DOCKED_H` (44px), reasoning "dock once Pulse has scrolled up to
-where the compact bar's bottom edge will be." Measured directly against
-a realistic mock (10 real indices, a real multi-clause note, matching
-`server.js`'s actual `/market` response shape — `market.gateStatus`/
-`.gateNote`/`.spy` etc. at the top level, not nested, a shape an earlier
-verification pass had gotten wrong without noticing): that threshold
-needed **~187px** of scroll. But `#gateCard`'s full-detail overlay stays
-sticky-pinned at the top the *entire time* it's un-docked (regardless of
-the docked class — only the crossfade to the compact row is gated on
-that; the sticky positioning itself is unconditional), opaque, at its
-own full real height. Sector Pulse — a plain, non-sticky element — starts
-being visually painted over the moment its own top scrolls up to meet
-the overlay's *current* full height, not the eventual 44px docked
-height. Measured: that's only **~14px** of scroll (gateSpacer already
-reserves just enough room to sit Sector Pulse right at the overlay's
-edge at rest, so almost any scrolling starts covering it). The `?v=7`
-fix was comparing against a point ~170px past where Sector Pulse
-actually starts disappearing — a wide "dead zone" where it's already
-invisible (painted over) but the Gate hasn't collapsed yet, exactly
-matching the repeated "still collapses late" reports. **Fixed by
-comparing against the overlay's own live height instead of
-`GATE_DOCKED_H`** — same fresh-every-tick measurement discipline as
-`?v=7`, just the correct reference point for "when hiding begins" rather
-than "when it's safe to have fully shrunk." Verified via real
-incremental scroll against the accurate mock: docks at scrollTop≈15px,
-matching the computed ~14px threshold. This is a large, deliberate
-behavior change (docks almost immediately on any scroll, not after a
-few hundred px) — flagged clearly in case it now reads as too early
-rather than too late; that's a much easier correction to make than the
-ambiguous "still late" this replaces.
-
-**2. Marquee "does not auto-scroll anymore" — a real design gap for
-short lists, not a pause bug.** The `?v=7` fix (self-healing pause)
-was independently re-verified still correct and unaffected — the actual
-cause was that on Free's 3-ticker watchlist, one full "set" (real pass +
-divider) is **wider** than the browser's native scrollable room past a
-single duplicate pass (~242px needed vs. ~42px available in a 390px
-viewport). `scrollLeft` creeps those ~42px and hits a hard native clamp
-it can never get past to reach the wrap-around point — not paused, just
-physically stuck, but visually indistinguishable from "doesn't scroll."
-This was always true (flagged as a known, deliberately-deferred
-limitation when the count-divider landed), but only became a live
-complaint once someone was actually watching it not move at all. Fixed
-in `renderRolodexFromWatchlist()`: after the real pass + divider + one
-duplicate pass, keep appending plain duplicate passes (no divider — the
-"— N —" marker stays singular) until `roloIndex.scrollWidth -
-roloIndex.clientWidth >= roloMarqueeOneSetW`, i.e. until there's
-actually enough native scroll room to traverse one full set, guarded at
-20 iterations so an unexpected empty watchlist can't spin forever.
-Verified: the real 3-ticker page now renders 4 total passes (was 2) and
-`scrollLeft` climbs smoothly past the old ~42px ceiling and genuinely
-wraps (231→1→13→25…) instead of sticking; pause-on-tap and resume still
-work correctly with the extra passes in place.
-
-**Methodology note, worth keeping:** the mocked `/market` response used
-to verify the Aug 15 `?v=7` Gate fix had the wrong shape (nested
-`{gate:{...}, indices:{...}}` instead of the real flat
-`market.gateStatus`/`market.spy` etc.) — silently causing the Gate's
-note text to render empty and every index value to show `?`, understating
-the real overlay's height and masking the actual scale of the dock-timing
-bug in that round's testing. Re-checked the real shape directly against
-the code (`GATE_FIELDS`, `renderGate()`) before writing this round's
-mocks. When a live report contradicts a "verified" fix, re-verify the
-mock's shape against the real code path first, not just the assertion
-logic — a structurally wrong mock can pass tests while proving nothing
-about the real behavior.
-
-Full pill-tap/auto-analyze/accordion/glossary-search/dock-undock
-regression suite re-run against both fixes together — all pass.
-`preview/rolodex/app.js` bumped to `?v=8` per the cache-busting rule.
-
-## Frontend: Rolodex preview — smooth Gate-collapse pull, pill dock persisting past the Glossary (Aug 15, 2026, `?v=9`)
-
-Two more live-reported issues from the same page, once `?v=8`'s much
-earlier dock trigger made both newly visible.
-
-**1. Large blank gap when the Gate collapses.** Direct request: "can the
-screen get pulled with the collapse smoothly?" Root cause: `gateSpacer`
-(the plain block reserving scroll room so the un-docked overlay doesn't
-visually overlap Sector Pulse) was sized once to the overlay's full
-un-docked height and never shrank back down once docked — harmless
-when docking used to happen late (near where the spacer's own room ran
-out anyway, per `?v=7`), but `?v=8` moved the dock trigger to ~14px, so
-the spacer was now holding open a ~150-200px gap that served no purpose
-once the overlay had already crossfaded away. Fixed: `gateSpacer`
-collapses to `0` the instant `docked` flips true (restored on undock),
-written only on an actual state transition (not every scroll tick), with
-a `.2s` CSS transition on `#gateSpacer` itself so the content underneath
-visually "pulls up" into place. `#gateSpacer` is a plain, non-sticky
-block — this is a normal, one-time reflow on a discrete state change, not
-the fragile "sticky element's own box changes shape mid-gesture" pattern
-the Aug 13 collapsing-card lesson found broken three separate ways; only
-`#gateCard` is sticky here.
-
-**A real bug caught before shipping: collapsing the spacer broke
-undocking.** The dock decision at the time measured Sector Pulse's own
-live position (`#card-pulse`'s `getBoundingClientRect()`) against the
-overlay's height. Once `gateSpacer` started collapsing to `0` on dock,
-removing that reserved room permanently shifted Sector Pulse's
-document-flow position closer to the top — the exact value the dock
-condition read — so once docked, "undock" became permanently
-unreachable (scrolling back to the top no longer moved the measurement
-back past the threshold). Root-caused by testing the undock path
-explicitly, not just the dock path. Fixed with a derivation instead of a
-live re-measurement: since `gateSpacer` is always sized to exactly
-`overlayHeight − GATE_DOCKED_H`, the scrollTop needed to reach "begins to
-hide" is algebraically always just `.content`'s own top padding (14px),
-a fixed constant independent of the overlay's height or the spacer's
-current (possibly already-collapsed) state — removing the circular
-dependency entirely. Confirmed docks/undocks repeatedly and correctly
-across multiple toggles, not just once each direction.
-
-**2. Ticker pills not persisting past the Glossary.** Direct report: "the
-ticker pills docked needs to persist with everything scrolling under.
-the glossary is pushing it off the dock." Root cause: `#roloIndex` (the
-sticky pill strip) was nested inside `.rolo-wrap`, a short flex block
-containing only the open ticker card and the nav hint — a sticky
-element's "stuck" range is bounded by its own immediate parent's box, so
-once `.rolo-wrap`'s own box had scrolled past, `#roloIndex` had nowhere
-left to stick and un-stuck well before the Glossary/Track Record/
-disclaimer/footer that follow, reading exactly like those elements
-"pushing it off." Fixed by moving `#roloIndex` up to be a direct child of
-`.content` instead (which spans everything through the footer), not
-nested inside `.rolo-wrap` at all.
-
-**A genuinely embarrassing testing-methodology bug, confirmed and
-corrected before writing this up.** An intermediate attempt at
-diagnosing this (measuring `#roloIndex`'s `getBoundingClientRect().top`
-directly, comparing it to the intended `44px` offset) kept showing a
-"stuck at 231px" result no matter what was changed — including several
-increasingly drastic (and, it turned out, unnecessary) restructuring
-attempts, one of which split `.content` into two separate blocks around
-`#roloIndex` to make it a direct child of `#scroller` itself. The real
-explanation: `getBoundingClientRect().top` is viewport-relative, and
-`#scroller` itself sits 187px down the viewport behind the fixed header
-— `#roloIndex` had been correctly stuck at `44px` *relative to
-`#scroller`* the entire time (`187 + 44 = 231`, exactly the "stuck"
-value), and every one of those diagnostic tests was misreading correct
-behavior as broken by never subtracting `#scroller`'s own offset. Undone
-the unnecessary split-`.content` restructure once this was caught,
-back to the simpler single-`.content`, direct-child-of-`.content`
-version above — that alone was already sufficient. Kept as a written
-lesson because it cost real, avoidable effort: **when measuring a sticky
-or fixed element's position inside a scroll container that itself isn't
-flush with the viewport's own top, always compute position relative to
-the scroll container's own `getBoundingClientRect()`, never raw viewport
-coordinates** — this file already carries several sticky/scroll
-measurement lessons; this is the same discipline (measure the real
-thing) applied to a mistake in the measurement itself, not the code
-under test.
-
-Verified (correctly, this time): scrolled to the page's true max
-(`scrollTop === scrollHeight − clientHeight`, past the Glossary and
-footer) and confirmed `#roloIndex`'s position *relative to `#scroller`*
-is exactly `44px`; confirmed dock/undock and the spacer collapse/restore
-both work correctly across repeated toggles; full pill-tap/auto-analyze/
-accordion/glossary-search regression suite re-run, all pass.
-`preview/rolodex/app.js` bumped to `?v=9` per the cache-busting rule.
-
-## Frontend: Rolodex preview — pill-strip count divider on every pass, not just one (Aug 15, 2026, `?v=10`)
-
-Direct report: "the divider — n — is not naturally put at the last
-ticker pill. it's inserted as an afterthought. as the first pill fully
-appears, the divider jumps into place instead of naturally reoccurring
-at the last ticker." Real, correctly-diagnosed UX bug in the marquee's
-loop structure.
-
-**Root cause.** The pill-count-divider work earlier this session (see
-above) deliberately kept only ONE `— N —` divider in the whole strip —
-appended once, right after the first (real) pass, with every duplicate
-pass after it left bare. That was fine as long as there were only two
-passes total, but the same day's marquee-wrap fix (also above) started
-appending as many duplicate passes as needed to get enough native
-scroll room on a short watchlist — which for Free's 3-ticker case meant
-3 total passes, only one of which had a divider. The result: scrolling
-through the strip showed two full, clean MU/IREN/ALAB repeats with no
-marker at all, then the divider would suddenly appear once per full
-wrap cycle — reading exactly as reported, an afterthought rather than a
-consistent "end of the list" landmark.
-
-**Fix.** Every pass now gets its own `— N —` divider immediately after
-it, not just the first — `appendChipPass()` builds and returns a
-divider each time it's called, for both the initial pass and every
-guard-loop-added duplicate. The visible pattern is now a clean,
-uniform `chip, chip, chip, divider` repeat for as many passes as exist,
-so the marker naturally recurs at the end of every single pass through
-the watchlist instead of appearing arbitrarily. Since every pass+divider
-chunk is now the same width, the marquee's wrap math (measuring the
-first divider's `offsetLeft + offsetWidth` as "one set") stays exactly
-as correct as before, regardless of how many passes get appended.
-
-**Verified:** dumped the actual chip/divider sequence in the live DOM —
-confirmed a clean `chip,chip,chip,DIV` repeat for all 3 passes on the
-real 3-ticker page; confirmed the marquee still wraps seamlessly
-(scrollLeft climbing smoothly and correctly resetting at the loop
-point); re-ran the full pill-tap/auto-analyze/accordion/glossary-search/
-dock regression suite — all pass.
-
-`preview/rolodex/app.js` bumped to `?v=10` per the cache-busting rule.
-
-## Frontend: Rolodex preview — ticker pill marquee jump, full saga and resolution (Aug 15-16, 2026, `?v=11` → `?v=23`)
-
-Consolidated from what was originally ~20 separate dated entries
-(`?v=11` through `?v=23`) tracking a single live-reported bug: the
-Rolodex preview's auto-scrolling ticker pill strip (and, it turned out,
-the docked Gate's own index marquee) visibly "jumped" or "snapped"
-during normal operation. Kept as one entry now that the real root cause
-is found, fixed, and **confirmed resolved live by Mr. T** — the
-blow-by-blow diagnostic history is no longer useful day-to-day and was
-making this file unwieldy; the reasoning trail below is the condensed
-version.
-
-**Real, confirmed sub-bugs found and fixed along the way (all still in
-effect, all genuine improvements regardless of the final root cause):**
-- Sub-pixel wrap-boundary measurement (`?v=11`/`?v=12`) — replaced
-  `offsetLeft`/`offsetWidth`/`scrollWidth/2` (which round to the nearest
-  integer per spec) with `getBoundingClientRect()`-based measurement, for
-  both the pill strip and the Gate's own index marquee.
-- Content-reflow timing (`?v=13`/`?v=14`) — held the marquee paused until
-  a render pass's real ticker data has actually loaded (`roloMarqueeDataReady`),
-  and reserved price-text width up front (`min-width:7ch` on `.rc-price`)
-  so a placeholder-to-real-data swap can't reflow content out from under
-  an already-scrolling strip.
-- Marquee pause/resume reliability (`?v=7`) — made the 2s tap-pause
-  self-scheduling instead of relying solely on `pointerup`/`pointercancel`,
-  which don't reliably fire on a real device.
-- Native focus-scroll suppression — `pointerdown` → `preventDefault()` on
-  each chip so tapping one can't let the browser's own "scroll focused
-  element into view" yank the strip's position independent of the
-  marquee's own state.
-
-**The much longer chase: an elusive, seemingly one-time ~26-28px jump,
-never conclusively explained by any live diagnostic.** Starting `?v=15`,
-built an escalating series of real-device diagnostics after repeated
-live reports of "still jumping" that none of the above fixes resolved:
-a Layout Instability API observer (`?v=15`, then fixed to stop catching
-its own address-bar-driven repositioning, `?v=17`), a native `scroll`-event
-ground-truth watcher (`?v=16`), a live loop-heartbeat plus self-healing
-`try/finally` wrapper to rule out the marquee's `requestAnimationFrame`
-loop silently dying (`?v=19`), a `scrollWidth`-based check to catch a
-width change anywhere in the strip regardless of which specific DOM node
-caused it (`?v=20`), a fix for the diagnostic overlay's own `scrollTop`
-not resetting on new entries — a real, separately-confirmed bug that
-could have hidden any of the above (`?v=21`), and an integer-rounding
-mitigation for the marquee's `scrollLeft` writes (`?v=22`). Six separate
-real screen recordings (91fps slow-motion, analyzed frame-by-frame via
-`ffmpeg` + lossless PNG cross-correlation) all showed the same precise
-~26-28px anomaly, but **every one of these live diagnostics came back
-empty every single time** — including once independently confirming the
-diagnostic pipeline itself was demonstrably healthy and simply had
-nothing to report. This pattern (real, reproducible, precisely
-consistent magnitude; totally invisible to scrollLeft/scrollWidth/layout-shift
-instrumentation) was reasoned about at length as possibly being a
-paint/compositor-layer phenomenon outside what page-level JavaScript can
-observe at all — a reasonable dead end at the time, given what live
-diagnostics alone had turned up.
-
-**Root cause, found by direct code review instead of another live
-diagnostic round.** Mr. T reviewed `app.js` directly and identified a
-real, precise bug in `sizeGateMarquee()`/`sizeRoloMarquee()`'s
-wrap-boundary math that none of the runtime diagnostics above were
-built to catch: `boundary.right − container.left + scrollLeft` silently
-assumes the container's own left edge sits exactly one repeat-period
-before the measured boundary — true only with zero container padding and
-a trailing flex `gap` that happens to net to zero against it. Neither
-held: `.gate-marquee` has `gap:16px` and no padding; `#roloIndex` has
-`padding-left:14px` and `gap:6px`. Verified directly against the real
-rendered page before changing anything: the old formula computed
-500.20px for the Gate against a true repeat-period of 516.20px (a
-constant **-16px**, matching the gap exactly) and 356.19px for the pill
-strip against a true 348.19px (a constant **+8px**, matching
-`padding(14) − gap(6)` exactly) — not noise, not intermittent, a fixed
-arithmetic error every time.
-
-**Fix (`?v=23`):** both functions now measure the distance between pass
-1's first item and pass 2's first item directly
-(`items[0].getBoundingClientRect().left` vs.
-`items[itemsPerPass].getBoundingClientRect().left`), rather than
-reasoning about the container's edge, its padding, and the flex gap
-individually. Both reads happen at the same instant with the same
-`scrollLeft` applied to both, so the scroll offset cancels out of the
-difference automatically — no `+ scrollLeft` term needed either,
-simplifying the formula while fixing it. Re-verified the fix eliminates
-both errors to `<0.01px` (floating-point-exact) against the same
-true-period measurement, then the full pill-tap/auto-analyze/accordion/dock
-regression suite, then a live device test — **confirmed fixed by Mr. T.**
-
-**Lesson worth keeping, independent of this specific bug:** six rounds
-of live, real-device diagnostic tooling — genuinely rigorous, individually
-well-reasoned, each one verified before shipping — never surfaced this,
-because none of them were built to check wrap-boundary *arithmetic*
-correctness; they were all built to catch *unexpected* runtime state
-changes (scrollLeft mismatches, width changes, dead loops). A
-systematic, deterministic math error that fires the same way every
-single time doesn't look anomalous to instrumentation designed to catch
-anomalies — it just looks like "how this always behaves." Direct code
-review, or a from-scratch derivation of what the correct value *should*
-be and comparing it to what the code actually computes, found in one
-pass what six rounds of runtime diagnostics across real device video
-could not. Neither approach is strictly superior — the diagnostics did
-conclusively rule out several other real hypotheses (dead loop, single-
-element tracking gaps, overlay visibility) that needed ruling out either
-way — but this is a concrete case where stepping back to re-derive the
-expected math from first principles was the more direct path to the
-actual bug.
-
-The diagnostic tooling built during the chase (`#marqueeDiag` overlay,
-`#diagHeartbeat`, the Layout Instability observer, the scroll
-ground-truth watcher, `checkRoloScrollWidth()`) is still in
-`preview/rolodex/app.js`/`index.html` as of this writing — harmless and
-still genuinely useful if any *new* marquee-adjacent issue shows up, not
-removed as part of this consolidation. A future pass could reasonably
-strip it out now that the bug it was built to chase is resolved, but
-that's a separate, deliberate cleanup decision, not implied by this one.
-
-`preview/rolodex/app.js` and `preview/rolodex/index.html` are at `?v=23`.
+The Play app is a TWA opening the live root URL, so pushing to `main` goes
+live for web **and** Play installs at once. Staging is a hidden subpath, not
+a separate pipeline: `tradetribunal.app/preview/<name>/` deploys through the
+normal Pages pipeline (real backend, real relative paths) but is:
+- Never linked from any tier's nav or from `preview/index.html` (placeholder
+  explaining the convention).
+- Excluded from `sw.js`'s fetch handler (`OTHER_TIER_PATHS`, same list as
+  `/starter/`, `/pro/`, `/shark/`).
+- Disallowed in `robots.txt`.
+- Never reached by the Play app (`twa-manifest.json` only opens the root).
+
+**Deliberately not PR-preview deploys** — that means switching Pages to
+"deploy via Actions," a risky change to a working pipeline that already gets
+stuck sometimes.
+
+**How to use it:** copy the tier files into `preview/<name>/` on a branch
+(fix relative paths for the extra depth), PR and merge normally, review at
+the URL. Going live is a **separate** follow-up change that wires the real
+tier's `index.html`/nav to the new code.
+
+## Backend: Gate 3 Mon/Fri overlay — timezone fix + weekly carryover (Aug 12, 2026; Tra #29/#30, trade-verdict #99/#100)
+
+- **Timezone bug (Tra #29).** The `/analyze` prompt's `Today:` weekday used
+  `toLocaleDateString` with no `timeZone`, so it formatted in UTC on Render.
+  After ~8pm ET a Friday evening read as Saturday (no overlay). Now anchored
+  to `America/New_York`. **Every day-of-week/date check must use an explicit
+  ET timezone, never the server's local time** (same bug class as Tra #28's
+  Gate 5 "Last checked" date). Unverified against a live Friday-evening run.
+- **Weekly carryover (Tra #30), per Mr. T's correction:** the Friday→weekend→
+  Monday reaction should keep informing Gate 3 through the week on a codified
+  decay, alongside (not replacing) the same-day Mon/Fri rules.
+  - `fetchWeeklyCarryover(symbol)`: a separate ~10-day dated-bars Alpaca
+    fetch that finds the latest Friday/Monday close pair by timestamp
+    (holiday-safe). **Do not derive it from `fetchDailyCloses`' 130-day
+    array** — that array has no dates and must be indexed positionally only.
+    Only runs Tue/Wed/Thu.
+  - `carryoverDecayLabel()`: Tue = MODERATE, Wed = REDUCED, Thu = MINIMAL,
+    computed server-side from the real ET weekday (never trust the client for
+    the day). Null Mon/Fri/weekend.
+  - New Gate 3 prompt section plus a `Gate 3 weekly carryover` context block.
+    `weeklyCarryover` rides `/ticker/:symbol` and `refreshMarketEntry`; every
+    tier's `analyzeTicker()` (incl. Shark) sends `weeklyCarryoverData`, same
+    relay pattern as `gate1Data`/`proxyRule`.
+  - The mirror's `fetchWeeklyCarryover` is adapted to this repo's
+    `alpacaGet()` contract (full URL + `Response`, vs Tra's path-only URL +
+    parsed JSON) — deliberate, flagged in a code comment.
+- **Revisit once real Tue/Wed/Thu data exists:** the ±0.3% Fri→Mon
+  CONFIRMED_UP/DOWN vs FLAT threshold and the MODERATE/REDUCED/MINIMAL decay
+  are uncalibrated guesses (Mr. T didn't specify numbers). Check signal vs
+  noise, the decay shape, and whether the model actually treats Thursday's
+  MINIMAL as tie-break only. Unverified live.
+- A Pro screenshot of gates rendering horizontally turned out to be stale
+  browser cache (a hard refresh fixed it), not a regression.
+
+## Backend: Pre-Gate fund-ticker CIK fallback (Aug 12, 2026; Tra #31/#32, trade-verdict #102/#104)
+
+Pre-Gate showed "No SEC CIK found for DRAM" (Roundhill Memory ETF, under
+Roundhill ETF Trust, CIK 1976517). `getCik()` only checked
+`company_tickers.json`. Resolution order now:
+1. `KNOWN_CIK_OVERRIDES` — small, hand-confirmed map (`DRAM → 1976517`).
+2. `company_tickers.json` (primary).
+3. `company_tickers_mf.json` — lazy, only on a miss, parsed by field name
+   (`{fields, data}`), fails safe to `null`. This alone did NOT fix DRAM
+   (likely scoped to NAV-priced mutual funds, not ETFs).
+4. `getCikFromEdgarSearch()` — SEC's live `browse-edgar` search (ticker in
+   the `CIK` param, atom `<company-info><cik>`; narrow `"CIK#:"` fallback),
+   fails safe to `null`. Unverified live (`sec.gov` is blocked from the
+   sandbox) — check Render logs for `getCikFromEdgarSearch` errors.
+
+**Expected outcome for a fund:** a clean GREEN pass-through, not a trigger —
+Pre-Gate's categories are operating-company risks.
+
+**Lesson:** when a fix rests on unverifiable assumptions about an external
+data source, pair the general mechanism with a small, guaranteed,
+hand-confirmed override for the case actually reported — don't stake the fix
+on one untested guess.
+
+## Backend/Frontend: Pre-Gate robustness — wider SEC form coverage + de-emphasized GREEN UI (Aug 12, 2026; Tra #33, trade-verdict #106)
+
+- `PRE_GATE_FORMS` widened from `8-K,10-Q,10-K` to
+  `8-K,10-Q,10-K,S-1,S-3,424B2,424B3,424B4,424B5` — dilution (ATM, shelf,
+  registered direct) often shows up only in a registration statement or
+  prospectus supplement. Unverified against live data. (Keyword table
+  `PRE_GATE_TRIGGERS` was later narrowed in the Aug 18 saga — see that
+  section.)
+- A GREEN Pre-Gate renders as one compact, muted "PRE-GATE clear" row on
+  Free/Starter/Pro; YELLOW/RED stay full-weight. Detection uses reference
+  equality against `data.gates.pre_gate`, not label text or array index.
+  Shark doesn't render Pre-Gate.
+
+## Backend: Proposal 4 — Context-Weighted Gate 2 Corroboration (Aug 13, 2026; Tra #34, trade-verdict #108)
+
+Originally: the Session Context text (`marketContext`) was checked against
+three sources, and ≥2 of 3 agreeing promoted a `CONTEXT-CORROBORATED`
+modifier into Gate 2 Step 5. No extra credit cost. Sources
+(`gates-extended.js` section 6):
+1. News-content match on full article bodies
+   (`fetchNewsBodiesForCorroboration()`), same 2-word overlap heuristic as
+   `highlightContextMatches()`.
+2. Gate 3 buildup pattern (`buildupPatternCheck()`): volume 1.5x+,
+   outperformance read as magnitude `|tickerPct| > |proxyPct|`, no fresh
+   priced news. Earnings-reaction history is omitted (no data source); all
+   computable signals must agree and at least 2 of 3 must be computable.
+3. Earnings-calendar event (`fetchEarningsCalendarFlag()`, Finnhub
+   `/calendar/earnings` via `finnhubThrottle()`).
+
+**Superseded Aug 28, 2026:** Session Context was retired from the UI, the
+news-content source was removed, and corroboration now runs unconditionally
+on sources 2+3 only (`computeGate2Corroboration`, `GATE2-CORROBORATED`) —
+see the later Gate 2 corroboration section.
+
+`tickerPct` comes from `openingBarData`'s bar-1 open→close and `proxyPct`
+from parsing `sectorContext`'s change strings (`parsePctString()`). Out of
+scope, still open: Gate 4 sizing influence, a Shark earnings-calendar
+feature, logging corroboration events to `accuracy_log`.
+
+## Backend: Gate 5 forceDown was silently unreachable — evaluateProxyStatus data-shape bug (Aug 13, 2026; Tra #34, trade-verdict #108)
+
+**The wire format:** every tier's client sends `sectorContext[symbol]` as a
+formatted change **string** (e.g. `"+1.23%"`), never an object with `.pct`.
+`evaluateProxyStatus()` read `.pct`, so it always got `undefined` → Gate 5
+was always GREEN. **Gate 5 RED/YELLOW, Proposal 1's forceDown authority, and
+Proposal 2's coherence check were all unreachable dead code from launch.**
+(Gate 0 was unaffected — it uses a server-computed `gateStatus` string.)
+
+Fix:
+- `normalizeMarketReading()` parses strings via `parsePctString()` and still
+  accepts `{pct, change}` objects. `evaluateProxyStatus()` uses it; a real
+  `-6.20%` TSM string now returns RED.
+- Fixed mislabeling in multi-symbol rules (TSM+KOSPI) when an earlier symbol
+  is missing: symbol and reading stay paired.
+- The coherence check call site now uses the shared `tickerPct`/`proxyPct`
+  (`metricsData.pct` and `sectorContext.tsm.pct` never existed).
+
+Verified by simulation (real extracted code). To confirm live: a Gate 5 RED
+card during a real 3%+ TSM/KOSPI move, with a correctly labeled note.
+
+## Backend: Proposal 3 — Fixed-Proxy Regime Validation, weekly persistence (Aug 13, 2026; Tra #34, trade-verdict #108)
+
+`regimeValidation()`/`resolveFixedProxyBreak()` (since Patch 4, Jul 29) are
+now wired in, with weekly persistence in `proxy_regime_state`
+(`supabase-ddl-patch9-proxy-regime.sql`, standard RLS-disable + revoke).
+- `getCachedRegimeState()`/`saveRegimeState()` mirror the
+  `proxy_resolution` helpers; `REGIME_RECOMPUTE_MAX_AGE_MS` = 7 days.
+- `resolveProxyRegime(symbol, tickerCloses)` fetches the proxy's closes on a
+  cache miss (at most weekly) and reuses the ticker's own `dailyCloses`.
+- `resolveGate5()` takes a 5th `regime` param: for the fixed Taiwan/Korea
+  (`AI/Semiconductor`) rule, a `BROKEN` regime skips the static return and
+  falls through to Dynamic Proxy Resolution. `refreshMarketEntry()` computes
+  `regime` first via a cheap `classifyTicker()` check.
+- `regime` rides `/ticker/:symbol` and `symbolMarketCache`; every tier sends
+  `regimeData` (`regimeData:td&&td.regime?td.regime:null`); `/analyze` uses
+  `const regime = regimeData || null;`.
+- DEGRADING needs no extra code (the coherence check already runs whenever
+  Gate 5 reads RED for Taiwan/Korea tickers). BROKEN suspends forceDown via
+  `hasForceDownAuthority()` → needs 2+ RED gates for DOWN.
+- (Generalized to every static category on Sep 13, 2026 — see the
+  proxy-fit section later in this file.)
+
+**BROKEN is expected to be rare** — correlations converge under stress, so
+this is a calm-market detector; absence of BROKEN isn't proof it's broken.
+Watch Render logs for `resolveProxyRegime`/`getCachedRegimeState`/
+`saveRegimeState` errors.
+
+## Frontend: Rolodex UI — design exploration and prototype (Aug 13-14, 2026)
+
+Mr. T wanted the watchlist to stop being a plain scroll that loses the Gate
+status. A 3-way prototype (Accordion, Scroll-collapse, Rolodex) was built in
+an Artifact (`https://claude.ai/code/artifact/a4c3fd53-111b-4c05-8e71-ddaf59f8b878`);
+**Mr. T picked Rolodex as final** ("the only option we're sticking with").
+The other two were removed outright.
+
+**Standing rule from this work (confirmed three ways on his real phone):**
+changing a `position:sticky` element's rendered height reactively during a
+touch-scroll breaks scroll tracking — animated, instant, or disguised with
+an opacity overlay. If something must dock/collapse with scrolling, prefer
+(a) a plain tap toggle, or (b) drive motion through `transform`/`opacity`
+only (never height, padding, grid-template-rows) and test on a real device.
+A reflow of a *non-sticky* element on a discrete state change is fine.
+
+Design decisions from the prototype rounds (carried into the real builds):
+- **"Gate tickers" means the Gate's own indices** (SPY/QQQ/BTC…), not the
+  watchlist. The Gate has its own marquee (`#gateMarquee`/`GATE_INDICES`,
+  docked only); the watchlist pill strip (`#roloIndex`) is a separate
+  marquee that runs continuously from page load and shows price per pill
+  (`.rc-price`).
+- **Card switching is pill-tap only** — no swipe/wheel paging, no prev/next
+  buttons.
+- **Pills are colored by the day's % change (`chg`), not the verdict.**
+  Selected pill inverts (solid green/red fill, dark-grey text).
+- Collapsed utility-card rows use the `--gate-docked-h` variable so they
+  match the docked Gate's height.
+- Import card has its own ticker textarea; Export CSV moved to the profile
+  dropdown (later built for real).
+
+**Lesson:** the marquee's "is this my own scroll?" check must compare the
+observed `scrollLeft` against the value it last wrote (state comparison),
+not a true/false timing flag — `scroll` events dispatch asynchronously.
+**Lesson:** for layout math (cumulative offsets, stacked sticky elements),
+measure real rendered rects in a headless browser, including borders — a
+sum of head height + body `scrollHeight` missed the card's 1px borders.
+
+## Frontend: Rolodex preview at `/preview/rolodex/` (Aug 14-16, 2026, final `?v=23`)
+
+The finalized prototype was built for real as a standalone, Free-scoped page
+(`preview/rolodex/index.html` + `preview/rolodex/app.js`), staged under the
+`/preview/` convention. It was the staging ground for the real tier builds
+(Starter/Free/Pro, Aug 16 — see their sections). It remains in the repo,
+isolated: it reuses `shared/ticker-cache.js` but reimplements watchlist
+state/rendering instead of importing `shared/watchlist.js`, and hardcodes
+Yahoo links instead of importing `shared/prefs.js`.
+
+Current behavior:
+- Real `/market`, `/ticker/:symbol`, `/status` (free); **ANALYZE is mocked**
+  (`MOCK_ANALYZE_PROFILES`, five full responses cycled per ticker via
+  `state.mockIndex`, 400-700ms delay) — no real `/analyze`, no credit cost.
+  The banner says so.
+- If a paid `tv_session` exists, it never reads/writes the shared `tv_wl`
+  key (uses `MU`/`IREN`/`ALAB` in memory).
+- Analyzed cards match production: 👍/👎/HOLD verdict in a `.ticker-action`
+  slot top-right (`.btn-compact` ANALYZE before a result), `isMarketClosed()`
+  forces HOLD, TYPE/SIZING badges, CONFIDENCE row, real ticker/headline
+  links, Glossary and Track Record teaser after the list. Pre-Gate strip shows
+  only when `wait_for` has text, labeled "LOOK FOR:".
+- Tapping a pill auto-analyzes a ticker with no result yet.
+- Only the Gate and `#roloIndex` are sticky; utility cards scroll away.
+  `#roloIndex` uses `top:var(--gate-docked-h)`, opaque background, and must be
+  a **direct child of `.content`** (a sticky element only sticks within its
+  parent's box).
+- The Gate docks at ~14px of scroll (when its overlay starts covering the
+  next card), via the constant `.content` top padding, not a live
+  measurement. `#gateSpacer` (plain, non-sticky) collapses to 0 on dock with
+  a `.2s` transition and is restored on undock.
+- `.rolo-stage` has `overflow:hidden`; `syncRoloStageHeight()` sizes it to
+  the active card's real `offsetHeight` on every render (no fixed height —
+  a fixed `min-height:280px` once clipped gates 4-6). Inactive cards get
+  `pointer-events:none` (set in `positionRoloStack()`).
+- Marquee: pause on `pointerdown` self-schedules a 2s resume (pointerup/
+  cancel just reset it); no scroll-listener pause path. Chips
+  `preventDefault()` on `pointerdown` to stop native focus-scroll. Paused
+  until real data loads (`roloMarqueeDataReady`); `.rc-price` has
+  `min-width:7ch`. Every pass gets its own `— N —` divider
+  (`appendChipPass()`); extra passes are appended until there's enough native
+  scroll room for one full set (capped at 20 iterations).
+- **Wrap period = distance between pass 1's first item and pass 2's first
+  item** (`items[0]` vs `items[itemsPerPass]` `getBoundingClientRect().left`),
+  in both `sizeRoloMarquee()` and `sizeGateMarquee()`. The old
+  `boundary.right − container.left + scrollLeft` formula was off by a
+  constant (gap/padding) and caused a visible ~26-28px jump.
+- `.app-shell` must be `height:100vh`/`100dvh`, not `min-height` — otherwise
+  the page scrolls instead of `#scroller` and docking silently breaks.
+  `.app-topbar` has `flex-wrap:wrap`.
+- **The page has a `Cache-Control: no-cache,no-store,must-revalidate` meta
+  tag and a `?v=N` on its own `<script src="./app.js">`; bump it on every
+  content change** like any other app.js.
+- Diagnostic tooling from the jump chase (`#marqueeDiag`, `#diagHeartbeat`,
+  Layout Instability observer, scroll watcher, `checkRoloScrollWidth()`) is
+  still in the page; removing it is a separate, deliberate cleanup.
+
+**Testing lessons from this work (all still apply):**
+- Re-measure anything sized from content whenever that content can change
+  (e.g. call `sizeGateSpacer()` after `renderGate()` fills real data, and
+  re-check dock state from `sizeGateSpacer()` too, not only on scroll).
+- Simulate real network latency in tests (delay mocked `/market`) — instant
+  mocks hide race conditions.
+- Use real incremental scrolling (`page.mouse.wheel()` in small steps), not
+  one `scrollTo()` jump.
+- `getBoundingClientRect()` reports layout geometry even when an ancestor's
+  `overflow:hidden` clips the paint — check computed overflow or a
+  screenshot to judge what's visible.
+- **Mocks must match the real response shape** — check against the real code
+  path (e.g. `/market` is flat: `market.gateStatus`, `market.spy`, read via
+  `GATE_FIELDS`/`renderGate()`). When a live report contradicts a "verified"
+  fix, re-check the mock's shape first.
+- Measure a sticky element's position relative to its scroll container's own
+  `getBoundingClientRect()`, never raw viewport coordinates.
+- Scope element queries to the active card (`data-sym`) — the first matching
+  button in DOM order may be a hidden inactive card's.
+- Test both directions of a toggle (dock *and* undock).
+- **When runtime diagnostics keep coming back empty, re-derive the expected
+  value from first principles and compare it to what the code computes** — a
+  deterministic arithmetic error doesn't look anomalous to instrumentation
+  built to catch anomalies. (Mr. T found the wrap-math bug by reading the
+  code after six rounds of device diagnostics missed it.)
+
+## Tier status
 
 | Tier | Files | Status |
 |---|---|---|
-| Free | `index.html` + `app.js` | Rebuilt onto the Rolodex UI Aug 16, 2026 (see "Frontend: Rolodex UI shipped to Free" below) — second real (non-preview) tier on the Rolodex UI, after Starter. **`app.js` is now a bundled build artifact, not hand-written** — the real source is `app.ts` (repo root), compiled via `node esbuild.config.mjs`; edit the `.ts`, never the `.js` directly. Consumes `shared/rolodex.ts` for Gate dock/marquee/stacked-card/swipe mechanics, same as Starter. Its top-level "redirect a paid session elsewhere" check still halts the rest of module init (`redirectingToPaidTier` flag, unchanged from before this rebuild) — see the testing note below for why that mattered. |
-| Starter | `starter/index.html` + `starter/app.js` | Rebuilt onto the Rolodex UI Aug 16, 2026 (see "Frontend: Rolodex UI shipped to Starter" below) — sticky-docking Gate, marquee ticker-pill strip, single-active-card stage with tap-pill-then-swipe-to-delete, real auth/credits/Settings/Session-Context-highlighting/server-sync unchanged. First real (non-preview) tier on the Rolodex UI; Pro/Shark still on their prior designs. **`starter/app.js` is now a bundled build artifact, not hand-written** (Phase 3 kickoff, same day) — the real source is `starter/app.ts`, compiled via `node esbuild.config.mjs`; edit the `.ts`, never the `.js` directly. Its Rolodex-mechanics half now lives in `shared/rolodex.ts`, shared with (and now also consumed by) Free's own Rolodex build rather than re-copied. |
-| Pro | `pro/index.html` + `pro/app.js` | Rebuilt onto the Rolodex UI Aug 16, 2026 (see "Frontend: Rolodex UI shipped to Pro" below) — third real (non-preview) tier on the Rolodex UI, after Starter and Free. **`pro/app.js` is now a bundled build artifact, not hand-written** — the real source is `pro/app.ts`, compiled via `node esbuild.config.mjs`; edit the `.ts`, never the `.js` directly. Consumes `shared/rolodex.ts` for Gate dock/marquee/stacked-card/swipe mechanics, same as Starter/Free. Keeps its pre-Rolodex Pro-exclusive features — Analyst View (per-card expandable subsection), Proxy Resolution Explorer + live coherence strip, Sector Heat Map, real (not teaser) server-synced Track Record with trigger/ticker accuracy breakdowns, CSV export — all ported forward, not dropped; see that section for exactly what changed shape (card/watchlist split → pill-strip cap + overflow accordion) vs. what ported unchanged. **Gate 3 reads the last 3 completed 15-min bars here (Oct 19, 2026, `GATE3_WINDOW_TIERS=pro`); Free and Starter still read bar 1 only.** |
-| Shark | `shark/index.html` (no separate `app.js` — still monolithic) | **NOT rebuilt — shelved indefinitely as of Aug 17, 2026, not a backlog gap.** Earlier notes here framed this as blocked on an Alpaca "Plus" data-plan upgrade Mr. T might do at some point; that framing is retired per direct instruction — it's just off the table now, not "pending a decision." Don't pick this up proactively; it still carries the same reorder/log-button bugs Pro had before its rebuild (shared original template) whenever it does eventually happen. A separate, standalone `shark/coming-soon.html` splash (added Aug 2, 2026, licensed mascot art at `shared/assets/shark-mascot.png`) exists alongside it — email waitlist writes directly to Supabase's `shark_waitlist` table (anon insert-only via RLS) from the browser, no backend involvement. |
+| Free | `index.html` + `app.js` | Rebuilt onto the Rolodex UI Aug 16, 2026 (see "Frontend: Rolodex UI shipped to Free") — second real tier on it, after Starter. **`app.js` is a bundled build artifact** — the real source is `app.ts` (repo root), compiled via `node esbuild.config.mjs`; edit the `.ts`, never the `.js`. Consumes `shared/rolodex.ts` for Gate dock/marquee/stacked-card/swipe mechanics. Its top-level "redirect a paid session elsewhere" check still halts the rest of module init (`redirectingToPaidTier`) — see the testing note for why that matters. |
+| Starter | `starter/index.html` + `starter/app.js` | Rebuilt onto the Rolodex UI Aug 16, 2026 (see "Frontend: Rolodex UI shipped to Starter") — sticky-docking Gate, marquee ticker-pill strip, single-active-card stage with tap-pill-then-swipe-to-delete; real auth/credits/Settings/server-sync unchanged. First real tier on the Rolodex UI. **`starter/app.js` is a bundled build artifact** — source is `starter/app.ts`, compiled via `node esbuild.config.mjs`; edit the `.ts`, never the `.js`. Its Rolodex mechanics live in `shared/rolodex.ts`, shared with Free and Pro. |
+| Pro | `pro/index.html` + `pro/app.js` | Rebuilt onto the Rolodex UI Aug 16, 2026 (see "Frontend: Rolodex UI shipped to Pro") — third real tier. **`pro/app.js` is a bundled build artifact** — source is `pro/app.ts`, compiled via `node esbuild.config.mjs`; edit the `.ts`, never the `.js`. Consumes `shared/rolodex.ts`. Keeps its Pro-exclusive features: Analyst View (per-card expandable), Proxy Resolution Explorer + live coherence strip, Sector Heat Map, real server-synced Track Record, CSV export — ported forward (card/watchlist split became a 15-pill cap + overflow accordion). **Gate 3 reads the last 3 completed 15-min bars here (Oct 19, 2026, `GATE3_WINDOW_TIERS=pro`); Free and Starter still read bar 1 only.** |
+| Shark | `shark/index.html` (no separate `app.js` — still monolithic) | **NOT rebuilt — shelved indefinitely as of Aug 17, 2026, not a backlog gap.** The old "blocked on an Alpaca Plus upgrade" framing is retired per direct instruction. Don't pick this up proactively; it still carries the same reorder/log-button bugs Pro had before its rebuild. A standalone `shark/coming-soon.html` splash (Aug 2, 2026, licensed mascot art at `shared/assets/shark-mascot.png`) exists alongside — its email waitlist writes directly to Supabase's `shark_waitlist` table (anon insert-only via RLS) from the browser, no backend involvement. |
 
 Tier config (ticker cap, cache TTL, credits, tracker, `alpaca`, `iv`) is
 enforced **server-side** in `Tra`'s `credits.js` `TIERS` object — check
@@ -2563,2593 +755,397 @@ decision point, not an oversight — flagged to and confirmed by Mr. T before
 `iv` shipped, precisely because it crosses a pricing/differentiation
 boundary, not just a technical one.
 
-## Engineering: TypeScript adoption path — investigated, not yet started (Aug 14, 2026)
-
-Mr. T got questioned externally on why this project is plain JavaScript and
-asked directly: what's actually lost by staying JS, is a pivot away from it
-realistic, and is there a real benefit. Answered in two parts, then asked to
-turn the answer into an actual plan, framed as something that could ride
-along with the planned Rolodex UI rework (see the collapsing-card
-exploration section above) rather than as a separate effort. **Nothing in
-this section has been built — this is a plan plus one real investigation,
-not a change to either repo.** Full formatted version, including the actual
-terminal output:
-`https://claude.ai/code/artifact/100a336b-d173-4f0f-9d88-875d628bdd0f`.
-
-**The framing that survived scrutiny:** don't change the runtime for either
-side. The backend (`Tra`) is I/O-bound API-proxying work (Finnhub/Alpaca/SEC)
-— Node's non-blocking model already fits that, and a language rewrite would
-mean re-deriving every hard-won fix already in this file (the Finnhub/Alpaca
-throttle queues, the Supabase session-leak fix, the SEC rate limiter) with
-real risk of quietly reintroducing bugs that cost actual production incidents
-to find the first time. The frontend can't leave JavaScript at all — it's a
-static site a browser executes, full stop. What's actually on the table is
-layering **TypeScript type-checking** on top of the existing JS, incrementally,
-and separately, whether to eventually add a **bundler** (a bigger, different
-question from "types," addressed below).
-
-**This wasn't just reasoned about — it was tested against the real repos.**
-Ran actual `tsc` (TypeScript 6.0.2) with `allowJs`/`checkJs`/`noEmit` against
-`shared/*.js` and both repos' `gates-extended.js` before writing any of the
-plan below, specifically to avoid shipping a fourth confident-but-unverified
-claim in this file. Three findings came out of it:
-
-1. **The `?v=N` cache-busting convention breaks static module resolution
-   completely.** `tsc` (and by extension any bundler) cannot resolve
-   `'./prefs.js?v=10'` as a module specifier at all — every hand-versioned
-   import in this codebase fails the same way. This is the concrete,
-   demonstrated reason a bundler would help, not a generic "modern tooling"
-   claim — it's specifically what makes the existing cache-busting rule's
-   failure mode (documented above, cost real hours Aug 2-3) structurally
-   possible in the first place. A real bundler content-hashes output
-   filenames automatically, which makes that whole bug class unrepresentable.
-2. **Plain `checkJs` with zero type annotations catches almost nothing.**
-   Once the import-resolution problem above is worked around, the only
-   remaining errors on the actual `shared/*.js` files are generic DOM-typing
-   noise (`Property 'value' does not exist on type 'HTMLElement'` from
-   `querySelector`'s return type) — expected, not real bugs, fixed with
-   casts. The real payoff only shows up once actual shapes are written down
-   as JSDoc `@typedef`s — that annotation work IS the actual task, not
-   flipping a compiler flag.
-3. **Reproduced the real Aug 13 Gate 5 bug directly.** Wrote the pre-fix
-   `evaluateProxyStatus` shape (`marketData[s].pct`, assuming an object) next
-   to a one-line `@typedef` for what `sectorContext[symbol]` actually is in
-   production (`Record<string, string>` — a formatted `"+1.23%"` string,
-   never an object) and `tsc` flagged `Property 'pct' does not exist on type
-   'string'` immediately, at the exact line. That's the same bug that
-   shipped silently and made Gate 5's RED status unreachable until it got
-   root-caused by hand three weeks later — caught here on save, from nothing
-   but a type declaration for a shape that was already true.
-
-**The path — five phases, each shippable as its own PR, same as everything
-else in this file:**
-- **Phase 0 — JSDoc + `checkJs`, no `.ts` files, no build step, ever.** One
-  `tsconfig.json` (`checkJs`/`noEmit`), then real `@typedef`s for the highest-
-  risk shapes first: the `/analyze` request/response, `TickerData`,
-  `GateResult` — the exact contract that's broken twice already. Effort low,
-  risk none, payoff high — this is what Finding 3 above demonstrates directly.
-- **Phase 1 — shared contract types, hand-mirrored.** One `types/api.d.ts`
-  copied into both `Tra` and this repo, same "keep these files identical"
-  convention already used for the mirrored `server.js`. Doesn't fix the
-  two-repo drift problem itself, but gives both sides something concrete to
-  drift *against* instead of drifting silently. Effort low, risk none.
-- **Phase 2 — real `.ts`, transpile-only, still no bundler.** Convert
-  `shared/` leaf modules and both `gates-extended.js` files one at a time,
-  highest-fan-out first. `tsc` emits one `.js` per `.ts` with no bundling —
-  GitHub Pages keeps serving the exact same file layout it does today.
-  Effort medium, risk low.
-- **Phase 3 — a real bundler (esbuild or Vite), paired with the Rolodex UI
-  work, not before.** This is the one phase that changes the deploy
-  pipeline, so do it when the UI rebuild is actually greenlit — that work
-  already touches every tier's markup and every shared module, so the
-  bundler-adoption cost lands in the same PRs instead of a separate
-  migration nobody asked for. This is what actually eliminates Finding 1,
-  structurally, not just documents around it. Effort medium-high, risk
-  medium.
-- **Phase 4 — formalize the simulation scripts into a real test suite,
-  after Phase 3.** Every recent gate-logic change (Proposal 3, Proposal 4,
-  the Gate 5 fix) was already verified with a throwaway Node script
-  simulating real inputs, documented above each time as "verified by
-  simulation" then discarded. Checking those in as a real test suite (Vitest,
-  or even Node's built-in runner without waiting on Phase 3) converts work
-  already being done into permanent regression coverage for the trickiest
-  logic in the app. Effort low-medium, risk none.
-
-**Explicitly not part of this plan:** a backend language swap (already
-covered above — I/O-bound work, Node isn't the bottleneck); adopting a
-frontend framework (bigger, separate decision, real dependency surface this
-app has deliberately avoided so far); converting Shark now (already flagged
-elsewhere in this file as deliberately deferred pending the Alpaca "Plus"
-decision — fold TS into that rebuild whenever it happens, don't do it
-twice); one big-bang PR (no test suite exists yet, so file-by-file keeps
-every step revertable).
-
-**If picked back up in a future session:** Phases 0 and 1 need nothing
-decided about the UI rework first and can start immediately — a
-`tsconfig.json` scoped to `shared/*.js` and both `gates-extended.js` files,
-one hand-written `types/api.d.ts` for the real `/analyze` and
-`/ticker/:symbol` shapes mirrored into both repos, then a baseline
-`tsc --noEmit` run to see what else surfaces beyond what's already found
-above.
-
-### Phase 0 shipped (Aug 14, 2026, `trade-verdict`; mirrored into `Tra` Aug 16, 2026)
-
-Landed the same day as the plan above: a real `tsconfig.json`
-(`checkJs`/`noEmit`/`allowJs`, no build step) scoped exactly to
-`shared/*.js` + this repo's own `gates-extended.js`, plus
-`shared/types.js` — JSDoc-only `@typedef`s for `GateResult`,
-`SectorContext`, `TickerData`, `AnalyzeRequestBody`, `AnalyzeResponse`
-(the highest-risk shapes the plan named). `shared/types.js` is never
-loaded at runtime (JSDoc `@typedef {import(...)}` references are erased
-comments, not real imports), so it's exempt from the cache-busting rule —
-don't add it a `?v=`.
-
-Applied the typedefs to real call sites within the checked scope, not just
-declared them: `gates-extended.js`'s exported functions
-(`proxyCoherenceCheck`, `regimeValidation`, `hasForceDownAuthority`,
-`resolveFixedProxyBreak`, `evaluateGate1Sessions`, `contextTextMatches`,
-`buildupPatternCheck`, `corroborateSessionContext`, `dailyReturns`,
-`pearson`) now have real `@param`/`@returns` JSDoc instead of implicit
-`any`; `shared/ticker-cache.js`'s `fetchTickerData()`/`tickerCache`/
-`inFlight` are typed against `TickerData`; `shared/watchlist.js`'s
-`updateCardMeta(ticker, td)` — the actual `TickerData` consumer that
-renders a card's price/52W/news/phase strip — is typed the same way.
-
-**Actually verified the mechanism works, not just that it compiles clean.**
-Built a throwaway scratch reproduction of the real Aug 13, 2026 Gate 5 bug
-shape (feeding `sectorContext.tsm` — a formatted `"-6.20%"` *string* — into
-`proxyCoherenceCheck()`, which expects a parsed `number`, the exact mistake
-`evaluateProxyStatus()` made in production for three weeks) against the
-real `gates-extended.js` JSDoc types: `tsc` flagged
-`Argument of type 'string' is not assignable to parameter of type
-'number'` immediately. Confirms this isn't just documentation — it would
-have caught that exact bug class on save. Scratch file discarded after
-confirming, never part of the repo.
-
-One real (harmless) type mismatch turned up and got fixed along the way:
-`shared/watchlist.js`'s `updateCardMeta()` called
-`parseFloat(td.metrics.price)` before `.toFixed(2)`, but
-`metrics.price` is already a `number` on the wire (`fetchTickerMetrics()`
-in server.js never stringifies it — that's a different function,
-`fetchQuote()`, used for `/market`'s tracked-symbol entries, not
-`/ticker/:symbol`). `parseFloat` on an already-numeric value is a no-op
-(JS coerces it to a string and back to the identical number), so this was
-never a live bug, just sloppy — simplified to
-`td.metrics.price.toFixed(2)` directly, byte-identical output.
-
-**A fresh `tsc -p tsconfig.json` run still shows ~26 known, expected
-errors** — unchanged in nature from what the investigation already found
-and documented above, not something this pass tried to silence:
-`./foo.js?v=N` import-resolution failures (every real ES import in the
-checked files, since `?v=` isn't a valid module specifier to any
-resolver — the concrete reason Phase 3's bundler is on the roadmap) and a
-handful of generic DOM-typing errors (`Property 'value' does not exist on
-type 'HTMLElement'`, `window.foo` assignments) on pre-existing
-`getElementById`-heavy code in `shared/settings-modal.js`/`track-record.js`/
-`watchlist.js`. Left alone deliberately — real but low-value casting churn
-outside Phase 0's actual scope (the typedefs), not a regression and not
-something Phase 0 promised to zero out.
-
-**Mirrored into `Tra` (Aug 16, 2026, `Tra` PR #35).** `Tra`'s repo scope
-wasn't available to the session that shipped Phase 0 above, so this was
-flagged there as a deliberate follow-up rather than done in that same
-pass — picked back up once `Tra` was added. `Tra` now has its own
-`tsconfig.json` (scoped to `gates-extended.js`; that repo has no
-`shared/` subdirectory, so it's a flatter layout than this one) and
-`types.js`, kept identical to this repo's `shared/types.js` in the actual
-`@typedef` bodies (only header commentary differs, adjusted for `Tra`'s
-own context) — confirmed via diff that `Tra`'s `gates-extended.js` was
-otherwise byte-identical to this repo's copy before adding the JSDoc, so
-this was a pure annotation mirror, not a reimplementation carrying any
-logic-drift risk. Re-verified the mechanism there too, not just assumed
-it would transfer: reproduced the same Aug 13, 2026 Gate 5 bug shape
-against `Tra`'s real typedefs and got the same `tsc` error, plus a clean
-`tsc -p tsconfig.json` run (exit 0, zero errors — `Tra`'s
-`gates-extended.js` has no ES `import`/`export` statements at all,
-unlike this repo's browser-loaded `shared/*.js`, so it doesn't carry the
-`?v=`-cache-busting-driven noise category documented above).
-
-`server.js` (in both repos — where the real `/analyze` handler,
-`evaluateProxyStatus()`, and `evaluateGate1()` actually live), `Tra`'s
-`credits.js`, and every tier's `app.js` are still outside `checkJs`'s
-scope, per the plan's own reasoning (untyped Express/Stripe/Supabase
-surface, much higher noise) — a natural widening for a future pass, not
-an oversight here.
-
-### Phase 1 folded into the `Tra` mirror above; Phase 2 kicked off (Aug 16, 2026)
-
-Picked back up in the same session as the `Tra` mirror. Phase 1's own
-description ("shared contract types, hand-mirrored... one file copied
-into both `Tra` and this repo") turned out to be the exact same artifact
-as the `Tra` mirror just shipped — `shared/types.d.ts` (see below) and
-`Tra`'s `types.js` now ARE that one shared, hand-mirrored contract file.
-No separate Phase 1 pass was needed; noted here so it doesn't read as
-skipped.
-
-**Phase 2 (real `.ts`, transpile-only, still no bundler) started with
-two changes:**
-
-1. **`shared/types.js` (JSDoc) replaced by `shared/types.d.ts` (real
-   `interface`/`type` declarations)** — same shapes, formalized into
-   actual TS syntax instead of typedef comments. Zero runtime-behavior
-   risk: this file was never loaded at runtime before (JSDoc
-   `@typedef {import(...)}` is an erased comment) and a `.d.ts` file
-   can't be loaded at runtime either. **Verified, not assumed, that every
-   existing consumer's `@typedef {import('./types.js').X}` reference
-   still resolves correctly against the new `.d.ts` sibling:** temporarily
-   removed `shared/types.js` entirely and re-ran `tsc -p tsconfig.json` —
-   the exact same 26 known/expected baseline errors, zero new ones, zero
-   mentions of `types.js` failing to resolve. This is TypeScript's
-   standard Node-style "`.js` specifier resolves to a sibling `.d.ts`"
-   behavior working exactly as documented, confirmed against this repo's
-   real files rather than taken on faith.
-2. **`shared/ticker-cache.ts`** — the first real `.ts` conversion.
-   Picked as the starting point deliberately: highest fan-out (imported
-   by 6 other files, tied for most in `shared/`) among files with zero
-   *internal* `shared/` dependencies of their own (a true leaf — unlike
-   `watchlist.js`, which imports `ticker-cache.js` and so needs to convert
-   after it, not before). `tsconfig.build.json` (separate from
-   `tsconfig.json`, which stays `noEmit:true` for pure type-checking) is
-   the actual compile step — `npx tsc -p tsconfig.build.json` emits
-   `shared/ticker-cache.js` in place from the `.ts` source, so GitHub
-   Pages keeps serving the identical file path/layout it always has. The
-   emitted `.js` (not the `.ts`) is the real deploy artifact — both are
-   committed together, and the compiled output is what actually ships.
-
-**The full cache-busting cascade this triggered, worked through
-completely, not just the first hop:** `ticker-cache.js`'s content changed
-(even though its behavior is equivalent, the emitted bytes differ from
-the hand-written original) → bumped `?v=4→5` in its 5 importers
-(`shared/watchlist.js`, `app.js`, `starter/app.js`, `pro/app.js`,
-`preview/rolodex/app.js`) → `shared/watchlist.js`'s own content changed
-as a result, so its `?v=27→28` bumped in ITS importers
-(`shared/watchlist-sync.js`'s own relative import, `app.js`,
-`starter/app.js`, `pro/app.js`) → `shared/watchlist-sync.js`'s content
-changed too, `?v=20→21` bumped in its 3 importers → finally, every tier's
-own top-level `app.js` changed (multiple import lines inside each),
-so each tier's `<script src="./app.js?v=N">` bumped too (`index.html`
-42→43, `starter/index.html`/`pro/index.html` 43→44,
-`preview/rolodex/index.html` 23→24). `shark/index.html` confirmed
-untouched (monolithic, no `shared/` imports at all).
-
-**Verified via real headless Chromium, not just that `tsc` was clean:**
-loaded Free tier and the Rolodex preview against a mocked backend,
-confirmed zero JS errors on either, confirmed a real ticker card/pill
-actually renders fetched price data end-to-end through the newly
-TS-compiled `ticker-cache.js` (not just that the file parses).
-
-### `shared/watchlist.js` converted to `.ts` (Aug 16, 2026)
-
-Second Phase 2 conversion, picked up immediately after `ticker-cache.ts`
-per the plan above — `watchlist.js` was the natural next step since it
-depends on the now-converted `ticker-cache.js` and is tied for the
-highest fan-out (7 importers) in `shared/`. Same transpile-only workflow:
-`shared/watchlist.ts` authored, `tsconfig.build.json`'s `include` widened
-to cover it, `tsc -p tsconfig.build.json` emits `shared/watchlist.js` in
-place — the compiled output is the real deploy artifact, committed
-alongside the `.ts` source.
-
-**This file is far more DOM-heavy than `ticker-cache.ts`** (gesture
-handling, card rendering, undo toast, drag-to-reorder) — worth being
-explicit about which parts actually got real types vs. which stayed
-loose, since that was a deliberate line, not an oversight:
-- The public API — `initWatchlist`/`setWatchlist`/`addTickers`/
-  `removeTicker`/`updateCardMeta`/etc. — now has real parameter/return
-  types, including `updateCardMeta(ticker: string, td: TickerData | null)`
-  against `shared/types.d.ts`'s real `TickerData` interface (previously
-  JSDoc-only).
-- The four concrete DOM-typing errors this file actually had under
-  `checkJs` (`newsEl.style` on an `Element`-typed `querySelector` result,
-  `.value` on `#context-input`/`#ticker-input` typed as bare
-  `HTMLElement`) got real, minimal casts (`as HTMLElement`,
-  `as HTMLTextAreaElement`, `as HTMLInputElement`) — verified against the
-  actual markup (`grep` confirmed `#context-input` is a `<textarea>`,
-  `#ticker-input` an `<input>`) rather than guessed. The
-  `window.addTickers = addTickers` bridge (the inline `onclick`
-  attribute's only way to reach the module scope) got a real
-  `declare global { interface Window { addTickers: ... } }` augmentation
-  instead of an `as any` escape hatch.
-- The drag/swipe gesture state machine (`ACTIVE`, `onPointerDown`/`Move`/
-  `Up`, `trySwap`, `finishSwipe`/`Reorder`) was deliberately **left
-  untyped** (`any`), matching — not fighting — the same implicit-any
-  behavior this code already had as plain `.js` under `checkJs` (`var
-  ACTIVE=null` already widened to `any` under this repo's
-  `strictNullChecks:false` setting, so typing it explicitly would only
-  add churn without catching anything). Properly typing pointer-event
-  target chains (`e.target.closest(...)`) would mean casting nearly
-  every DOM access in this section for no real payoff — exactly the
-  "real but low-value churn" category `tsconfig.json`'s own comments
-  already called out as deliberately left alone. This is a scoping
-  choice, not a gap: the goal is real types on the data contracts that
-  have actually shipped bugs (`TickerData`, the gesture code has never
-  been the source of one), not maximal annotation coverage.
-
-**Verified two ways, not just that `tsc` compiled clean:** (1) a
-function-signature diff between the pre- and post-conversion
-`shared/watchlist.js` — identical 27-function set, confirming nothing
-was dropped or renamed in the conversion; (2) real headless Chromium
-against a mocked backend — rendered the default 3-card Free-tier
-watchlist with real price data flowing through the compiled output,
-called `addTickers()`/`removeTicker()` through their actual DOM entry
-points (the ticker-input field, `window.addTickers`, and a dynamic
-`import()` of the compiled module for `removeTicker`), confirmed the
-undo toast's opacity/pointer-events casts work correctly end-to-end
-(the exact lines that got new `as HTMLElement` casts), and confirmed
-zero page errors throughout.
-
-**Cache-busting cascade, same shape as the `ticker-cache.ts` conversion:**
-`watchlist.js` `?v=28→29` in its 4 importers (`shared/watchlist-sync.js`'s
-relative import, `app.js`, `starter/app.js`, `pro/app.js`) →
-`watchlist-sync.js`'s own content changed as a result (its import line),
-`?v=21→22` bumped in its 3 importers → each tier's own `app.js` content
-changed (multiple import lines), so each tier's `<script src="./app.js?v=N">`
-bumped too (`index.html` 43→44, `starter/index.html`/`pro/index.html`
-44→45). `preview/rolodex/` and `shark/index.html` both confirmed
-untouched — neither imports `shared/watchlist.js` at all (the Rolodex
-preview deliberately reimplements watchlist state standalone, per its
-own section above; Shark is still fully monolithic).
-
-### `shared/prefs.js` converted to `.ts` (Aug 16, 2026)
-
-Third Phase 2 conversion — tied with `watchlist.js` for the highest
-fan-out (6 importers by direct count) among the remaining `shared/*.js`
-files, and unlike `watchlist.js`/`ticker-cache.js` it has **zero internal
-`shared/` dependencies of its own** (no imports at all — it's pure
-localStorage-backed preference logic plus a small amount of DOM at the
-very end), so it converted cleanly with no ordering constraint against
-the other two already-converted files. Same transpile-only workflow:
-`shared/prefs.ts` authored, `tsconfig.build.json`'s `include` widened,
-`tsc -p tsconfig.build.json` emits `shared/prefs.js` in place.
-
-**This file had zero DOM-typing errors under `checkJs` to begin with**
-(unlike `watchlist.js`'s four) — its only DOM touchpoint is
-`refreshTickerLinks()`'s `querySelectorAll('a[data-ticker]')` loop, and
-TypeScript's real return type for that call already carries enough of
-the right shape that no cast was strictly required to compile clean;
-`as HTMLAnchorElement`/`as HTMLElement` casts were added anyway on the
-`.href`/`.dataset` reads for explicitness, not because `tsc` demanded
-them. Everything else got real, meaningful types: `TIMEZONES`/
-`LINK_SITES` are now typed against real `TimezoneInfo`/`LinkSite`
-interfaces (`LinkSite.newsHref` correctly modeled as optional, matching
-that Robinhood is the one site with no `newsHref` and falls back to
-`href` at the call site), and every exported function
-(`buildTemplateFromExample`, `detectTickerInUrl`,
-`isValidCustomTemplate`, the getter/setter pairs for both custom
-templates, `tickerHref`/`newsHref` themselves) has real parameter/return
-types.
-
-**Verified three ways:** (1) an export-name diff between pre- and
-post-conversion `shared/prefs.js` — identical 18-export set; (2)
-`tsc -p tsconfig.json` — zero errors internal to `prefs.ts` itself, only
-the expected `?v=`-import-resolution noise in its consumers; (3) real
-headless Chromium against a mocked backend on Pro tier (a fake-but-valid
-`tv_session` primed per this file's own testing-notes pattern below) —
-confirmed the default Yahoo href renders correctly, switching the Settings
-modal's link-site dropdown to TradingView live-updates an already-rendered
-ticker link via the `onPrefsChange` → `refreshTickerLinks` cascade,
-pasting a real example URL into the custom-link field correctly
-auto-detects the ticker and saves a working template
-(`buildTemplateFromExample`/`detectTickerInUrl`/`isValidCustomTemplate`
-all exercised together, not just unit-tested in isolation), and switching
-the timezone dropdown correctly round-trips through `getTzPref`/
-`getTzIana` — zero page errors throughout. (A first pass at this test
-had a self-inflicted harness bug worth noting for future test-writing in
-this repo: overly broad Playwright route patterns like `**/watchlist**`
-and `**/track**` — meant to mock the backend's `/watchlist` and `/track`
-endpoints — also matched the *local script* fetches for
-`shared/watchlist.js` and `shared/track-record.js`, since those filenames
-contain the same substrings, and Playwright fulfilled them with mocked
-JSON instead of letting the real JS load. Fixed by scoping every mock
-route to the real API host (`https://tra-zacg.onrender.com/watchlist**`
-etc.) instead of a bare path substring — not a bug in the conversion
-itself, but a reminder that this repo's own file-naming overlap with its
-own API paths (`watchlist.js` / `/watchlist`, `track-record.js` /
-`/track`) is a real trap for any future test route pattern too.)
-
-**Cache-busting cascade, the deepest one yet** — `prefs.js` has more
-importers than either prior conversion, and two of them
-(`track-record.js`, `settings-modal.js`) hadn't been touched by this
-migration before, so this pass also bumped their versions without
-converting their content:
-`prefs.js` `?v=10→11` in its 6 importers (`shared/track-record.js`,
-`shared/watchlist.js`, `shared/settings-modal.js`, `app.js`,
-`starter/app.js`, `pro/app.js`) → three of those had their own content
-change as a result (an import line), cascading further: `track-record.js`
-`?v=15→16` in its 4 importers (`shared/track-record-sync.js`'s relative
-import, `app.js`, `starter/app.js`, `pro/app.js`); `watchlist.js`
-`?v=29→30` in its 4 importers (`shared/watchlist-sync.js`'s relative
-import, `app.js`, `starter/app.js`, `pro/app.js`); `settings-modal.js`
-`?v=13→14` in its 2 importers (`starter/app.js`, `pro/app.js` — Free has
-no Settings UI and never imports it) → those cascaded one hop further in
-turn: `track-record-sync.js` `?v=12→13` in its 1 importer (`pro/app.js`
-only — Free/Starter don't sync track record, Pro-only per this file's
-own Frontend architecture section), `watchlist-sync.js` `?v=22→23` in
-its 3 importers → finally every tier's own `app.js` had multiple import
-lines change, so each tier's `<script src="./app.js?v=N">` bumped too
-(`index.html` 44→45, `starter/index.html`/`pro/index.html` 45→46).
-`preview/rolodex/` and `shark/index.html` both confirmed untouched —
-neither imports any of `prefs.js`/`track-record.js`/`settings-modal.js`
-(Rolodex hardcodes Yahoo directly rather than importing `prefs.js`, per
-its own section above; Shark is fully monolithic).
-
-### `shared/track-record.js` converted to `.ts` (Aug 16, 2026)
-
-Fourth Phase 2 conversion, next by fan-out (4 importers). Same
-transpile-only workflow: `shared/track-record.ts` authored,
-`tsconfig.build.json`'s `include` widened, `tsc -p tsconfig.build.json`
-emits `shared/track-record.js` in place. Real types added throughout:
-`TrackEntry`/`LogMeta` interfaces for the `tv_accuracy_log` entry shape
-and `logResult()`'s optional `meta` param, `Record<string, {c,t}>` for
-the type/ticker tally accumulators inside `renderTrackRecord()`, and the
-`window.logResult`/`window.clearLog` inline-`onclick` bridges got the
-same `declare global { interface Window {...} }` treatment as
-`watchlist.ts`'s `addTickers` bridge, instead of `as any`.
-
-**A real bug caught before this shipped, not by any test — by the diff
-itself.** Recompiling for this conversion silently reverted
-`shared/watchlist.js`'s `prefs.js` import back to `?v=10`, even though
-the `prefs.ts` conversion (immediately above) had correctly bumped it to
-`?v=11` in every `.js`/`.html` file. Root cause: that bump was applied
-with `sed` scoped to `--include=*.js --include=*.html`, which correctly
-updated the *compiled* `shared/watchlist.js`, but `shared/watchlist.ts`
-— the actual source `tsc` regenerates that file from — still had the
-stale `./prefs.js?v=10` hardcoded, since `.ts` files were never in scope
-for that grep/sed pass. The bump "worked" only until the next `tsc`
-build touched `watchlist.ts` again, at which point it silently
-regenerated the old, wrong import — invisible until a `git diff --stat`
-sanity check (run as a matter of course before committing, not because
-anything looked wrong) showed `shared/watchlist.js` had a 1-line diff it
-had no business having. **This is a new, Phase-2-specific corollary to
-the cache-busting rule, worth stating explicitly:** once a shared
-module has a `.ts` source, that source — not just its compiled `.js` —
-is the thing that has to carry the correct `?v=N` on every import it
-makes of another shared module. Bumping only the emitted `.js` (by hand,
-or via a grep/sed pass scoped to `*.js`/`*.html` the way every prior
-cache-busting cascade in this file has been done) is invisible-broken:
-correct until the next recompile, then silently wrong again. Fixed here
-by correcting `watchlist.ts`'s import to `?v=11` directly and
-recompiling; going forward, any `?v=` bump that touches a module with a
-`.ts` source must include the `.ts` file in the grep/sed scope, not just
-`*.js`/`*.html`.
-
-**Verified three ways:** (1) exact-output comparison, not just an export
-diff — ran the pre- and post-conversion module side by side in a
-minimal Node harness (stubbed `localStorage`/`document`), fed both the
-same synthetic log entries, and confirmed `renderTrackRecord()` produces
-**byte-for-byte identical HTML** from both, not just similar-looking
-output; (2) `tsc -p tsconfig.json` — zero errors internal to
-`track-record.ts`, and after the `watchlist.ts` fix above, `git diff
---stat` against every previously-converted file's compiled output is
-empty; (3) real headless Chromium on Pro tier — called `logResult()`
-through the compiled module directly (with a real `meta.trigger`),
-confirmed the row's injected HTML, confirmed `getAccuracyLog()` returns
-the pushed entry with `trigger` correctly attached, confirmed
-`renderTrackRecord()` populates `#track-body` with real hit-rate/ticker
-data, confirmed both `window.logResult`/`window.clearLog` bridges exist
-and work, and confirmed `clearLog()` actually empties the log — zero
-page errors throughout.
-
-**Cache-busting cascade:** `track-record.js` `?v=16→17` in its 4
-importers (`shared/track-record-sync.js`'s relative import, `app.js`,
-`starter/app.js`, `pro/app.js`) → `track-record-sync.js`'s own content
-changed as a result, `?v=13→14` in its 1 importer (`pro/app.js` only —
-Free/Starter don't sync track record) → every tier's `app.js` changed,
-each tier's `<script src="./app.js?v=N">` bumped too (`index.html`
-45→46, `starter/index.html`/`pro/index.html` 46→47). `preview/rolodex/`
-and `shark/index.html` confirmed untouched.
-
-**Before any future `?v=` bump on a module with a `.ts` source, check
-that source's own import lines too** — the lesson from the bug caught in
-the `track-record.ts` pass above.
-
-### `shared/analysis-cache.js` converted to `.ts` (Aug 16, 2026)
-
-Fifth Phase 2 conversion — tied with `shared/watchlist-sync.js` for
-next-highest fan-out (3 importers), picked first as the true leaf (zero
-internal `shared/` dependencies at all — no imports, not even of
-`types.js`, until this pass added one). Small, simple module (the
-per-ticker/per-day verdict cache backing `tv_v_*` localStorage keys) —
-converted in one pass with no DOM surface to reason about at all. Typed
-against `AnalyzeResponse` from `shared/types.d.ts` (`cacheVerdict`/
-`getCachedVerdict`'s `d`/return value is exactly the parsed `/analyze`
-JSON response, confirmed by checking the real call sites in all three
-tiers' `app.js` — `var _r=await res.json();cacheVerdict(ticker,_r)`).
-
-**Verified via an exact-output comparison again** (same technique as
-`track-record.ts`) — ran the pre- and post-conversion module side by
-side in a minimal Node harness with a stubbed `localStorage`, exercised
-`cacheVerdict`/`getCachedVerdict`/`cleanLS` against identical inputs,
-confirmed identical `JSON.stringify` output and identical surviving
-localStorage keys after `cleanLS()`. Also re-ran the same exercise
-through real headless Chromium (not just the Node harness) on Free tier
-for a live-DOM/live-`localStorage` confirmation, zero page errors.
-`git diff --stat` against every previously-converted file's compiled
-output was empty both before and after emit — no repeat of the
-`watchlist.ts`-drift bug from the prior pass.
-
-**Cache-busting cascade:** `analysis-cache.js` `?v=2→3` in its 3
-importers (`app.js`, `starter/app.js`, `pro/app.js` — no other `shared/`
-file imports it, so no further hop needed there) → each tier's own
-`app.js` content changed, each tier's `<script src="./app.js?v=N">`
-bumped too (`index.html` 46→47, `starter/index.html`/`pro/index.html`
-47→48). `preview/rolodex/` and `shark/index.html` confirmed untouched.
-
-### `shared/watchlist-sync.js` converted to `.ts` (Aug 16, 2026)
-
-Sixth Phase 2 conversion, next by fan-out (3 importers), depends on the
-already-converted `watchlist.js` so it slotted in cleanly. New
-`WatchlistSyncConfig` interface (`API_URL`/`authH`/`addSecret`) for
-`initWatchlistSync()`'s config param — the same shape `ticker-cache.ts`'s
-`TickerCacheConfig` already established, kept as its own separate
-interface rather than shared, since the two configs happen to be
-structurally identical today but aren't guaranteed to stay that way (no
-reason to couple two independent modules' public APIs to save one type
-declaration).
-
-**Verified via real behavioral comparison across all four code paths**,
-not just a happy-path check — a Node harness ran the pre- and
-post-conversion module side by side against a fake `fetch`, confirming
-byte-identical results for: (1) a normal successful pull, (2) the
-empty-GET-response seed-push fallback (confirms the exact POST body,
-`seed:true`), (3) the retry-with-backoff loop on network failure
-(confirms 3 attempts and the ~1500ms+ delay before the 3rd succeeds,
-matching `PULL_RETRY_DELAYS_MS`), and (4) `schedulePushWatchlist()`'s
-debounce (two calls → one POST). Then re-confirmed the two paths that
-actually matter most in production through real headless Chromium
-against the real Pro-tier app: a mocked `GET /watchlist` returning
-`NVDA`/`AMD` correctly hydrates the rendered watchlist on login (the
-actual `pullWatchlistFromServer()` call site, not a synthetic one), and
-adding a ticker correctly fires a debounced `POST /watchlist` with the
-right body (`{"tickers":["AAPL","NVDA","AMD"],"seed":false}`) — zero
-page errors throughout.
-
-**Cache-busting cascade:** `watchlist-sync.js` `?v=23→24` in its 3
-importers (`app.js`, `starter/app.js`, `pro/app.js` — no other
-`shared/` file imports it) → each tier's own `app.js` content changed,
-each tier's `<script src="./app.js?v=N">` bumped too (`index.html`
-47→48, `starter/index.html`/`pro/index.html` 48→49). `preview/rolodex/`
-and `shark/index.html` confirmed untouched. `git diff --stat` against
-every previously-converted file's compiled output was empty both before
-and after emit.
-
-### `shared/context-highlight.js` converted to `.ts` (Aug 16, 2026)
-
-Seventh Phase 2 conversion, tied with `shared/settings-modal.js` for
-next-highest fan-out (2 importers each), picked first as the smaller,
-zero-DOM leaf (pure tokenize/escape/regex-match logic backing Session
-Context highlighting — no `document`/`window` touched at all).
-
-**Cache-busting cascade needed the `.ts`-source discipline from the
-`track-record.ts` bug fix, and got it right this time**: this module's 2
-importers are `shared/watchlist.js` (whose own `.ts` source also had to
-be bumped, not just its compiled output) and `pro/app.js` — and since
-`watchlist.js`'s content changed as a result, that cascaded a further
-hop into `watchlist-sync.js` (both its compiled `.js` **and** its `.ts`
-source, since it also imports `watchlist.js` by version-pinned path),
-which cascaded once more into every tier's `app.js`, and finally each
-tier's `<script src="./app.js?v=N">`. Full chain: `context-highlight.js`
-`?v=1→2` in `shared/watchlist.js`+`.ts` and `pro/app.js` → `watchlist.js`
-`?v=30→31` in `shared/watchlist-sync.js`+`.ts` and all three tiers'
-`app.js` → `watchlist-sync.js` `?v=24→25` in all three tiers' `app.js`
-→ each tier's `<script>` bumped (`index.html` 48→49,
-`starter/index.html`/`pro/index.html` 49→50). Recompiled after every
-`.ts` source edit (not just the newly-converted file) to regenerate
-`watchlist.js`/`watchlist-sync.js` from their corrected sources, then
-confirmed via `git status --short` that only the files actually touched
-by this cascade changed — no repeat of the silent-revert bug.
-
-**Verified via exact-output comparison across 8 cases**, not just the
-happy path — a normal 2-word match, a no-match case, an HTML-escaping/
-XSS-adjacent case (`<script>` in the headline), a regex-special-character
-case (`C++`), a stopword-only context (correctly produces zero matches),
-empty headline, empty context, and a case with `&`/`%` punctuation —
-all byte-identical between the pre- and post-conversion module. Then
-confirmed live through real headless Chromium on Pro tier: typing real
-Session Context text that shares 2+ words with a mocked headline
-correctly triggers the 250ms-debounced highlight (via
-`refreshNewsHighlights()` → `updateCardMeta()` → the compiled
-`highlightContextMatches()`), producing real `<mark class="ctx-match">`
-spans in the live-rendered news line — zero page errors.
-
-### `shared/settings-modal.js` converted to `.ts` (Aug 16, 2026)
-
-Eighth Phase 2 conversion, the more DOM-heavy of the two files tied at 2
-importers (the Settings modal — timezone/link-site/custom-template UI).
-Unlike `watchlist.ts`'s deliberate choice to leave its gesture code
-untyped, **this file's real, pre-existing `checkJs` errors — all 11 of
-them (9× `.value` on a bare-`HTMLElement`-typed `getElementById` result,
-2× the `window.openSettingsModal`/`closeSettingsModal` bridges) — got
-actually fixed**, not left as accepted noise: `as HTMLSelectElement`/
-`as HTMLInputElement`/`as HTMLElement` casts at every `getElementById`
-call (matching each element's real tag — `<select id="settings-tz">`,
-`<input id="settings-custom-ex-url">`, etc. — confirmed against the
-literal markup this same function injects via `innerHTML`, not guessed),
-and a `declare global { interface Window {...} }` augmentation for both
-bridges, same pattern as `watchlist.ts`'s `addTickers` and
-`track-record.ts`'s `logResult`/`clearLog`. The difference from
-`watchlist.ts`'s gesture code isn't inconsistency — it's that this
-file's DOM structure is fixed and known (a template string this same
-module owns and injects once), not a dynamic pointer-event target chain
-with no fixed shape to cast against.
-
-**Verified with the most direct comparison yet, given how DOM-heavy this
-file is**: rather than a Node harness stubbing `document`, ran the
-pre- and post-conversion module **each in its own real page** against
-the real compiled `shared/prefs.js` (not a stub), driven by an identical
-Playwright interaction script — open the modal, switch timezone, switch
-link-site to Custom (reveals the custom-template fields), paste a real
-example URL to exercise `detectTickerInUrl`/`buildTemplateFromExample`
-end-to-end, close, reopen, and confirm every field correctly rehydrates
-from saved prefs. Every observed value (dropdown option lists, selected
-values, status text/color, `display` states, zero page errors) was
-**byte-identical** between the two runs. Then re-ran the two most
-load-bearing interactions (open modal, switch timezone, close) through
-real headless Chromium against the actual repo's Pro-tier page —
-confirmed `window.openSettingsModal`/`closeSettingsModal` work, and the
-timezone switch round-trips through the real compiled `prefs.js`.
-
-**Cache-busting cascade:** `settings-modal.js` `?v=14→15` in its 2
-importers (`starter/app.js`, `pro/app.js` — Free has no Settings UI and
-never imports it, so `index.html`'s own `<script>` tag correctly stays
-untouched) → each importer's own `<script src="./app.js?v=N">` bumped
-(`starter/index.html`/`pro/index.html` 50→51). `preview/rolodex/` and
-`shark/index.html` confirmed untouched.
-
-**Next in Phase 2, not done in this pass:** `shared/track-record-sync.js`
-(1 importer, depends on the already-converted `track-record.js`) — then
-both repos' `gates-extended.js` last (largest, highest-stakes file, best
-converted once the pattern is well-proven on smaller modules first).
-Once `track-record-sync.js` lands, every file in `shared/` will be real
-`.ts` except `gates-extended.js` itself.
-
-### `shared/track-record-sync.js` converted to `.ts` (Aug 16, 2026)
-
-Ninth Phase 2 conversion — the last file in `shared/` besides
-`gates-extended.js` itself. Its only importer (`pro/app.js`, since
-track-record sync is Pro-only — see Frontend architecture above) and its
-one dependency (`track-record.js`) were both already in place, so this
-converted with zero new coordination needed. Structurally near-identical
-to `watchlist-sync.ts` (same pull/retry/seed-push/debounced-push shape),
-new `TrackRecordSyncConfig` interface kept separate from
-`WatchlistSyncConfig` for the same reason as before — coincidentally
-identical shapes today, not a guarantee they stay coupled.
-
-**Verified via real behavioral comparison across all three code paths**
-(same technique as `watchlist-sync.ts`) — a Node harness ran the pre- and
-post-conversion module side by side against a fake `fetch`, confirming
-byte-identical results for a normal pull, the empty-GET-response
-seed-push fallback, and `schedulePushTrackRecord()`'s debounce. Then
-confirmed the two paths that matter most in production through real
-headless Chromium against the real Pro-tier app: a mocked `GET /track`
-correctly hydrates the log via `replaceLog()` on login (the actual
-`pullTrackRecordFromServer()` call site), and logging a new result plus
-`schedulePushTrackRecord()` correctly fires a debounced `POST /track`
-carrying both the pulled and newly-logged entries — zero page errors.
-
-**Cache-busting cascade:** `track-record-sync.js` `?v=14→15` in its 1
-importer (`pro/app.js` only) → `pro/index.html`'s own `<script
-src="./app.js?v=N">` bumped (51→52). `app.js`/`starter/app.js` and their
-`index.html`s correctly untouched — Free/Starter never sync track
-record. `preview/rolodex/` and `shark/index.html` confirmed untouched.
-
-### `gates-extended.js` (`trade-verdict`'s copy) converted to `.ts` (Aug 16, 2026)
-
-Tenth Phase 2 conversion — the file the whole plan named as "last,"
-picked up now that the pattern was proven across nine smaller modules
-with zero behavioral regressions. **Structurally different from every
-prior conversion in one important way**: this file is required via
-plain CommonJS `require("./gates-extended")` in `server.js`, not
-ES-module-loaded by a browser — no `?v=` cache-busting applies to it at
-all, and (per the two-repo rule) it exists in both this repo and `Tra`,
-the real backend. This PR covers only `trade-verdict`'s copy; the `Tra`
-mirror is a separate follow-up, same split as Phase 0's Tra mirror.
-
-**A real, non-obvious compatibility bug found and fixed before this
-could ship, not caught by `tsc` at all.** The first attempt imported
-`RegimeState` from `shared/types.d.ts` via a real `import type {...}`
-statement, matching every other Phase 2 file's pattern. That compiled
-clean under `tsc -p tsconfig.json` — but silently broke the file at
-*runtime*: any real `import`/`export` statement (type-only or not)
-makes `tsc` treat the whole file as an ES module, which — regardless of
-`isolatedModules` — emits a trailing `export {};` into the compiled
-output once every real import is type-erased. That single line is
-enough for Node's module-type auto-detection to load the file as ESM
-instead of CommonJS, which silently discards the real
-`module.exports = {...}` assignment — confirmed directly: `require()`
-against the broken build returned `{}`, zero exports, no thrown error
-of any kind to signal the problem. Caught by actually calling
-`require()` on the compiled output and checking `Object.keys()`, not by
-`tsc` or `node --check` (both passed clean on the broken version) —
-worth remembering for any future CommonJS `.ts` conversion in either
-repo: **`tsc`/`node --check` passing is not sufficient proof a
-CommonJS-required file still works; actually `require()` it and check
-what it exports.**
-
-**A JSDoc-based workaround was tried and rejected, not just skipped.**
-Reusing `RegimeState` via a JSDoc `@typedef {import(...)}`/`@type`
-comment (the exact mechanism this file's own JSDoc-only phase, and
-every plain-`.js` file under this repo's `checkJs` setup, already relies
-on) avoids the `export {}` problem — but a scratch repro confirmed
-TypeScript silently does **not** enforce JSDoc type annotations inside
-a real `.ts` file, only inside `.js` under `checkJs`. That would have
-shipped code that *looks* typed without being checked at all — worse
-than no typing, since it creates false confidence. **The actual fix:**
-a real, `tsc`-enforced local `RegimeValidationResult` interface,
-deliberately duplicated rather than imported from
-`shared/types.d.ts`'s `RegimeState` — a narrow, documented exception to
-every other Phase 2 file's "reuse the shared contract type" pattern,
-forced by this one file's CommonJS constraint rather than an oversight.
-If the two shapes ever need to diverge, that's a real thing to
-reconcile by hand, flagged in the code itself.
-
-**Verified far more thoroughly than any prior conversion, given this is
-the file that has shipped two real production bugs already (the Aug 13
-Gate 5 `evaluateProxyStatus` bug, and the Proxy Coherence Check bug one
-level up).** A real behavioral comparison ran all 13 exported functions
-against the pre- and post-conversion module side by side via direct
-`require()` calls (not a browser harness) — 33 individual cases
-covering every branch: all 8 branches of `evaluateGate1Sessions`
-(insufficient data, flat, all three uptrend bands, all three downtrend
-bands), all 3 cases of `proxyCoherenceCheck` (including the real
-crash-scale `-6.20%` TSM value from the Aug 13 incident), all 3 reachable
-states of `regimeValidation` (UNKNOWN/INTACT/a real decorrelated series
-producing DEGRADING), all 3 tiers of `resolveFixedProxyBreak`
-(primary-proxy adoption, fundamentals-confirmed, fundamentals-speculative),
-5 scenarios of `hasForceDownAuthority` (unknown gate, unscoped exemption,
-out-of-scope ticker, BROKEN-regime suspension, DEGRADING-regime
-mandatory-coherence-check), plus `contextTextMatches`/
-`buildupPatternCheck`/`corroborateSessionContext` and the exported
-constants — **every single case byte-identical** between old and new.
-Then, same discipline as Phase 0's own verification, reproduced the
-real Aug 13 Gate 5 bug shape directly against the new file's actual
-`proxyCoherenceCheck(tickerPct: number, proxyPct: number)` signature —
-`tsc` flagged `Argument of type 'string' is not assignable to parameter
-of type 'number'` immediately, confirming this would have caught that
-exact bug class on save.
-
-**`Tra`'s copy — done, confirmed Aug 16, 2026 (`Tra` PR #36, merged before
-this note was corrected).** This entry previously said "still open" —
-that was stale: a separate session with `Tra` access had already mirrored
-the conversion (same non-behavioral, transpile-only approach, same local
-`RegimeValidationResult` interface duplicated for the same CommonJS
-reason) and merged it. Re-confirmed directly by cloning `Tra` and
-diffing its `gates-extended.ts` against this repo's own — identical
-except for one header-comment line adjusted for `Tra`'s flatter layout
-(`types.js` vs `shared/types.d.ts`), and `require('./gates-extended.js')`
-against `Tra`'s compiled output returns all 14 expected exports (not the
-empty-object ESM/CommonJS gotcha this file documents above). **Phase 2 is
-fully complete in both repos.**
-
-## Frontend: Rolodex UI shipped to Starter — the first real (non-preview) tier (Aug 16, 2026)
-
-Direct instruction: "I'm ready to move forward with roladex UI change in
-Starter tier first. make sure to update the version number note at the
-bottom. also add Alpaca to the list of sources." This is the first time
-the Rolodex UI (prototyped and iterated at `preview/rolodex/`, Aug
-13-16, all entries above) lands on a real, live, paying tier — not
-another preview iteration. Two decisions confirmed via `AskUserQuestion`
-before writing code:
-
-1. **Ticker removal UX** ("click pill to allow card to swipe to
-   delete"): tap a pill to make it the active card (existing
-   `goRolo()`), then that active card itself becomes swipeable-to-delete
-   — new gesture code (`onRoloPointerDown`/`Move`/`Up`,
-   `finishRoloSwipe`), since the Rolodex's single-active-card stage has
-   no per-row list for `shared/watchlist.ts`'s existing list-swipe
-   gestures to bind to. Same visual/threshold pattern as production's
-   real card-list swipe (spring-back under threshold, slide-out +
-   fade over it), calling the real `removeTicker(ticker)` from
-   `shared/watchlist.ts`'s state exports on a successful swipe — so
-   persistence, the real undo toast, and the sync push are all the
-   exact same code path the old card-list swipe already used, just
-   re-bound to one card instead of a list.
-2. **Deploy target** ("Build directly into the live tier"): explicitly
-   rejected staging at `/preview/` first — this is live for real paying
-   Starter users the instant it merges, no staging step, unlike every
-   `/preview/rolodex/` iteration above.
-
-**Approach: invert the build direction, don't extend the preview.** The
-Rolodex preview is deliberately Free-tier-scoped and isolated from real
-auth/credits/Settings/Session-Context-highlighting/server-sync (see its
-own section above) — bolting those onto it would mean re-deriving
-already-correct, already-live logic. Instead, `starter/app.js`/
-`starter/index.html` (the real, working Starter tier) were rewritten
-from their existing base, porting the Rolodex's sticky-docking Gate,
-marquee pill strip, and single-active-card stage mechanics **in**, while
-keeping every real piece — `TIER` config, `checkAuth()`/
-`checkTierAccess()`, the real credit-consuming `/analyze` call and its
-402/`NO_CREDITS` handling, `shared/prefs.js`/`shared/settings-modal.js`,
-`shared/context-highlight.js`, `shared/watchlist-sync.js` — byte-
-equivalent to what was already live. `shared/watchlist.js`'s **state**
-exports (`watchlist`, `initWatchlist`, `addTickers`, `removeTicker`,
-`onWatchlistSave`) are reused for validation/dedup/cap/persistence; its
-DOM-coupled **rendering** (`renderWatchlist()`'s `.card-wrap` list) is
-not — the Rolodex renders its own card/pill DOM entirely.
-
-**A real latent bug fixed proactively before it could fire.**
-`shared/watchlist.ts`'s `renderWatchlist()` unconditionally wrote into
-`#watchlist` — every tier before this had that element; Starter's new
-Rolodex-based DOM doesn't. Calling `addTickers()`/`removeTicker()`/
-`setWatchlist()` (all of which call `renderWatchlist()` internally)
-would have thrown `TypeError: Cannot set properties of null` the first
-time a user typed a ticker into Import. Fixed with a one-line null guard
-(`if (!wl) return;`) before any of the new code exercised that path —
-harmless for every other tier, which still has `#watchlist` and is
-unaffected.
-
-**Two real regressions caught by a DOM-ID/window-export cross-check
-before shipping, not by a live report — worth being explicit about,
-since neither would have thrown an error, just silently not worked:**
-1. **`#live-clock` was dropped entirely.** The new header design (ported
-   from the Rolodex preview, which has no clock feature at all — it
-   hardcodes Yahoo and never imports `prefs.js`) had nowhere for it to
-   live, but `app.js` still called `startClock()`, which updates
-   `#live-clock` behind a null-guard (`if(cl)cl.textContent=...`) — so
-   it would have compiled, run, and thrown nothing, just silently never
-   shown a clock. This is a real, already-shipped Aug 9, 2026 feature
-   (timezone-aware, always-labeled live clock), not something this pass
-   was asked to remove. Fixed by adding `<span id="live-clock">` into
-   the header's `.brand-meta` row, next to the tier chip — that row
-   already `flex-wrap`s, so it absorbs the extra element without
-   reopening the Aug 14 header-overflow bug documented above.
-2. **Sector Pulse (`#pulse-text`) was never populated.** The original
-   `fetchMarket()` read `data.pulse` off the same `/market` response
-   used for the Gate and rendered it into `#pulse-text`; the rewritten
-   `fetchMarket()` only handled the Gate half. Starter has real,
-   un-gated Sector Pulse (`TIER.pulse:true`) — this would have silently
-   left the card showing "Generating market pulse..." forever. Fixed by
-   adding a `renderPulse()` call (mirroring the original's `data.pulse`/
-   loading/`Unavailable` branches) into `fetchMarket()`'s success and
-   catch paths.
-
-Caught both by grep-cross-checking every `getElementById('x')` in the
-new `app.js` against every `id="x"` in the new `index.html` (and every
-inline `onclick="fn(...)"` against a matching `window.fn =`) before any
-browser testing — the same technique this file's own "Verifying changes"
-section below already recommends, run here as a first pass specifically
-*because* a full rewrite (as opposed to an incremental edit) has no diff
-to eyeball for an accidentally-dropped element.
-
-**Cache-busting cascade, one layer deeper than usual.** The
-`renderWatchlist()` fix changed `shared/watchlist.js`'s compiled output
-for *every* importer, not just Starter's new one — so per this file's
-own standing rule, all of them needed their `?v=` bumped, not only the
-file actually being worked on: `shared/watchlist.ts`'s fix recompiled to
-`watchlist.js?v=31→32`; bumped in `shared/watchlist-sync.ts`'s own
-internal import (`?v=32`, both the `.ts` source and its compiled
-`.js` — per the `.ts`-source-must-carry-the-bump-too lesson from the
-`track-record.ts` conversion above) and in every direct importer
-(`starter/app.js` new at `?v=32` from the start, `app.js`/`pro/app.js`
-bumped `?v=31→32`); `watchlist-sync.js`'s own content changed as a
-result, `?v=25→26` in `app.js`/`pro/app.js` (Starter's new file already
-written at `?v=26`); finally each tier's own `<script src="./app.js?v=N">`
-bumped since its content changed (`index.html` 49→50, `pro/index.html`
-52→53). `starter/index.html`'s own script tag is new at `?v=52` (a
-straight continuation of the pre-rewrite file's last live value, `?v=51`
-— chosen over restarting at `?v=1` specifically so the URL's version
-history stays continuous with what real browsers may already have
-cached, even though a brand-new query string would technically have
-been just as safe). `preview/rolodex/` and `shark/index.html` confirmed
-untouched — neither imports `shared/watchlist.js`/`watchlist-sync.js`.
-
-**Verified: syntax + types + a real headless-Chromium pass exercising
-every real code path, not just that pages load.** `node --check` on
-every touched/rewritten JS file; `tsc -p tsconfig.json` shows the same
-~7 known `?v=N`-import-resolution errors as before (zero new ones).
-Then a full Playwright pass against realistic mocked `/market`/
-`/ticker/:symbol`/`/analyze`/`/watchlist`/`/status`/`/auth/me` responses
-(shapes read directly from `server.js`'s actual response-building code,
-not simplified — the exact mistake this file's own testing notes flag
-as a documented prior error) with a primed fake `tv_session` (tier
-`starter`), at a pinned market-open clock time via Playwright's clock
-API: confirmed the auth screen is bypassed and the real watchlist loads
-from the mocked sync pull; confirmed the Gate renders GREEN with a real
-note and docks/undocks correctly across a real incremental scroll (not
-a single jump); confirmed `#live-clock` and `#pulse-text` both render
-real content (the two regressions above, re-verified fixed); confirmed
-tapping a pill switches the active card and auto-analyzes it through the
-real `/analyze` POST, whose body carries all eight extra fields
-(`gate1Data`/`preGateData`/`weeklyCarryoverData`/`regimeData`/
-`proxyRule`/`openingBarData`/`metricsData`/`newsData`) alongside
-`ticker`/`sectorContext`/`marketContext`; confirmed a Gate-5-forceDown
-DOWN result renders its `LOOK FOR:` Pre-Gate strip and the full 6-row
-gate list uncut (not the old preview's "only 3 gates" clipping bug —
-this build never had the fixed-height `.rolo-stage` that caused it);
-confirmed the Settings modal opens, the timezone select is present and
-switchable, and it closes via its real `#settings-close-btn`; confirmed
-typing real Session Context text produces real `<mark class="ctx-match">`
-highlights via the debounced `wireContextHighlight()` → `refreshRoloCards()`
-path; confirmed Import respects the real 7-ticker Starter cap (adding an
-8th ticker to an already-full watchlist silently no-ops behind the
-native `alert()`, exactly as `shared/watchlist.ts`'s `addTickers()`
-already behaves everywhere else) and successfully adds a ticker when
-under cap; confirmed the new swipe-to-delete gesture removes the active
-ticker end-to-end (pill and card both gone afterward) via the real
-`removeTicker()`; confirmed Glossary search filters correctly. Zero real
-console/page errors — the only network failure observed was
-`fonts.googleapis.com` (pre-existing in both the old and new
-`index.html`, and consistent with this file's own documented sandbox
-network restrictions elsewhere — not a regression from this change).
-
-**Not verified:** a real end-to-end round trip against live credentials
-(`tra-zacg.onrender.com` is unreachable from this sandbox, same standing
-limitation as every other backend-dependent feature in this file) — spot-
-check a real sign-in and a real `/analyze` call after deploy. The
-`.rolo-swipe-bg`'s `z-index:9` sits below the active card's inline
-`z-index:10` but at the same level as the immediately-adjacent inactive
-cards (`z-index:9` for `abs===1`) — resolved correctly by DOM order in
-testing (the bg is always the stage's first child) but worth a visual
-spot-check on a real device if the stack ordering ever changes.
-
-**Explicitly not done in this pass:** Pro's or Free's own Rolodex
-rebuild — this PR is Starter only, per the user's own framing ("Starter
-tier first"). Shark is untouched (still deliberately deferred, per
-Tier status above). `preview/rolodex/` itself is untouched — it remains
-the Free-tier, mocked-`/analyze`, isolated-from-`shared/` staging ground
-it always was, not superseded by this real build.
-
-## Frontend: Starter header regression fix + disclaimer trim (Aug 16, 2026)
-
-Direct live feedback right after the Starter Rolodex build above shipped:
-the personal live clock added to the header (to cover what looked like a
-dropped Aug 9 feature) crowded `.app-topbar` on a real device and pushed
-the profile badge/credits chip out of place — not asked for, and a real
-regression from the rebuild itself, not a pre-existing issue. Removed
-`#live-clock` from the header entirely rather than trying to fit it more
-carefully — direct instruction ("you can remove the current completely").
-
-**The market-data "Live · Updated ..." timestamp moved back into the Gate
-box, as a real visible line, not the tooltip-only `title` attribute it had
-regressed to during the rebuild.** New `.market-ts`/`#marketTs` element
-inside `.gate-full-overlay`, between `#gateNote` and `.session-note`;
-`renderMarketTs()` now sets its `textContent` instead of a `title` on
-`#gateNote`. `startClock()` (and its `getTzIana()`/`getTzPref()`-driven
-per-second tick) was removed outright rather than kept dead — nothing
-else in Starter's build referenced it once the header span was gone.
-
-**Also dropped "short-term " from the "trading support" disclaimer
-line**, per direct request — applied everywhere the exact sentence is
-duplicated (`index.html`, `pro/index.html`, `starter/index.html`,
-`shark/index.html`, `preview/rolodex/index.html`), not just Starter,
-since the identical text is copy-pasted across all five and a wording
-correction should hold consistently across all of them.
-
-Verified via headless Chromium: `#live-clock` confirmed absent, `#marketTs`
-renders the real "🔴 Live · Updated ..." text, disclaimer text confirmed
-free of "short-term" everywhere, and the full Starter regression suite
-(auth bypass, Gate dock/undock, pill-tap auto-analyze, Settings modal,
-Session Context highlighting, Import cap, swipe-to-delete, Glossary
-search) re-passed with zero new console errors. `starter/app.js`'s own
-content changed, so its `<script src="./app.js?v=N">` bumped (52→53) —
-no shared-module content changed, so no cascade beyond that one file.
-
-## Frontend: mandatory typography convention — one grey, one size (Aug 16, 2026)
-
-Direct feedback, same round as the header fix above, screenshotted
-against a live Pro-tier page for reference: "ALL grey font must be the
-same lighter shade and size. I'm getting complaints that the font is
-hard to read... What we decide on needs to be mandatory convention
-moving forward." Investigated rather than guessed a number — grepped
-every rule in `starter/index.html` using either grey text token
-(`--ink-dim`/`--ink-faint`, plus the inline `--dim` alias used on the
-auth screen) and found real, unintentional fragmentation: **30 separate
-rules, 6 different font-sizes (9px/9.5px/10px/10.5px/11px/11.5px) and
-two different grey colors**, with no consistent logic behind which
-element got which — pure organic drift across many small edits over the
-Rolodex build, not a deliberate hierarchy.
-
-**Computed actual contrast ratios rather than eyeballing which grey
-looked "hard to read"** (WCAG relative-luminance formula, against this
-theme's three background tones):
-- `--ink-dim` (`#7d8896`): **4.87–5.44:1** — passes WCAG AA (4.5:1) for
-  normal text.
-- `--ink-faint` (`#4c5563`): **2.32–2.60:1** — well below AA, and below
-  even the 3:1 floor for large text. This is almost certainly the
-  concrete "hard to read" complaint, not just the small font sizes.
-
-**Decision, now the mandatory convention for grey/secondary text in this
-app:** every piece of non-primary text (labels, captions, notes, hints,
-meta rows, placeholders, disclaimers, footers) uses exactly
-`color:var(--ink-dim)` at exactly `font-size:11px` — no other grey token,
-no other size, for this text tier. `--ink-faint` is retired for text
-entirely; it stays defined only for genuinely non-text uses (currently
-just `.chevron`'s icon color) where WCAG contrast doesn't apply.
-`11px` was picked as the floor (not a smaller "average") specifically so
-this pass raises the worst-offending small text up rather than shrinking
-anything already at 11/11.5px down — a few purely-cosmetic, non-grey
-caption labels that happened to sit at 10-10.5px right next to now-11px
-grey siblings (`.track-teaser-title`, `.disclaimer-title`,
-`.glossary-cat`, etc.) were bumped to 11px too for visual consistency
-with their neighbors, even though they keep their own brand colors and
-weren't part of the literal "grey font" complaint. Primary/emphasized
-text (prices, verdicts, headings, ticker symbols) is unaffected — this
-convention only governs the secondary/dim text tier.
-
-**Scoped to Starter** (the only tier currently on the Rolodex UI) rather
-than retrofitted onto Free/Pro/Shark's older, structurally different CSS
-— those still use their own pre-existing (and, per this same principle,
-likely equally inconsistent) grey-text patterns. **This is now the
-required standard for any future work on this typography tier — apply
-`var(--ink-dim)` + `11px` by default whenever grey/secondary text is
-added or touched anywhere in this app, including the next tier's own
-Rolodex rebuild (Free/Pro), rather than picking a new ad-hoc size.**
-
-**Verified for layout breakage, not just visually approved** — the
-biggest real risk of a blanket size increase in this specific app is the
-several fixed-height, tight-fit containers this file has already
-documented fragile height math for (the 44px docked Gate bar sharing
-space between its marquee and the "↑ top" jump label, the 3-column Gate
-stat grid, the `.card-head` accordion rows). Headless-Chromium checks
-confirmed: `.app-topbar` stays within its 390px viewport width with zero
-overflow (the exact class of bug documented in the Aug 14 header-overflow
-entry above); the docked `.gate-mini-row` — jump label now at 11px
-instead of 9.5px — still fits with zero horizontal overflow and the jump
-label still fully visible; `#gateGrid`'s 3-column stat labels (SPY/QQQ/
-BTC/etc., now 11px instead of 9.5px) don't overflow their grid cells;
-all three utility cards' collapsed `.card-head` rows stay at their fixed
-44px height with their `.card-sub` text not silently truncated. The full
-prior Starter regression suite (auth, Gate dock/undock, pill-tap
-auto-analyze, Settings, Session Context highlighting, Import, swipe-to-
-delete, Glossary) re-passed unchanged.
-
-## Frontend: mandatory rule — every ticker symbol is a hyperlink (Aug 16, 2026)
-
-Direct instruction: "ticker symbols in the gate should be hyperlinked,
-this should be annotated as a rule for all ticker symbols." The Gate's
-own index tickers (SPY/QQQ/BTC/SOXX/XBI/IWM/GLD/USO/TSM/MSFT, in both
-`#gateGrid`'s full-detail view and `#gateMarquee`'s docked marquee) were
-plain text — every other ticker symbol in the app (card ticker/news
-links, Pro's compact rows/heat-map/trigger labels) already routes through
-`tickerHref()`, so this was a real, isolated gap rather than a
-considered exception.
-
-**Rule, now permanent for any ticker symbol displayed anywhere in this
-app:** if it identifies a specific security, it links out via
-`tickerHref()` (or `newsHref()` where a news-specific link makes more
-sense, per the existing convention). This applies to passive/label
-tickers, not just the ones already inside a ticker card. Two carve-outs,
-both deliberate:
-- **BTC needs `tickerHref('BTC-USD')`, not `tickerHref('BTC')`** — the
-  app displays the bare label "BTC" but Yahoo/the other link sites all
-  need the real `BTC-USD` symbol to resolve correctly. This isn't a new
-  decision — Free/Pro's own static Gate markup already hardcodes exactly
-  this override for their BTC tile (`data-ticker="BTC-USD"`,
-  `shared/prefs.ts`'s own top comment even calls this out: "or 'BTC-USD'
-  for the header's crypto tile"). Starter's new `GATE_LINK_OVERRIDE`
-  map/`gateLinkSymbol()` helper generalizes that same pattern rather than
-  hardcoding BTC inline, so a future non-equity symbol needing the same
-  treatment has somewhere to go.
-- **A proxy label only gets linked when it resolves to exactly one real
-  symbol.** Gate 5's proxy can be a combined multi-symbol rule (e.g. TSM
-  + KOSPI); the display name in that case isn't a single linkable
-  ticker, and KOSPI itself isn't a US-tradable symbol `tickerHref()` can
-  route correctly in the first place (same class of problem the Aug 10
-  ARCC/Egypt mis-route incident already taught this app to take
-  seriously). `roloCardHTML`'s meta-row PROXY field only wraps the label
-  in an `<a>` when `td.proxyRule.proxy.symbols.length === 1`; otherwise
-  it stays plain text, matching this file's established "fail safe to
-  plain text rather than guess a wrong link" posture.
-
-**Live-updates when the link-site preference changes.** Ticker cards
-already re-render on every `onPrefsChange` fire (which calls
-`tickerHref()` fresh), so they needed no extra wiring. The Gate's grid/
-marquee links are built once per `/market` fetch (every 4 minutes), not
-on every pref change, so they'd otherwise go stale until the next fetch
-— fixed by giving both a `data-ticker` attribute and calling the shared
-`refreshTickerLinks()` (already used by Free/Pro's static markup for the
-same reason) scoped to `#gateGrid`/`#gateMarquee` inside the
-`onPrefsChange` callback, rather than fully rebuilding the grid/marquee
-(which would reset the marquee's scroll position and visibly jump).
-
-Verified via headless Chromium: every Gate grid/marquee link resolves to
-the correct `tickerHref()` URL, BTC correctly resolves to `BTC-USD`, a
-single-symbol proxy (TSM) renders as a real link, and the docked
-marquee's `.sym` links call `event.stopPropagation()` so tapping one
-doesn't also trigger the docked bar's own tap-to-jump-to-top handler.
-
-## Frontend: Export CSV moved to the profile-menu dropdown (Aug 16, 2026)
-
-Closes a note left open since the Rolodex prototype work (Aug 14, "the
-import is missing the input window... remove the export button and
-write a print to add it to the profile badge drop-down... not built
-here, since this prototype has no profile badge component at all yet")
-— Starter's real build has a real profile-menu dropdown now, so this
-picked that plan back up for real, per direct instruction.
-
-**Not a copy of Pro's CSV shape.** Pro's `exportWatchlistCSV()`
-(`pro/app.js`) exports `Ticker,List,Price,IV,Change%` — the `List`
-column exists because Pro splits its watchlist into a 15-card window vs.
-a compact overflow list, and `IV` because Pro has real IV entitlement
-(`tierConfig.iv`). Starter has neither: every ticker in its 7-ticker cap
-is already a full card (no card/list split to tag), and Starter has no
-`iv` flag — including an `IV` column that always read `N/A` would be
-misleading rather than just absent. Starter's export is a plain
-`Ticker,Price,Change%` of the full (7-ticker-max) watchlist — same
-`fetchTickerData()`-backed row-building, CSV-escaping, and
-`trade-tribunal-watchlist-<date>.csv` filename convention as Pro's, just
-without the two columns Starter can't populate honestly.
-
-Wired as `#exportCsvBtn` in the profile-menu dropdown (between SETTINGS
-and SIGN OUT), calling the same `exportWatchlistCSV(this)` pattern as
-Pro's button (disables + shows "EXPORTING…" while the per-ticker
-`fetchTickerData()` calls resolve, restores after). Verified via headless
-Chromium: clicking it from the open profile menu triggers a real file
-download with the correct header row and real per-ticker data.
-
-## Frontend: tapping a ticker pill smooth-scrolls to its card (Aug 16, 2026)
-
-Direct instruction: "when tapping a ticker pill from the marquee,
-smoothly jump screen to the ticker card and prompt to analyze." The
-auto-analyze-on-tap half of this already existed (`goRolo()`, Aug 15,
-`?v=6`) — what was missing is that `#roloIndex` (the pill strip) stays
-sticky-docked all the way through the Glossary/Track Record/disclaimer/
-footer (the Aug 15 "pill dock persisting past the Glossary" fix), so a
-pill tapped while scrolled that far down leaves the actual card
-(`.rolo-wrap`/`#roloStage`, plain document flow, not sticky) well above
-the current viewport with nothing bringing it back into view.
-
-**Implementation deliberately avoids hand-computed scroll offsets.**
-This file already has an extensive, hard-won history of scroll-position
-math going subtly wrong in this exact page (the Gate dock-threshold
-sagas, the marquee wrap-boundary arithmetic bug) — every one of those
-was eventually fixed by measuring the real rendered thing instead of
-assuming a derived value. `scrollToActiveCard()` uses the browser's own
-`scrollIntoView({behavior:'smooth', block:'start'})` on `.rolo-wrap`,
-with `scroll-margin-top` set fresh on every call from the two real
-sticky elements currently stacked above it (`GATE_DOCKED_H` + `#roloIndex`'s
-own live `getBoundingClientRect().height`) — no coordinate arithmetic of
-this app's own to get wrong, and it stays correct automatically if either
-sticky element's height ever changes. Called from `goRolo()`, which is
-only ever invoked from a pill's click handler — never fires on the
-initial render or on any other call path.
-
-Verified via headless Chromium: scrolled to the true bottom of the page
-(past the Glossary/Track Record/disclaimer/footer, confirming the exact
-scenario this was built for), tapped a pill, and confirmed the page
-smooth-scrolled up with the target card back in the viewport afterward
-— re-ran the full existing pill-tap/auto-analyze regression alongside it
-with no regressions.
-
-## Frontend: gate-card text color, status-word removal, confidence-driven "LOOK FOR" dot (Aug 16, 2026)
-
-Three direct instructions, landed together, all scoped to a card's gate
-breakdown (not the Gate 0 market box, which is unaffected):
-
-1. **"the news links and gate language font should be white."** The
-   news headline (`.headline`/`.headline a`) and each gate's descriptive
-   note (`.gate-row .gn`) were on `var(--ink-dim)` — correct per the
-   mandatory grey-text convention above for genuinely secondary text, but
-   these two are substantive analysis content, not captions/labels, and
-   reads as under-emphasized next to it. Both switched to `var(--ink)`
-   (full-brightness white). `.headline .age` (the "9d ago" timestamp) and
-   `.gate-row .gl` (the "G1 14D" gate label) deliberately stay on
-   `var(--ink-dim)` — those are genuinely secondary annotations, not the
-   "language" being asked for here.
-2. **"remove the color words 'yellow, green, red' next to gates."** Each
-   gate row rendered its literal status word (`<span class="gs"
-   style="color:...">${gate.status}</span>`) next to the label — fully
-   redundant with the color-coded dot immediately to its left. Removed
-   the `.gs` span (and its now-dead CSS rule) entirely; the dot alone
-   still conveys GREEN/YELLOW/RED. `CONFIDENCE`'s `HIGH`/`MEDIUM`/`LOW`
-   text is a different word set, not a "color word," and was left alone.
-3. **"the dot color next to 'look for' should match the confidence level
-   color. if the confidence is low, the look for should be red."** The
-   Pre-Gate strip's dot (`pregateStripHTML()`) was colored off Gate 5's
-   own status (`sigColor(g5.status)`) — a leftover from before the strip
-   was generalized to show `result.wait_for` regardless of which gate
-   triggered it. Re-pointed at `result.confidence` instead, via a new
-   shared `confColor()` helper (`HIGH`→green, `MEDIUM`→amber, `LOW`/
-   fallback→red) — the exact same mapping the `CONFIDENCE` row already
-   used inline, now a single source of truth both call sites share
-   instead of two copies that could drift.
-
-Verified via headless Chromium: a LOW-confidence mocked result renders
-the "LOOK FOR" dot in `var(--red)` (confirmed via computed style, not
-just reading the code); zero `.gs` elements exist anywhere in the DOM
-after rendering a full gate breakdown; a gate row's label text is
-exactly `"G1  14D"` with no trailing status word; both `.headline` and
-`.gate-row .gn` compute to `rgb(233, 237, 243)` (`--ink`) rather than the
-dim grey. Full prior Starter regression suite and the fixed-height
-overflow checks re-passed with zero new console errors.
-
-## Backend: LOW confidence didn't always ship a real wait_for (Aug 16, 2026)
-
-Prompted by a direct question, right after the confidence-driven "LOOK
-FOR" dot above shipped: is the LOW-confidence/`wait_for` overlap actually
-always true? Audited every place `/analyze` sets `confidence = "LOW"`
-(`Tra`'s `server.js`, 3 explicit sites) rather than assume the "heavily
-overlap" claim from that PR's own summary held everywhere:
-
-1. Gate 5 RED downgrading an UP verdict to FLAT — sets `wait_for` in the
-   same statement. Guaranteed.
-2. The non-exempt-DOWN congruency fallback (redCount < 2) — uses
-   `parsed.wait_for = parsed.wait_for || "default text"`. Guaranteed.
-3. **The Proxy Coherence Check's "possible decoupling" branch
-   (`coherence.forceDown === false`) — sets only `confidence = "LOW"`,
-   never touches `wait_for` at all.** Real gap.
-
-A fourth path has no guarantee either: when the model self-assigns `LOW`
-on its own (per the CONFIDENCE rubric, with no server override firing),
-the prompt never instructs it to pair that with a `wait_for`.
-
-**Fix (`Tra` PR #37, mirrored into `trade-verdict`'s `server.js`): one
-invariant, not four patches.** Rather than fix each site individually,
-added a single check after every confidence-setting branch has already
-run: `if (parsed.confidence === "LOW" && (!parsed.wait_for ||
-parsed.wait_for === "null")) parsed.wait_for = "Additional confirmation
-needed before directional entry.";` — closes the real gap and the
-model-only path in one place, and the `||`/falsy check means it never
-overwrites a real `wait_for` a branch or the model already provided
-(including the `"null"` literal string, which every tier's frontend
-already treats as empty).
-
-Verified by extracting the exact snippet and running it against 7
-synthetic cases: the real gap gets the default filled in; all three
-branches that already set a real `wait_for` are left untouched; a
-model-provided `"null"` string is caught the same as `undefined`;
-MEDIUM/HIGH confidence cases are never touched. **Not verified against a
-live deploy** — same standing sandbox limitation as every other backend
-change in this file. This closes the loop the confidence-driven "LOOK
-FOR" dot needed: LOW confidence now always ships with something to
-actually look for, not just sometimes.
-
-## Backend: confidence redefined as price-confirmed corroboration, not "did a rule fire" (Aug 16, 2026)
-
-Direct follow-up, same conversation as the `wait_for` fix above. Prompted
-by a pointed question — why not extend the same guarantee to MEDIUM and
-HIGH? — that surfaced a much bigger issue than the `wait_for` gap: **every
-server-side override branch in `/analyze` capped `confidence` at a flat
-`MEDIUM` or `LOW` regardless of how corroborated its own trigger actually
-was.** Not one of the ~9 override branches could ever produce `HIGH` —
-`HIGH` only survived when the model self-assigned it *and* no override
-fired at all. Worked through with Mr. T directly (not guessed at) what
-`confidence` should actually mean: **the AI's own sense of certainty in
-its read, given all the inputs** — and specifically, whether the ticker's
-own observed price move *and* its sector/proxy's observed price move
-independently confirm the mechanical trigger driving the verdict. "If the
-chart is showing what the math says it should be doing, that's the
-indication of confidence" — his framing, confirmed as the actual design.
-
-**Why blanket pass-through of the model's own number doesn't work
-either.** When an override *flips* the verdict (e.g. the model says UP,
-then Pre-Gate finds a solvency red flag and forces DOWN), the model's
-original confidence was about its own UP call — not the DOWN that
-actually ships. Confidence has to be re-grounded in whatever verdict
-*actually ships*, including overridden ones — it can't just be "whatever
-the model said," and it can't just be "capped because a rule fired"
-either. Both are wrong for the same reason: neither actually measures
-whether the final call is corroborated.
-
-**The real definition, agreed on before writing any code:**
-- **HIGH** — the ticker's own price move AND its proxy/sector's price
-  move both independently agree with the direction being asserted. Two
-  real, independent signals confirming each other is the actual bar —
-  not "nothing objected."
-- **MEDIUM** — the trigger is real and clean on its own terms, but there's
-  no independent price data to confirm or deny it (missing, or a move too
-  small to be a real signal) — genuinely unconfirmed, not contradicted.
-- **LOW** — a signal that IS available moves opposite the asserted
-  direction — the math and the chart are actively disagreeing. This
-  should be the tier the app is trying to avoid landing in, not a routine
-  third of the distribution — if the underlying gates are sound and the
-  market's behaving the way the rules expect, LOW shouldn't come up
-  often. Its recurring is itself a signal worth noticing.
-
-**Implementation (`Tra` server.js, mirrored into `trade-verdict`'s
-`server.js`):** new `priceConfirmedConfidence(direction, tickerPct,
-proxyPct)` helper, reused across every override branch that asserts a
-direction, replacing the flat `"MEDIUM"` literal each one used to write.
-`tickerPct`/`proxyPct` were already computed once at the top of
-`/analyze` (Proposal 2/4's own tickerPct/proxyPct, sourced from
-`openingBarData`'s bar-1 move and `sectorContext`'s parsed change
-strings) — no new fetches needed. Moves inside ±1.0% count as
-negligible/unavailable, not agreement or disagreement — the same
-tolerance `gates-extended.ts`'s own `proxyCoherenceCheck()` already uses
-for its flat band (`COHERENCE_FLAT_BAND_PCT`), kept as its own local
-constant here rather than importing that one, since coupling a
-single-check-tuned value to a generic threshold for no real reason isn't
-worth it. This directly answers the "don't tie confidence to anything
-negligible" concern raised mid-discussion — a 0.1% intraday wobble can no
-longer register as either confirming or contradicting anything.
-
-**Per-branch application, not a blanket swap** — six sites now call the
-helper, three intentionally don't:
-- Pre-Gate hardTrigger, Gate 0 RED, Gate 1 forceDown, and the Gate 5
-  RED+Gate 2 RED double-negative — all now call
-  `priceConfirmedConfidence("DOWN", tickerPct, proxyPct)`. Gate 0
-  YELLOW+UP calls it with `"UP"` instead of just capping at MEDIUM — if
-  the ticker's own price is genuinely cutting through the sector
-  headwind, that's real evidence, not something to hedge against by
-  default.
-- **Gate 5's Proxy Coherence Check branch got more nuance than a plain
-  helper call, because `proxyCoherenceCheck()` already distinguishes two
-  meaningfully different `forceDown:true` cases that a generic sign check
-  would flatten together:** Case 1 (ticker actively moved *with* the
-  proxy) is genuine two-signal confirmation → `HIGH`. Case 2 (ticker is
-  flat, inside the coherence check's own flat band — hasn't caught up
-  yet, but hasn't contradicted the trigger either) → `MEDIUM`, not HIGH.
-  The prior code treated both cases identically (`coherence.forceDown ===
-  true` → flat `MEDIUM`); `coherence.case` was already being returned by
-  `gates-extended.ts`, just never read here.
-- Gate 5's plain-forceDown `else` branch (no coherence check possible —
-  either not Taiwan/Korea-gated, or `tickerPct`/`proxyPct` genuinely
-  missing) now calls the generic helper instead of a flat `MEDIUM` too —
-  a real, incidental improvement for dynamically-resolved primary proxies
-  (Patch 2), which skip the coherence check entirely today since it's
-  scoped to the fixed Taiwan/Korea case, but still get real credit now
-  when their own `tickerPct`/`proxyPct` happen to be available and agree.
-- **Left untouched, deliberately:** the Gate 5 RED-alone case that
-  downgrades an UP verdict to FLAT (catalyst fighting sector — a genuine
-  *gate-vs-gate* conflict, Gate 2 positive vs. Gate 5 negative, not a
-  price-confirmation question) and the non-exempt-DOWN congruency
-  fallback (insufficient RED-gate count — genuinely insufficient
-  evidence, also not a price question). Both stay `LOW` for reasons that
-  have nothing to do with `tickerPct`/`proxyPct` agreeing or not.
-
-**The LLM-facing prompt got the same philosophy, not just the
-server-enforced branches.** Added one clarifying line under the
-`CONFIDENCE:` rubric: `"Congruency confirmed" means the ticker's own
-price action and its sector/proxy's price action both point the same way
-as the verdict — not just that the pre-determined gate statuses happen to
-be green.` A light, additive clarification rather than a rewrite of the
-tuned rubric — the self-assigned (no-override) path already implicitly
-required multi-signal gate agreement; this makes explicit that "agreement"
-means the same price-confirmation test the server-enforced branches now
-use, not just gate-status color.
-
-**Verified by simulation** (same discipline as every other gate-logic
-change in this file — no way to test a live `/analyze` call from this
-sandbox): extracted `priceConfirmedConfidence()` and ran it against 14
-synthetic cases — both signals confirming (HIGH), both missing (MEDIUM),
-one confirming/one missing (MEDIUM), either signal contradicting (LOW),
-negligible/noise-level moves on either side correctly treated as
-non-signals (MEDIUM, not LOW or HIGH), the exact ±1.0% boundary (at the
-threshold = MEDIUM, just past it = HIGH/LOW), and the real Aug 13, 2026
-crash-scale TSM value (-6.2%) from the Gate 5 bug-fix history above
-(HIGH, both signals agree). Separately verified the Gate 5 coherence-check
-Case 1/Case 2/Case 3 split end-to-end against `proxyCoherenceCheck()`'s
-real logic (not reimplemented) — Case 1 → HIGH, Case 2 (flat/lagging
-ticker) → MEDIUM, Case 3 (decoupled) → LOW, using the same real Aug 13
-example plus a synthetic Case 2. **Not verified against a live deploy** —
-same standing sandbox limitation as every backend change in this file.
-To confirm live: watch for a HIGH-confidence card on a clean forceDown
-(e.g. a genuine Gate 0 RED session where the ticker itself is also down
-hard) — something that was structurally impossible before this change —
-and watch whether LOW confidence actually stays rare in practice, per the
-"this is the tier we're trying to avoid" framing above.
-
-## Frontend: Rolodex mechanics extracted to shared/rolodex.ts; Phase 3 (bundler) kicked off on Starter (Aug 16, 2026)
-
-Direct instruction, following a requested audit of the Rolodex build
-before extending it to Free/Pro: the audit's top structural finding was
-that the Rolodex UI mechanics (Gate dock/spacer/marquee, ticker-pill
-marquee, stacked-card positioning, swipe-to-delete) lived entirely inside
-`starter/app.js` — a second and third tier copy-pasting that code would
-mean every hard-won fix from this file's own Rolodex saga (dock-
-threshold math, marquee wrap-boundary arithmetic, the self-healing
-pause) needing independent rediscovery in Free and Pro's own copies.
-Recommended extracting a shared module before duplicating, and doing it
-alongside Phase 3 (the bundler) rather than deferring Phase 3 again,
-since a new shared module consumed by multiple tiers is exactly the case
-that makes the `?v=N` cache-busting convention actually painful (this
-file's own Starter-build history shows several PRs needing 3-4 files'
-versions bumped by hand for one shared-module change).
-
-**Scope boundary for the extraction, deliberate:** `shared/rolodex.ts`
-owns HOW the UI moves (dock/undock, marquee stepping, stacked-card
-positioning, the swipe gesture) — never WHAT it shows. Card content
-(`roloCardHTML`, gate rendering, ticker links), `GATE_FIELDS`, and all
-business logic (`analyzeOne`, the real `/analyze` call) stay tier-owned,
-since those genuinely differ per tier (Pro's card/list-window split and
-exclusive features, Free's teased Sector Pulse). Forcing those into the
-shared module before a second real consumer (Free) proves out what's
-actually shared would be premature abstraction in the other direction —
-matching this file's own repeated lesson about not guessing at
-abstractions ahead of a second real use case.
-
-**Phase 3, scoped as "convert the one file this extraction actually
-needs," not a full-site migration.** `starter/app.js` converted to
-`starter/app.ts` (Starter is now the second tier-level `app.js` on real
-TypeScript, after the shared/*.ts modules) and is now the bundle's real
-source; the committed `starter/app.js` is `esbuild`'s emitted output,
-same "compile, commit both, GitHub Pages keeps serving from branch, zero
-deploy-config change" posture as every Phase 2 conversion — `npm run
-build:bundle` (or `node esbuild.config.mjs`) after touching
-`starter/app.ts` or anything it imports, then commit the result and bump
-`starter/index.html`'s own `<script>` tag. `package.json` is now a real,
-committed file (`typescript` + `esbuild` devDependencies) — the
-`tsconfig.json` comment claiming otherwise was updated to match.
-
-**Two distinct duplicate-module bugs found and fixed while proving this
-out — both real, both would have shipped broken if the build had "looked
-done" after the first one:**
-1. **Query-string identity.** esbuild's module cache is keyed by the
-   exact specifier string, so `'./watchlist.js?v=32'` (used inside
-   `shared/watchlist-sync.ts`, necessary there since it's also loaded
-   raw by unbundled tiers) and `'../shared/watchlist'` (a clean import
-   written fresh in `starter/app.ts`) resolve to the same file but don't
-   deduplicate into the same module instance — confirmed first via a
-   synthetic two-importer repro before touching the real build, then
-   found for real in the bundle output as a renamed `watchlist2` binding
-   with its own independent array.
-2. **`.ts`-vs-compiled-`.js` identity, a second and different collision
-   the first fix's query-stripping alone didn't catch.** Every Phase 2
-   file has BOTH its `.ts` source and its `tsc`-emitted `.js` sibling
-   committed side by side (the `.js` is the real deploy artifact for
-   unbundled tiers). An extensionless specifier resolves to the `.ts`
-   source; an explicit `.js`-suffixed specifier (even with its `?v=N`
-   query already stripped) resolves to the literal, separately-compiled
-   `.js` file — a genuinely different physical file, with its own
-   independent top-level state. This one was the more dangerous of the
-   two precisely because it looked fixed: after the query-string fix
-   alone, `watchlist` had exactly one instance visible in a quick grep,
-   but `setWatchlist()`'s own writes were landing on a *second*,
-   differently-resolved copy (`shared/watchlist.js`, not `.ts`) that
-   nothing else in the bundle read from — the real, server-synced
-   watchlist silently never appeared on screen, while the page otherwise
-   looked completely normal (no console error, no exception, just a
-   ticker count that stayed on Starter's 7-ticker localStorage default
-   forever). Caught only by adding a real console.log inside
-   `renderRolodexFromWatchlist()` and tracing the actual call stack and
-   timing, not by reading the code — the bundle output's own chunk
-   headers (`// shared/watchlist.ts` at one line, `// shared/watchlist.js`
-   at another) were the tell once looked for directly.
-
-**Fix: `esbuild.config.mjs`'s `normalizeSharedImports` plugin**, an
-`onResolve` hook matching any `.js`(`?v=N`)? specifier, that checks
-whether a `.ts` sibling exists on disk and redirects to it when one does
-(falling back to the plain, query-stripped `.js` path otherwise) —
-rather than hand-matching every entry point's own import specifiers to
-whatever version number and extension a shared file's internal imports
-happen to carry right now, which is exactly the fragile manual
-bookkeeping Phase 3 exists to eliminate. Verified by checking the
-bundle's own chunk-header comments after the fix: every `shared/*`
-module now appears exactly once, always as its `.ts` source.
-
-**A real, incidental cleanup caught along the way:** an earlier debugging
-command (`tsc ... --noEmit false` run against `starter/app.ts` mid-
-investigation) accidentally emitted a stray, untracked `shared/rolodex.js`
-— `rolodex.ts` is bundler-only (nothing loads it as a raw browser
-module, so it has no `?v=N` consumer and was never added to
-`tsconfig.build.json`'s emit scope) — deleted before committing; flagged
-here since an untracked stray `.js` sibling next to a `.ts` file would
-have silently reintroduced exactly the collision class this same pass
-just fixed, the moment anything referenced it by a `.js`-suffixed path.
-
-**Verified end-to-end, not just that the build produced output:** the
-full existing Starter regression suite (headless Chromium against
-realistic mocked backend responses) re-run against the bundled output —
-auth bypass, real watchlist pull from a mocked `/watchlist` (the exact
-path the duplicate-module bug broke), Gate dock/undock via real
-incremental scroll, pill-tap auto-analyze with the real `/analyze` body
-shape, ticker hyperlinks (Gate grid/marquee + card + proxy), CSV export,
-confidence-driven "LOOK FOR" dot, Settings modal, Session Context
-highlighting, Import cap, swipe-to-delete, Glossary search, scroll-to-
-card on pill tap — all pass identically to the pre-bundle build, plus
-the fixed-height overflow checks. `tsc -p tsconfig.json` shows the same
-known `?v=N`-import-resolution baseline as before, zero new errors.
-`node --check` on the emitted `starter/app.js`.
-
-**Explicitly not done in this pass:** Free/Pro's own bundled entry
-points (this was scoped to "convert what the extraction needs," not a
-full-site Phase 3 migration — each tier adds its own `esbuild.config.mjs`
-entry when its own Rolodex work actually starts); stripping `?v=N` from
-the shared `.ts` files' own internal imports (still needed for Free/Pro's
-current unbundled consumption — only the *bundler's resolution*, not the
-source files themselves, was changed); minification/source maps (no
-build-artifact story exists yet for this repo, deliberately deferred).
-
-## Frontend: Rolodex UI shipped to Free, written as real TypeScript from the start (Aug 16, 2026)
-
-Direct instruction: "start the Free tier Rolodex build and continue
-following through phase 3." Second real (non-preview) tier on the
-Rolodex UI, after Starter — and the first tier whose Rolodex build was
-authored as real `.ts` from day one (`app.ts` at repo root) rather than
-converted after the fact, continuing Phase 3 alongside the feature work
-itself rather than as a separate pass.
-
-**Same "invert build direction" approach as Starter**: started from
-Free's real, working `app.js`/`index.html` (anonymous `APP_SECRET` auth,
-`redirectingToPaidTier` guard, `forceDefaults()`, the real weekly-reset
-credit system) and ported the Rolodex mechanics in via `shared/rolodex.ts`
-— not the other way around. `esbuild.config.mjs` gained a second entry
-(`{ in: 'app.ts', out: 'app' }`); the emitted, committed `app.js` is the
-real deploy artifact, same posture as Starter's bundle. Confirmed via the
-same chunk-header grep used for Starter's own duplicate-module check
-(`grep "^// shared/" app.js`) that all 7 shared modules bundle exactly
-once — the `normalizeSharedImports` plugin built during Starter's Phase 3
-kickoff needed no changes to handle a second entry point correctly.
-
-**Real, deliberate differences from Starter's build, each a judgment
-call made in the absence of further instruction:**
-- **Sector Pulse is a static blurred teaser**, ported verbatim from
-  `preview/rolodex/`'s own Free-scoped design (`TIER.pulse:false` — Free
-  has never had real Sector Pulse content). Needs no JS rendering at all,
-  unlike Starter's real `renderPulse()`.
-- **Gate labels shortened to Starter's wording** (`G1  14D` etc., not
-  Free's old longer `G1  PRE-WINDOW 14D`) and the **Gate-1-driven card
-  rim-color mechanic was dropped** — neither Starter's Rolodex nor the
-  original preview ever had a colored card rim, and the verdict glow
-  (`verdict-up`/`verdict-down` green/red pulse) already carries that
-  signal in the Rolodex card language. Kept the two builds visually
-  consistent rather than preserving a Free-only affordance nothing else
-  on the Rolodex UI has.
-- **"WAIT FOR" unified to Starter's "LOOK FOR:"** — CLAUDE.md never
-  established this as tier-specific wording, and the confidence-driven
-  dot color (`confColor()`) this labels was already ported from Starter
-  unchanged, so keeping mismatched label text next to it would've been
-  the actual inconsistency.
-- **The real weekly-credit-reset splash is genuine, live functionality
-  here — not dead code the way `#comeback-screen` was on Starter.**
-  Ported as a full-page overlay (`#comeback-screen`/`startComebackTimer`/
-  `handleNoCredits`), independent of the Rolodex card stack rather than
-  wired into any card — the original design was already a full-viewport
-  takeover regardless of which ticker triggered it, and there was no
-  reason to change that shape. The dual anonymous/signed-in buy-button
-  behavior (sign-in prompt vs. real $0.99 purchase link, since Stripe
-  purchases key off account email) carried over unchanged.
-- **Ticker/news links hardcoded to Yahoo Finance directly**, not routed
-  through `shared/prefs.ts`'s `tickerHref()`/`newsHref()` — Free has
-  never had a Settings UI or a link-site preference (`forceDefaults()`
-  already forces Yahoo/ET regardless of what's saved from another tier
-  in the same browser), so importing `prefs.ts` at all would have been a
-  new dependency for zero behavioral gain. Still satisfies the mandatory
-  "every ticker symbol is a hyperlink" rule — just via a two-line local
-  `tickerHref()`/`newsHref()` instead of the shared helper.
-- **No live clock in the header, timestamp lives in the Gate's
-  `#marketTs` line instead** — built straight into this state rather than
-  reintroducing Starter's since-fixed Aug 16 header-crowding regression
-  (documented above, "Starter header regression fix") and then having to
-  fix it a second time.
-- **No manual refresh button** — matches Starter's Rolodex convention
-  (auto-refresh every 4 minutes via `setInterval`, plus tap-Gate-to-jump-
-  to-top when docked); the old refresh button (`fetchMarket(true)`) was
-  Free's own pre-Rolodex affordance, not carried forward.
-- **Sources line now includes Alpaca** (extended-hours pricing, weekly
-  carryover) — this was previously only listed on Starter's disclaimer,
-  but `Tra`'s Alpaca integrations apply uniformly to every tier's
-  `/ticker/:symbol` and `/analyze` responses regardless of tier, so the
-  old Free-only Finnhub/Anthropic/Unusual-Whales list was already
-  factually incomplete, not a deliberate scope difference.
-- **Footer keeps its Privacy Policy link** (`/privacy/`), which Starter's
-  footer doesn't have — Free is the tier actually wrapped in the Android
-  TWA and submitted to Play Console (see the Google Play launch section
-  above), where a reachable privacy policy is a real Play Store
-  requirement, not just a nice-to-have.
-
-**A real, genuine bug in `shared/rolodex.ts` found and fixed during
-verification — affects Starter too, not something this build
-introduced.** Testing swipe-to-delete via a real headless-Chromium
-pointer-drag (not just reading the code) intermittently landed the
-`pointerdown` on `#roloIndex`'s sticky pill strip instead of the
-`.rolo-card` underneath it — confirmed via `elementFromPoint()` and
-direct `getBoundingClientRect()` sampling that the active card's real
-rendered top edge was ABOVE the pill strip's bottom edge, a genuine
-visual/interactive overlap. Root-caused by sampling `#gateSpacer`'s real
-computed height every 30ms through a pill tap: `scrollToActiveCard()`
-(in `shared/rolodex.ts`, used by both Free and Starter) sets
-`wrap.style.scrollMarginTop` and calls `scrollIntoView({behavior:
-'smooth'})` while the Gate is still undocked — the resulting scroll
-itself is what normally triggers `updateGateDockState()` to collapse
-`#gateSpacer`'s ~150-200px of reserved flow space, but that collapse is
-CSS-transitioned (`.2s`), so the *layout* `scrollIntoView` and the
-in-flight scroll animation actually observe keeps shifting for the next
-200ms while the transition eases — the page moves out from under the
-already-committed scroll target and it consistently lands short,
-overlapping the sticky pill strip. A first fix attempt (forcing
-`gateSpacer.style.height='0px'` synchronously before computing the
-scroll target) still didn't work — the same 30ms-sampling technique
-showed the *style* was set immediately but the *rendered* height stayed
-at its old value for one full frame before the transition took over,
-proving a style write alone doesn't make the layout `scrollIntoView`
-reads reflect the change. **Actual fix:** suppress `gateSpacer`'s
-transition for this one forced, synchronous collapse
-(`transition:'none'`, force a reflow via `offsetHeight`, restore the
-transition), so `scrollIntoView` and the real scroll animation both
-operate against an already-final, stable layout. Natural scroll-driven
-docking (the normal case, not a pill tap) is untouched — it still eases
-via the transition exactly as before. Re-verified via the same
-30ms-sampling technique: the active card's real position now lands
-flush against the pill strip's bottom edge with zero overlap, and the
-swipe gesture removes the correct ticker end-to-end. Re-ran Starter's
-full existing regression suite (`verify-starter.mjs`) against the fixed
-shared module — all pass, zero new errors, confirming the fix is a pure
-correctness improvement for both tiers, not a Free-specific patch.
-
-**Verified via real headless Chromium, both an anonymous session and a
-signed-in-but-free session** (the lapsed-subscriber/free-account sync
-path) — separately, since they exercise genuinely different code paths
-(`initWatchlistSync`/`pullWatchlistFromServer` only fire when
-`sbSession.token` is set): ticker count, Gate render, no live-clock
-element, `#marketTs` populated, Sources line includes Alpaca, footer
-Privacy Policy link present, Sector Pulse teaser renders (blur + upsell,
-no Settings modal/profile-menu/CSV-export elements exist anywhere in the
-DOM, matching Free's real capability set), pill-tap auto-analyze,
-real `/analyze` request body shape (all 8 relay fields present), Gate
-dock/undock via real incremental scroll, Session Context highlighting
-produces real `<mark class="ctx-match">` spans, Import respects the real
-3-ticker cap (an over-cap add silently no-ops behind the native
-`alert()`), swipe-to-delete removes the correct ticker end-to-end in
-both auth states, Glossary search filters correctly, and a real
-`NO_CREDITS` 402 correctly shows the full-page comeback splash with the
-right buy-button text/link for each auth state and correctly hides again
-on close. Zero real console/page errors in either auth state — the only
-network failures observed were `fonts.googleapis.com` (this sandbox's
-own documented restriction, not a regression) and intermittent
-`/status` fetch failures that don't affect any assertion (matches this
-file's own fail-safe-by-design posture for that endpoint).
-
-**Not verified:** a real end-to-end round trip against live credentials
-(`tra-zacg.onrender.com` is unreachable from this sandbox, same standing
-limitation as every other backend-dependent feature in this file) —
-spot-check a real anonymous analysis and a real signed-in-but-free
-watchlist sync after deploy.
-
-**Explicitly not done in this pass:** Pro's own Rolodex rebuild (needs
-its own design pass per the deep-dive audit that preceded this build —
-Pro's card/list-window split and exclusive features don't map onto the
-Rolodex UI as directly as Free/Starter's did); Shark (still deliberately
-deferred, per Tier status above). `preview/rolodex/` itself is untouched
-— it remains the mocked-`/analyze`, isolated-from-`shared/` staging
-ground it always was, not superseded by this real build.
-
-## Frontend: Free's ticker pill strip gets a permanent "Starter?" upsell pill (Aug 16, 2026)
-
-Direct instruction: add a non-ticker pill reading "Starter?" to Free's
-`#roloIndex` marquee that links to the Starter upgrade Stripe page —
-explicitly not counted as a ticker.
-
-**Extended `shared/rolodex.ts`'s `rebuildRoloIndex()` with an optional
-4th `buildExtraChip` parameter**, rather than building this directly in
-`app.ts` outside the shared marquee mechanism. A one-off pill appended
-after `rebuildRoloIndex()` finishes (outside its repeating-pass loop)
-would only ever be reachable by dragging past the last pass — the
-continuous auto-scroll marquee never legitimately scrolls that far, since
-`stepRoloMarquee()` only ever cycles `scrollLeft` between `0` and
-`roloMarqueeOneSetW` (one pass's width). `buildExtraChip`, when supplied,
-gets appended once per repeated pass (after the real ticker chips, before
-the divider) so it repeats naturally alongside them and is genuinely
-visible during normal marquee playback, not just via a manual drag.
-`roloItemsPerPass` (used by `sizeRoloMarquee()`'s child-index-based
-pass-width fallback) is bumped by one whenever `buildExtraChip` is
-supplied, so that measurement still points at the correct second-pass
-start. Fully backward compatible — omitting the 4th argument (Starter's
-own call site, unchanged) behaves identically to before.
-
-**Kept deliberately outside every ticker-aware mechanism, not just
-visually different.** `buildUpsellChip()` (`app.ts`) returns a plain
-`<a>` styled with a new `.rolo-chip-upsell` class, not `.rolo-chip` —
-so it's automatically excluded from `positionRoloStack()`'s active-chip
-toggling (`.rolo-chip` class-scoped query) and `renderPill()`'s
-per-symbol updates (`.rolo-chip[data-sym="..."]`, which it doesn't
-match either way, having no `data-sym`) by construction, not by a
-special-case check. It's never added to `watchlist`, never passed
-through `goRolo()`/`analyzeOne()`, and the `"— N —"` divider text is
-still computed from `watchlist.length` alone — so it doesn't count
-toward the 3-ticker cap, the ticker-count header, or the divider count,
-exactly as asked. A plain `<a href="..." target="_blank">` needs no
-click handler of its own; the existing native-focus-scroll suppression
-(`pointerdown → preventDefault()`, already applied to every appended
-element inside a pass) is applied to it the same as any real chip, so
-tapping it can't fight the marquee's own scroll position.
-
-Verified via headless Chromium: the pill renders once per marquee pass
-(3 real chips × 3 tickers = 9 real chips, 3 upsell pills, matching);
-correct text ("Starter?"), `href` (the Starter Stripe link), and
-`target="_blank"`; the ticker-count header and the `"— 3 —"` divider are
-both unaffected; the marquee still auto-scrolls; tapping the pill opens
-a new tab and leaves the currently-active ticker card/pill completely
-unchanged (no `goRolo()` side effect). Re-ran Free's full existing
-regression suite (anonymous and signed-in-but-free) — all pass, zero new
-errors. `starter/app.js` (unaffected — Starter's own `rebuildRoloIndex()`
-call site doesn't pass the new argument) re-verified via its own
-existing regression suite for the same reason as always: this change
-touches the shared `rolodex.ts` module.
-
-## Frontend: Free header's credits/sign-in chips stacked vertically, not a horizontal row (Aug 16, 2026)
-
-Direct correction: `.topbar-actions` (the credits chip + the SIGN UP/SIGN
-IN or SIGN OUT chip) was laid out as a horizontal row (`display:flex`,
-no `flex-direction` set — defaults to `row`), so whenever `.app-topbar`
-ran out of width the whole pair wrapped as a unit onto its own line
-*below* the logo/brand, still side-by-side. **Not what's wanted, now or
-in any future pass on this header:** changed `.topbar-actions` to
-`flex-direction:column; align-items:flex-end`, matching
-`preview/rolodex/`'s original design for this same element — the two
-chips now always stack vertically on the right, whether or not the pair
-as a whole still needs to wrap below the logo on a very narrow viewport.
-
-Verified via headless Chromium at two widths (390px and a much tighter
-320px): confirmed both chips stack vertically and stay right-aligned
-(their right edges match) at both widths, confirmed zero horizontal
-overflow (`.app-topbar`'s `scrollWidth` never exceeds its own rendered
-width) at either width, and visually confirmed via screenshot at both.
-Scoped to Free only (`index.html`) — this is the only tier with this
-exact "credits chip + login/sign-up chip" pair; Starter/Pro's header
-uses a credits chip + a single profile-menu button instead, a different
-layout not touched by this fix. Pure CSS/HTML change — `app.js`'s own
-content is unaffected, so no `?v=` bump applies.
-
-## Frontend: Free header — missed cache-bust, then a scroll-hide header tried and reverted same day (Aug 16, 2026)
-
-**Bug — a real, embarrassing repeat of this file's own documented
-cache-busting rule.** The PR that added the "Starter?" upsell pill
-(above) changed `app.ts`/`shared/rolodex.ts` and rebuilt `app.js`, but
-never bumped `index.html`'s own `<script src="./app.js?v=51">` — so a
-browser that had already loaded the page kept running the stale,
-pre-upsell-pill bundle, exactly the failure mode this file has warned
-about since the Aug 2-3, 2026 `watchlist.js` incident. Caught live
-("I'm not seeing the teaser pill"), fixed with the one bump. **Permanent
-reminder, not just a one-off:** Free's `index.html` has no importers to
-cascade into, so a content change to `app.ts` always means bumping this
-one `?v=` by hand — there's no shared-module cascade to catch it for you
-here the way there is for `shared/*.ts` files.
-
-**Feature tried, then reverted the same day.** Also built: a
-`position:fixed` header that hid on scroll-down and revealed on
-scroll-up (transform-only motion, per the Aug 13, 2026 collapsing-card
-lesson), with `#scroller`'s own `padding-top` collapsing in lockstep so
-the Gate genuinely reclaimed the vacated space (its real viewport `top`
-measured `71px → 0px`, not just a visual cover-up). Building this
-surfaced a real bug worth remembering even though the feature itself is
-gone: the header-hide listener reacted to a pill-tap's own resulting
-scroll and collapsed `#scroller`'s padding **during** the in-flight
-`scrollIntoView()` animation — the exact same "layout shifts out from
-under an in-flight scroll" race already fixed once for the Gate's own
-`gateSpacer`, just via a different property this time. Fixed by adding
-an optional `beforeScrollToCard()` hook to `shared/rolodex.ts`'s
-`RolodexCallbacks`, letting a tier settle its own fixed chrome
-synchronously before `scrollToActiveCard()` measures anything.
-
-**Reverted in full the same day, direct feedback: "remove the header
-hiding. that broke too much and I don't like it."** Every piece came
-back out cleanly — `.app-header`'s `position:fixed`/transform CSS, the
-DOM wrapper (`.safe-top`/`.app-topbar` are direct `.app-shell` children
-again), `app.ts`'s `setHeaderHidden()`/`sizeHeaderSpacer()`/
-`wireHeaderScroll()`, and the now-unused `beforeScrollToCard` hook
-itself (removed as dead API surface, not left disabled) — confirmed via
-`grep` on both compiled bundles (zero matches) and a live check
-(`#appHeader` `null`, header position byte-identical before/after a full
-scroll). `?v=52→53` for the removal, same as any other content change.
-Starter was never touched by either the feature or the revert (the hook
-was optional and it has no fixed header).
-
-**The lesson worth keeping, independent of the header itself:** the Aug
-13, 2026 collapsing-card principle (transform/opacity-only, never a
-reactive layout-affecting property mid-gesture) held up fine here too —
-what broke was the *interaction* between two independently-reasonable
-pieces (the header's hide/show and `scrollToActiveCard()`'s pre-existing
-scroll-margin math) each written assuming the other didn't exist. That's
-the standing risk with any future "add fixed chrome above `#scroller`"
-change on this page, not something specific to headers. No plan to
-revisit a scroll-hide header on its own.
-
-There's no test suite. What's actually been useful:
-- `node --input-type=module --check < path/to/file.js` — syntax only, catches
-  real mistakes fast, no build step needed.
-- A grep-based DOM-ID / `onclick`-handler cross-check between the HTML and
-  its `app.js` (every `getElementById('x')` has a matching `id="x"`; every
-  inline `onclick="fn(...)"` has a matching `window.fn = fn`).
-- A headless-Chromium smoke pass (Playwright, pre-installed at
-  `/opt/pw-browsers/chromium`) — load the page, bypass auth, exercise the
-  new code paths, check for console/page errors. There is no reachable
-  backend from most sandboxes, so network calls to `tra-zacg.onrender.com`
-  will fail/hang — that's expected; the point is confirming the new code
-  degrades gracefully instead of throwing.
-  - **CSS-toggling `#app-root` visible is not a real auth bypass on
-    Starter/Pro/Shark.** `initApp()` (which calls `renderWatchlist()`) only
-    runs from `checkTierAccess()`, which only runs if `checkAuth()` finds a
-    valid `tv_session` in localStorage — forcing `#app-root` display without
-    that leaves the watchlist genuinely empty (no errors, just nothing
-    rendered), which reads like a bug but isn't one. Prime a fake-but-valid
-    session first: `localStorage.setItem('tv_session', JSON.stringify({token:'x',
-    tier:'pro', expiresAt: Math.floor(Date.now()/1000)+3600}))`, then reload.
-    Free tier doesn't need this for a genuinely free/anonymous test session
-    — its `app.js` still calls `renderWatchlist()` unconditionally at module
-    load, no session gate. But if you're priming a **paid** `tv_session`
-    (tier !== 'free') to test something else and happen to load the Free
-    tier page too, its redirect-away check now correctly skips
-    `initWatchlist`/`pullWatchlistFromServer` entirely
-    (`redirectingToPaidTier`, Aug 3, 2026) — don't "fix" that guard away
-    thinking it's dead code blocking a test; it's why a paid account's real
-    watchlist doesn't get silently truncated to Free's 3-ticker cap and
-    written back to the shared `tv_wl` localStorage key.
-  - **`page.route('**/analyze')`-style exact-suffix patterns silently match
-    zero requests here.** Every API call goes through `addSecret()`, which
-    appends `?supabase_token=...` (or nothing, pre-login) to the URL — route
-    against a substring (`url.includes('/analyze')`) instead of an exact
-    suffix, or the intercept quietly no-ops and looks like "no requests
-    fired" (a false-positive bug report, not a real one).
-  - **Free tier's Service Worker (`sw.js`) breaks `page.route()` mocking for
-    it specifically, in a way that looks exactly like "the feature is
-    broken," not "the test harness is."** Discovered chasing what looked
-    like a real bug in Import's company-name lookup (Aug 23, 2026, see
-    below): a `page.route()` mock for a real backend endpoint worked
-    reliably on Starter/Pro but silently failed on Free — the request left
-    the page, Playwright's route handler never fired, and it failed with
-    `net::ERR_FAILED` before ever reaching the mock. Root cause: only Free
-    registers `sw.js` (see the PWA groundwork section above); its
-    network-first fetch handler intercepts the page's fetches at a layer
-    Playwright's page-level routing doesn't reliably see through in this
-    sandbox, and once one real (unmocked-by-the-SW) request to an origin
-    fails this way, every *later* request to that same origin fails the
-    same way too — including ones with a working mock, making the failure
-    look much bigger than "one endpoint." A `page.route('**/sw.js', ...)`
-    404 is NOT sufficient — the registration call itself still needs
-    blocking: `page.addInitScript(() => { navigator.serviceWorker.register
-    = () => Promise.reject(new Error('blocked for test')); })` before
-    `page.goto()`. Once that's in place, Free tier mocks exactly like
-    Starter/Pro. If a Free-tier-only test shows a real backend URL
-    escaping every mock while the identical test passes on another tier,
-    check this before assuming the app code itself is broken.
-- None of the above substitutes for a real login against the live backend —
-  flag that as unverified rather than implying it was checked.
-- The same applies, harder, to any new third-party API integration in `Tra`
-  (e.g. Alpaca's options-snapshot endpoint for IV, added Aug 2, 2026) — there
-  is no way to test against real, entitlement-gated credentials from a
-  sandbox at all. Write it to fail safe (catch everything, return null/a
-  clear placeholder, never throw into the response), say explicitly in the
-  PR that it's unverified against live credentials, and say what a human
-  should check after deploy (e.g. "confirm the Alpaca plan actually has
-  options-data entitlement, spot-check one known-liquid ticker's value").
-
-## Backend: signup confirmation emails redirecting to a dead site (Aug 16, 2026)
-
-Reported live: users confirming their email after signup landed on a dead
-site — the confirmation itself succeeded (Supabase processed the token
-fine), but the link didn't ship them anywhere useful afterward.
-
-**Root cause.** `/auth/signup`'s `authClient().auth.signUp({ email,
-password })` call never passed an `emailRedirectTo` option, so Supabase
-fell back to the project's default **Site URL** (Auth → URL
-Configuration) for the confirmation link instead of the app itself.
-`/auth/reset` already sets `redirectTo` explicitly
-(`https://tradetribunal.app/reset`) — signup was the one auth path that
-never got the equivalent treatment, so this same class of bug (documented
-elsewhere in this file for `/reset`'s own redirect) had a second, unfixed
-instance sitting right next to it the whole time.
-
-**Fix (`Tra` PR #39 / `trade-verdict` PR #167, both merged):** added
-`options: { emailRedirectTo: "https://tradetribunal.app/" }` to the
-`signUp()` call — root, not a tier subpath, since every new signup starts
-as a `free` subscriber (`upsertSubscriber(email, "free", ...)` runs
-immediately after). Mirrored into `trade-verdict`'s copy per the
-two-repo rule; `Tra` is what actually deploys.
-
-**Required companion step, same shape as the Aug 4, 2026 `/reset`
-rollout:** `https://tradetribunal.app/` had to be added to Supabase's
-Auth → URL Configuration → Redirect URLs allowlist, or Supabase would
-keep rejecting the redirect even with the code fix deployed — **done,
-confirmed by Mr. T Aug 16, 2026.**
-
-**Unverified against a live signup** — same standing sandbox limitation
-as every other Supabase/backend change in this file (no reachable
-credentials, no way to actually receive a confirmation email from here).
-To confirm: sign up with a real test email once `Tra`'s deploy picks up
-PR #39, click the confirmation link, and check it lands on
-`https://tradetribunal.app/` instead of the old dead URL.
-## Frontend: Rolodex UI shipped to Pro — third real tier, Phase 3 bundler entry (Aug 16, 2026)
-
-Direct instruction: "finish out phase 3 and continue phase to finish out the app update." Third real
-(non-preview) tier on the Rolodex UI, after Starter and Free — and per the plan already laid out in
-"Frontend: Rolodex mechanics extracted to shared/rolodex.ts" above, Pro's build needed its own design
-pass first (its card/watchlist split and four Pro-exclusive features don't map onto the Rolodex UI as
-directly as Starter/Free's did). Shark stayed untouched — still the deliberately-deferred rebuild
-pending the Alpaca "Plus" data-plan decision, not picked up.
-
-**The one genuinely blocking structural question, scoped via `AskUserQuestion` before writing any
-code:** how should Pro's existing 15-card-window / unlimited-watchlist split (and its role as a
-credit-cost guardrail on `analyzeAll()`, capped at CARD_CAP/3 = 5 credits) map onto the Rolodex's
-single-active-card model? **Answer, verbatim: "the pills are capped at 15. the watchlist stays as
-built in pro. it can be in a drop down like everything else."** Confirmed and implemented exactly as
-answered: `cardWindow()` (`watchlist.slice(0, CARD_CAP)`) is the pill strip's only source array —
-`rolodex.initRolodex()`'s `getWatchlist` callback is wired to `cardWindow`, not the raw `watchlist` —
-while the underlying `watchlist` array itself stays exactly as unlimited as it already was
-(`maxTickers: 999`, unchanged). Everything beyond the top 15 renders in a new "Watchlist" accordion
-utility card (`data-card="watchlist"`), the same tap-to-expand pattern already established for Sector
-Pulse/Session Context/Import — "like everything else," per the literal answer.
-
-**Approach: same "invert the build direction" pattern as Starter/Free, not a preview extension.**
-Started from Pro's real, working `pro/app.js`/`pro/index.html` (real auth/credits/`/analyze`, real
-server-synced watchlist AND track record — Pro is the only tier with the latter — Settings modal,
-Session Context highlighting) and ported the Rolodex's sticky-docking Gate, marquee pill strip, and
-single-active-card stage mechanics in via `shared/rolodex.ts`, exactly as Starter/Free's own sections
-above describe. `pro/app.ts` was authored as real TypeScript from day one (matching Free's precedent,
-not Starter's convert-after-the-fact one) — `npx tsc --noEmit` against it (Pro isn't in `tsconfig.json`'s
-narrow Phase 0 scope, so checked directly with the same compiler flags) came back with only the same 7
-known `?v=N`-import-resolution baseline errors shared modules already carry — zero errors from
-`pro/app.ts` itself.
-
-**Every Pro-exclusive feature ported forward, not dropped — reshaped only where the CARD_CAP decision
-above required it:**
-- **Analyst View** — unchanged in substance (trigger classification via `classifyTrigger()`,
-  corroboration tally, resolved proxy tier/risk flags), now a per-card expandable subsection
-  (`data-toggle-analyst`/`data-analyst-body`, wired via `wireCardButtons()` rather than the old
-  `window.toggleAnalyst` inline `onclick`) instead of a fixed list-row subsection — calls
-  `rolodex.syncRoloStageHeight()` on toggle since expanding it changes the active card's real height,
-  same discipline as every other dynamic-height change on this page.
-- **Real Track Record** (not a teaser — Pro has no upgrade gate on this) — its own accordion utility
-  card (`data-card="track"`), `refreshTrackRecordCard()` (new, consolidates `renderTrackRecord()` +
-  `renderGateAttribution()` + `renderTickerAccuracy()`) called once unconditionally at `initApp()` so
-  the card's content is already correct by the time a user taps it open — unlike Watchlist/Proxy/Heat
-  Map, Track Record needed no lazy-load-on-expand wiring. Real ✓ RIGHT/✗ WRONG/SKIP log buttons
-  (`logSectionHTML`/`logResultUI`) replace Starter/Free's "UPGRADE to log results" teaser link.
-- **Proxy Resolution Explorer** and **Sector Heat Map** — both became accordion utility cards
-  (`data-card="proxy"`/`"heatmap"`), lazy-rendered on first expand via `wireAccordionHead()`'s
-  `kind==='proxy'`/`'heatmap'` branches (mirroring `'watchlist'`'s same lazy-load shape). Both
-  correctly cover the **full** watchlist (all 18 in testing, not just the 15-card window) via a
-  priority-first pattern — `cardWindow()` resolves first, `overflowTickers()` streams in after —
-  reusing the exact priority-first/generation-counter shape this file's Aug 5, 2026 "watchlist
-  load-time fixes" entry already established for these same two panels. Both now `await
-  pillHydrationDone` (a new per-render promise, replacing the old shared-module `cardsReady()` gate)
-  before firing their own fetches, so they don't compete with the top-15 pills' own hydration burst.
-- **Watchlist overflow accordion** (`data-card="watchlist"`, replacing the old always-visible compact
-  list) — tickers beyond CARD_CAP, ported near-verbatim from the old `renderCompactList`/pointer-gesture
-  code: price/%chg/news, swipe-to-delete, sort toggle, a "+" promote-to-card button
-  (`promoteToCard()`, splices the ticker into index `CARD_CAP-1` via `setWatchlist()` — whatever was
-  already there shifts down to become the new top overflow row).
-- **CSV export** — same `Ticker,List,Price,IV,Change%` shape (`List` = `CARD` if index < CARD_CAP else
-  `WATCHLIST`) as before, moved into the profile-menu dropdown (`#exportCsvBtn`), matching where
-  Starter's own CSV export already lives, replacing the old in-Import-tile button.
-
-**`#comeback-screen` dropped, same call as Starter's, confirmed the same way.** Grepped the OLD
-`pro/app.js` before assuming: `showScreen()`'s allowed-list included `'comeback-screen'`, but no call
-site anywhere in the file ever actually invoked `showScreen('comeback-screen')` — same dead-code
-pattern Starter's own build already found and documented. Dropped in favor of the same
-`handleNoCredits()` inline-error path Starter/Free use, not re-verified with the user since the
-evidence (a grep, not a guess) already matched an established precedent in this file.
-
-**A real, pre-existing CSS gap found and fixed, not inherited silently.** `shared/track-record.ts`'s
-STREAK/TOP TICKERS row has always referenced `var(--fs-sm)` inline — a leftover from the old
-pre-Rolodex Pro/Starter CSS (`--fs-sm:11px`). Starter's own Rolodex `:root` never defined it, but
-Starter never surfaced the gap because `TIER.tracker:false` means it never calls
-`renderTrackRecord()`. Pro's real Track Record does call it, so the gap would have rendered that one
-row at the browser's inherited font size instead of 11px. Fixed by adding `--fs-sm: 11px;` to
-`pro/index.html`'s `:root` as a legacy alias, same pattern already used there for
-`--card`/`--white`/`--dim`.
-
-**Phase 3 (bundler): third entry point, zero plugin changes needed.** `esbuild.config.mjs`'s
-`entryPoints` array gained `{ in: 'pro/app.ts', out: 'pro/app' }` — the `normalizeSharedImports` plugin
-built during Starter's Phase 3 kickoff (redirects `.js`(`?v=N`)? shared-module specifiers onto their
-`.ts` siblings, preventing the two duplicate-module bug classes documented there) needed no changes to
-handle a third entry point. Confirmed via the same chunk-header grep used for Starter/Free's own
-duplicate-module checks: `pro/app.js` bundles exactly 10 shared modules, every one as its `.ts` source,
-zero duplicates. `starter/app.js`/`app.js` (Free) were unaffected by the new entry — re-confirmed via
-`git status` showing only the files this pass actually touched.
-
-**Verified via real headless Chromium against a realistic mocked backend** (an 18-ticker watchlist —
-15 inside the card window, 3 overflowing — to actually exercise the CARD_CAP split, not just assert it
-in isolation): ticker-count reflects the full 18-ticker watchlist while card-count correctly reads
-`15/15`; the pill strip contains zero overflow tickers; pill-tap auto-analyze and the confidence-driven
-"LOOK FOR" dot work; Analyst View expands with real trigger/corroboration/proxy-tier content; real log
-buttons record a result and both accuracy breakdowns populate immediately; the Watchlist accordion
-shows exactly the 3 overflow tickers sorted by % change, and promoting one moves it into the pill strip;
-Proxy Resolution Explorer and Heat Map both cover all 18 tickers (not just 15); Gate dock/undock via
-real incremental scroll; Settings modal opens; CSV export downloads a real file with the correct
-`List` column and all 18 rows; Session Context highlighting produces real marks; **Analyze All fires
-exactly 15 `/analyze` calls, never 18** — confirming the 5-credit-max guardrail survived the rebuild
-unchanged; the real `/analyze` request body carries all 8 relay fields; Gate ticker links resolve
-correctly including the `BTC-USD` override; Glossary search filters; swipe-to-delete removes the
-correct ticker end-to-end. Re-ran Starter's and Free's full existing regression suites afterward since
-this pass touches `esbuild.config.mjs` (shared by all three bundled entry points) — both pass
-unchanged, zero new errors. **A real bug caught and fixed in the test script itself, not the app**,
-worth noting since it cost real debugging time before being ruled out: the CSV-export step's own click
-sequence assumed the profile menu started closed going into that step, but `settings-modal.ts`'s panel
-calls `event.stopPropagation()` on its own clicks (to stop backdrop-click side effects) — which also
-means closing Settings never reaches the profile-menu's outside-click-closes listener, so the menu was
-still open from the earlier Settings step. The test's own next click on `#profile-btn` was therefore
-closing the menu, not opening it. Not a Pro-specific bug — the same `settings-modal.ts` behavior
-applies identically to Starter, whose own test script happens to click something outside the menu
-between those two steps and never hit it. Fixed in the test by explicitly closing the menu first.
-
-**Not verified:** a real end-to-end round trip against live credentials (`tra-zacg.onrender.com` is
-unreachable from this sandbox, same standing limitation as every other backend-dependent feature in
-this file) — spot-check a real sign-in, a real `/analyze` call, and the real server-synced Track Record
-pull/push after deploy.
-
-**Phase 3 status after this pass:** Starter, Free, and Pro all have their own bundled `app.ts` entry
-point. Shark remains the only tier not on this pattern — still deliberately deferred, per Tier status
-above.
-
-## Engineering: Phase 4 shipped — real test suite, TypeScript adoption plan closed out (Aug 17, 2026)
-
-Direct instruction: "finish up the loose end from phase 2 and complete phase 4 so this can be done,"
-with Shark explicitly confirmed shelved indefinitely (no longer "pending the Alpaca Plus decision" —
-just off the table, don't revisit without being asked).
-
-**Phase 2's "loose end" turned out to already be closed — the note above was stale, not the work.**
-Re-read the "gates-extended.js (trade-verdict's copy) converted to .ts" entry above and found it still
-said `Tra`'s own mirror was "still open, a real follow-up, not forgotten." Added `Tra` to this session's
-repo scope to actually check, rather than trust the note — its `gates-extended.ts` was already there,
-committed via `Tra` PR #36 and merged *before* the Aug 16 confidence-redefinition work even started.
-Confirmed it's a real, working mirror, not a stray file: `require('./gates-extended.js')` against `Tra`'s
-compiled output returns all 14 expected exports, and diffing `Tra`'s `gates-extended.ts` against this
-repo's own showed the code identical, only one header-comment line differing (`types.js` vs
-`shared/types.d.ts`, matching `Tra`'s flatter layout). Corrected the stale note in place rather than
-leaving both versions in the file.
-
-**Phase 4 — a real gap, not stale documentation, so this pass actually built it.** The plan's own
-description named exactly what to protect: "every recent gate-logic change... was already verified with
-a throwaway Node script... converts work already being done into permanent regression coverage for the
-trickiest logic in the app." `gates-extended.ts`'s 10 exported functions were cleanly testable as-is
-(already a real, `require()`-able CommonJS module) — but the *other* half of "the trickiest logic," the
-functions behind the Aug 13, 2026 Gate 5 forceDown-unreachable bug and the Aug 16 LOW-confidence gap
-(`priceConfirmedConfidence`, `normalizeMarketReading`, `evaluateProxyStatus`), lived inline inside
-`server.js`, which has no `module.exports` at all and calls `app.listen()` at the bottom — requiring it
-for a test would start a real server as a side effect. Skipping those and testing only `gates-extended.ts`
-would have left Phase 4 covering half of what it was actually scoped to protect.
-
-**Fix: extracted the four pure functions into `analyze-helpers.ts`**, a new file following the exact
-same CommonJS-safe pattern `gates-extended.ts` already established (no `import`/`export` statements —
-same ESM/`export {}`-silently-breaks-`require()` trap documented there — a plain
-`declare var module: {exports:any}` plus a literal `module.exports = {...}` at the bottom instead).
-`server.js` now requires it via `const ah = require("./analyze-helpers");` and calls the four functions
-through the `ah.` namespace, matching the existing `gx.` convention for `gates-extended.js`. **Verified
-this was pure code motion, not just asserted:** extracted the *original* inline function bodies from
-`git show HEAD:server.js` into a throwaway comparison module and ran both old and new side by side
-across 23 cases — including the real Aug 13, 2026 crash-scale `-6.20%` TSM value and the exact
-multi-symbol label-pairing bug case — every single one byte-identical. Also did a full real boot test
-(`npm install`, `node server.js`) to confirm the edited file starts cleanly end-to-end, not just that
-`node --check` and `tsc` were happy.
-
-**The real test suite (`tests/gates-extended.test.js`, `tests/analyze-helpers.test.js`, 75 cases,
-`node --test tests/*.test.js` via `npm test`) — no new dependency, Node's built-in test runner, exactly
-as the plan's own text suggested.** Covers every branch this file's own incident writeups already
-named: all 8 `evaluateGate1Sessions` branches, all 3 `proxyCoherenceCheck` cases (including the real
-Aug 13 crash example), all 4 `regimeValidation`/`hasForceDownAuthority` states (UNKNOWN/INTACT/
-DEGRADING/BROKEN), all 4 `resolveFixedProxyBreak` tiers, `contextTextMatches`/`buildupPatternCheck`/
-`corroborateSessionContext`, and for `analyze-helpers.ts`: every `priceConfirmedConfidence` boundary
-(including the exact ±1.0% negligible-move threshold), `normalizeMarketReading`'s two accepted shapes,
-and `evaluateProxyStatus`'s RED/YELLOW/GREEN thresholds plus the exact multi-symbol mislabeling case
-the Aug 13 fix targeted.
-
-**A real, honest snag while writing the `gates-extended.ts` tests, worth keeping as a technique note:**
-three of the DEGRADING/secondary-tier/exhaustion-threshold fixtures failed on the first run — not
-because the underlying logic was wrong, but because hand-guessed synthetic price/correlation series
-didn't actually land in the target band (e.g. a "decorrelated" fixture that was still positively
-correlated enough to read as INTACT). Rather than loosen the assertions to fit whatever the fixture
-produced, tuned the *fixtures* by running small throwaway scripts against the real `gx.pearson()`/
-`gx.regimeValidation()`/`gx.resolveFixedProxyBreak()` functions themselves until they landed cleanly in
-the intended band, then locked in those exact values with a comment explaining why. All 75 cases pass
-on a clean run.
-
-**Both changes landed the same way this file's two-repo rule always requires:** `Tra` (the real backend)
-gets the actual `analyze-helpers.ts`/`server.js` change and its own copy of the test suite (`Tra` PR
-#40); this repo's `server.js`/`analyze-helpers.ts` are the mirror, cosmetic/historical per the usual
-rule, but this repo's own copy of the test suite is real and load-bearing here too, since
-`gates-extended.ts` is genuinely used by both. `Tra`'s `tsconfig.json`/`tsconfig.build.json` both
-widened to include `analyze-helpers.ts`, same as this repo's.
-
-**Status: the TypeScript adoption plan (Phases 0-4) is now fully complete in both repos.** Phase 0/1
-(JSDoc + shared contract types): done. Phase 2 (real `.ts`, transpile-only): done in both repos,
-confirmed above. Phase 3 (bundler): done for Starter/Free/Pro, Shark intentionally excluded (see next
-paragraph). Phase 4 (real test suite): done, this entry. Nothing further planned on this thread unless
-new work surfaces a reason to revisit it.
-
-**Shark: shelved indefinitely, not "pending a decision" anymore.** Every earlier note in this file
-framed Shark's rebuild as blocked on an Alpaca "Plus" data-plan upgrade that might happen at some
-point. Per direct instruction this session, that framing is retired — Shark is shelved indefinitely.
-Don't pick it up, don't ask about the Alpaca plan, unless explicitly asked to revisit it.
-
-## Frontend: gate-dot alignment fix, Pro header/topbar bug, Watchlist/Import card-sub truncation (Aug 18, 2026)
-
-Three live-reported issues from a real phone, two screenshots (one unlabeled, one Pro) — all Rolodex-UI
-polish, no logic changes.
-
-**1. Gate status dots not lined up with their label's first line, "across all tiers."** The
-`.gate-row`/`.gate-dot` CSS (byte-identical, hand-copied into Free/Starter/Pro's `index.html`) relied on
-a guessed `margin-top:4px` on the dot to visually center it against the label's cap-height — a constant
-tuned to look right for whatever monospace font a desktop browser happens to resolve `--mono`'s stack
-to. A synthetic repro with that exact CSS in this sandbox measured only a 1-2.5px dot/label offset and
-looked fine on screen — but the `--mono` stack's real first match on Android is `Roboto Mono` (a font
-this sandbox doesn't have installed, and Playwright's browser couldn't fetch from Google Fonts either to
-test against, since browser launches here don't pick up the proxy the way `curl`/Node do) — different
-fonts have different line-height metrics, so a margin-top tuned against one font's metrics is not
-guaranteed to land correctly against another's. Rather than guess a new constant for a font this sandbox
-can't actually render, **fixed the alignment structurally instead of numerically**: restructured the
-markup so the dot and the label share their own inner flex row
-(`.gate-row-head{display:flex;align-items:center;gap:8px}`), decoupled from the multi-line note text
-below it (`.gate-row` itself becomes `flex-direction:column`, `.gn` gets `padding-left:16px` to stay
-visually indented under the label like before). `align-items:center` on a two-item single-line flex row
-centers the dot against the label's actual line-box by construction, for any font, with nothing left to
-mistune. Verified two ways: (1) a font-metric-sensitivity test — same markup, deliberately different
-computed line-heights — showed 0.00px dot/label-center offset in every case, versus the old approach's
-1-2.5px-and-unverifiable-on-a-real-device gap; (2) a real Pro-tier render with a full mocked 6-gate
-analyzed card measured `0` offset on all 6 rows. Applied identically to `index.html`/`starter/index.html`/
-`pro/index.html`'s CSS and each tier's own `gateListHTML()` markup (not a shared module — three
-hand-copied, now-identical edits, same as the CSS always was).
-
-**2. Pro's credits chip stacked above the profile button instead of beside it, unlike Starter.** A real
-bug from Pro's own build (Aug 16, 2026): `pro/index.html`'s `.topbar-actions` was written as
-`flex-direction:column;align-items:flex-end` — Free tier's deliberate vertical-stack pattern (a direct,
-different-shaped fix from earlier the same day, for Free's two-chip credits+sign-in pair) — instead of
-Starter's actual horizontal `display:flex;gap:6px;align-items:center`. Since Pro was built by copying
-Starter's CSS as the base, this was very likely an absent-minded copy from the Free-tier work done
-immediately prior in the same session, not a deliberate choice. Fixed by matching Starter's rule exactly.
-Verified via real render: credits chip and profile avatar now share one row, vertically centered against
-each other (confirmed via `getBoundingClientRect()`, not just a screenshot glance — a 20px-tall chip and
-a 32px-tall circular avatar centered on a `align-items:center` row do NOT share the same `.top`, so the
-real check compares vertical centers, not raw top values).
-
-**3. Watchlist (and, caught by directly measuring rather than guessing, Import) accordion subtitles
-clipping.** `.card-sub` is a fixed single-line `overflow:hidden;text-overflow:ellipsis;white-space:nowrap`
-element, and the Watchlist card's subtitle text ("Beyond the top 15 · tap + to promote to a card") is the
-longest of any utility card *and* has to share its row with a count badge, shrinking its available width
-further than the others. Measured every card-sub's `scrollWidth` vs `clientWidth` on the real page rather
-than guessing which ones clip from character count alone — two genuinely clip: **Watchlist** (as
-reported) and **Import** ("Paste or type tickers to add · unlimited on Pro," never reported but longer
-than Watchlist's own text and confirmed clipping the same way). The other five (Pulse/Context/Proxy/
-Heatmap/Track) measured clean, left untouched.
-
-**First fix attempt built a redundant second "(?)" system, caught before it shipped.** Per the direct
-request ("this info is better suited in (?) instead of the text per drop down"), the first pass added a
-new `.info-btn` next to the card label plus a `showCardInfo(e, text)` helper (`stopPropagation` +
-`alert()`). Before committing, `git fetch origin main` turned up two PRs merged by a *different*,
-concurrent session in the time since this repo was last synced — "Add card-header help balloons with
-glossary screen-jump links" and a font-size/Gate-label follow-up — that had **already** added a proper
-`.help-btn`/`data-help="X"` system (`shared/rolodex.ts`'s `initHelpBalloons()`, fading balloon popups
-with inline Glossary jump-links, not a plain `alert()`) to every utility card on all three tiers,
-**including Watchlist and Import specifically** — confirmed by diffing that PR's `HELP_CONTENT` object
-directly rather than assuming. Shipping the from-scratch `.info-btn` on top of that would have put two
-different-looking "?" buttons and two different help mechanisms on the same card. Reverted the whole
-`.info-btn`/`showCardInfo` addition before it was committed.
-
-**What that other PR did NOT do: shorten the actual `.card-sub` text.** It added the help balloon
-*alongside* the still-too-long subtitle, so the real clipping bug this entry opened with was still live
-even after both PRs merged — confirmed directly, not assumed, by re-measuring `scrollWidth` vs
-`clientWidth` against the post-merge markup. **The actual fix, once the redundant system was removed:**
-just shorten the two clipping `.card-sub` strings — Watchlist to "Beyond top 15", Import to "Paste or
-type tickers to add" — leaving the already-existing `.help-btn`/balloon exactly where the other session
-put it (a sibling of `.card-title-wrap`, unaffected by the text edit). Both now measure clean at 0px
-overflow.
-
-**A second, real regression surfaced only after rebasing onto the concurrent PRs, caught by re-measuring
-rather than assuming the fix was complete.** Adding a `.help-btn` sibling to *every* utility card (not
-just Watchlist, which already had a count-badge eating into its width) shrank `.card-title-wrap`'s
-available space on cards that had measured clean before — **Session Context** ("Empty · auto-included in
-every analysis," clipping by 6px on all three tiers) and Pro's **Proxy Resolution Explorer** ("Gate 5
-proxy + live coherence per ticker," clipping by 13px). Neither was part of the original report; both were
-found by re-running the exact same `scrollWidth`-vs-`clientWidth` measurement against the merged tree
-instead of trusting the pre-rebase result. Fixed the same way: Context shortened to "Auto-included in
-every analysis" (drops the redundant "Empty · " prefix — the textarea itself already shows emptiness),
-Proxy shortened to "Proxy + live coherence per ticker" (drops the redundant "Gate 5 " prefix — the card's
-own title already says "Proxy Resolution Explorer"). Re-measured clean across all three tiers afterward.
-
-**Lesson worth keeping:** before adding new UI mechanics to a shared file mid-session, re-fetch and check
-for concurrent work first — this file's own two-repo-drift lessons are about staying in sync
-across repos, but the exact same discipline applies within one repo when another session might be
-landing overlapping work in parallel.
-
-**Verified together via one real headless-Chromium pass** (mocked backend, a full 6-gate analyzed card,
-tapping the pill first, run against the rebased tree with both concurrent PRs merged in): all 6 gate-dot
-offsets measured `0`; topbar `flexDirection:row` with credits left of and vertically centered against the
-profile avatar; all 7 card-subs measured non-clipping; the pre-existing `.help-btn`/balloon for Watchlist
-and Import both confirmed still present and unaffected by the text shortening. Re-ran the full existing
-Free/Starter/Pro regression suites afterward since the gate-row markup change touches every tier — all
-pass, zero new errors. `index.html`/`starter/index.html`/`pro/index.html` `?v=` bumped since each tier's
-own `app.ts` content changed on top of the concurrent session's own bumps; no shared module was touched
-by this pass, so no further cascade was needed.
-
-## Frontend: utility/watchlist cards soft-snap under whichever dock sits above them (Aug 18, 2026)
-
-Direct request: expanding Sector Pulse should soft-snap its top edge to sit right under the collapsed
-docked Gate; more generally, tapping any card to expand it should smooth-scroll (not jump, not reorder)
-so its top lands flush under whichever sticky bar is directly above it on the page — the docked Gate for
-Pulse/Session Context/Import, and (Pro only) the docked ticker-pill strip for Watchlist/Proxy/Heat
-Map/Track Record, since those sit below `#roloIndex` in the page. Explicit constraints from the request,
-carried through the implementation: never reorder cards, only scroll; keep free scrolling completely
-unaffected afterward — no persistent CSS `scroll-snap-type` lock, just a one-time smooth scroll on expand.
-
-**Implementation, entirely in `shared/rolodex.ts` — mechanics, not tier-specific content, per this
-module's own scope boundary.** `scrollToActiveCard()` (the existing pill-tap-to-ticker-card scroll,
-Aug 16) already did exactly this for one specific case — force the Gate docked synchronously, then
-`scrollIntoView` with a `scrollMarginTop` accounting for the Gate's docked height plus the pill strip's
-own docked height. Extracted that shared "force-dock + measure the pill strip's real height" logic into
-`forceGateDockedSync()`, then added a new export, `snapCardUnderDock(cardEl)`, that applies the same
-scroll to any card element — determining whether to also add the pill strip's height via a live
-`Node.compareDocumentPosition()` check against `#roloIndex`, rather than a hand-maintained per-tier list
-of "which cards come before/after the pill strip." This is deliberate: it stays correct automatically as
-tiers add or reorder utility cards (Pro's Watchlist/Proxy/Heat Map/Track Record cards all sit after
-`#roloIndex` in the DOM, same as the active ticker card; Free/Starter's three utility cards all sit
-before it, same as the Gate) without this module needing to know anything tier-specific about which
-cards exist.
-
-Wired into each tier's own `wireAccordionHead()` (`app.ts`, `starter/app.ts`, `pro/app.ts` — this
-listener itself stays tier-owned, same split as everywhere else in `shared/rolodex.ts`'s design): calls
-`rolodex.snapCardUnderDock(card)` only when the card is being *expanded* (`!wasExpanded`), never on
-collapse — collapsing a card should never move the scroll position. Pro's version calls it before its
-existing lazy-render dispatch (`renderOverflowList()`/`renderProxyExplorer()`/`renderHeatMap()`) — order
-doesn't actually matter here, since a card's top edge doesn't move when its body's content populates
-below it, only its bottom does.
-
-**No new failure mode re-litigated — reused the already-hard-won `forceGateDockedSync()` fix
-verbatim.** The synchronous-collapse-before-measuring dance (kill `gateSpacer`'s transition, force a
-reflow, restore it) that `scrollToActiveCard()` needed on Aug 16 to avoid the scroll target shifting out
-from under an in-flight animation applies identically here — sharing the one implementation instead of
-duplicating it means any future fix to that mechanism benefits both call sites automatically.
-
-**Verified via real, incremental headless-Chromium checks, not a single fixed-position jump** — matching
-this file's own repeatedly-learned lesson about scroll-timing bugs specifically: measured, for each of
-Free/Starter/Pro, that (1) expanding Sector Pulse or Session Context from the very top of the page forces
-the Gate to dock and lands the card's top exactly `GATE_DOCKED_H` (44px) below `#scroller`'s own top
-(not raw viewport coordinates — this file's own Aug 15 measurement-methodology lesson), (2) the existing
-ticker-card pill-tap snap still lands at `GATE_DOCKED_H + roloIndexHeight`, unchanged, (3) on Pro,
-expanding the Watchlist accordion (which sits below `#roloIndex`) lands at that same combined offset, not
-the Gate-only one, confirming the DOM-position check correctly classifies a tier-specific card it knows
-nothing about, (4) collapsing an already-expanded card never moves `#scroller`'s `scrollTop`, and
-(5) a manual scroll immediately after a snap moves the page normally — free scroll is genuinely
-unaffected, not locked. Re-ran the full existing Free/Starter/Pro regression suites afterward — all pass,
-zero new console errors (only the standing, pre-existing `fonts.googleapis.com`/`/status` sandbox-network
-failures already documented elsewhere in this file).
-
-**A real, self-inflicted testing bug caught and fixed while writing this verification, not an app bug —
-worth keeping as its own reminder alongside the Aug 15 ALAB-pill flakiness lesson.** A fixed
-`waitForTimeout(700)` after triggering a snap intermittently read the scroll position before the smooth
-`scrollIntoView` animation had actually finished, producing a spurious failing measurement on an
-otherwise-correct page (confirmed by re-running the identical scenario multiple times back to back — the
-underlying app behavior was 100% consistent, only the fixed-delay test assertion flickered). Fixed the
-test harness with a `waitForScrollSettle()` helper that polls `#scroller.scrollTop` until it stops
-changing between checks, rather than guessing an animation duration — the same "measure the real thing,
-don't guess a constant" discipline this file already applies to the app's own code, applied here to the
-test script that verifies it.
-
-`app.js`/`starter/app.js`/`pro/app.js` rebuilt from their `.ts` sources via `node esbuild.config.mjs`
-(only `shared/rolodex.ts` and the three tiers' `wireAccordionHead()` changed — no other shared module
-touched); confirmed via the usual chunk-header grep that all three bundles still contain exactly one
-`shared/rolodex.ts` chunk, no duplicate-module regression. `?v=` bumped in all three tiers' own
-`<script>` tags (`index.html` 56→57, `starter/index.html` 59→60, `pro/index.html` 4→5) since each
-tier's own bundled `app.js` content changed as a result of the shared `rolodex.ts` edit — no shared
-module besides the bundler-only `rolodex.ts` was touched, so no further `?v=` cascade applies (`rolodex.ts`
-has no raw-browser `?v=N` consumer at all, same as noted when it was first extracted).
-
-## Frontend: Sector Pulse soft-snaps flush under the Gate's own natural scroll-driven dock (Aug 18, 2026)
-
-Direct follow-up to the tap-to-expand soft-snap above: "mostly it works great but one thing I still want
-to smooth out on all tiers... at the moment when gate collapses and docks, the screen should snap the top
-edge of the sector pulse card [to the] edge of the docked gate." A real, distinct gap from what the entry
-above shipped — that one only snapped a card when a user *tapped* it open; the Gate's own **natural**
-scroll-driven dock transition (`updateGateDockState()`, no tap involved) had no equivalent correction at
-all.
-
-**Confirmed the gap was real before writing any fix, not assumed.** `updateGateDockState()`'s existing
-behavior — collapsing `gateSpacer` to `0` with a CSS transition once the Gate docks — is a passive layout
-reflow, not a scroll; it "pulls" the page's content up, but nothing about it guarantees the very next
-card's top edge lands pixel-flush against the docked bar's bottom edge. Verified directly in headless
-Chromium: stopping a scroll gesture that overshoots the ~14px dock threshold by a realistic ~40px (a
-normal real-device overshoot, not an edge case) left Sector Pulse's top edge 26px **under** the docked
-Gate — a real, visible overlap, not merely "off by a rounding error." Landing exactly on the 14px
-threshold itself happens to reflow perfectly flush by the existing algebra (`gateSpacer` is sized to
-exactly `overlayHeight − GATE_DOCKED_H`) — but that's a razor's edge no real scroll gesture reliably stops
-on, which is why the bug reads as "usually a little off" rather than "always broken."
-
-**Fix (`shared/rolodex.ts`), same "measure the real thing, correct the residual" discipline as the entry
-above, not a new mechanism:** a debounced scroll-settle check (`snapFirstCardUnderGateDock()`, gated by
-`scheduleFirstCardSnapCheck()`) measures `.content`'s first child (Sector Pulse on every real tier,
-generic by DOM position rather than an id — this module's own "mechanics, not tier content" scope
-boundary) against the scroller's own `getBoundingClientRect()` (never raw viewport coordinates — this
-file's own Aug 15 measurement lesson) and, once scrolling has genuinely stopped, nudges `scrollTop` by
-whatever small delta is needed to land the card exactly `GATE_DOCKED_H` below the docked bar.
-
-Two deliberate guards, both load-bearing:
-- **Debounced to scroll-*settle* (120ms of no further scroll events), never fired synchronously off the
-  scroll/rAF loop that flips the `docked` class.** Programmatically moving `scrollTop` while a real touch
-  gesture or momentum scroll is still in flight is exactly the fragile pattern the Aug 13, 2026
-  collapsing-card lesson found broken three separate ways on a real device — waiting for the scroll to
-  actually stop means this can never fight the user's own gesture, at the cost of the correction landing a
-  beat after the dock visually finishes rather than perfectly mid-motion. Accepted trade given that
-  history repeating itself once already would be worse.
-- **Bounded to a small max correction (80px)**, not a hand-maintained "are we near the threshold" flag —
-  so it structurally only ever behaves as a soft snap of a residual few pixels right at the transition.
-  Scrolled deep into later content, or back up near the top before the Gate would undock, the measured
-  delta is far outside the bound and the check is a no-op by construction — never a surprise jump anywhere
-  else on the page.
-
-Also invoked once from `sizeGateSpacer()` (same call site `updateGateDockState()` already runs from) so
-content that changes size independent of any scroll event — e.g. Sector Pulse's real text landing after
-`/market` resolves — gets re-checked too, not just live scroll activity.
-
-**Verified via real headless Chromium, including an A/B comparison against the pre-fix code (not just the
-post-fix behavior in isolation) — same repro used to confirm the bug was real in the first place:**
-temporarily reverted the fix, re-ran the ~40px-overshoot scenario, confirmed the same 26px overlap it was
-built to fix; restored the fix, re-ran the identical scenario, confirmed the card lands exactly
-`GATE_DOCKED_H` (44px) below the docked bar and stays there through a longer settle window. Also confirmed:
-scrolling deep past Sector Pulse into later content produces no jump at all (bound correctly excludes it);
-scrolling back up toward the dock zone from below re-snaps flush the same way, symmetric to scrolling down;
-the pre-existing tap-to-expand `snapCardUnderDock()` from the entry above is unaffected (still lands flush
-at 44px); a real pill-tap still fires `/analyze` and renders a verdict correctly. `npx tsc -p tsconfig.json`
-shows the same known 7-error `?v=N`-import-resolution baseline, zero new errors; `npm test` (75 cases,
-`gates-extended`/`analyze-helpers`) unaffected, all pass — this change only touches `shared/rolodex.ts`.
-
-`app.js`/`starter/app.js`/`pro/app.js` rebuilt via `node esbuild.config.mjs` (only `shared/rolodex.ts`
-changed — confirmed via the usual chunk-header grep that all three bundles still contain exactly one
-`shared/rolodex.ts` chunk, no duplicate-module regression); `?v=` bumped in all three tiers' own
-`<script>` tags (`index.html` 57→58, `starter/index.html` 60→61, `pro/index.html` 5→6).
-
-## Frontend: below-pill card snap fixed for real (not just "consistent already"), card bodies capped to screen height (Aug 18, 2026)
-
-Direct live report: cards below the ticker pills (Pro's Watchlist/Proxy/Heat Map/Track Record) "aren't
-soft snapping consistently to the nearest docked marquee when expanded," and separately, expanded cards
-"should only expand the frame height of the available screen" — currently a card grows to the full length
-of its content (many watchlist rows, a long track record table) with no visible bottom, forcing a lot of
-extra scrolling to find where it ends.
-
-**The snap-consistency report was real, not imagined — reproduced and root-caused before touching
-anything.** A real headless-Chromium pass against Pro with a realistic watchlist confirmed Watchlist and
-Proxy landed flush (44px + pill-strip height below the docked bars) but Heat Map and Track Record landed
-20-80px short, worse the further down the page the card sat — exactly the "not consistent" symptom.
-
-**Root cause: `snapCardUnderDock()`'s `scrollIntoView` call computes its target against the document's
-CURRENT (still-collapsed) height, before the just-toggled accordion's own CSS-transitioned
-`grid-template-rows:0fr→1fr` growth has actually happened.** For a card near the bottom of the page —
-Heat Map, Track Record — there isn't yet enough content below it (while still collapsed) to physically
-scroll far enough to reach the flush position; the browser silently clamps the scroll to whatever's
-scrollable AT THAT INSTANT, and once the accordion finishes growing a moment later and more room becomes
-available, the already-dispatched scroll animation never revisits its target — it just stops wherever it
-got clamped. Confirmed directly: sampling `#scroller.scrollHeight` frame-by-frame after the click showed
-it climbing over the next ~250ms as the accordion's own CSS transition progressed, while the smooth-scroll
-animation had already committed to (and stopped at) a scrollTop matching the maxScroll available at click
-time, not the larger one available once the accordion caught up a moment later. Watchlist/Proxy "worked"
-purely because they happen to sit higher up the page, where there's already enough content below them even
-before their own body grows — not because the mechanism was actually correct.
-
-This is the exact same class of bug `forceGateDockedSync()` already exists to prevent for the Gate's own
-spacer — just in the opposite direction (a GROWING element instead of a shrinking one), and on the card
-being expanded itself rather than the dock above it.
-
-**Fix, mirroring `forceGateDockedSync()`'s own suppress/force-reflow/restore dance:** `snapCardUnderDock()`
-now temporarily forces the card's `.card-body` to its real final height synchronously (transition
-suppressed, forced reflow) immediately before calling `scrollIntoView`, so the scroll target is computed
-against the true final layout — then reverts to collapsed and restores the transition so the visual
-accordion-open animation still plays normally afterward, unaffected. Verified via frame-sampling that the
-accordion still visibly animates open (not an instant jump) with this dance in place, and re-verified the
-original repro (Watchlist/Proxy/Heat Map/Track Record from a real incremental scroll) now lands all four
-flush, not just the two that happened to work before.
-
-**Card-height cap, landed in the same pass since it's the same code path.** Added
-`capCardBodyHeight(cardEl, dockOffset)`, called from `snapCardUnderDock()` right before the forced-height
-dance above (so the forced-height measurement automatically respects the cap, no separate plumbing
-needed) — computes the space actually available below whichever dock sits above the card
-(`scroller.clientHeight − dockOffset − headHeight − margin`) and applies it as a `max-height` to
-`.card-body-pad` specifically, not `.card-body-inner` (which must keep a plain, uncapped `overflow:hidden`
-for the existing 0fr/1fr collapse trick to keep working — `.card-body`'s grid row sizes to
-`.card-body-inner`'s intrinsic content height, which naturally shrinks to match its now-capped child, so
-the collapse mechanism needed zero changes). `.card-body-pad` picked up `overflow-y:auto` (plus
-`overflow-x:hidden`, `overscroll-behavior:contain` so an internal scroll doesn't chain into scrolling the
-whole page once it hits its own end, and `-webkit-overflow-scrolling:touch` for iOS momentum) as baseline
-CSS in all three tiers' `<style>` blocks (identical hand-copied rule, same as every other shared CSS
-constant in this file) — harmless when no JS-driven `max-height` is set (a card that fits within one
-screen just never triggers scrolling), and a real internal scrollbar once a card's content exceeds it.
-Re-capped on window resize (`recapExpandedCards()`, wired alongside the existing `sizeGateMarquee`/
-`sizeGateSpacer`/`sizeRoloMarquee` resize listeners) since the available-height math is a snapshot of the
-viewport at expand time and doesn't self-update otherwise — a phone rotation or a desktop window resize
-while a card is open re-measures and re-applies the cap for every currently-expanded card.
-
-**Verified, not assumed:** a synthetic 50-ticker watchlist (35 overflow rows) confirmed the Watchlist
-card's body caps at the computed available height (567px in the test viewport) while its true content
-height (1788px) is much taller, and that the capped body is genuinely internally scrollable
-(`pad.scrollTop` moves, `pad.scrollHeight > pad.clientHeight`). Re-ran the full existing regression suite
-afterward since this touches the shared `snapCardUnderDock()` every tier calls: pill-tap auto-analyze, the
-Sector Pulse natural-dock soft-snap (previous entry, unaffected), Free/Starter's Pulse/Context/Import
-accordion snaps (all still land flush at 44px — the fix and the cap are both no-ops for cards with modest
-content, by construction), and a deep-scroll stability check (no unwanted jump). `npx tsc -p tsconfig.json`
-shows the same known 7-error `?v=N` baseline, zero new errors; `npm test` (75 cases) unaffected, all pass.
-
-`app.js`/`starter/app.js`/`pro/app.js` rebuilt via `node esbuild.config.mjs` (only `shared/rolodex.ts`
-changed — confirmed via the usual chunk-header grep that all three bundles still contain exactly one
-`shared/rolodex.ts` chunk, no duplicate-module regression); `?v=` bumped in all three tiers' own
-`<script>` tags (`index.html` 58→59, `starter/index.html` 61→62, `pro/index.html` 6→7).
-
-## Frontend: Glossary converted to a real accordion card, profile-menu "About" link, Proxy term added (Aug 18, 2026)
-
-Direct live report, same round as the below-pill card snap fix above: "you missed the Glossary with that
-previous fix for all tiers." Correct — the Glossary was never actually part of the `.card[data-card]`
-accordion family the snap/height-cap fix above (and the tap-to-expand snap before it) both apply to. It
-had its own bespoke markup (`.glossary-tile`/`.glossary-tile-header`/`.glossary-panel`) and its own bespoke
-toggle (`toggleGlossary()`/`setGlossaryOpen()`, plain class-toggling, no `snapCardUnderDock()` call at
-all) and its own static `max-height:60vh` cap instead of the dynamic, dock-aware one every other card now
-has — so it had neither the snap-to-dock behavior nor the "cap to actually-available screen space"
-behavior, in any tier.
-
-**Fix: stopped maintaining a second, parallel accordion mechanism — converted the Glossary into a real
-`.card[data-card="glossary"]`, identical in shape to every other utility card**, in all three tiers'
-HTML (`.glossary-tile-header` → `.card-head` with the standard icon/title-wrap/chevron; `.glossary-panel`
-→ `.card-body`/`.card-body-inner`/`.card-body-pad`). It's now picked up automatically by the same
-`document.querySelectorAll('.card[data-card] > .card-head').forEach(wireAccordionHead)` loop every other
-card already goes through — no separate click listener, no separate `.open`-class toggling, and it
-inherits `snapCardUnderDock()`'s snap-to-dock fix and `capCardBodyHeight()`'s dynamic height cap for free,
-with zero changes needed in `shared/rolodex.ts` itself (the whole point of that module being "mechanics,
-not tier content" — Glossary just needed to actually BE a card, not a special case). `.glossary-search-wrap`/
-`.glossary-cat`/`.glossary-term`/`.glossary-no-results` kept their own CSS (search box, term rows, category
-headers, the flash-on-jump animation) but had their own horizontal `14px` padding stripped, since
-`.card-body-pad` now provides that — left in place, it would have doubled up to a 28px left/right inset,
-visually inconsistent with every other card's content.
-
-**`wireAccordionHead()` refactored in all three tiers to extract a shared `expandCard(card)`** (previously
-a closure-local `toggle()` did everything inline) — collapse stays a simple class removal, but expand now
-goes through one function every "jump to this card" caller can reuse: the accordion click handler, the
-help-balloon's existing `jumpToGlossaryTerm()` (now built on a new `ensureGlossaryOpen()` — idempotent,
-re-snaps even if already open, since a caller reaching for it is explicitly asking to jump there), and the
-new profile-menu "About" link below. On Pro, `expandCard()` also carries the pre-existing Watchlist/Proxy/
-Heat Map lazy-render dispatch, now joined by a `kind === 'glossary'` branch. **Ordering matters and is
-deliberate:** `buildGlossary()` (synchronous — a plain string-concat + `innerHTML` assignment over the
-whole term list, not fetched) is called **before** `snapCardUnderDock()`, not after, so the forced-height
-scroll-target measurement inside `snapCardUnderDock()` sees the real, already-capped content height
-instead of the still-empty panel — the exact "forced height must reflect the true final layout" discipline
-the below-pill card snap fix above already established, applied here to content-population timing instead
-of a CSS transition. Watchlist/Proxy/Heat Map's own renders stayed in their existing after-snap position
-since they're fetch-based and populate well after this function returns regardless of ordering.
-
-**"About" in the profile-menu dropdown (Starter + Pro only — Free has no profile menu at all).** Per
-direct instruction: since the Glossary's first category (CRF FRAMEWORK — CRF, Pre-Gate, Gate 0-5) is
-already a plain-English walkthrough of the whole app, jumping there **is** the About page — no separate
-About content was written or needed. `jumpToAbout()` closes the profile menu, clears any active Glossary
-search filter (so CRF FRAMEWORK can't be hidden behind a leftover query), and calls `ensureGlossaryOpen()`
-— landing the user at the top of the Glossary, CRF FRAMEWORK visible first, exactly the section that
-explains the app. Wired as a plain `.profile-menu-item` button (`onclick="jumpToAbout()"`, same inline-
-onclick + `window.fn` bridge convention every other profile-menu item and this repo's inline-handler cards
-already use), placed between EXPORT CSV and the danger-styled SIGN OUT — matching where Starter/Pro already
-group their non-destructive account actions.
-
-**"Add Proxy to the terms list."** A generic "Proxy" term didn't exist in any tier — only a Pro-exclusive
-"Proxy tier (Gate 5)" (the *confidence* label for a comparison) and (Pro-only) "Proxy Resolution Explorer"
-existed; nothing defined what a Proxy actually *is*, even though every tier's card meta row shows a
-"PROXY" field. Added under CRF FRAMEWORK, right after "Gate 5 — Dynamic Sector Proxy" (where the concept is
-introduced) in all three tiers — identical definition on Free/Starter, Pro's copy adds one sentence
-cross-referencing "Proxy tier (Gate 5)" for the confidence label, since that term only exists there. Each
-tier's search-box placeholder term count bumped to match (`index.html`/`starter/index.html` 63→64,
-`pro/index.html` 65→66).
-
-**Verified via real headless Chromium across all three tiers, not assumed to transfer from one:** confirmed
-the old `.glossary-tile`/`.glossary-panel` classes are gone from the rendered DOM (real conversion, not a
-CSS-only reskin); confirmed a real incremental scroll to the Glossary (which sits near the very bottom of
-the page, after Track Record on Pro) followed by a tap lands its head flush at the correct dock offset on
-all three tiers — the exact scenario the below-pill snap fix above was built for, now covering the one card
-that had been missed; confirmed the body genuinely caps (measured `padScrollH` in the 8,000-9,000px range
-against a ~565-567px rendered/capped height — the full term list is long) and is internally scrollable;
-confirmed the search filter and the flash-on-jump-via-help-balloon behavior both still work unchanged
-end-to-end (clicked a real `[data-help="gate"]` balloon, followed its "Gate 0" link, confirmed the Glossary
-opened, scrolled to, and flashed the correct term); confirmed the new Proxy term renders with the right
-per-tier copy; confirmed the About link (Starter + Pro) closes the profile menu, expands+snaps the Glossary,
-and lands on "CRF (Catalyst Response Framework)" as the first visible term. Re-ran the full existing
-regression suite afterward since this touches the shared `wireAccordionHead()` pattern in all three tiers:
-pill-tap auto-analyze, the Sector Pulse natural-dock soft-snap, and all four of Pro's below-pill card snaps
-(Watchlist/Proxy/Heat Map/Track Record) — all still land flush, confirming the `expandCard()` refactor is a
-pure reorganization, not a behavior change for anything that isn't the Glossary. `npx tsc --noEmit` against
-each tier's own `app.ts` (not in `tsconfig.json`'s narrow Phase 0 scope, checked directly, same as every
-other tier-level `app.ts` change) shows only the known `?v=N`-import-resolution baseline, zero new errors;
-`npm test` (75 cases) unaffected, all pass — this change doesn't touch `gates-extended.ts`/`analyze-helpers.ts`.
-
-No `shared/rolodex.ts` changes were needed — `snapCardUnderDock()`/`capCardBodyHeight()` already worked
-generically off DOM structure and position, exactly as designed; the Glossary just needed to actually join
-the `.card[data-card]` family instead of staying a special case. `app.js`/`starter/app.js`/`pro/app.js`
-rebuilt via `node esbuild.config.mjs` (each tier's own `app.ts` changed; `shared/rolodex.ts` did not —
-confirmed via the usual chunk-header grep that all three bundles still contain exactly one
-`shared/rolodex.ts` chunk); `?v=` bumped in all three tiers' own `<script>` tags (`index.html` 59→60,
-`starter/index.html` 62→63, `pro/index.html` 7→8).
-
-## Frontend: the active ticker card also caps to the available screen height (Aug 18, 2026)
-
-Direct follow-up, same round as the Glossary fix above: "I should have mentioned the ticker cards should
-get the same treatment... keeping the frame height limited to the screen." The height-cap fix (the
-below-pill card snap entry above) only ever touched `.card[data-card]` utility cards — the Rolodex's own
-active `.rolo-card` (a real analyzed ticker, 6 gates + confidence + a possibly-long note per gate) was
-never in scope for it and still grew to its full, uncapped content height, same "hard to find the bottom"
-problem for a long analyzed card as the utility cards had before their own fix.
-
-**Same cap, applied to a structurally different element.** `.rolo-card` isn't an accordion body — it's an
-absolutely-positioned card inside `.rolo-stage`, whose own height `syncRoloStageHeight()` already sets to
-match the active card's real height on every switch/re-render. New `capRoloCardHeight(activeCard)`
-computes the same "space available below whichever dock sits above it" as `capCardBodyHeight()` — always
-`GATE_DOCKED_H + roloIndex height`, since `.rolo-wrap` (and the stage inside it) always sits after
-`#roloIndex` in every tier's markup, exactly like the below-pill utility cards — and applies it as the
-active card's own `max-height` + `overflow-y:auto` before `syncRoloStageHeight()` reads
-`activeCard.offsetHeight` to size the stage, so the stage's own height (and its existing `.28s` grow/shrink
-transition when switching between cards) automatically tracks the capped value with no separate plumbing.
-Reading `activeCard.scrollHeight` (not `offsetHeight`) to decide whether to cap is what makes this safe to
-call unconditionally on every sync, capped-already-or-not: `scrollHeight` always reports the true,
-un-clipped content height regardless of any `max-height` a previous call already applied.
-
-**No scroll-clamping bug to fix here, unlike the below-pill cards.** That fix was needed because
-`snapCardUnderDock()`'s `scrollIntoView` computes its target against the still-collapsing accordion body,
-and a card near the bottom of the page doesn't have enough content below it yet to physically scroll that
-far. `scrollToActiveCard()` (the Rolodex's own pill-tap-to-card scroll) doesn't have this problem by
-construction — it scrolls so `.rolo-wrap`'s TOP edge lands at the dock offset, which never depends on the
-stage's own height, and `.rolo-wrap` is never the last thing on the page (Watchlist/Proxy/Heat Map/Track/
-Glossary all follow it on Pro, plenty of room regardless of the active card's height). Confirmed directly,
-not assumed: re-ran the exact pill-tap snap check against a deliberately tall (6 RED/YELLOW gates, long
-notes) mocked `/analyze` response — still lands flush at the same `GATE_DOCKED_H + roloIndexH` offset as
-before, capped or not.
-
-Also added baseline CSS (`overflow-x:hidden; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;`)
-to `.rolo-card` in all three tiers, matching `.card-body-pad`'s own baseline from the earlier fix — inert
-when a card isn't capped, a real internally-scrollable card (with momentum on iOS, no scroll-chaining into
-the outer page) once one is.
-
-**Verified via real headless Chromium, a genuinely tall mocked `/analyze` response (6 gates, all RED/
-YELLOW, long notes) across all three tiers:** confirmed the active card's true content height
-(~1,114-1,155px in the test viewport) genuinely exceeds its capped/rendered height (~609-611px) and that
-the card is actually internally scrollable (`scrollTop` moves, `scrollHeight > clientHeight`); confirmed a
-normal, short analyzed card stays completely uncapped (`max-height` empty) — the fix is a no-op for
-anything that already fits; confirmed swipe-to-delete still works correctly on an uncapped card (capping
-only ever changes `overflow-y`/`max-height`, nothing about the swipe gesture's own transform/pointer
-handling). Re-ran the full existing regression suite afterward since this touches shared
-`syncRoloStageHeight()`, called from every tier's own re-render path: pill-tap auto-analyze, the Sector
-Pulse natural-dock soft-snap, and all five of Pro's below-pill/Glossary card snaps (Watchlist/Proxy/Heat
-Map/Track Record/Glossary) — all unaffected, still land flush. `npx tsc -p tsconfig.json` shows the same
-known 7-error `?v=N` baseline, zero new errors; `npm test` (75 cases) unaffected, all pass — this change
-doesn't touch `gates-extended.ts`/`analyze-helpers.ts`.
-
-`app.js`/`starter/app.js`/`pro/app.js` rebuilt via `node esbuild.config.mjs` (only `shared/rolodex.ts`
-changed — confirmed via the usual chunk-header grep that all three bundles still contain exactly one
-`shared/rolodex.ts` chunk, no duplicate-module regression); `?v=` bumped in all three tiers' own
-`<script>` tags (`index.html` 60→61, `starter/index.html` 63→64, `pro/index.html` 8→9).
-
-## Frontend: the card-height-cap CSS broke swipe-to-delete and blocked scroll-chaining (Aug 18, 2026)
-
-Direct live report on the two height-cap fixes just above: "swipe to delete the ticker card is broke" and
-"a persistent scrolling past the end of the inside of a card should continue scrolling the whole page."
-Both real, both self-inflicted by the baseline CSS those two fixes added to `.rolo-card`/`.card-body-pad`
-— `overflow-x:hidden; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;` — reasoned about at
-the time as harmless safety padding, not verified against a real touch gesture before shipping.
-
-**Root cause 1 (swipe-to-delete): `overflow-x:hidden` alone silently turns on `overflow-y:auto`.** Per the
-CSS spec's overflow computed-value rule, setting only one axis to a non-`visible` value forces the OTHER
-axis to compute as `auto` too — confirmed directly via `getComputedStyle()`: a plain, short/uncapped
-`.rolo-card` (never touched by the JS-driven `max-height`/`overflow-y` cap at all) already reported
-`overflowY: 'auto'`, purely from the baseline `overflow-x:hidden` rule. That's enough for the browser's
-native touch-scroll-gesture recognizer to treat the card as a scrollable container and capture the touch
-before it ever reaches the app's own pointer-based swipe handler (`onRoloPointerDown`/`onRoloPointerMove`
-in `shared/rolodex.ts`) — invisible to a mouse-based test (confirmed: `page.mouse`-driven drag swiped
-correctly every time) and only reproducible with real touch input, which is exactly why this shipped
-without being caught the first time. Reproduced conclusively with Chromium's CDP `Input.dispatchTouchEvent`
-(real touch-event dispatch, not mouse emulation) — swipe consistently failed with the broken CSS in place,
-consistently worked once removed.
-
-**Fix: `touch-action:pan-y` instead of leaving the browser to infer gesture intent from `overflow`
-alone.** Same relationship `.rolo-stage` already has with the page (`touch-action:pan-y` there reserves
-vertical panning for native scrolling and leaves horizontal panning for the JS swipe handler) — applied
-directly to `.rolo-card` and `.card-body-pad` themselves now that each one is independently scrollable.
-Verified via the same real-touch CDP technique: vertical touch-drag on a genuinely tall/capped card still
-scrolls it natively (`scrollTop` moves), AND horizontal swipe-to-delete still works on that same capped
-card — both gestures coexist correctly on one element once `touch-action` (not an inferred `overflow`
-side-effect) is what's actually telling the browser which direction to hand off to native scrolling.
-
-**A second, latent instance of the identical bug, not yet reported but fixed the same way.** Pro's
-Watchlist accordion has its own independent compact-row swipe-to-delete gesture
-(`onCompactPointerDown`/`onCompactPointerMove` in `pro/app.ts`) inside `.card-body-pad` — the exact same
-`overflow-x:hidden`-forces-`overflow-y:auto` mechanism applied there too, for the same reason, so it was
-silently broken by the same commit even though nobody had hit it yet. Fixed by the same `touch-action:pan-y`
-change on `.card-body-pad` (shared CSS across all three tiers), verified directly with a real CDP touch
-swipe on a compact row — confirmed working.
-
-**Root cause 2 (scroll-chaining): `overscroll-behavior:contain` was the literal opposite of what was
-wanted.** Added in the original height-cap work with the stated reasoning "so an internal scroll doesn't
-chain into scrolling the whole page once it hits its own end" — a real design decision, just the wrong
-one; direct correction: scrolling to a capped card's own end should hand off to `#scroller` and keep
-going, not stop dead. Fix: removed the declaration entirely, falling back to the CSS default
-`overscroll-behavior:auto`, which is precisely "chain to the next scrollable ancestor once this one can't
-scroll further."
-
-**Verified with real, continuous wheel-scroll gestures (not a single jump), both card types:** scrolled a
-capped `.rolo-card` past its own max in one continuous set of wheel ticks and confirmed `#scroller` picked
-up the remainder and kept scrolling past where the card's own end left off; repeated the same check against
-a capped `.card-body-pad` (Pro's Watchlist accordion, 18-ticker watchlist) with the same result. **Touch-
-specific scroll-chaining (as opposed to swipe-to-delete, verified above) was not independently confirmed
-via CDP's synthetic touch dispatch** — the same touch-simulation attempt that cleanly reproduced/fixed the
-swipe-to-delete bug did not show `#scroller` picking up the remainder the way wheel scrolling did, most
-likely a CDP synthetic-touch limitation (multi-phase "scroll inner then chain to outer" gestures depend on
-compositor-thread touch handling that `Input.dispatchTouchEvent` doesn't fully replicate) rather than a
-real app bug, given `overscroll-behavior:auto` is the browser's own literal default chaining behavior and
-wheel-based chaining through the exact same `overflow:hidden` ancestors (`.rolo-stage`, `.card-body-inner`)
-worked cleanly — flagged here rather than asserted as proven, same "say what's unverified" posture as
-every other sandbox-limited check in this file. Spot-check a real continuous finger drag on an actual
-device if this resurfaces.
-
-Pure CSS change — no `.ts`/`.js` files touched, so no `esbuild` rebuild or `?v=` bump was needed for this
-one. `npx tsc -p tsconfig.json` (unaffected either way) still shows the same known 7-error baseline;
-`npm test` (75 cases) unaffected, all pass. Re-ran the full existing regression suite (pill-tap
-auto-analyze, the Sector Pulse natural-dock soft-snap, all five of Pro's below-pill/Glossary card snaps)
-to confirm the `touch-action` change didn't disturb anything else — all still land flush.
+## Engineering: TypeScript adoption plan (Aug 14, 2026)
+
+Mr. T was asked externally why the project is plain JavaScript. Plan (full version with terminal output:
+`https://claude.ai/code/artifact/100a336b-d173-4f0f-9d88-875d628bdd0f`):
+- **Don't change either runtime.** `Tra` is I/O-bound API proxying; Node fits it, and a rewrite would mean
+  re-deriving every hard-won fix (Finnhub/Alpaca throttles, the Supabase session-leak fix, the SEC limiter).
+  The frontend is a static site, so it stays JavaScript. The real options are TypeScript type-checking layered
+  on incrementally, and separately, a bundler.
+- **Tested against the real repos with `tsc` (`allowJs`/`checkJs`/`noEmit`), three findings:**
+  1. The `?v=N` cache-busting convention breaks static module resolution — no resolver accepts
+     `'./prefs.js?v=10'`. This is the concrete reason for a bundler: content-hashed filenames make the
+     cache-busting bug class (Aug 2-3) impossible.
+  2. Plain `checkJs` with no annotations catches almost nothing (only DOM-typing noise from
+     `querySelector`). The real value comes from writing shapes down as typedefs.
+  3. A one-line typedef for `sectorContext[symbol]` (`Record<string,string>`, a `"+1.23%"` string) made
+     `tsc` flag the real Aug 13 Gate 5 bug (`Property 'pct' does not exist on type 'string'`) immediately.
+- **Phases, each its own PR:** 0 = JSDoc + `checkJs`, no build step. 1 = shared contract types,
+  hand-mirrored in both repos. 2 = real `.ts`, transpile-only, no bundler. 3 = a bundler (esbuild), paired
+  with the Rolodex UI work. 4 = turn the throwaway simulation scripts into a real test suite.
+- **Out of scope:** a backend language swap, a frontend framework, converting Shark, any big-bang PR.
+- **Status: all phases complete in both repos** (see Phase 0-3 below; Phase 4 shipped Aug 17, 2026 — see
+  its own entry).
+
+## Engineering: Phase 0 (Aug 14, 2026; `Tra` mirror Aug 16, `Tra` PR #35) and Phase 1
+
+- `tsconfig.json` (`checkJs`/`noEmit`/`allowJs`) scoped to `shared/*.js` + `gates-extended.js`. Contract
+  types were first JSDoc `@typedef`s for `GateResult`, `SectorContext`, `TickerData`, `AnalyzeRequestBody`,
+  `AnalyzeResponse`; now real declarations in `shared/types.d.ts` (Phase 2).
+- **The types file is never loaded at runtime** (typedef imports are erased), so it is exempt from the
+  cache-busting rule — don't give it a `?v=`.
+- Verified the mechanism catches the real Gate 5 bug shape (passing `sectorContext.tsm`, a string, to
+  `proxyCoherenceCheck()`, which takes a `number`).
+- `tsc -p tsconfig.json` still shows a known baseline of errors: every `./foo.js?v=N` import fails to
+  resolve, plus some DOM-typing errors on old `getElementById` code. Deliberately left alone; treat this
+  baseline as "no new errors" in later checks.
+- `Tra` has its own `tsconfig.json` (scoped to `gates-extended.js`; flatter layout, no `shared/`) and
+  `types.js`, identical typedef bodies. `Tra`'s check is clean (no ES imports there).
+- **Phase 1 was satisfied by the same artifact:** `shared/types.d.ts` and `Tra`'s `types.js` are the one
+  hand-mirrored contract file.
+- `server.js` (both repos), `Tra`'s `credits.js`, and tier `app.js` files are outside `checkJs` scope.
+
+## Engineering: Phase 2 — `shared/` and `gates-extended` converted to real `.ts` (Aug 16, 2026; `Tra` PR #36)
+
+**Converted, in order:** `shared/types.js` → `shared/types.d.ts`, then `ticker-cache`, `watchlist`, `prefs`,
+`track-record`, `analysis-cache`, `watchlist-sync`, `context-highlight`, `settings-modal`,
+`track-record-sync`, and finally `gates-extended` (both repos). Every file in `shared/` is now real `.ts`.
+
+**How it works:**
+- `tsconfig.build.json` (separate from `tsconfig.json`, which stays `noEmit`) emits each `.js` in place:
+  `npx tsc -p tsconfig.build.json`. The `.ts` is the source; the emitted `.js` is the deploy artifact for
+  unbundled consumers. Commit both. GitHub Pages serves the same file layout as before.
+- A `.js`-suffixed typedef import resolves to a sibling `.d.ts` (standard behavior, confirmed on real files).
+- Typing choices: public APIs, data contracts (`TickerData`, `AnalyzeResponse`), config interfaces (one per
+  module, e.g. `TickerCacheConfig`, `WatchlistSyncConfig`, `TrackRecordSyncConfig` — kept separate even when
+  identical), and `window.fn` bridges via `declare global { interface Window {...} }` (never `as any`).
+  DOM casts match the real element tag (`as HTMLInputElement`, etc.), checked against the markup.
+  `watchlist.ts`'s drag/swipe gesture code was deliberately left `any` (low-value churn, never a bug source);
+  `settings-modal.ts` got full casts because its DOM is a fixed template it owns.
+- Each conversion was verified by an exact old-vs-new behavior comparison (same exports, byte-identical
+  output, real headless Chromium on the affected tier).
+
+**Rules and lessons from Phase 2:**
+- **A `.ts` source must carry the `?v=N` bumps too, not just its emitted `.js`.** A bump applied by
+  grep/sed to `*.js`/`*.html` only gets silently reverted the next time `tsc` regenerates that file from its
+  stale `.ts`. Include `.ts` files in every `?v=` grep/sed. Run `git diff --stat` after a rebuild to catch
+  unexpected changes in files you didn't mean to touch.
+- **CommonJS `.ts` files (`gates-extended.ts`, `analyze-helpers.ts`) must not use any `import`/`export`
+  statement, even `import type`.** Any import makes `tsc` emit `export {};`, Node then loads the file as ESM,
+  and `require()` silently returns `{}`. `tsc` and `node --check` both pass on the broken file. **Always
+  `require()` the compiled output and check `Object.keys()`.** Use `declare var module` +
+  `module.exports = {...}`.
+- **JSDoc types inside a real `.ts` file are not enforced** — that only works in `.js` under `checkJs`. So
+  `gates-extended.ts` duplicates a local `RegimeValidationResult` interface instead of importing
+  `RegimeState`; keep the two shapes in sync by hand.
+- Test-harness trap: this repo's file names overlap its API paths (`watchlist.js`/`/watchlist`,
+  `track-record.js`/`/track`). Scope Playwright mock routes to the API host
+  (`https://tra-zacg.onrender.com/watchlist**`), not a bare path substring, or the local JS file gets mocked.
+- `gates-extended` (all 13 exports, 33 cases) was byte-identical before/after; `Tra`'s copy is identical
+  except one header comment (`types.js` vs `shared/types.d.ts`) and `require()` returns all 14 exports.
+
+## Frontend: Rolodex UI shipped to Starter — first real tier (Aug 16, 2026)
+
+Mr. T: "I'm ready to move forward with roladex UI change in Starter tier first." Decisions via
+`AskUserQuestion`: tap a pill to make it the active card, then that card is swipeable-to-delete; build
+directly into the live tier (no `/preview/` staging step).
+- **Approach:** started from the real `starter/app.js`/`index.html` and ported the Rolodex mechanics in
+  (sticky docking Gate, marquee pill strip, single-active-card stage). Real auth/credits/`/analyze` and 402
+  handling, `prefs.js`/`settings-modal.js`, `context-highlight.js`, `watchlist-sync.js` kept as they were.
+- `shared/watchlist.ts`'s state exports (`watchlist`, `initWatchlist`, `addTickers`, `removeTicker`,
+  `onWatchlistSave`) are reused; its `.card-wrap` rendering is not. Swipe-to-delete is new gesture code
+  (`onRoloPointerDown`/`Move`/`Up`, `finishRoloSwipe`) that calls the real `removeTicker()`, so persistence,
+  the undo toast, and sync push are unchanged.
+- `renderWatchlist()` got a null guard (`if (!wl) return;`) since Starter has no `#watchlist` element.
+- **Two silent regressions caught by a DOM-ID / `window.fn` cross-check before shipping:** `#live-clock`
+  dropped (later removed on purpose, see below) and Sector Pulse (`#pulse-text`) never populated —
+  `renderPulse()` added to `fetchMarket()`. Lesson: a full rewrite has no diff to eyeball, so run the
+  cross-check first.
+- Not verified against live credentials. The `.rolo-swipe-bg` (`z-index:9`) shares a level with adjacent
+  inactive cards and relies on DOM order — spot-check on a real device if stack order changes.
+
+## Frontend: Starter header fix + disclaimer trim (Aug 16, 2026)
+
+- The header live clock crowded `.app-topbar` and displaced the profile badge. Removed `#live-clock` and
+  `startClock()` entirely (direct instruction).
+- The "Live · Updated ..." market timestamp is now a visible line in the Gate box (`.market-ts`/`#marketTs`
+  in `.gate-full-overlay`), not a `title` tooltip.
+- Dropped "short-term " from the "trading support" disclaimer in all five copies (`index.html`,
+  `pro/`, `starter/`, `shark/`, `preview/rolodex/`).
+
+## Frontend: MANDATORY typography convention — one grey, one size (Aug 16, 2026)
+
+Users complained grey text was hard to read. Starter had 30 rules, 6 font sizes (9-11.5px), and two greys.
+Contrast measured: `--ink-dim` (`#7d8896`) 4.87-5.44:1 (passes WCAG AA); `--ink-faint` (`#4c5563`)
+2.32-2.60:1 (fails).
+
+**Rule, mandatory going forward:** all secondary/grey text (labels, captions, notes, hints, meta rows,
+placeholders, disclaimers, footers) uses exactly `color:var(--ink-dim)` at `font-size:11px`. `--ink-faint`
+is retired for text; it stays only for non-text uses (e.g. `.chevron`). 11px is a floor — raise small text,
+never shrink 11/11.5px text. Primary text (prices, verdicts, headings, tickers) is unaffected. Apply this by
+default to any grey text added or touched anywhere, including future tier rebuilds.
+
+Caveat learned later (Sep 5, 2026): when matching a text size inside one specific card, measure that card's
+own neighbors first — the 11px rule does not override a card whose prevailing size is different.
+
+Verified no overflow in the fixed-height containers (docked Gate row and its "↑ top" label, the Gate stat
+grid, 44px `.card-head` rows, `.app-topbar`).
+
+## Frontend: MANDATORY rule — every ticker symbol is a hyperlink (Aug 16, 2026)
+
+**Rule:** any displayed symbol that identifies a specific security links out via `tickerHref()` (or
+`newsHref()` where news fits better), including passive/label tickers outside cards. Carve-outs:
+- **BTC uses `tickerHref('BTC-USD')`**, not `'BTC'`. Generalized as `GATE_LINK_OVERRIDE`/`gateLinkSymbol()`
+  so other non-equity symbols have a place to go.
+- **A proxy label is linked only when it resolves to exactly one symbol**
+  (`td.proxyRule.proxy.symbols.length === 1`). Multi-symbol proxies (e.g. TSM + KOSPI) stay plain text —
+  KOSPI isn't US-tradable, and a wrong link is worse than none (see the ARCC/Egypt incident).
+
+The Gate's `#gateGrid`/`#gateMarquee` links carry `data-ticker` and are refreshed via
+`refreshTickerLinks()` inside `onPrefsChange` (not a full rebuild, which would jump the marquee). Docked
+marquee `.sym` links call `event.stopPropagation()` so they don't trigger the bar's tap-to-top.
+
+## Frontend: Starter small changes (Aug 16, 2026)
+
+- **Export CSV moved to the profile-menu dropdown** (`#exportCsvBtn`, between SETTINGS and SIGN OUT).
+  Starter's CSV is `Ticker,Price,Change%` — no `List` column (no card/list split) and no `IV` column (no
+  `iv` flag; an always-N/A column would mislead). Filename `trade-tribunal-watchlist-<date>.csv`.
+- **Tapping a pill smooth-scrolls to its card.** `scrollToActiveCard()` uses
+  `scrollIntoView({behavior:'smooth', block:'start'})` on `.rolo-wrap` with `scroll-margin-top` set from
+  `GATE_DOCKED_H` + `#roloIndex`'s live height — no hand-computed offsets. Called only from pill taps
+  (`goRolo()`).
+- **Gate breakdown on cards:** the headline (`.headline`/`.headline a`) and gate notes (`.gate-row .gn`) are
+  `var(--ink)` white (substantive content, not captions); `.headline .age` and `.gate-row .gl` stay
+  `--ink-dim`. The literal GREEN/YELLOW/RED status word (`.gs`) next to each gate is removed — the dot
+  carries it. The "LOOK FOR" dot is colored by `result.confidence` via shared `confColor()`
+  (HIGH green, MEDIUM amber, LOW/fallback red), the same mapping the CONFIDENCE row uses.
+
+## Backend: confidence semantics and LOW → wait_for (Aug 16, 2026, `Tra` PR #37)
+
+**LOW always ships a `wait_for`.** One invariant after all confidence branches run: if `confidence === "LOW"`
+and `wait_for` is empty or the literal `"null"`, set it to "Additional confirmation needed before
+directional entry." Closes the Proxy Coherence "possible decoupling" branch (which set LOW but no
+`wait_for`) and model-self-assigned LOW. Never overwrites a real `wait_for`.
+
+**Confidence = price-confirmed corroboration, not "did a rule fire."** Before, every override branch capped
+at flat MEDIUM/LOW and HIGH was unreachable once any override fired. Definition agreed with Mr. T:
+- **HIGH:** the ticker's own move and its proxy/sector move both independently agree with the shipped
+  direction.
+- **MEDIUM:** the trigger is real, but there's no usable price signal to confirm or deny it.
+- **LOW:** an available signal moves against the direction. Should be rare; recurring LOW is a signal.
+- Confidence must be grounded in the verdict that actually ships (including overridden ones), not the
+  model's original call.
+
+Implementation: `priceConfirmedConfidence(direction, tickerPct, proxyPct)` (now in `analyze-helpers.ts`,
+called as `ah.`). Moves inside ±1.0% count as no signal (same tolerance as `COHERENCE_FLAT_BAND_PCT`, kept as
+its own constant). Applied to Pre-Gate hardTrigger, Gate 0 RED, Gate 1 forceDown, Gate 5 RED + Gate 2 RED,
+Gate 0 YELLOW + UP (as "UP"), and Gate 5's plain forceDown branch. Gate 5's Proxy Coherence branch uses
+`coherence.case`: Case 1 (moved with proxy) → HIGH, Case 2 (flat/lagging) → MEDIUM, Case 3 (decoupled) →
+LOW. Left as LOW on purpose: Gate 5 RED downgrading UP to FLAT (gate-vs-gate conflict) and the non-exempt
+DOWN congruency fallback (too few RED gates). The prompt's CONFIDENCE rubric adds: "congruency confirmed"
+means ticker and sector price action both point the verdict's way, not just green gate statuses.
+
+Verified by simulation only. To confirm live: a HIGH card on a clean forceDown, and LOW staying rare.
+
+## Frontend: `shared/rolodex.ts` + Phase 3 bundler (Aug 16, 2026)
+
+Rolodex mechanics were extracted from `starter/app.js` before Free/Pro copied them, so fixes live in one place.
+- **Scope boundary:** `shared/rolodex.ts` owns how the UI moves (Gate dock/spacer/marquee, pill marquee,
+  stacked-card positioning, swipe-to-delete). Card content, `GATE_FIELDS`, `analyzeOne`, and business logic
+  stay tier-owned.
+- **Bundler:** esbuild via `esbuild.config.mjs`, one entry per tier (`app.ts` → `app`, `starter/app.ts` →
+  `starter/app`, `pro/app.ts` → `pro/app`). **Edit the `.ts`, never the bundled `.js`.** After touching a
+  tier's `app.ts` or anything it imports, run `node esbuild.config.mjs` (or `npm run build:bundle`), commit
+  the output, and bump that tier's own `<script src="./app.js?v=N">`. `package.json` holds `typescript` +
+  `esbuild` devDependencies. GitHub Pages still serves from the branch; no deploy-config change.
+- `shared/rolodex.ts` is bundler-only — no raw-browser consumer, not in `tsconfig.build.json`, no `?v=`.
+  Never leave a stray emitted `shared/rolodex.js` next to it.
+
+**Two duplicate-module bug classes, both fixed by the `normalizeSharedImports` plugin:**
+1. **Query-string identity.** esbuild keys modules by exact specifier, so `'./watchlist.js?v=32'` and
+   `'../shared/watchlist'` became two instances.
+2. **`.ts` vs compiled `.js` identity.** An extensionless specifier resolves to the `.ts`; a `.js`-suffixed
+   one resolves to the separately compiled `.js` — a different file with its own state. This one looked
+   fixed after (1): the server-synced watchlist silently never rendered, with no error.
+
+The plugin (`onResolve` for any `.js(?v=N)?` specifier) redirects to the `.ts` sibling when one exists, else
+to the plain query-stripped `.js`. **Check for duplicates after every rebuild:** `grep "^// shared/"` on each
+bundle — every shared module must appear exactly once, as its `.ts`. The shared `.ts` files keep their own
+`?v=N` imports because unbundled consumers still load them raw.
+
+Not done: minification/source maps.
+
+## Frontend: Rolodex UI shipped to Free, authored as TypeScript (Aug 16, 2026)
+
+`app.ts` (repo root) was written as `.ts` from the start; second esbuild entry, no plugin changes needed.
+Same port-into-the-real-tier approach as Starter (anonymous `APP_SECRET` auth, `redirectingToPaidTier`
+guard, `forceDefaults()`, weekly credit reset all kept). Choices made without further instruction:
+- Sector Pulse was a static blurred teaser (Free never had real Pulse). *Superseded Oct 19, 2026: Pulse now
+  lives in the Gate box.*
+- Gate labels shortened to Starter's (`G1  14D`); the Gate-1-driven card rim color dropped (the verdict glow
+  carries the signal); "WAIT FOR" unified to "LOOK FOR:".
+- The weekly-credit-reset splash (`#comeback-screen`/`startComebackTimer`/`handleNoCredits`) is real, live
+  functionality here, kept as a full-page overlay with dual anonymous/signed-in buy buttons.
+- Ticker/news links are hardcoded Yahoo via a local `tickerHref()`/`newsHref()` — Free has no Settings or
+  link preference, so it doesn't import `prefs.ts`. Still satisfies the hyperlink rule.
+- No header clock (timestamp in `#marketTs`); no manual refresh button (4-min auto-refresh + tap docked
+  Gate to jump to top).
+- Sources line includes Alpaca (true for every tier). The footer keeps its Privacy Policy link (required by
+  Play, since the TWA wraps Free).
+
+**Real bug in `shared/rolodex.ts` found here (affects Starter too):** after a pill tap, the active card
+landed under the sticky pill strip. `scrollToActiveCard()` scrolled while the Gate was undocked; the
+resulting dock collapsed `#gateSpacer` with a 0.2s CSS transition, so the layout kept shifting under the
+in-flight scroll. Setting the height alone didn't help (rendered height lagged a frame). Fix: for this one
+forced collapse, set `transition:'none'`, force a reflow via `offsetHeight`, then restore the transition.
+Natural scroll-driven docking still eases. (Now `forceGateDockedSync()`.)
+
+Verified anonymous and signed-in-but-free sessions separately (sync code only runs with a token). Not
+verified against live credentials.
+
+## Frontend: Free tier header and upsell pill (Aug 16, 2026)
+
+- **"Starter?" upsell pill** in `#roloIndex`. `rebuildRoloIndex()` takes an optional 4th
+  `buildExtraChip` argument, appended once per repeated marquee pass (a one-off pill outside the loop would
+  never be reached by the auto-scroll, which only cycles one pass width). `roloItemsPerPass` grows by one
+  when supplied. The pill is a plain `<a class="rolo-chip-upsell" target="_blank">` to the Starter Stripe
+  link — not `.rolo-chip`, no `data-sym`, so it's excluded from active-chip toggling, per-symbol updates,
+  the 3-ticker cap, and the `— N —` divider count by construction. Starter's call omits the argument.
+- **Credits and sign-in chips stack vertically**: `.topbar-actions{flex-direction:column;align-items:flex-end}`.
+  Don't revert to a horizontal row. Free only (Starter/Pro have a credits chip + profile button instead).
+- **Missed cache-bust:** the upsell-pill PR rebuilt `app.js` but never bumped `index.html`'s `?v=`, so
+  browsers kept the old bundle. **Reminder: Free's `index.html` has no cascade to catch this — any `app.ts`
+  change means bumping its `?v=` by hand.**
+- **A scroll-hide header was built and reverted the same day** ("that broke too much and I don't like it").
+  All of it is gone, including the `beforeScrollToCard` hook. Lesson: two reasonable mechanisms (header
+  hide/show and `scrollToActiveCard()`'s scroll-margin math) broke each other because each assumed the
+  other didn't exist — the standing risk for any fixed chrome added above `#scroller`. No plan to revisit.
+
+## Verifying changes (testing notes)
+
+There's no full test suite for the frontend (backend gate logic has `npm test`, see Phase 4). What's useful:
+- `node --input-type=module --check < path/to/file.js` — syntax only, fast.
+- A grep-based DOM-ID / `onclick` cross-check between HTML and `app.js`: every `getElementById('x')` has an
+  `id="x"`; every inline `onclick="fn(...)"` has a `window.fn = fn`.
+- A headless-Chromium smoke pass (Playwright, pre-installed at `/opt/pw-browsers/chromium`): load the page,
+  bypass auth, exercise the new paths, check for console/page errors. `tra-zacg.onrender.com` is usually
+  unreachable from the sandbox; the point is confirming graceful degradation.
+  - **Toggling `#app-root` visible is not an auth bypass on Starter/Pro/Shark.** `initApp()` only runs via
+    `checkTierAccess()`, which only runs if `checkAuth()` finds a valid `tv_session`. Prime one first, then
+    reload:
+    ```
+    localStorage.setItem('tv_session', JSON.stringify({token:'x', tier:'pro', expiresAt: Math.floor(Date.now()/1000)+3600}))
+    ```
+    Free needs no session for an anonymous test. But with a **paid** `tv_session` primed, Free's
+    redirect-away check skips `initWatchlist`/`pullWatchlistFromServer` (`redirectingToPaidTier`, Aug 3,
+    2026). Don't remove that guard — it stops a paid watchlist being truncated to Free's 3-ticker cap and
+    written back to `tv_wl`.
+  - **Exact-suffix patterns like `page.route('**/analyze')` match nothing.** `addSecret()` appends
+    `?supabase_token=...`. Match a substring (`url.includes('/analyze')`).
+  - **Free's Service Worker (`sw.js`) breaks `page.route()` mocking on Free only**, and it looks like the
+    feature is broken. Requests fail with `net::ERR_FAILED` before reaching the mock, and once one fails,
+    later requests to that origin fail too. A `page.route('**/sw.js', ...)` 404 is not enough; block
+    registration before `page.goto()`:
+    ```
+    page.addInitScript(() => { navigator.serviceWorker.register = () => Promise.reject(new Error('blocked for test')); })
+    ```
+    If a Free-only test shows a backend URL escaping every mock while the same test passes on another tier,
+    check this first.
+- None of this replaces a real login against the live backend — say it's unverified rather than implying it
+  was checked.
+- Harder still for new third-party integrations in `Tra` (e.g. Alpaca options for IV, Aug 2, 2026): there's
+  no way to test entitlement-gated credentials from a sandbox. Fail safe (catch everything, return null or a
+  clear placeholder, never throw into the response), say in the PR it's unverified, and say what a human
+  should check after deploy.
+
+## Backend: signup confirmation emails redirected to a dead site (Aug 16, 2026, `Tra` PR #39 / `trade-verdict` PR #167)
+
+`/auth/signup`'s `signUp()` never passed `emailRedirectTo`, so Supabase used the project's default Site URL.
+Fixed with `options: { emailRedirectTo: "https://tradetribunal.app/" }` (root, since every new signup is
+`free`). Required companion step, done and confirmed by Mr. T Aug 16, 2026: `https://tradetribunal.app/`
+added to Supabase Auth → URL Configuration → Redirect URLs. Not verified with a real signup — confirm a
+confirmation link lands on the root.
+
+## Frontend: Rolodex UI shipped to Pro, third bundled entry (Aug 16, 2026)
+
+Mr. T: "finish out phase 3 and continue phase to finish out the app update." Shark stayed untouched.
+- **Card-cap decision (via `AskUserQuestion`, verbatim): "the pills are capped at 15. the watchlist stays as
+  built in pro. it can be in a drop down like everything else."** `rolodex.initRolodex()`'s `getWatchlist`
+  is `cardWindow()` (`watchlist.slice(0, CARD_CAP)`); the underlying watchlist stays unlimited
+  (`maxTickers: 999`). Tickers beyond 15 render in a "Watchlist" accordion card (`data-card="watchlist"`).
+- `pro/app.ts` authored as TypeScript; third esbuild entry, no plugin changes. Bundles 10 shared modules,
+  each once.
+- **Pro-exclusive features kept, reshaped only where the cap required:**
+  - Analyst View: a per-card expandable subsection (`data-toggle-analyst`/`data-analyst-body`, wired in
+    `wireCardButtons()`). It calls `rolodex.syncRoloStageHeight()` on toggle.
+  - Real Track Record with real ✓/✗/SKIP log buttons (`logSectionHTML`/`logResultUI`). *Later merged into
+    the "Verdict Record" card, see Sep 2026.*
+  - Proxy Resolution Explorer (`data-card="proxy"`) and Sector Heat Map (`data-card="heatmap"`):
+    - Lazy-rendered on first expand via `wireAccordionHead()`.
+    - Both cover the full watchlist priority-first: `cardWindow()` first, then `overflowTickers()`, with a
+      generation counter.
+    - Both `await pillHydrationDone` before fetching.
+  - Watchlist overflow accordion: price/%chg/news, swipe-to-delete, a sort toggle, and a "+"
+    `promoteToCard()`, which splices the ticker into index `CARD_CAP-1`.
+  - CSV export: `Ticker,List,Price,IV,Change%`, where `List` is `CARD` or `WATCHLIST`. It's in the
+    profile menu (`#exportCsvBtn`).
+- **Analyze All still fires exactly 15 `/analyze` calls** (the 5-credit-max guardrail).
+- `#comeback-screen` dropped on Pro — confirmed dead code by grep (never invoked), same as Starter; uses
+  `handleNoCredits()` inline errors.
+- `--fs-sm: 11px` added to `pro/index.html` `:root` as a legacy alias, because `shared/track-record.ts`'s
+  streak row references it (Starter never hit this since it doesn't render the track record).
+- Test-script trap (not an app bug): `settings-modal.ts`'s panel calls `event.stopPropagation()`, so closing
+  Settings never reaches the profile menu's outside-click listener. The menu stays open, and a test's next
+  click on `#profile-btn` closes it. Close the menu explicitly in tests.
+- Not verified against live credentials (sign-in, `/analyze`, Track Record sync).
+- **Phase 3 status:** Starter, Free, and Pro all have bundled `app.ts` entries. Shark is shelved
+  indefinitely.
+
+## Engineering: Phase 4 shipped — real test suite; TypeScript plan closed (Aug 17, 2026, `Tra` PR #40)
+
+**Phase 2's "loose end" was a stale note.** `Tra`'s `gates-extended.ts` mirror was already merged (`Tra` PR #36). Confirmed by `require()` returning all 14 exports and a diff showing only one header-comment line differs.
+
+**Phase 4.** The trickiest pure functions behind the Aug 13 Gate 5 bug and the Aug 16 LOW-confidence gap (`priceConfirmedConfidence`, `normalizeMarketReading`, `evaluateProxyStatus`, plus one more) lived inline in `server.js`, which can't be required in a test (no exports, calls `app.listen()`). They were extracted into `analyze-helpers.ts`, same CommonJS-safe pattern as `gates-extended.ts`: no `import`/`export`, a `declare var module` plus literal `module.exports = {...}` (avoids the `export {}` → ESM → empty `require()` trap). `server.js` calls them via `const ah = require("./analyze-helpers");`, matching `gx.`. Confirmed pure code motion: old vs new byte-identical across 23 cases, plus a real boot.
+
+**Test suite:** `tests/gates-extended.test.js` + `tests/analyze-helpers.test.js`, Node's built-in runner, `npm test` (`node --test tests/*.test.js`). Covers all `evaluateGate1Sessions` branches, all `proxyCoherenceCheck` cases (including the real Aug 13 `-6.20%` TSM case), all regime states, all `resolveFixedProxyBreak` tiers, corroboration functions, the ±1.0% confidence boundary, and the multi-symbol mislabel case. Lesson: when a synthetic fixture misses its target band, tune the fixture against the real functions; never loosen the assertion.
+
+Both repos carry the suite. `Tra` gets the real `analyze-helpers.ts`/`server.js` change; this repo's copy is the mirror. Both repos' `tsconfig.json`/`tsconfig.build.json` include `analyze-helpers.ts`.
+
+**Status: TypeScript plan Phases 0-4 complete in both repos.** Phase 3 (bundler) covers Starter/Free/Pro only.
+
+**Shark is shelved indefinitely** (direct instruction). No longer "pending the Alpaca Plus decision." Don't pick it up or ask about the Alpaca plan unless asked.
+
+## Frontend: Rolodex card-stack polish — gate dots, topbar, card-sub truncation, dock snaps, height caps, Glossary card (Aug 18, 2026)
+
+All live on Free/Starter/Pro. Several sections merged here.
+
+**Gate-dot alignment (all tiers).** The old `margin-top:4px` on `.gate-dot` was tuned to one font; Android resolves `--mono` to Roboto Mono, which this sandbox can't render. Fixed structurally: dot + label share `.gate-row-head{display:flex;align-items:center;gap:8px}`, `.gate-row` is a column, `.gn` gets `padding-left:16px`. (Later superseded by the Aug 22 single-line hyphen layout below.)
+
+**Pro topbar.** `pro/index.html`'s `.topbar-actions` had copied Free's vertical stack. Fixed to match Starter: `display:flex;gap:6px;align-items:center`. Only Free stacks its two chips vertically.
+
+**`.card-sub` truncation.** `.card-sub` is single-line ellipsis; adding `.help-btn` to every card shrank the available width. Measured `scrollWidth` vs `clientWidth` and shortened every clipping subtitle (Watchlist "Beyond top 15", Import "Paste or type tickers to add", Context "Auto-included in every analysis", Proxy "Coherence per ticker", Heat Map "Sectors + your watchlist", Track "Log & track accuracy", Scorecard "Auto-graded accuracy").
+- Lesson: re-measure after any change that adds elements to a card head.
+- Lesson: before adding new UI mechanics to a shared file, re-fetch `main`. A concurrent session had already built `.help-btn`/`data-help` balloons (`shared/rolodex.ts` `initHelpBalloons()`), and a duplicate `.info-btn` system was caught and reverted before commit.
+
+**Tap-to-expand snap.** `shared/rolodex.ts` exports `snapCardUnderDock(cardEl)`. It reuses the shared `forceGateDockedSync()` (force the Gate docked synchronously: kill `gateSpacer`'s transition, force a reflow, restore), then `scrollIntoView` with a `scrollMarginTop` of `GATE_DOCKED_H`, plus `#roloIndex`'s height when the card sits after `#roloIndex` in the DOM. That's decided by `compareDocumentPosition()`, not a per-tier list. Each tier's `wireAccordionHead()` calls it on expand only, never on collapse. It's a one-time scroll, not a `scroll-snap-type` lock.
+
+**Natural-dock snap for the first card.** `snapFirstCardUnderGateDock()` / `scheduleFirstCardSnapCheck()` corrects the residual overlap after the Gate's own scroll-driven dock: about 26px on a normal ~40px overshoot.
+- It is debounced to scroll-settle (120ms idle), so it never moves `scrollTop` mid-gesture (Aug 13 lesson).
+- It is bounded to 80px, so it's a no-op anywhere else on the page.
+- `sizeGateSpacer()` also triggers it.
+- Test lesson: poll `scrollTop` until it stops changing (`waitForScrollSettle()`); never use a fixed timeout.
+
+**Below-pill snap fix.** For cards near the page bottom, `scrollIntoView` was computed against the still-collapsed document, so the browser clamped it short. `snapCardUnderDock()` now forces the card's `.card-body` to its final height synchronously (transition off, reflow), scrolls, then reverts so the open animation still plays. Same class of fix as `forceGateDockedSync()`, but for a growing element.
+
+**Height caps.**
+- `capCardBodyHeight(cardEl, dockOffset)` sets `max-height` on `.card-body-pad` to `scroller.clientHeight − dockOffset − headHeight − margin`. Never on `.card-body-inner`, which must keep plain `overflow:hidden` for the 0fr/1fr collapse trick.
+- `recapExpandedCards()` re-runs on resize.
+- `capRoloCardHeight(activeCard)` caps the active `.rolo-card` the same way (dock = `GATE_DOCKED_H + roloIndex`). It runs before `syncRoloStageHeight()` and uses `scrollHeight` so it's safe to call repeatedly.
+- `.card-body-pad` and `.rolo-card` get `overflow-y:auto` (JS-capped), `overflow-x:hidden`, `-webkit-overflow-scrolling:touch`, and `touch-action:pan-y`.
+
+**Gotcha: `overflow-x:hidden` alone forces `overflow-y:auto`** (CSS computed-value rule). That made every card a native scroll container, which captured touches and broke swipe-to-delete, on the ticker card and on Pro's compact rows. Mouse tests didn't catch it; reproduce with CDP `Input.dispatchTouchEvent`. Fix: `touch-action:pan-y`, so vertical goes to native scroll and horizontal to the JS swipe.
+
+**Scroll-chaining.** `overscroll-behavior:contain` was removed, so scrolling past a capped card's end hands off to `#scroller` (verified with wheel; touch chaining under CDP was inconclusive — spot-check on a device).
+
+**Glossary is a real `.card[data-card="glossary"]`** in all tiers. The old `.glossary-tile`/`.glossary-panel`/`toggleGlossary()` were removed. It inherits snap and cap automatically.
+- `wireAccordionHead()` has a shared `expandCard(card)`. `ensureGlossaryOpen()` (idempotent, re-snaps) is used by help-balloon `jumpToGlossaryTerm()` and by `jumpToAbout()`.
+- `buildGlossary()` runs before `snapCardUnderDock()`, so the forced-height measurement sees real content.
+- Glossary rows dropped their own 14px horizontal padding (`.card-body-pad` supplies it).
+
+**Profile-menu "About" (Starter + Pro)** = `jumpToAbout()`: closes the menu, clears the Glossary search, and opens the Glossary at CRF FRAMEWORK. No separate About content.
+
+**"Proxy" glossary term** added under CRF FRAMEWORK, after Gate 5. Pro's copy cross-references "Proxy tier (Gate 5)".
 
 ## Terminology rule
 
@@ -5157,6762 +1153,885 @@ Verdicts are UP / DOWN / FLAT only, with a magnitude and a sizing action.
 "Stand down" and "go" are prohibited anywhere in UI copy, verdict labels, or
 generated text (a permanent rule from the Jul 28-29, 2026 framework rebuild).
 
-## Backend: Pre-Gate solvency work from Aug 18, 2026 — fully reverted
-
-Six PRs landed in both repos on Aug 18, 2026 (`Tra` #41-#46 /
-`trade-verdict` #180-#185) chasing a live report that Pre-Gate showed
-GREEN on distress filings: widened solvency keywords, added
-`dateRange=custom` to the SEC search, a persistent no-decay solvency
-flag with a new `pre_gate_solvency_state` table, a 730-day wide-lookback
-pre-check, a cross-company match guard after MU (a healthy company) got
-a fabricated hard-down trigger while a genuinely distressed ticker (XTI)
-stayed GREEN, and an `/analyze` `max_tokens` bump after a resulting
-"Failed to parse AI response" error. **All six reverted the same day** —
-direct instruction, after the persistent-flag mechanism produced a real,
-live false positive on a healthy stock and the underlying report was
-still unresolved. `server.js`/`CLAUDE.md` reset to their pre-Aug-18
-state (commit `e31db3f`); `supabase-ddl-patch10-solvency-state.sql` and
-`supabase-ddl-patch11-solvency-company-name.sql` removed from both repos.
-
-**Not undone by this revert:** the `pre_gate_solvency_state` table
-itself still exists in Supabase (created by patch10, altered by patch11)
-with whatever rows accumulated during the day, including any real data —
-the revert only removes the code that reads/writes it. Dropping the
-table is a separate, deliberate cleanup step for Mr. T to take if wanted,
-not done as a side effect of this revert. The two bugs this work
-originally set out to fix — solvency language not matching the original
-narrow keyword list, and the missing `dateRange=custom` param — are
-real, reasoned-through, and **still exist post-revert**; Pre-Gate is
-back to exactly its pre-Aug-18 behavior, narrow keywords and all. Revisit
-this from scratch, more incrementally, if picked back up again — the
-mistake this pass made wasn't any single fix being wrong in isolation,
-it's stacking five more changes on an unverified live system in one day
-without confirming each one actually worked before building the next.
-
-**Correction, same day:** the `/analyze` `max_tokens`/parse-logging PR
-(`Tra` #46) was reported as merged but never actually was — only the
-`trade-verdict` mirror (#185) got merged. The real fix never ran in
-production, so a retest that still hit "Failed to parse AI response"
-wasn't proof the fix failed, it was never live to begin with. Confirmed
-after the full revert (which put `max_tokens` back to its original 800,
-unrelated to anything reverted) that the parse error is gone — consistent
-with the original truncation theory, now moot since it was never
-deployed either way. **Lesson: verify a merge actually happened in the
-repo that deploys, don't just report success from having called the
-tool once** — this cost real, avoidable debugging time on top of
-everything else this saga already cost.
-
-**Rebuilt, observation-first this time (`Tra` PR #48 / `trade-verdict`
-PR #187, mirrored per the two-repo rule).** Direct instruction: keep
-the `pre_gate_solvency_state` table (a viable path, not abandoned) and
-get CIK/SEC data resolution actually reliable before rebuilding any
-enforcement on top of it. Re-landed only the two request-correctness
-fixes that were never actually disproven — the widened solvency keywords
-and the missing `dateRange=custom` param — plus full diagnostic logging
-(`getCik()` logs which tier resolved a ticker and the company name from
-SEC's own data; `searchEdgarFilings()` logs the exact request URL, HTTP
-status, hit count, and **every matched hit's own reported company
-name**). Deliberately NOT re-added: the persistent flag, the wide
-730-day lookback, and the cross-company guard — none of the actual
-enforcement mechanism that caused the MU false positive. This is
-observation-only; Pre-Gate's real-time behavior for any given request is
-otherwise unchanged from the reverted state.
-
-**Next step, requires a human:** trigger a fresh Pre-Gate check on a
-known-good ticker (e.g. MU) and a known-distressed one (PLAG/XTI), then
-grep Render logs for `[PRE-GATE]`. The `companies:` field on every
-`searchEdgarFilings` log line is the actual test of the long-standing
-`ciks`-scoping theory — if a healthy ticker's search ever returns hits
-from a different company's name, that confirms the cross-attribution
-bug directly, with real evidence instead of another guess. Only once
-this data is in hand should the persistent-flag/enforcement layer get
-rebuilt, informed by what actually happens rather than reasoned about
-from documentation.
-
-**The real root cause, found from that data (`Tra` PR #49 /
-`trade-verdict` PR #188, mirrored per the two-repo rule).** Real
-Render logs for BALY (a live, current going-concern case — the Aug 17,
-2026 liquidity warning, `substantial doubt`/`going concern` verbatim in
-the Q2 10-Q) showed the `ciks`-scoping theory was WRONG: the search
-itself was working perfectly — `searchEdgarFilings CIK 0001747079: 3
-hit(s), companies: Bally's Corp (BALY) (CIK 0001747079) | ...` — three
-real hits, correctly and exclusively attributed to Bally's Corp itself.
-No cross-company contamination anywhere. Same clean result for INO (7
-hits, all correctly attributed to Inovio Pharmaceuticals). The search
-request, CIK resolution, and `dateRange=custom` were never the problem.
-
-The actual bug was one step further downstream: `evaluatePreGate()` ran
-ONE combined query (all three categories' keywords OR'd together), got
-real hits back, then tried to figure out *which* category each hit
-belonged to by re-scanning a `hit.highlight` field for the keyword text.
-EDGAR's full-text search response doesn't reliably populate `highlight`
-the way that code assumed — so BALY's 3 real, correctly-found hits
-re-classified to zero categories and fell through to GREEN with "SEC
-filings matched search terms but none confirmed a hard/soft trigger
-category on closer classification." Every genuine hit was being found,
-then silently discarded one line later.
-
-**Fix: stopped trying to reclassify hits after the fact — search each
-category separately instead.** `evaluatePreGate()` now runs one
-`searchEdgarFilings()` call per `PRE_GATE_TRIGGERS` category (solvency,
-dilution, guidanceCut) instead of one combined query. A hit returned
-from a query scoped to only ONE category's keywords is guaranteed, by
-construction of a full-text keyword search, to actually contain that
-category's language somewhere in the filing — there's no post-hoc
-classification step left to get wrong, because the query itself IS the
-classification. Costs 3 SEC calls per `evaluatePreGate()` invocation
-instead of 1, but this only runs once per ticker per 24h
-(`preGateCache`), so the extra throttled calls are a modest, acceptable
-price for a mechanism that actually works.
-
-**Verified against the real evidence, not another simulation.** BALY's
-real logged response (3 hits, all Bally's Corp, all within the 45-day
-window) run through the new per-category logic: the solvency-scoped
-query alone would return those same 3 hits directly as solvency matches
-— no highlight parsing, no ambiguity, `hasHardTrigger` becomes true, RED.
-This is the one fix in this entire saga that's grounded in an actual
-live SEC response rather than reasoning about documented API behavior.
-**Still not confirmed against a fresh live deploy** — the next real test
-is re-checking BALY after this ships and seeing RED instead of GREEN.
-
-**A second real bug found immediately after, same technique — a genuine
-false positive on a healthy company (`Tra` PR #50 / `trade-verdict`
-PR #189, mirrored per the two-repo rule).** Once the per-category
-search started actually working, it surfaced a RED on STWD (Starwood
-Property Trust) despite a strong recent earnings report. Traced with the
-same discipline as BALY — not reasoned about, verified against the real
-matched text via SEC EDGAR's own search UI (scoped to the exact CIK
-`0001465128`, not a fuzzy name search, which the first attempt at this
-link wrongly used and returned unrelated Starwood-branded entities). The
-real highlighted match: Section 5.7 "Solvency" of a merger agreement
-exhibit (EX-2.1) — boilerplate every M&A deal includes, representing
-that asset "fair saleable value... determined on a **going concern
-basis**" exceeds liabilities post-merger. That's a standard valuation
-*methodology* term ("going concern basis" = valued as an operating
-business, not liquidated), with zero connection to financial distress —
-completely different from the auditor going-concern *qualification*
-("substantial doubt about the Company's ability to continue as a going
-concern") this feature actually exists to catch.
-
-**Root cause: "going concern" was doing double duty as a keyword and
-losing.** It's not exclusively auditor-distress language — it's also
-routine legal/valuation terminology, and `PRE_GATE_TRIGGERS.solvency`
-had it as its own standalone OR'd keyword, so ANY appearance anywhere in
-a filing (including a merger-agreement exhibit's boilerplate solvency
-representation) counted as a hard trigger. **Fix: removed it as a
-standalone keyword, kept `"substantial doubt"` alone.** Every real
-auditor going-concern qualification is required (U.S. GAAP/PCAOB,
-ASU 2014-15) to use "substantial doubt" specifically — confirmed this
-doesn't regress the BALY fix, since BALY's real warning ("raise
-substantial doubt about the company's ability to continue as a going
-concern") contains both phrases together and still matches on
-"substantial doubt" alone.
-
-**A broader, related risk flagged but NOT fixed this pass, deliberately
-scoped out:** several of the other hard-trigger keywords
-(`"event of default"`, `"notice of default"`, `"acceleration of
-indebtedness"`, arguably `"insolvent"`/`"insolvency"`) are plausibly
-exposed to the same class of false positive — they can appear in
-routine defined-terms/boilerplate sections of credit agreements and
-merger agreements (filed as exhibits, which this search indexes in full)
-describing what WOULD constitute a default, not an actual one that
-happened. No live evidence for any of these yet, unlike "going concern"
-which had a confirmed real case — flagged here rather than guessed at
-preemptively, matching the lesson this whole saga has been teaching
-about not shipping unverified fixes. If one of these fires on a healthy
-company, use the exact same technique that cracked both BALY and STWD:
-get the real Render `[PRE-GATE]` log lines, then the real matched
-sentence via SEC EDGAR's CIK-scoped search UI, before touching code.
-
-**The flagged risk above turned out to be real, same day (`Tra` PR
-#52 / `trade-verdict` PR #190, mirrored per the two-repo rule).**
-STWD stayed RED after the "going concern" fix — same 2 hits, same
-company, now matching `"insolvent"` instead. A scoped EDGAR search for
-`"insolvent"` on STWD's own CIK returned **1,648 hits, confirmed by
-direct inspection to be boilerplate** — the word is standard
-risk-factor/counterparty-risk/credit-agreement language that appears
-regardless of the filer's own financial health, the identical failure
-mode `"going concern"` had. Given the same underlying mechanism (a bare
-legal/financial term, no requirement that the filer is asserting it
-about itself) was now confirmed twice in one day, the remaining
-generic/definitional keywords were removed as a class rather than
-waiting for a third live false positive on each one individually:
-`"insolvent"`, `"insolvency"`, `"receivership"`, `"event of default"`,
-`"notice of default"`, `"acceleration of indebtedness"` are all gone.
-
-**What's left is deliberately narrow:** `"substantial doubt"` (an actual
-auditor determination) plus phrases that are inherently about a
-bankruptcy/delisting event having actually happened (`"chapter 11"`,
-`"chapter 7 bankruptcy"`, `"voluntary petition for bankruptcy"`,
-`"bankruptcy protection"`, `"notice of delisting"`, `"delisting
-notice"`) — nothing generic/definitional left to trip on boilerplate.
-**Real trade-off, not a free win:** this will now miss real distress
-language that doesn't use one of these specific phrases (e.g., a company
-describing severe liquidity problems without literally invoking
-bankruptcy or "substantial doubt"). Precision over recall, a deliberate
-choice given two confirmed false-positive costs in one day — not a claim
-that recall no longer matters, and worth revisiting once there's a real
-signal that something genuinely distressed is being missed, using the
-same live-evidence discipline this whole saga has converged on.
-
-**STWD side confirmed against live production, Sep 7, 2026 — via Render
-logs and Supabase, not a live browser test (this sandbox still can't
-reach the real site directly).** Pulled the real `[PRE-GATE]` Render
-logs for a genuine STWD check that ran on the live backend
-(`srv-d9c6gdvavr4c73af40p0`) at 2026-09-07 04:39:38 UTC: the three
-per-category `searchEdgarFilings` requests it actually fired show the
-query strings no longer contain `"insolvent"`/`"going concern"` at all
-(confirming the keyword-trim landed as described), and all three
-categories — solvency, dilution, guidance-cut — came back `0 hit(s),
-companies: (none)` for STWD's CIK. Cross-checked against Supabase:
-`verdict_log` shows five separate real `/analyze` calls on STWD from
-Sep 3–7, every one recording `pre_gate_state: "GREEN"`, and
-`pre_gate_triggers` has zero rows for STWD ever. Three independent
-signals, one conclusion — STWD is genuinely, consistently GREEN in
-production, not just in a synthetic test.
-
-**BALY side still unconfirmed** — no real BALY check has run in the last
-week (checked the same Render log window, found none), so there's
-nothing live to point at yet. Same expectation as before: BALY should
-still come back RED, since `"substantial doubt"` (the phrase its own
-real going-concern warning uses) was never touched by any of this
-saga's trims. Re-check once a real BALY analysis runs again.
-
-Separately, still genuinely open: this STWD check never exercised the
-exhibit-`file_type` filter (`isExhibit()`, see below) at all — all three
-categories returned 0 hits at the search-query level before that filter
-would even get a chance to apply. That fix's own live-firing status
-(watching for a real `excluded N exhibit-only hit(s)` log line) remains
-unverified; STWD going GREEN here is fully explained by the keyword trim
-alone.
-
-**Research follow-up, same day: the real fix for the false-positive class
-itself, not just another keyword trim (`Tra` PR #52 / `trade-verdict`
-PR #191, mirrored per the two-repo rule).** Prompted directly: "do a
-deeper research dive to find the logic needed in a search that returns
-valid company concerns," with a suggestion to align with SEC's own
-developer-API guidance (declared User-Agent with a contact email, use
-`data.sec.gov`'s structured JSON endpoints, rate-limit under 10 req/sec)
-rather than another keyword patch.
-
-**Structured XBRL data investigated first, disproven by direct
-evidence.** Checked whether `data.sec.gov/api/xbrl/companyconcept/` could
-give a reliable yes/no signal instead of full-text search at all —
-specifically `us-gaap:SubstantialDoubtAboutGoingConcernTextBlock` for
-BALY, a company with a definitively real, current going-concern warning.
-Returned an S3 `NoSuchKey` error — the user checked directly. Widened the
-check to BALY's full `companyfacts` endpoint (every XBRL concept the
-company has ever reported) and searched it for "GoingConcern" —
-**zero matches**, confirmed by the user via browser Ctrl+F. Real
-companies evidently don't reliably tag this disclosure with any
-GoingConcern-named XBRL concept at all, at least not BALY. **Dead end,
-correctly identified as such and not built on.**
-
-Second dead end, caught internally before it was proposed: restricting
-`PRE_GATE_FORMS` to just `10-Q,10-K` (dropping `8-K,S-1,S-3,424B*`) to
-avoid non-primary-disclosure filings. Re-checking the STWD screenshot
-from the "going concern" fix above showed the offending EX-2.1 exhibit
-was itself filed AS PART OF a 10-Q — form-type restriction would not
-have excluded it either. Flagged to the user as a second ruled-out idea
-rather than shipped as another guess.
-
-**The actual fix, found via `WebSearch` against SEC's own documented
-full-text-search response shape, not guessed:** each hit's `_source`
-object carries a `file_type` field identifying which sub-document of the
-filing actually matched — the primary document itself (e.g. `"10-Q"`,
-`"10-K"`) or an attached exhibit (`"EX-2.1"`, `"EX-99.1"`, etc.). EDGAR's
-full-text search indexes exhibits right alongside the primary document
-under the same CIK/form, with no distinction surfaced anywhere except
-this one field — which `searchEdgarFilings()` had never inspected. Both
-confirmed STWD false positives (the "going concern" merger-agreement
-Section 5.7 solvency representation, and the "insolvent" boilerplate)
-trace back to the same underlying gap: a real auditor going-concern
-opinion is part of a company's own audited financial statements — never
-an attachment — so a hit is only trustworthy when it matched inside the
-primary document, not an exhibit.
-
-**Fix (`searchEdgarFilings()`, both repos):** `allHits` (the raw EDGAR
-response) is now filtered through `isExhibit()` — `file_type` starting
-with `"EX-"` (case-insensitive) — before being returned; a hit missing
-`file_type` entirely, or carrying anything else, is kept (fail
-permissive, matching this file's own "don't block on thin metadata"
-posture used for the cross-company guard earlier in this saga — treating
-absent metadata as disqualifying would be a new, unverified assumption
-of its own). Logging extended to show the excluded count and the actual
-exhibit `file_type` values whenever any hit is dropped, so this is
-confirmable in Render logs the same way every other fix in this saga has
-been.
-
-**Verified by simulation, the same discipline as every gate-logic change
-in this file:** ran the real `isExhibit()` predicate against 7 synthetic
-cases — a primary 10-Q, a primary 10-K, the real confirmed STWD `EX-2.1`
-shape, a `EX-99.1` press-release exhibit, a lowercase `ex-10.1` variant,
-a hit with an empty `_source` object, and a hit with no `_source` at all
-— all 7 behaved as intended (exhibits excluded, primary documents and
-metadata-less hits kept). `node --check` clean on both repos' `server.js`;
-`npm test` (75 cases, unaffected — this function isn't in the current
-test suite's scope) still passes clean in both repos.
-
-**Deliberately did NOT restore the broader keyword list ("going
-concern", "insolvent", "insolvency", "receivership", "event of default",
-etc.) alongside this fix, even though the exhibit filter structurally
-closes the specific vector that took them down.** Both STWD false
-positives happened to live in an *exhibit* to a 10-Q, which this fix now
-excludes — but Item 1A "Risk Factors," a mandatory section of the
-*primary* 10-K/10-Q document itself (never an exhibit), routinely
-discusses hypothetical insolvency/going-concern scenarios in exactly the
-same generic, no-first-person-assertion way ("adverse conditions could
-lead to insolvency for our tenants," "a going concern qualification could
-result if..."). That boilerplate would sail straight through the new
-exhibit filter untouched, since it's genuinely part of the primary
-document — meaning restoring those keywords now would very plausibly
-reintroduce the identical false-positive class through a different
-document *section* instead of a different document *attachment*, with
-nothing yet built to catch that. The currently-narrow list
-(`"substantial doubt"` plus the unambiguous bankruptcy/delisting phrases)
-stays as-is; the exhibit filter ships as an independent, additional layer
-of defense — real protection against a confirmed failure mode, not a
-justification for widening scope that hasn't been tested against the
-next one. Revisit broadening the keyword list only alongside a similar
-evidence-driven fix for the Risk-Factors-boilerplate vector specifically,
-not as a side effect of this one.
-
-**Not yet verified against a live deploy** — same standing posture as
-every fix in this file; `efts.sec.gov` is unreachable from this sandbox,
-so the `file_type` field's real presence/values were confirmed via
-`WebSearch`-sourced SEC documentation, not a live response. To confirm:
-re-check STWD (should now stay GREEN under the current narrow keyword
-list even without this fix, since neither of its trigger phrases remain
-in scope — this fix's real test is instead any *future* narrow-keyword
-match that happens to land in an exhibit) and watch Render logs for
-`excluded N exhibit-only hit(s)` lines to confirm the filter is actually
-firing on real traffic.
-
-## Backend: Gate 4 (Phase) moved server-side — plain math, not an LLM judgment call (Aug 22, 2026)
-
-Prompted by direct review of the "How a Verdict Gets Decided" writeup (see
-below) — Gate 4 was the one remaining gate (besides Gate 2/3) still left
-to the model's own judgment, even though its inputs are already a single
-number the server computes itself: `rangePosition`, the ticker's % position
-in its own 52-week range, built in `/ticker/:symbol`'s fundamentals fetch
-and already relayed to `/analyze` inside `metricsData`. There was never a
-real judgment call for the model to make here — just three fixed
-thresholds (`<30%` GREEN, `30-70%` YELLOW, `>70%` RED) it was being asked
-to apply to a number it had already been handed as plain text.
-
-**Fix (`Tra` + `trade-verdict`, same PR pattern as every other gate):**
-new `evaluateGate4(metricsData)`, same shape/style as `evaluateGate1`,
-called once in `/analyze` from the existing `metricsData` already on the
-request — no new field needed on the wire, unlike Gate 1/5's own
-server-computed results (which get threaded through as their own request
-fields since they depend on data the client fetches separately). Gate 4
-is now enforced the same way as Pre-Gate/Gate 0/Gate 1/Gate 5:
-`parsed.gates.g4_phase` is overwritten server-side right after parsing,
-`SYSTEM_PROMPT`'s Gate 4 section is marked "server-provided, never
-recalculate" (matching Gate 0/1/5's own wording), and the `/analyze`
-prompt hands the model a `GATE 4 — USE EXACTLY THIS` block instead of
-raw range-position data to reason about itself. The model's own job
-description changed from "Run Gates 2, 3, 4" to "Run Gates 2 and 3" —
-Gate 4 joins the other four gates the model is told to copy verbatim.
-
-**Verified by simulation** — 7 synthetic `rangePosition` values (`null`,
-15, the `30`/`70` boundaries themselves, `31`/`71` just past each
-boundary, and `95`) all produced the exact GREEN/YELLOW/RED/note text
-expected, matching the same thresholds `phaseProxy`'s existing
-(cosmetic-only, unaffected by this change) PHASE_1/2/3 labels already
-used. `node --check` clean, `npm test` (75 cases, unaffected — Gate 4 was
-never in that suite's scope) passes clean in both repos.
-
-**Not yet verified against a live deploy** — same standing posture as
-every backend change in this file. To confirm: analyze a ticker known to
-sit deep in its 52-week range (>70%) and confirm Gate 4 renders RED with
-the new note text, and that the model's own `g4_phase` guess (if it makes
-one) never survives past the parse step.
-
-## Backend: Gate 3 Friday full-weight exception + a real UP-with-one-RED sizing rule (Aug 22, 2026)
-
-Two more edits from the same "How a Verdict Gets Decided" review that
-prompted the Gate 4 change above. Both were genuinely ambiguous as
-written in the reviewed doc, so each was confirmed via `AskUserQuestion`
-before touching any code — worth recording exactly what was confirmed,
-since both are real behavior changes to the verdict pipeline.
-
-**Gate 5's fixed-proxy regime check — confirmed as no code change.** The
-reviewed doc's "if it's judged broken by 30 days of consistent
-decoupling" was flagged as a mismatch: the real mechanism
-(`regimeValidation()`, Proposal 3) is a weekly rolling-20-day-vs-full-
-history correlation check, not a day-count. Confirmed directly: that
-phrase was intended as plain-English framing of the existing check, not
-a request for a new day-counting mechanism. No code touched.
-
-**Gate 3 — a new Friday full-weight exception, real feature.** Friday
-has always carried a flat skepticism discount ("add skepticism, 67%
-reversal frequency") regardless of how the week itself actually traded.
-Confirmed via `AskUserQuestion`: Friday should get full weight instead of
-that discount specifically when this week's own Monday-through-Thursday
-move has been flat AND Friday's own 3-bar sequence is itself bullish/
-convicted — both conditions, not either alone.
-
-Implemented as a new `fetchWeekOwnRange(symbol)` (`Tra` + mirror), same
-dated-bars-fetch shape as the existing `fetchWeeklyCarryover()` just above
-it — needs its own fetch rather than reusing Gate 1's `dailyCloses` array,
-which is deliberately not date-anchored (see that array's own comment).
-Locates the current week's own Monday close and the most recent completed
-session's close (normally Thursday), classifies FLAT using the same
-±0.3% tolerance `fetchWeeklyCarryover`'s own CONFIRMED_UP/DOWN/FLAT split
-already uses. **Called directly from `/analyze`, gated behind
-`etWeekday() === 5`, not relayed through `/ticker/:symbol` or any tier's
-client** — same shape as Proposal 4's `fetchNewsBodiesForCorroboration`/
-`fetchEarningsCalendarFlag` (a conditional, day-gated fetch inside
-`/analyze` itself). This was a deliberate choice over threading a new
-field through every tier's `analyzeTicker()` POST body the way
-`weeklyCarryoverData`/`regimeData` are: since nothing about this signal
-needs computing ahead of time in `/ticker/:symbol`, fetching it on-demand
-inside `/analyze` (only on the one day of the week it matters) avoids
-touching any frontend file, any `?v=` cache-busting cascade, or any
-esbuild rebuild — a much smaller, lower-risk footprint for the same
-outcome. `SYSTEM_PROMPT`'s Mon/Fri overlay section now has an explicit
-"Friday full-weight exception" clause telling the model to use the new
-server-computed `Gate 3 Friday full-weight check` context line exactly,
-not to guess flatness from the bar data itself.
-
-**A real, deliberate trade-off, same posture as the weekly-carryover
-feature's own calibration note elsewhere in this file:** the ±0.3% flat
-threshold is reused from an existing, differently-tuned check (the
-Friday→Monday weekend-reaction classification), not independently
-calibrated for "this week's own Monday-Thursday range" — reasonable as a
-starting point, not yet verified against real data. Revisit once enough
-real Friday verdicts have accumulated.
-
-**Sizing — a new single-RED exception for UP, not previously
-representable at all.** The reviewed doc's edit loosened UP's
-requirement from "no RED gates" to "no more than one of Gates 2/3/4 RED."
-Confirmed the sizing consequence via `AskUserQuestion`: when that one
-RED gate is present, sizing caps at QUARTER rather than dropping to NONE
-the way any other RED gate would otherwise force. Implemented as a pure
-`SYSTEM_PROMPT` rule change (`VERDICT RULES`' UP section, `SIZING RULES`)
-— sizing has never been server-enforced for the general case (only the
-explicit forceDown branches hard-set `sizing = "NONE"`, and those are
-untouched, DOWN-only paths this change doesn't reach), so a prompt-level
-rule is the correct, consistent implementation here, not a gap. Two or
-more RED among Gates 2/3/4 is explicitly carved out as NOT this exception
-— that's still DOWN/FLAT territory under the existing rules.
-
-**The reviewed doc's "LOOK FOR" edit needed no code change either** —
-confirmed directly: the real app already populates a LOOK FOR line on
-every verdict regardless of confidence; the edit was correcting this
-file's own documentation claim (which had incorrectly scoped it to
-LOW-confidence only), not requesting new behavior.
-
-**Verified by simulation** — `fetchWeekOwnRange`'s pure classification
-logic run against 5 synthetic bar sequences (a flat week, a clearly
-directional +2.5% week, the exact 0.30% boundary, just past it at 0.31%,
-and a window with no Monday bar at all) all produced the expected
-FLAT/NOT-flat classification and the expected `null` fail-safe when no
-Monday bar is found. `node --check` clean, `npm test` (75 cases,
-unaffected — neither change touches `gates-extended.ts`/
-`analyze-helpers.ts`) passes clean in both repos.
-
-**Not yet verified against a live deploy** — same standing posture as
-every backend change in this file. To confirm: watch a real Friday
-session where the week has genuinely been flat and check whether the
-model actually applies full weight instead of the usual skepticism
-discount, and confirm a real UP verdict with exactly one RED among
-Gates 2/3/4 renders QUARTER sizing rather than NONE.
-
-## Backend: Pre-Gate loses its blanket forceDown authority — joins the corroboration pool (Aug 22, 2026)
-
-Direct instruction: "add pre-gate among those that one red gate can't
-bring a force down unless 3 yellow gates are also in the breakdown."
-Given how consequential Pre-Gate's forceDown behavior is — it was a
-deliberate, repeatedly-reaffirmed design choice through the entire Aug 18
-Pre-Gate saga above ("any negative filing = hard down, no negotiation")
-— this was scoped via `AskUserQuestion` before touching any code, not
-guessed at:
-
-1. **Confirmed: Pre-Gate RED alone should stop being an unconditional
-   override.** It joins Gates 2/3/4 in needing backup to force DOWN,
-   replacing its previous blanket "always forces DOWN alone" behavior
-   (previously equivalent in authority to Gate 0 RED).
-2. **Confirmed: "3 yellow gates" means specifically Gates 2, 3, and 4
-   all independently YELLOW** — not any 3 of the 6 gates.
-3. **Confirmed: a RED Pre-Gate still counts toward the existing "2+ RED
-   gates" corroboration path** that Gates 1/2/4/5 already use — it's a
-   normal member of the pool now, not gated by the 3-yellow rule alone.
-
-**Implementation, both repos:**
-- The old unconditional Pre-Gate forceDown block (`parsed.verdict =
-  "DOWN"; parsed.sizing = "NONE"; parsed.confidence = ...; parsed.wait_for
-  = ...`) is gone. A RED Pre-Gate now only sets `parsed.verdict = "DOWN"`
-  as a **candidate** and updates `parsed.reason` — the same "assert a
-  direction, let the congruency check decide if it holds" treatment every
-  other RED gate already gets. `preGateResult.hardTrigger` was removed
-  from `downForceAuthorized` entirely.
-- The `CONGRUENCY` block's `redCount` tally now includes
-  `preGateResult.status` alongside `g1Status`/`g2Status`/`g4Status`/
-  `gate5Result.status` — Pre-Gate RED is one more countable RED, exactly
-  as confirmed.
-- New `g3Status` (`parsed.gates?.g3_openbar?.status`) read for the first
-  time in this block — Gate 3 (opening bar) was never part of the
-  corroboration pool before this change, and still isn't for the RED
-  tally; it's only read for the new escape hatch below.
-- New `threeYellowBreakdown` check (`g2Status === "YELLOW" && g3Status
-  === "YELLOW" && g4Status === "YELLOW"`) — when true, a single RED gate
-  (Pre-Gate included) is treated as sufficiently corroborated even
-  without a second RED. This is implemented generically in the shared
-  congruency block rather than special-cased to "only when Pre-Gate is
-  the RED one" — the simpler, smaller diff, and it can't misfire for a
-  case where the sole RED gate *is* one of Gates 2/3/4 itself (that gate
-  can't simultaneously be RED and count toward the all-YELLOW check, so
-  no extra guard was needed there).
-- `SYSTEM_PROMPT`'s Pre-Gate section rewritten to describe the new
-  behavior explicitly (no longer "forceDown override authority EQUIVALENT
-  TO GATE 0 RED... exempt from the corroboration rule") — the model still
-  copies Pre-Gate's `status`/`note` exactly (unchanged), only the
-  authority claim changed.
-
-**Verified by simulation** — 8 synthetic cases run through the exact
-congruency logic: Pre-Gate RED alone (→ FLAT, correctly no longer
-automatic), Pre-Gate RED + Gate 1 RED (→ DOWN, 2-red path holds),
-Pre-Gate RED + Gates 2/3/4 all YELLOW (→ DOWN, new escape hatch fires),
-Pre-Gate RED + only 2 of the 3 yellow (→ FLAT, escape hatch correctly
-does NOT fire on a partial match), Gate 2 RED alone (→ FLAT, pre-existing
-behavior unchanged), Gate 2 RED + Gate 4 RED (→ DOWN, pre-existing 2-red
-path unchanged), a sanity check with zero RED gates (→ FLAT), and the
-Gate 0 RED exempt path (→ DOWN, entirely untouched by this change) — all
-8 behaved as intended. `node --check` clean, `npm test` (75 cases,
-unaffected — this logic lives in `server.js`, not `gates-extended.ts`/
-`analyze-helpers.ts`) passes clean in both repos.
-
-**A real, deliberate trade-off worth being explicit about:** this
-directly reopens the exact scenario the Aug 18 Pre-Gate saga was
-originally built to close — a real, confirmed SEC solvency filing can
-now render as FLAT instead of DOWN if it's the only red flag and Gates
-2/3/4 aren't all showing caution. That's the intended effect of this
-change, not a regression: Pre-Gate joining the corroboration pool is a
-deliberate loosening, confirmed directly, not an accident. If a live
-case surfaces where a genuinely distressed ticker gets FLAT'd this way
-and that reads as wrong in practice, that's a real signal to revisit —
-same evidence-driven posture as everything else in the Pre-Gate saga
-above.
-
-**Not yet verified against a live deploy** — same standing posture as
-every backend change in this file. To confirm: watch for a real ticker
-with a confirmed Pre-Gate RED and check whether the verdict now renders
-FLAT (not DOWN) when Gates 2/3/4 aren't all YELLOW and no second gate is
-RED, and DOWN when either condition is met.
-
-## Frontend: touch-and-feel polish pass — Gate 0 label, gate bullets, swipe-hint positioning (Aug 22, 2026, `trade-verdict` PRs #201-204, #206)
-
-A separate session, same day as the backend work above (Gate 4/Gate 3
-Friday/Pre-Gate corroboration-pool changes) — pure frontend spacing/
-readability polish, no gate logic touched. Opened with a direct request:
-"go through the touch and feel of the app, with the motive to save room
-and make it easier to read," four concrete asks, Pro tier first.
-
-**Gate 0 label simplified (`renderGate()`, all three tiers as of #206).**
-The market-open/closed label dropped its redundant "MARKET " prefix —
-now just "OPEN"/"CLOSED" — while the color dot beside it keeps carrying
-Gate 0's own independent GREEN/YELLOW/RED market-direction read,
-unchanged. Shipped Pro-only first (#201, per the request's own "make
-changes to Pro tier first"), extended to Free/Starter in #206 once the
-user flagged the tier gap (below).
-
-**Gate rows hyphen-joined onto one line (`gateListHTML()`, all three
-tiers as of #206).** Each gate's dot + label + note previously rendered
-as a two-part block — `.gate-row-head` (dot+label) on its own row, the
-note wrapping below it in a separate `.gn` div, `.gate-row` itself a
-`flex-direction:column` container. Restructured to a single flex row —
-`.gate-row-head` removed entirely, `.gate-row` switched to a plain
-row layout, `.gate-dot` centered against the label via a measured
-`margin-top:6px` (verified against the real Martian Mono font, not a
-system fallback, via a `curl`-the-real-`.woff2`-then-`page.route()`
-technique — this sandbox's browser can't reach `fonts.gstatic.com`
-directly the way `curl`/Node can). Label and note now read as one
-flowing hyphen-joined line: `G1  14D - Ran +22% in 14 days...`.
-
-**IEX/regular-session disclaimer moved into the Gate's `(?)` help
-balloon (#202, all three tiers).** Previously a permanent
-`.session-note` line sitting inside the Gate's full-detail overlay
-(`#gateFullOverlay`) regardless of whether anyone needed it. Removed
-that div/CSS rule outright; the same text is now appended to the
-existing `HELP_CONTENT.gate` balloon string instead — reachable via the
-`(?)` button, out of the way otherwise. Prompted by a screenshot with
-the disclaimer circled, not a written description — confirms this
-file's own repeated lesson about verifying which specific element a
-screenshot-only report is pointing at rather than guessing.
-
-**Swipe-to-delete hint tucked under the ticker symbol (#203, then
-#204, all three tiers).** Two rounds, both from direct screenshot
-feedback on Pro:
-1. `.ticker-swipe-hint` (the "← Swipe to delete" line) was
-   center-aligned and full-width under the ticker row. First fix (#203)
-   just left-aligned it under the symbol (`text-align:left`), still as
-   a sibling block after the whole `.ticker-row`.
-2. That wasn't enough — a card with a tall verdict badge (HOLD / MKT
-   CLOSED) still left a large gap before the hint, reported as "looks
-   like there's a row skipped." Root cause: the sibling block's position
-   was anchored to the bottom of the WHOLE row's stretched height
-   (matching `.ticker-action`'s taller verdict-badge column), not to the
-   shorter `.ticker-left` content next to it. Fixed (#204) by nesting
-   `.ticker-swipe-hint` inside `.ticker-left` as a third child with
-   `flex-basis:100%` (forcing it onto its own line within
-   `.ticker-left`'s own existing `flex-wrap:wrap`), decoupling its
-   position from `.ticker-action`'s height entirely. Verified via a
-   scoped headless-Chromium measurement reproducing the exact
-   tall-badge scenario from the screenshot: a tight, consistent 9px gap,
-   with the hint's top sitting well above the badge's own bottom edge
-   (629 vs 644) — proof the position no longer tracks the badge's
-   height at all.
-
-**A real cross-tier scope gap, caught only because the user pushed
-back.** #201-204 (except #202, already all-tiers) shipped Pro-only
-first, per the request's own phrasing. Once the glossary work below
-(#205) also shipped Free/Starter-only, the user asked "did all changes
-get merged because I'm not seeing all the changes" — followed by a
-direct correction once asked which tier: **"all changes needed to be
-implemented across all tiers."** Re-diffed `app.ts`/`starter/app.ts`
-against `pro/app.ts` directly (not from memory) to confirm exactly what
-was still missing — found Free/Starter never got the Gate 0 label/
-hyphen-bullet change (#206 closed that) and Pro never got the glossary
-overhaul (see below, #207 closed that). **Lesson: when a request doesn't
-explicitly name a scope-limiting phrase like "Pro first," a Pro-only
-delivery is an assumption, not a given — worth confirming the intended
-final scope up front rather than after a "where's the rest of it"
-follow-up.**
-
-Verified throughout via headless Chromium (zero `.gate-row-head`
-elements remain in the DOM, `.gate-row` computes to a flex row not a
-column, dot-beside-label alignment measured directly against the real
-font, the swipe-hint gap measurement above) plus `node --check`/
-`tsc -p tsconfig.json` (same known 7-error `?v=N` baseline throughout,
-zero new errors)/`npm test` (75 cases, unaffected — none of this touches
-`gates-extended.ts`/`analyze-helpers.ts`). `?v=` bumped in every
-touched tier's own `<script>` tag at each step, per the cache-busting
-rule.
-
-## Frontend: Glossary overhaul — yellow terms/white definitions, alphabetical reorder, 25 new market-language terms, purple auto-links (Aug 22, 2026, `trade-verdict` PRs #205, #207)
-
-Same session as the touch-and-feel pass above, a separate, larger ask
-covering four changes to the Glossary card and how its terms surface
-elsewhere in the app. Shipped Free/Starter first (#205), Pro (#207)
-once the same "all tiers" correction described above applied here too.
-
-**Styling.** `.glossary-term-name` switched from white (`--ink`) to
-amber/yellow (`--amber` — this app's palette has no separate `--yellow`
-token, `--amber` is the existing yellow-equivalent used everywhere else
-for YELLOW gate status/HOLD/warnings, reused here rather than inventing
-a new color). `.glossary-term-def` switched from dim grey (`--ink-dim`)
-to full white (`--ink`). `.glossary-term-example` (the italic "e.g. ..."
-line) deliberately left untouched — the request was term/definition
-only.
-
-**Reorder.** Categories are now alphabetical with `CRF FRAMEWORK` pinned
-first (not sorted into its alphabetical slot) — the profile-menu About
-link (see the Aug 18, 2026 Glossary-as-accordion-card entry earlier in
-this file) depends on CRF FRAMEWORK being the first category a user
-lands on. Within every category, terms are alphabetized too, with one
-additional pin: `CRF (Catalyst Response Framework)` itself is forced to
-the literal first entry inside its own category (case-sensitive default
-sort already put it there by luck — `'C','R'` sorts before `'C','o'`
-in `Confidence` — but the reorder script pins it explicitly rather than
-relying on that coincidence holding). Pure reordering of each tier's
-existing `GLOSSARY` array, done with a small Python script (not
-hand-retyped) to eliminate transcription risk across ~65-90 entries per
-tier — `buildGlossary()`'s own rendering logic needed zero changes,
-since it already just preserves array/insertion order.
-
-**25 new terms**, one new category, identical `def`/`ex` text
-byte-for-byte across all three tiers: `PRICE & VALUATION LANGUAGE` —
-Overweight, Undervalued, Overvalued, Fairly Priced, Par, Premium,
-Discount, 52-Week High, 52-Week Low, All-Time High (ATH), All-Time Low
-(ATL), Bullish, Bearish, Overbought, Oversold, Breakout, Breakdown,
-Range-bound, Sideways, Volatile, Rallying, Gapping Up, Gapping Down,
-Floating, Frozen. Free/Starter: 64 → 89 terms. Pro (which already
-carried 66 — its own 3 exclusive entries, Proxy Resolution Explorer /
-Sector Heat Map / Proxy tier (Gate 5), against one fewer than Free/
-Starter's original set, missing "Phase 1 / 2 / 3" — an existing,
-pre-session asymmetry not touched by this pass): 66 → 91. Every tier's
-Glossary search placeholder bumped to match ("64/66 terms" →
-"89/91 terms").
-
-**Purple auto-linking — the largest piece.** A curated subset of the 25
-new terms (the ones plausible in AI-written market commentary, not the
-full Glossary — linking every stray occurrence of a word like "Long"
-would be noise) now auto-link wherever they appear in a card's news
-headline or gate info: per-gate `.gn` notes, the Pre-Gate "LOOK FOR"
-line, and Gate 0's own market note (`#gateNote`, switched from
-`.textContent` to `.innerHTML` to allow it). Pro also got a fourth spot
-Free/Starter don't have at all: the Watchlist-overflow accordion's
-`.compact-news` headline (tickers beyond the 15-card window). New
-`GLOSSARY_LINK_TERMS`/`linkTextSegment()`/`autoLinkGlossaryTerms()` find
-every non-overlapping match against the ORIGINAL text in one pass
-(never sequential per-term string replaces, so one term's inserted
-`<a>` can never be re-scanned and corrupted by the next term's regex)
-and only touch plain-text runs outside existing HTML tags, so a `<mark
-class="ctx-match">` from Session Context highlighting nests correctly
-(`<mark><a>...</a></mark>`) instead of getting corrupted. Styled via a
-new `.term-link` class (`var(--purple)`, the same purple already used
-for `.glossary-cat`/`.card-label` elsewhere in the app). Click handling
-needed zero new code — the links reuse the existing
-`.help-glossary-link` class, already wired to `jumpToGlossaryTerm()` via
-`shared/rolodex.ts`'s `initHelpBalloons()` delegated listener from the
-Aug 18, 2026 help-balloon work.
-
-**A real bug caught by a standalone Node logic test before this
-shipped, not by eyeballing.** The card headline is already wrapped in
-its own `<a>` linking to the full news article — nesting a second `<a>`
-for a glossary term inside it would be invalid HTML (browsers silently
-reparent nested anchors, per spec). `wrapHeadlineLinks()` avoids this by
-splitting the auto-linked headline on its own glossary-term anchors and
-wrapping only the OTHER text runs in the article-link `<a>`, so the two
-kinds of link end up as siblings, never nested. The first version of
-that split regex hardcoded `<a class="help-glossary-link term-link"`
-as a literal prefix — but the anchors `linkTextSegment()` actually
-generates put `href` before `class`
-(`<a href="#" class="help-glossary-link term-link" ...>`). Since the
-regex never matched, `wrapHeadlineLinks()` silently treated the ENTIRE
-headline as already-linked and skipped wrapping it in the article link
-at all — any headline containing a glossary term would have shipped
-with its news-article link completely gone, no error, no visible
-symptom short of the headline just not being clickable anymore. Caught
-by a 13-case pure-logic Node test (`tsx`, no browser/bundler needed —
-same technique this file already uses for gate-logic verification)
-asserting the actual output shape, not just "it doesn't throw"; fixed
-by making the split regex attribute-order-agnostic
-(`<a\b[^>]*\bclass="[^"]*\bterm-link\b[^"]*"[^>]*>`).
-
-**Verified, all three tiers:** `node --check` clean; `tsc -p
-tsconfig.json` shows the same known 7-error `?v=N` baseline, zero new
-errors; `npm test` (75 cases) unaffected, all pass (this doesn't touch
-`gates-extended.ts`/`analyze-helpers.ts`); the 13-case standalone
-auto-linker logic test (single/multi-term linking, no-match passthrough,
-correct `<mark>` nesting, acronym case-sensitivity — `ATH` matches,
-`path` doesn't — overlap resolution, zero nested `<a>` tags, balanced
-anchor counts, plain headlines unaffected); a real headless-Chromium
-pass per tier confirming the exact term count and category/CRF-pinned
-order, amber names, white definitions, purple term-links, zero nested
-`<a>` in the rendered DOM, the article link keeping its own (non-purple)
-color, and clicking a term-link firing the real delegated listener
-end-to-end and flashing the correct Glossary entry — not a mocked
-version of `jumpToGlossaryTerm`, the real one. Pro's auto-linker block
-confirmed byte-identical to Free/Starter's via `diff` before shipping,
-to rule out copy-paste drift across the three hand-duplicated copies.
-
-## Frontend/Backend: Import recognizes company names, not just tickers (Aug 23, 2026)
-
-Direct request, prompted by a screenshot of Free tier's Import card: "can
-this input recognize company names to turn to symbols?" Import's
-`addTickers()` (`shared/watchlist.ts`) previously ran raw text through
-`parseTickers()` — a pure regex, `^[A-Z]{1,6}$` after uppercasing, with no
-concept of a company name at all. Typing "Tesla" or "Apple" silently
-either got dropped (if it failed the shape check) or, worse, got added
-as a literal-but-bogus ticker symbol (since "Tesla"/"Apple" both
-happen to fit the same 1-6-letter shape as a real ticker).
-
-**Scoped via `AskUserQuestion` before writing code, since the two viable
-approaches have a real, structural trade-off:** a live backend lookup
-(real coverage for any public company, but needs a new endpoint in `Tra`
-and this session's repo scope widened to include it) vs. a static
-client-side name→ticker map (zero backend dependency, ships in this repo
-alone, but only covers whatever's hand-listed). **Chose live backend
-lookup.** `Tra` was added to this session's repo scope and cloned per the
-two-repo rule's own documented process.
-
-**Backend (`Tra` PR #56 / `trade-verdict` PR #213, mirrored per the
-two-repo rule — same pattern, same function names, confirmed byte-
-identical via diff before shipping).** New `GET /lookup?q=<query>`,
-gated by the same auth middleware as every other route (no special
-exemption — it's a plain data lookup like `/ticker/:symbol`, not an AI
-call like `/analyze`, so no credit cost). `searchSymbolByName(query)`
-routes through the existing `finnhubGet()`/`finnhubThrottle()` queue
-(Finnhub's own `/search?q=` symbol-search endpoint) and picks the first
-hit that's both a bare US-listed symbol shape (`^[A-Z]{1,5}$`, no
-exchange suffix like `.DE`/`.MX`) and an actual tradable type (`Common
-Stock`/`ETP`) — Finnhub's search already ranks by relevance, so no
-extra scoring logic was needed. Results (including misses) are cached in
-a new `symbolSearchCache` Map for a week — a name↔ticker mapping doesn't
-change day to day the way price/news does, so this isn't treated like a
-live-market fetch.
-
-**Frontend (`shared/ticker-cache.ts`, `shared/watchlist.ts`).** New
-`lookupSymbol(query)` in `ticker-cache.ts`, reusing the same
-`API_URL`/`authH`/`addSecret` config every other call there already
-uses. `addTickers()` rewritten around a deliberately simple, explainable
-rule rather than a shape-based guess (a real ticker and a real company
-name can both be 1-6 letters — "AAPL" and "Tesla" are structurally
-identical to a regex): **a whitespace-separated token is a free, zero-
-network literal ticker only when it's typed exactly the way every
-placeholder in this app already shows a ticker — fully UPPERCASE.**
-Anything typed any other way (`Tesla`, `apple`, `Nvidia Corp`) is sent to
-`/lookup` as one company-name candidate instead. This means pasting
-tickers the way this app has always modeled them ("AAPL, MSFT, NVDA",
-including a bare space-separated run with no commas) costs zero backend
-calls, exactly as before; typing a name in any other case resolves it.
-Raw text is split into entries on comma/semicolon/pipe/newline only —
-NOT bare whitespace — so a multi-word name ("Apple Inc") survives as one
-lookup candidate instead of being torn into two separate word-tokens.
-
-**Order preservation was the one real correctness risk, and it's handled
-structurally, not by luck.** `entries.map(async entry => ...)` run
-through a single `Promise.all` — JS guarantees `Promise.all`'s result
-array matches the input array's order regardless of which promise
-actually resolves first, so a name that takes longer to resolve than a
-ticker typed after it still lands in the position it was typed in, not
-the position it finished resolving in. Verified directly: typed "Tesla,
-AAPL" with Tesla's mocked lookup artificially delayed 300ms past AAPL's
-literal zero-cost path, and confirmed TSLA still lands first in the
-saved watchlist.
-
-**A real, direct consequence of the feature, handled defensively:** a
-ticker and its own company name typed together ("AAPL, Apple") now both
-resolve to the same symbol — `tickers` is deduped (first occurrence
-wins) before the existing `newOnes`-against-`watchlist` check, so this
-doesn't silently double-count toward a tier's ticker cap.
-
-**Import button reuses the ANALYZE button's RUNNING…/pulse treatment
-verbatim (`.btn-running`/`runPulse`, shipped earlier this same day for
-Analyze All)** — Import is genuinely async now (a real backend round
-trip for any name), where it used to be synchronous, so the button shows
-`ADDING…`, disables, and pulses blue for the duration, reverting to
-`Import Tickers` in a `finally` block regardless of success/failure. A
-single alert reports any entries that couldn't be resolved
-(`"Couldn't find: X, Y"`), only when at least one entry actually failed
-— a fully-successful import stays silent, matching this app's existing
-low-noise posture.
-
-Both the Import placeholder (`"e.g. AAPL, Tesla, NVDA..."`) and the `(?)`
-help balloon text were updated on all three tiers to reflect the new
-capability and state the caps-vs-any-other-case rule explicitly, so a
-user doesn't have to discover it by trial and error.
-
-**Verified thoroughly, and a genuine testing trap found and fixed along
-the way — see the new "Verifying changes" bullet above (Free tier's
-Service Worker breaks `page.route()` mocking) for the full writeup.**
-Once that fix was in place: `npx tsc -p tsconfig.json` and each tier's
-own `app.ts` typechecked directly — same known 7-error `?v=N` baseline,
-zero new errors; `node esbuild.config.mjs` rebuilt all three bundles,
-chunk-header grep confirmed every shared module still appears exactly
-once (no duplicate-module regression); `npm test` (75 cases) unaffected;
-and a real headless-Chromium pass against realistic mocked backend
-responses on **all three tiers** confirmed: literal all-caps tickers
-resolve with zero `/lookup` calls; a lowercase/mixed-case name fires
-exactly one `/lookup` call and resolves correctly; order is preserved
-even when the earlier-typed entry resolves slower than a later one; "AAPL,
-Apple" collapses to one ticker; a legacy bare space-separated run
-("AAPL MSFT NVDA", no commas) still adds all three with zero lookup
-calls (backward compatible); an unresolvable name produces the correct
-single alert; and the ADDING…/`btn-running`/`runPulse` state is visible
-mid-flight and correctly reverts afterward. Zero page errors on any
-tier.
-
-**Not yet verified against a live Finnhub response** — same standing
-sandbox limitation as every other Finnhub/Alpaca/SEC integration in this
-file (the sandbox can't reach either the real Finnhub API or
-`tra-zacg.onrender.com`). `searchSymbolByName()` fails safe to `null` on
-any error, matching this file's established posture for every other
-unverified-from-sandbox integration. To confirm live: type a real
-company name (e.g. "Tesla") into Import after `Tra` redeploys and
-confirm it resolves to the correct ticker; check Render logs for
-`searchSymbolByName` errors.
-
-`shared/ticker-cache.ts`'s content change (`lookupSymbol`) and
-`shared/watchlist.ts`'s content change (the `addTickers()` rewrite,
-plus its own bumped import of `ticker-cache.js`) cascaded through the
-full cache-busting chain: `ticker-cache.js` `?v=5→6` in `watchlist.ts`
-and `preview/rolodex/app.js` (the one other raw, unbundled consumer) →
-`preview/rolodex/index.html`'s own `<script>` bumped (`?v=24→25`) since
-its `app.js` content changed as a result → `watchlist.js` `?v=32→33` in
-`shared/watchlist-sync.ts`'s own relative import (both the `.ts` source
-and, after recompiling, its `.js` sibling — per the Aug 16
-`track-record.ts`-conversion lesson about a `.ts` source needing the
-bump too, not just its emitted `.js`) → every tier's own bundled
-`app.js` changed as a result (each tier imports `watchlist`/`watchlist-
-sync`/`ticker-cache` via the bundler's clean extensionless paths, so no
-separate `?v=` bump was needed at that layer — only each tier's own
-`<script src="./app.js?v=N">` tag, since its bundled *content* changed):
-`index.html` 68→69, `starter/index.html` 73→74, `pro/index.html` 18→19.
-
-## Supabase: `pre_gate_solvency_state` left wide open for 8 days — a reverted feature's table never got the RLS/revoke treatment (Aug 26, 2026)
-
-A Supabase Security Advisor email ("Table publicly accessible" / CRITICAL
-`rls_disabled_in_public`) prompted a live check — same wording as the
-Aug 4/Aug 13, 2026 incidents documented above, so worth confirming
-whether this was a third recurrence on the same six tables or something
-new. Connected this session directly to Supabase (project
-`oinomcikdyisrbfeeirp`) via the Supabase MCP connector to check, rather
-than reason from the repo's DDL files alone.
-
-**Not a recurrence of the Aug 4/13 issue — the six previously-fixed
-tables (`credits`, `accuracy_log`, `proxy_resolution`, `pre_gate_triggers`,
-`watchlists`, `proxy_regime_state`) all confirmed zero `anon`/
-`authenticated` grants, still holding.** The actual flagged table was
-`pre_gate_solvency_state` — the table created during the Aug 18, 2026
-Pre-Gate solvency saga (see that section above) that got fully reverted
-the same day. The revert removed the *code* that read/wrote it, exactly
-as that entry already noted ("the revert only removes the code that
-reads/writes it... dropping the table is a separate, deliberate cleanup
-step"), but nobody had gone back to apply this file's own standard
-`disable row level security` + explicit `revoke all ... from anon,
-authenticated` pattern to the table itself — it was RLS-disabled with
-full `anon`/`authenticated` INSERT/SELECT/UPDATE/DELETE grants, live and
-reachable via the public anon key, for the full 8 days since.
-
-**Fix, applied directly via the Supabase MCP connection:** `revoke all
-on public.pre_gate_solvency_state from anon, authenticated;` — confirmed
-via a fresh grants query (zero rows) and a re-run security advisor scan
-(the `rls_disabled_in_public` finding for this table is gone). RLS
-stays disabled, same as every other service-role-only table in this
-project — the revoke alone is what actually closes API access, per this
-file's own established rule.
-
-**Checked for actual exploitation, not just the exposure window.** All
-11 rows in the table were pulled and inspected directly: every one is
-legitimate app data, timestamped within a single 58-minute window on
-Aug 18, 2026 (14:41–15:39 UTC), matching the exact tickers/SEC-filing
-accession numbers from that day's saga — including the MU false-positive
-row that's the specific reason the feature got reverted. Nothing looks
-tampered with or injected, and there has been **zero activity in the 8
-days since**, despite the table being open the whole time. Not proof
-no one ever read it, but a real, positive signal against actual
-exploitation — no unexpected rows, no unexpected values, no access
-pattern inconsistent with "the feature ran once on Aug 18 and never
-again."
-
-**One unrelated, pre-existing, lower-severity finding surfaced in the
-same scan and was left alone:** `subscribers` has a leftover RLS policy
-(`"service_role full access"`) defined while RLS itself is disabled —
-flagged by Supabase as `policy_exists_rls_disabled`. Confirmed this is a
-dead policy, not a live exposure: `subscribers` has zero `anon`/
-`authenticated` grants (same as documented Aug 4, 2026 — "happened to
-already have no such grants... that was luck, not design"), so nothing
-is actually reachable either way. Not fixed in this pass since it's
-cosmetic, not a security hole — a future pass could just run `alter
-table public.subscribers enable row level security;` to make the
-existing policy live and clear the lint.
-
-**The real, permanent lesson, worth generalizing beyond this one
-table:** this file's rule for service-role-only tables ("always pair
-`disable row level security` with an explicit revoke") only gets applied
-when a table's own DDL patch file is written and run — it doesn't
-retroactively cover a table created and then abandoned mid-session, the
-way `pre_gate_solvency_state` was during the Aug 18 revert. **Any future
-revert of a feature that created its own table must include either
-dropping the table or explicitly running the disable-RLS/revoke pattern
-on it** — "the revert only removes the code" is not sufficient by
-itself if the table stays behind. This also reinforces the standing
-recommendation from the Aug 13, 2026 regression entry above: periodically
-re-run the full grants-check query against every service-role table
-(now including `pre_gate_solvency_state`), not just after a reported
-incident.
-
-**Follow-up, same day: the `subscribers` dead-policy lint closed out
-too.** Ran `alter table public.subscribers enable row level security;`
-directly via Supabase MCP — safe and inert for real traffic since
-`subscribers` already had zero `anon`/`authenticated` grants (confirmed
-again immediately before and after), so the only thing this changes is
-activating the pre-existing `"service_role full access"` policy; the
-backend's own service-role client bypasses RLS entirely regardless, so
-nothing about `Tra`'s actual read/write path changes. Re-ran the
-advisor scan afterward: the `policy_exists_rls_disabled` finding for
-`subscribers` is gone. All ERROR-level security findings for this
-project are now clear. Two pre-existing, unrelated WARN-level items
-remain untouched, deliberately out of scope for this pass since fixing
-them means editing the actual credit-RPC function bodies rather than a
-grants/RLS toggle: `function_search_path_mutable` on all five
-`credits`-related RPC functions (`get_or_create_user_credits`,
-`add_purchased_credits`, `upgrade_user_tier`, `set_user_tier`,
-`deduct_user_credit`), and Auth's leaked-password-protection setting
-being off. Worth a future pass, not folded into this one.
-
-**Follow-up, same day: the `function_search_path_mutable` warnings
-fixed too.** Pulled the real `pg_get_functiondef()` output for all five
-`credits` RPC functions before touching anything, rather than assume
-the fix was safe — confirmed every table/function/type reference in
-every body is already schema-qualified (`public.credits`,
-`public.get_or_create_user_credits`, `public.credits%rowtype`), so
-nothing depends on an implicit search-path lookup at runtime. That made
-the strictest fix safe to apply directly: `alter function
-public.<fn>(...) set search_path = '';` on all five
-(`get_or_create_user_credits`, `add_purchased_credits`,
-`upgrade_user_tier`, `set_user_tier`, `deduct_user_credit`) — built-ins
-(`now()`, `floor()`, `to_char()`, etc.) still resolve fine under an empty
-search_path since `pg_catalog` is always implicitly searched regardless.
-
-**Verified two ways before calling it done, given this is the exact
-function class that broke production once already (Aug 4, 2026 — the
-Supabase session-leak incident):** (1) a fresh advisor scan — all five
-`function_search_path_mutable` findings are gone; (2) a real functional
-smoke test chaining all five functions together against a throwaway
-test key (`get_or_create_user_credits` → `deduct_user_credit` →
-`add_purchased_credits` → `upgrade_user_tier` → `set_user_tier`) inside
-a transaction that was rolled back afterward — every call succeeded and
-chained correctly (free → 1 pending analysis deducted → 5 purchased
-credits added → tier bumped to pro → tier bumped to starter), with zero
-permanent side effects on real data.
-
-**All database-level Security Advisor findings for this project are now
-clear.** The one remaining item is Auth-level, not a database object:
-leaked-password-protection is still off — that's a Supabase Auth
-setting (Dashboard → Authentication → Policies), not a SQL fix, and
-wasn't changed this pass.
-
-**Closing note on the leaked-password-protection WARN: deliberately
-deferred, not forgotten.** Two independent blockers, checked directly
-rather than assumed: (1) the org (`turneraroundauto-hub's Org`) is on
-Supabase's **Free plan**, and this feature is Pro-plan-and-above only
-per Supabase's own docs — it can't be toggled at all without a plan
-upgrade first, regardless of dashboard access; (2) even with a paid
-plan, this isn't something the Supabase MCP connection could flip —
-`execute_sql`/`apply_migration` only reach the Postgres database itself
-(RLS, grants, functions), while Auth settings like this one live in
-Supabase's platform-level config, which this MCP server has no write
-tool for. Would need either a manual dashboard toggle (post-upgrade) or
-the Management API directly.
-
-**Judged low priority on its own merits, not just blocked — worth
-recording the reasoning, not just the blocker:** this WARN is a
-different kind of risk than the two ERROR-level findings fixed the same
-day (the wide-open `pre_gate_solvency_state` table, the mutable
-`search_path` RPCs) — those were unconditionally exploitable by anyone
-holding the public anon key, no preconditions. Leaked-password
-protection only matters if an attacker already has a specific user's
-password from an unrelated breach AND that user reused it here — a real
-attack class (credential stuffing) but conditional on user behavior,
-not a standing hole in this app. What a compromised Trade Tribunal
-account actually exposes is also modest — no stored payment info
-(Stripe handles that separately), no brokerage access, nothing beyond
-credits/watchlist/session notes for that one user — and passwords are
-already bcrypt-hashed regardless of this setting. **Revisit if either
-of those change:** the app starts storing something more sensitive
-per-account, real credential-stuffing attempts show up in the auth
-logs, or the org upgrades to Pro for unrelated reasons (at which point
-this becomes a free toggle, not a purchase).
-
-## Frontend/Backend: Agitator Gauge (Proposal 5) + Aggression Dial (Proposal 6) — full saga and lessons (Aug 26-27, 2026)
-
-Two related features landed Pro-first then to Starter over roughly a day
-and a half of rapid, direct, real-device feedback rounds (`trade-verdict`
-PRs #221-#230, `Tra` PRs #59-#65) — the Aggression Dial (a pre-earnings-
-aware sizing-ceiling control) and the Agitator Gauge (a standalone,
-free/rate-limited "check how big a deal this headline/rumor is" discovery
-tool, no credit cost). Both are live on Pro and Starter as of this
-writing. Kept as one consolidated entry rather than eight separate ones
-— most of the individual rounds below share the same handful of root
-lessons, worth reading in full even if only one of the two features is
-being touched next.
-
-**Round 1 — a button row is not a dial, two text boxes is not "one search
-box."** Direct feedback on the first ship: "this is not a dial, the
-buttons suck... does the location make sense for a user that is looking
-for a tuning option? ... two text boxes is not what I asked for, it
-should only be one dialogue box that will recognize context... the news
-headline isn't hyperlinked... I also ask for a few related companies...
-not 12." Four real, distinct problems in one message:
-- **The Dial was a row of discrete buttons, not a slider** — technically
-  implements "pick one of N positions," but reads nothing like a dial to
-  a real user. **Lesson: when a feature has an obvious physical-object
-  metaphor in its own name (dial, slider, gauge), build the actual
-  interaction model that metaphor implies, not just a control that
-  happens to produce the same output.**
-- **The Dial was buried wherever it was structurally easiest to add**,
-  not where a user tuning it would look. **Lesson: placement for an
-  actively-adjusted control is part of the spec, not a styling
-  afterthought — put it somewhere prominent (moved to the top of the
-  page here), not wherever the accordion stack happened to have room.**
-- **"Recognize context like a search engine" was built as two separate
-  fields** (ticker box + headline box) instead of one smart box, pushing
-  classification work onto the user instead of the server. **Lesson:
-  when asked for something that "just figures it out," the complexity
-  belongs in server-side resolution logic, not in asking the user to
-  pre-sort their own input into the right box.**
-- **A "validate this claim" tool with an un-clickable headline validates
-  nothing** — showing a headline back to the user only helps if they can
-  confirm it's the real story, which requires a real link. **Lesson: a
-  discovery/validation feature's outputs need to be independently
-  checkable, not just displayed — a bare string is not evidence.**
-
-Fixed together: a real `<input type="range">` slider relocated to the top
-of the page (`trade-verdict` #226); backend resolution collapsed to a
-single `q` param with `extractCompanyCandidates()`-based fallback, real
-headline hyperlinking, comps cut from a 12-item dump to 3 real Finnhub
-peers with live price/%chg (`Tra` #63, mirrored in the same
-`trade-verdict` #226).
-
-**Round 2 — a length heuristic silently broke the exact case it was
-meant to catch.** Live report: "Nvidia earnings beat" returned "Couldn't
-find a company," even though headline resolution was the whole point of
-Round 1's redesign. Root cause: a word-count/punctuation heuristic
-decided whether the literal-name path or the extraction-fallback path
-ran, so a short, real headline (3 words, no terminal punctuation) took
-the bare-name path, failed to resolve, and never got a second attempt.
-Fixed (`trade-verdict` #227 / `Tra` #64) by testing the actual condition
-that matters — did the raw text resolve **as typed** — instead of a
-proxy for it (length/shape). **Lesson: don't gate a correctness-critical
-fallback path behind a heuristic proxy for the real condition (length,
-punctuation, word count) — test the real condition directly, even if it
-costs an extra lookup on the common case.**
-
-**Round 3 — don't explain an anomaly before confirming it's real.**
-Asked to explain "why would exposure, sensitivity and options change so
-widely" between two screenshotted runs — answered in the abstract
-(deterministic vs. AI-judged factors) before re-checking the two
-screenshots' actual numbers. On the follow-up, re-examined the real
-values and found two of the three factors named in the question
-(Liquidity Sensitivity, Options/IV Environment) were **identical**
-between runs — only one had actually changed. Corrected directly; user
-confirmed ("ok, I was wrong about those two"). **Lesson: before
-explaining why a claimed change happened, verify the change actually
-happened as described against the real data/screenshot — don't answer
-the premise as given without checking it first.**
-
-**Round 4 — jargon labels and raw numbers actively work against a "quick
-glance" tool.** Direct feedback: "the numbers are confusing... this
-should be a barometer for a company... Positioning and Exposure can mean
-wildly different things." The sub-factor rows used real, precise
-financial vocabulary (Positioning, Cross-Asset Exposure) at a 0-100
-scale — accurate, but exactly wrong for the tool's actual job, which is
-a fast human gut-check, not a quantitative readout. Fixed in two more
-rounds, not one:
-- `trade-verdict` #228: relabeled every factor to plain 1-2 word English
-  (Surprise, Uncertainty, Freshness, Ripple Effect, Swing Risk, Expected
-  Move), rescaled display to 0-10, added a `(?)` button per row (reusing
-  `initHelpBalloons()` with zero new plumbing — it already worked on any
-  `[data-help]` element, not just card headers) for anyone who wants the
-  precise definition.
-- `trade-verdict` #229: even the 0-10 number was still "a number" —
-  direct follow-up asked for a 3-band visual gauge + arrow pointer
-  instead (matching a reference image), with **zero digits** printed for
-  a real value.
-
-**Lesson: precise financial jargon is a liability, not a feature, in a
-UI meant for a fast glance rather than analysis — plain English by
-default, the real term behind a `(?)`. And a raw number is itself a form
-of jargon when the actual ask is "classify this low/medium/high at a
-glance" — a value a user only ever needs to glance-classify should be a
-visual position/band indicator, not a digit, even a "simplified" one.**
-
-**Round 5 — the tool's own supporting evidence has to sit next to the
-claim it's backing.** Final live report, with a screenshot: "the (?)
-next to the ticker needs to move next to the rating. I entered a
-headline about Salesforce and didn't realize they had a huge earnings
-beat and this is all the agitator showed. that a problem. it never
-pointed to the rally today and I never was pointed to any reason or
-another company that was seeing the same wave. in fact one of the
-recommendations Apploving is not in any condition to be put on the same
-shelf." Three fixes landed together (`trade-verdict` #230 / `Tra` #65):
-- `(?)` moved off the ticker symbol onto the LOW/MEDIUM/HIGH rating text
-  itself — a pure placement fix, no new data involved.
-- **The resolved ticker's own live price/% change was already being
-  fetched (`fetchQuote()` — its `price` field already fed the IV lookup)
-  but never returned in the response at all** — so a claimed rally had
-  nothing in the tool to confirm it against. Added `tickerQuote` to the
-  response, rendered next to the ticker symbol.
-- **"Related companies" always came from a generic Finnhub industry-peer
-  lookup, even when the user's own typed input already named the actual
-  related companies** ("Salesforce, Crowdstrike, Okta surge") — the
-  generic lookup surfaced AppLovin, unrelated to the real enterprise-SaaS
-  security peers already sitting in the input. Fixed by re-scanning the
-  same `extractCompanyCandidates()` list already used for primary
-  resolution for other real, resolvable companies, and using those ahead
-  of the generic peer fallback (cache-backed, so no meaningful added
-  cost on the common single-company case).
-
-**Lesson, tying this round back to Round 1's headline-hyperlink fix:
-every piece of "supporting evidence" a validation tool shows — a
-headline, a related company, a score — is either grounded in something
-the user can independently check (a real link, a real live price, a
-company the user themselves already named) or it's decoration. When the
-user has already told you the answer (naming other companies in their
-own input), a generic algorithm guessing at the same thing is strictly
-worse than just using what they said — check for and prefer explicit
-information already in hand before falling back to an inference.**
-
-**The one thread running through all five rounds, worth keeping as the
-actual takeaway rather than five separate ones.** Every round above,
-including the ones that look unrelated on the surface (dial-vs-buttons,
-one-box-vs-two, digits-vs-gauge, generic-peers-vs-named-companies), is
-the same mistake in a different spot: **defaulting to the most
-literally-correct technical implementation of a description instead of
-asking what real-world object, mental model, or already-available
-information the person actually means.** A button row does implement "a
-small set of discrete choices." Two text boxes do implement "a ticker
-and a headline." A 0-10 number does implement "simplify the 0-100
-scale." A generic peer lookup does implement "related companies." Every
-one of these was defensible as a literal reading and wrong as a product
-decision. **Next time a feature description uses a real-world metaphor
-(dial, gauge, barometer, search box) or claims to validate/confirm
-something, build toward the metaphor and toward independently-checkable
-evidence first — don't stop at the first technically-correct
-implementation and wait for a correction round to find out it wasn't
-what was meant.**
-
-## Backend/Frontend: Agitator Gauge — comp validation, then replaces Session Context entirely (Aug 27, 2026)
-
-Two more direct-feedback rounds on the Agitator Gauge, after the saga above.
-
-**Round 6 — a resolved-but-junk symbol is worse than showing nothing
-(`trade-verdict` PR #232, `Tra` PR #66).** Live report: "I don't know what
-GDVM is, it doesn't return as a good symbol" — a Title-Case headline
-("Apple Is One of the Most Profitable Businesses in the World...") has
-almost every word capitalized, so the mention-scan's candidate extraction
-was treating common English words ("World", "Share", "One", ...) as
-company-name candidates; Finnhub's fuzzy search then matched them to
-real-but-irrelevant tickers, one with no live quote at all (GDVM) and one
-at a real $0.00 quote (PRDL). Fixed the same way the "Nvidia earnings
-beat" resolution bug was fixed earlier in this saga: validate against the
-real condition that matters (does the candidate have a real, positive
-live price) instead of trying to out-guess which capitalized words are
-"real" names with more stopwords. `computeAgitatorComps` now pulls a
-wider candidate pool (6) than the display limit (3) and only keeps
-candidates with a real positive quote; the `/agitator` mention-scan loop
-no longer stops early once N candidates are *found*, only once N are
-*scanned*, so a junk match doesn't consume a display slot a later real
-candidate could have filled. Same round also added a clear (X) button to
-the query input, Enter-to-submit, shortened the card subtitle, and
-changed the rating's caption from "X/10 · N/6 signals" to "X/10 avg. of
-6 signals" — all direct, itemized asks from the same message.
-
-**Round 7 — Session Context retired, Agitator takes its slot, ships to
-Free, results get "+" buttons (`trade-verdict` PR #233, `Tra` PR #67).**
-Direct instruction: "I want the agitator to replace the session context
-card, as I see it's obsolete. The simplified version can go to free as
-well. Add + buttons that add the tickers to the watchlist and faint
-vertical divider between the tickers so it's clear witch one is being
-added." Landed as one pass across all three tiers since it's the same
-card stack everywhere:
-
-- The Session Context card (`data-card="context"`) is gone from Free,
-  Starter, and Pro. Its "Analyze All" button — which had shared that
-  card's body with the context textarea the whole time, easy to miss
-  since removing the card would have silently taken the button with it
-  — moved into the Import card, right after "Import Tickers." Confirmed
-  by grep before touching anything, not assumed.
-- **Deliberately NOT a backend change.** `marketContext` is now always
-  sent as `''` from `analyzeOne()`, the same server-side state as any
-  user who simply never typed into the card — Proposal 4's own
-  corroboration check already treats a blank context as
-  informational-only, a normal supported case. Gate 2's corroboration
-  machinery, `highlightContextMatches()`, `refreshNewsHighlights()`, and
-  every backend Session-Context code path are untouched; only the UI
-  entry point is retired. `wireContextHighlight()` and its call site
-  were deleted outright (dead code once the element it reacted to can
-  never exist), not left behind as a defensively-guarded no-op.
-- The Agitator Gauge card now sits in Session Context's old slot (right
-  after Sector Pulse, before Import) on all three tiers — not just left
-  wherever it happened to already be. On Pro this was a real DOM move
-  across the sticky pill strip boundary (Agitator used to sit after
-  `#roloIndex`, grouped with Watchlist/Proxy/Heat Map/Track); its
-  dock-snap behavior adapts automatically since `shared/rolodex.ts`'s
-  `snapCardUnderDock()` already determines the correct dock offset via
-  `compareDocumentPosition()` against `#roloIndex`, not a hardcoded
-  per-tier list.
-- **Free gets the Agitator Gauge for the first time.** Backend:
-  `TIERS.free.agitator` flipped to `true`; Free's `tracker` flag is
-  already `false` (same as Starter), so the existing
-  `isFull = !!req.tierConfig?.tracker` gate in `/agitator` automatically
-  gives Free the simple LOW/MEDIUM/HIGH gauge with no sub-factor
-  breakdown — no new backend logic needed. Frontend: the whole feature
-  (`runAgitatorCheck`, `compChipHTML`, `factorGaugeHTML`,
-  `agitatorFactorRow`, the CSS) ported byte-for-byte from Starter's
-  implementation, since Free never had any of it — including CSS classes
-  (`.trigger-row`, `.factor-gauge`, `.agitator-input-wrap`, `--purple`/
-  `--purple-dim`, `.btn-purple`) that simply didn't exist on Free before.
-- **New `addKnownTicker(symbol)` in `shared/watchlist.ts`** — adds an
-  already-resolved, real ticker (the Agitator's own primary result or a
-  RELATED company, both of which always carry a live quote by the time
-  they're rendered) straight to the watchlist, skipping `addTickers()`'s
-  text-parsing/company-lookup path entirely. Same cap-eviction-confirm
-  behavior as a normal add (on Free's 3-ticker cap, already full with
-  the defaults, this means every add legitimately prompts the same
-  "remove your oldest ticker?" confirm `addTickers()` already uses).
-- **RELATED comps redesigned from separately-bordered pills into one
-  continuous strip.** Each ticker is now its own segment
-  (`.comp-chip`) inside a single bordered/backgrounded container
-  (`.comp-chips`), separated by a faint `border-left` on every segment
-  but the first — this, not a bigger visual overhaul, is what actually
-  answers "faint vertical divider between the tickers so it's clear
-  which one is being added": once every chip also carries its own "+"
-  button, the divider is what keeps adjacent tickers' controls from
-  reading as one ambiguous cluster. The primary ticker's row got the
-  same "+" treatment (via the same `addTickerBtnHTML()` helper), no
-  divider needed there since it's the only ticker on that row. An
-  already-present ticker renders as a disabled checkmark instead of a
-  dead "+", so it's clear at a glance which ones are already on the
-  list.
-
-**Also in this pass, from an earlier live report the same day: help
-balloons dismiss too fast.** "(?) balloons are too quick change time to
-5seconds per 4 lines." `shared/rolodex.ts`'s `initHelpBalloons` used a
-flat `HELP_BALLOON_MS = 5000` regardless of content length — tuned for a
-short balloon, reads as too quick on a long one. Fixed by measuring the
-balloon's own real rendered height once its content is set (`scrollHeight`
-minus the box's own vertical padding, divided by the actual computed
-`line-height`) and scaling the close timer to `Math.ceil(lines / 4) * 5000`
-— same "measure the real thing, don't guess from character count"
-discipline this file's own scroll/dock math has already learned the hard
-way applies here too.
-
-**Verified via real headless Chromium across all three tiers, not
-simulated:** confirmed Session Context is absent from the DOM everywhere;
-confirmed Agitator sits directly after Pulse and before Import on all
-three; confirmed Analyze All still works from inside Import; confirmed a
-primary-ticker "+" and a RELATED comp-chip "+" both correctly add to the
-watchlist, including exercising Free's real eviction-confirm dialog (a
-genuine `window.confirm()`, accepted via Playwright's `dialog` handler,
-not skipped); confirmed the divider CSS is real (`getComputedStyle`
-showed a nonzero `border-left-width` on the second chip, `none` on the
-first — not just present in the markup); confirmed Free's simple-gauge
-variant correctly omits the SIGNALS breakdown while Pro's full variant
-renders it; confirmed the help balloon's scheduled close duration
-(captured by wrapping `window.setTimeout` before navigation, not waited
-out in real wall-clock time) is a clean 5000ms-multiple that scales up
-for a longer entry. A real, self-inflicted testing bug caught along the
-way, worth remembering alongside this file's other testing-methodology
-lessons: the first attempt at the watchlist-add checks failed on Free
-specifically with no thrown error and no localStorage write at all —
-traced to Free's 3-ticker cap already being full with its own defaults,
-so the add correctly triggered the same eviction-`confirm()` dialog
-`addTickers()` already uses, which Playwright silently dismisses by
-default when nothing handles it. Not a bug in the feature; the test
-needed a `page.on('dialog', d => d.accept())` handler, the same as a real
-user clicking "OK."
-
-`shared/rolodex.ts`/`shared/watchlist.ts` changes cascaded through the
-full cache-busting chain on `?v=N` for every tier's own bundled
-`<script>` tag (each tier's `app.ts` content changed as a result); tsc
-(matching `tsconfig.json`'s compiler options) and the chunk-header grep
-both confirmed clean, no duplicate shared modules, across all three
-rebuilt bundles.
-
-**Round 8 — real news, and a correction of this session's own
-mid-flight redesign (`trade-verdict` PR #235, `Tra` PR #68).** Two
-issues from the same live round, one a real backend bug, one a direct
-course-correction on UI still being built.
-
-**"we still have an issue with the news link when a ticker is searched,
-I'm not getting related news at all."** A screenshot showed a bare
-"Apple" search surfacing "Explore the top gainers and losers within the
-dow jones index in today's session." as its headline — a real,
-technically-associated article (AAPL is a Dow constituent) with zero
-substantive connection to Apple itself. Root cause: `fetchFinnhubNews`/
-`fetchAlpacaNews` have always just picked the single most-recent article
-in the freshness window for a symbol — the exact same behavior the
-regular ticker-card news strip already relies on, so this wasn't a new
-bug, just one the Agitator's own "type a company, get real evidence"
-framing (Round 5's own lesson) made much more visible than a card's
-passive news line ever would.
-
-**Fix: prefer relevance, never require it.** New `isHeadlineRelevant
-(headline, symbol, companyName)` — true if the headline mentions the
-ticker itself, or the company's own name (stripped of legal suffixes
-like Inc/Corp/Ltd via regex, first remaining word used as the match
-term) sourced from `fetchTickerFundamentals`'s existing profile data.
-Both fetch functions now do `articles.find(relevant) || articles[0]` —
-a relevant match wins when one exists, but the prior most-recent-article
-behavior is always the fallback, so this can only improve or exactly
-match existing behavior everywhere else `fetchNews` is called (the
-plain `/ticker/:symbol` card-news path passes no `companyName` and is
-completely untouched). `computeAgitatorComps` now fetches each RELATED
-company's own fundamentals + relevance-filtered news the same way, so
-comps can show real per-company news instead of none at all.
-
-**"the recommendation tickers are in neat chips. the new way with the +
-buttons is confusing..." then, mid-implementation of that feedback:
-"actually do the recommendations exactly like they are in the overflow
-watchlist in Pro. with news links all the same."** Round 7's
-"faint-divider chip strip" redesign (previous entry above) was itself
-the thing being corrected here — a half-built second redesign attempt
-(a bigger "+" to the left of each chip) was abandoned mid-flight the
-moment this message landed, in favor of a concrete, unambiguous
-instruction: stop inventing a bespoke component and reuse one that
-already exists and is already approved. **Lesson, worth keeping next to
-Round 1-5's own "build toward the metaphor, not the literal reading"
-takeaway: when a user names a specific, already-shipped UI element as
-the reference ("exactly like X"), that ends the design exploration —
-don't keep iterating on an original approach hoping a variant of it will
-land, reuse the named thing.**
-
-`compChipHTML` renamed to `relatedRowHTML` and rewritten to emit Pro's
-existing `.compact-row-wrap`/`.compact-row` markup verbatim (ticker/
-price/%chg on top, a real news headline below, a `.compact-plus-btn` —
-the exact same structure/classes as Pro's Watchlist-overflow accordion
-list), on all three tiers, not just Pro. `addTickerBtnHTML()` switched
-from the retired `.comp-chip-add` class to `.compact-plus-btn` to match.
-The now-dead `.comp-chips`/`.comp-chip`/`.comp-chip-add` CSS (Round 7's
-own redesign) was removed outright from all three tiers' `index.html`,
-not left behind unused.
-
-**Verified:** `node --check`/`npm test` (75/75) in both repos; `tsc`
-against each tier's own `app.ts` (known `?v=N` baseline only); a 39-check
-real headless-Chromium pass across Free/Starter/Pro confirming zero
-leftover `.comp-chip` classes anywhere in the DOM, correct
-`.compact-row-wrap` structure for both the primary ticker and every
-RELATED comp, real news rendering for a comp with news (and the news
-line correctly absent for one without), news links using `newsHref()` —
-matching the overflow list's own established convention exactly, not
-the raw fetched article URL — and `+` clicks on both the primary ticker
-and a RELATED comp correctly adding to the watchlist and flipping to a
-disabled checkmark. A standalone Node simulation (5 cases) independently
-confirmed the relevance-filter logic, including the exact reported bug
-shape (a generic roundup ranked first, a real Apple story ranked second
-→ the real one wins) and confirmed the `/ticker/:symbol` call site's
-behavior is unchanged. **Not verified against a live Finnhub/Alpaca
-response** — same standing sandbox limitation as every other integration
-in this file.
-
-## Backend: Agitator/Import company lookup couldn't find "Google" — consumer brand names vs. legal names (Aug 27, 2026, `trade-verdict` PR #237, `Tra` PR #69)
-
-Live report right after Round 8 above shipped: typing "Google" into the
-Agitator Gauge returned "Couldn't find a company for 'Google'." Root
-cause: `searchSymbolByName()` (shared by both `/lookup`, Import's
-company-name entry, and `/agitator`'s free-text query) routes through
-Finnhub's `/search`, which matches against a company's *registered
-legal name* — "ALPHABET INC-CL A" — not the consumer brand it trades
-under in everyday speech. Neither "Google" nor "Facebook" appears
-anywhere in "Alphabet Inc"/"Meta Platforms Inc", so a plain-text search
-for either finds nothing, even though GOOGL/GOOG and META obviously
-exist. This is a well-known, structural gap in name-search over a
-legal-entity database, not a Finnhub bug or a resolution-logic bug —
-the same underlying limitation that made the earlier "Nvidia earnings
-beat"/GDVM-PRDL rounds messy, just a different failure shape.
-
-**Fixed the same way the DRAM SEC-CIK gap was fixed** (see the Pre-Gate
-fund-ticker section above): a small, explicit, hand-confirmed
-`KNOWN_BRAND_TICKER_OVERRIDES` map, checked first inside
-`searchSymbolByName()` before any Finnhub call at all — guaranteed
-correct regardless of whatever Finnhub's fuzzy search actually does
-with the term, zero added latency or risk for every query that already
-resolves fine. Deliberately narrow: covers the reported case
-(`google`/`alphabet`/`youtube` → `GOOGL`) plus the one other
-universally-known instance of this exact bug class
-(`facebook`/`instagram`/`whatsapp` → `META`), not a speculative general
-brand-name database — same "pair the speculative mechanism with a
-small guaranteed override for the actually-reported case" lesson the
-Pre-Gate saga already taught.
-
-Since `searchSymbolByName()` is the shared resolver behind both
-surfaces, this one change fixes Import's company-name entry and the
-Agitator's free-text query identically.
-
-**Verified:** `node --check`/`npm test` (75/75) in both repos. **Not
-verified against a live Finnhub response** — same standing sandbox
-limitation as every other integration in this file; the override map
-itself is a static lookup with nothing live to verify for the reported
-case. To confirm live: type "Google" into the Agitator or Import on any
-tier and confirm it resolves to GOOGL.
-
-## Backend: fetchQuote() never applied extended-hours substitution — Agitator showed a real post-close rally as flat (Aug 27, 2026, `trade-verdict` PR #239, `Tra` PR #70)
-
-Live report: checking "CRM" (Salesforce) in the Agitator Gauge showed
-it flat (`-0.03%`) even though a real rally was reportedly "all over
-the news" at the time. Asked directly to check for a stale quote rather
-than assume the scoring logic was wrong — a useful discipline given
-this file's own "Round 3" lesson above about verifying a claimed
-anomaly before explaining it.
-
-**Root cause, found by comparing `fetchQuote()` against `fetchTickerMetrics()`
-side by side.** `fetchTickerMetrics()` (used by `/ticker/:symbol` for
-every tier's ticker cards) already substitutes a live Alpaca IEX print
-for Finnhub's frozen `/quote.c` during `isExtendedHoursWindow()` (8-9:30am
-and 4-8pm ET) — documented earlier in this file as the fix for Finnhub's
-free `/quote` holding the last regular-session price instead of tracking
-real pre/post-market trades. **`fetchQuote()` — a separate, older function
-used by the Agitator's primary ticker, its RELATED comps, tracked-symbol
-quotes, and the market-cache warm pass — never got the same treatment.**
-So a real post-close move (the common shape for a company reporting
-earnings after the bell, which is exactly the season CRM's own fiscal
-calendar puts it in) rendered as a flat, stale regular-session close
-everywhere `fetchQuote()` is used, even though the identical class of
-staleness had already been fixed once for ticker cards specifically.
-
-**Fix:** `fetchQuote()` now applies the same `isExtendedHoursWindow()`/
-`fetchExtendedHoursPrice()` substitution, falling back to Finnhub's own
-value on any miss — same fail-safe posture as the existing call site.
-Explicitly skipped for the BTC/crypto path: crypto trades 24/7 with no
-market-hours concept, and Alpaca has no listing for the Binance-mapped
-symbol `fetchQuote()` uses for BTC anyway.
-
-**Verified:** `node --check`/`npm test` (75/75) in both repos; a
-standalone Node simulation of the new branch logic covering 4 cases —
-regular hours (unchanged), post-market with a real Alpaca print
-(substitutes), post-market with no Alpaca data (falls back to Finnhub),
-and crypto (never touches the new path) — all pass. **Not verified
-against a live Alpaca response** — same standing sandbox limitation as
-every other Alpaca integration in this file. To confirm live: re-check
-a ticker with a known after-hours move during the 4-8pm ET window and
-confirm the Agitator's price/% change reflects it instead of the frozen
-regular-session close.
-
-## Frontend: Agitator flat price moves rendered the same grey as no-data (Aug 27, 2026, `trade-verdict` PR #241)
-
-Live report: a real, small positive move (BRAI `+0.37%`) in the
-Agitator's RELATED list rendered in the same dim grey as a genuinely
-missing price — reading as "no data available" instead of a real,
-if muted, signal.
-
-**Root cause.** `fetchQuote()`'s `direction` field uses a ±0.5% neutral
-band (`pct >= 0.5` green, `<= -0.5` red, otherwise "flat") — a real,
-distinct reading, not an absence of data. Both places that colored a
-comp row or the primary ticker's own live quote off `direction`
-(`relatedRowHTML`'s comp coloring and the primary ticker's `tqColor`,
-each duplicated across all three tiers — 6 call sites total) mapped
-`"flat"` to `var(--ink-dim)`, the exact same token this app already
-uses elsewhere for genuinely-missing values (e.g. `c.price ? ... :
-'&mdash;'`'s em-dash fallback) — so a real neutral reading and "no
-data" were visually indistinguishable.
-
-**Fix:** changed the fallback branch in all 6 places from
-`var(--ink-dim)` to `var(--amber)`, matching this app's existing
-traffic-light convention — amber already means caution/neutral
-everywhere else in the app (gate `YELLOW` status, `MEDIUM` confidence,
-`HALF`/`QUARTER` sizing) — rather than reusing the "no data" grey for a
-real, if unremarkable, price reading.
-
-**Verified via real headless Chromium** against a realistic mocked
-`/agitator` response: a real rally (TEAM `+8.79%`) still renders green
-for both the ticker symbol and its % change; a flat move (BRAI
-`+0.37%`, `direction:"flat"`) now renders amber for both; and the
-primary ticker's own `.tq-chg` quote badge renders amber under the same
-flat direction. `tsc` clean (known `?v=N` baseline only), `esbuild`
-rebuild + chunk-header grep confirmed no duplicate-module regression,
-`npm test` (75/75) unaffected — this is a pure frontend color fix, no
-backend/`Tra` change needed.
-
-## Frontend: Aggression Dial — real drag, glowing amber thumb, plain-language labels (Aug 27, 2026, `trade-verdict` PR #243)
-
-Three direct live reports on Pro/Starter's Aggression Dial (Proposal 6),
-landed together since all three touch the same `renderDialCard()`
-region:
-
-**1. "the aggressive slider bar doesn't slide."** The Aug 26, 2026
-rework (see the Agitator/Dial saga entries above) built a track with a
-moving thumb specifically to fix "this is not a dial, the buttons
-suck" — but the thumb itself was `pointer-events:none`, purely
-cosmetic; the only real interaction was still tapping a discrete tick
-button. **Fixed with real pointer-drag support**
-(`wireDialDrag()`/`dialPosFromClientX()`): dragging the thumb, or
-pressing anywhere on the track, snaps live to the nearest of the (5 on
-Pro, 3 on Starter's restricted range) discrete positions as the pointer
-moves, not just on release. A real, non-obvious bug caught before
-shipping: `setDialPosition()` re-renders `dial-body`'s entire
-`innerHTML` on every snap change mid-drag (needed so the label/detail
-rows below the track stay in sync) — so a drag handler that captured
-`#dial-track`'s element reference once, at wiring time, would go stale
-(detached from the DOM, `getBoundingClientRect()` returning a zero
-rect) the moment the position changed even once during a single drag
-gesture. Fixed by re-querying `#dial-track` fresh inside
-`dialPosFromClientX()` on every call instead of closing over a captured
-reference — same "the DOM node you wired listeners on may not be the
-DOM node you're now looking at" lesson this file's own Rolodex sagas
-already learned the hard way, just in a new spot. `touch-action:none`
-added to the track/thumb so a real touch drag isn't fought by native
-scroll.
-
-**2. "the purple Dot kind of blends in to the slider... it should glow
-and maybe be the amber color."** `.dial-thumb`'s `background`,
-`.dial-tick.active`'s `border-color`, and `.dial-label-item.active`'s
-`color` all switched from `var(--purple)`/`var(--purple-dim)` to
-`var(--amber)`/`var(--amber-dim)` — a full switch of the control's
-"active state" visual language, not just the thumb alone, so nothing is
-left half-purple/half-amber. The thumb's flat `box-shadow` ring became
-a real blurred glow (`0 0 14px 3px rgba(255,182,45,.7)`, plus the
-existing flat ring re-colored to match) instead of the low-contrast
-purple-on-dark-track look that prompted the report.
-
-**3. "the definitions of the aggression need to be simple common
-language... it should just be aggressive or passive and the variances
-between those two can be 'light'."** `DIAL_POSITIONS`' display `label`
-fields simplified: `Active/Swing` → `Aggressive`, `Active-Lean` →
-`Light Aggressive`, `Position-Lean` → `Light Passive`, `Position/Long`
-→ `Passive` (`Neutral (default)` left unchanged — never flagged as
-confusing, already plain language). **Only the display label changed —
-the underlying object keys (`ACTIVE_SWING`, `POSITION_LONG`, etc.),
-which are also the literal wire values sent to `/analyze` and matched
-against `Tra`'s own `DIAL_POSITIONS` map for `sizingCeiling`
-enforcement, are untouched.** This was a deliberate scoping choice, not
-an oversight: renaming the keys would have needed a synced `Tra` change
-and would have silently reset any already-stored `tv_dial_position`
-localStorage value back to the default the next time a real user's
-saved value stopped matching a known key. Confirmed via `Tra`'s own
-`DIAL_POSITIONS` object that it carries no display text at all (just
-`sizingCeiling` per key) — so this whole fix stayed `trade-verdict`-only,
-no backend PR needed.
-
-Applied identically to Pro (all 5 positions) and Starter (its own
-restricted 3-position "narrow" range, Phase 1.5) — both tiers share
-byte-identical `DIAL_POSITIONS`/`renderDialCard()` code, so both got
-the same three fixes in one pass.
-
-**Verified via real headless Chromium on both tiers, not simulated:**
-confirmed the rendered labels read `Aggressive / Light Aggressive /
-Neutral / Light Passive / Passive` on Pro and `Light Aggressive /
-Neutral / Light Passive` on Starter's narrow range; confirmed the
-thumb's computed `background-color`/`box-shadow`, the active tick's
-`border-color`, and the active label's `color` all resolve to the real
-amber value with a visible blur radius, not just present in the CSS
-source; confirmed a real synthetic mouse-drag (`page.mouse.down()` →
-`move` with intermediate steps → `up()`) from the track's center to its
-far right and far left correctly snaps to `POSITION_LONG`/`ACTIVE_SWING`
-respectively and persists to `localStorage` on both tiers; confirmed a
-plain tap on a tick still works afterward (regression check that the
-drag rewrite didn't disturb the original click-to-select path). `tsc`
-clean (known 7-error `?v=N` baseline only, zero new errors), `esbuild`
-rebuild + chunk-header grep confirmed no duplicate-module regression,
-`npm test` (75/75) unaffected.
-
-**Follow-up, same day (`trade-verdict` PR #245): "Neutral"/"Same as
-current analysis" replaced with "CRF Default."** Direct instruction.
-`DIAL_POSITIONS.NEUTRAL`'s label changed from `Neutral (default)` to
-`CRF Default`, and its five cadence/entries/stops/recheck/sizing values
-(each previously `Same as current analysis`) changed to `CRF default` —
-display text only, the underlying `NEUTRAL` key is untouched, so no
-backend change or risk to an already-stored `tv_dial_position` value.
-Also caught and fixed the same pass: the dial's own `(?)` help-balloon
-text on both tiers still referenced the pre-relabel jargon (Active/Swing,
-Position/Long, Neutral) predating even this section's own Aggressive/
-Passive relabel — updated to describe the dial using the same language
-actually shown on screen. Verified via real headless Chromium on both
-tiers: the tick label, the larger heading, and all five detail rows all
-render "CRF Default"/"CRF default" with zero remaining stale text
-anywhere in the card.
-
-## Backend: Pre-Gate soft-trigger escalation was over-counting since it shipped (Aug 27, 2026, `trade-verdict` PR #247, `Tra` PR #71)
-
-Live report: TWST's Pre-Gate escalated to a HARD trigger ("escalated
-from repeated soft triggers"), forcing DOWN, even though independent
-research turned up no real financial issue. This is a genuinely
-different mechanism from the Aug 18 solvency saga above — the "30-day
-soft-trigger escalation" via `pre_gate_triggers` predates that saga
-entirely and was never touched by its revert — so this needed its own
-fresh investigation, not a rehash.
-
-**Root-caused with real Supabase data, not another guess** (this
-session had live Supabase MCP access): queried `pre_gate_triggers`
-directly for TWST and found **68 logged rows tracing back to only 8
-real distinct SEC filings** — the same handful of documents re-appearing
-over and over, dated almost daily from Aug 19 through Aug 27.
-`logPreGateTrigger()` had no dedup at all: every time `evaluatePreGate()`
-re-ran (once per ticker per 24h, as its own cache expired) and the same
-still-in-window filing matched the dilution keyword search again, it
-got INSERTed as a "new" soft trigger — so a single filing that stays
-visible in EDGAR's 45-day search window for its full lifetime
-accumulates one row per day, trivially blowing past the
-`PRE_GATE_ESCALATION_COUNT = 2` threshold by day 2 regardless of
-whether anything new ever actually happened.
-
-**Confirmed systemic, not a TWST one-off**, by grouping the whole table
-by ticker: every ticker that had ever logged a soft trigger showed far
-more rows than distinct filings (IMVT: 15 rows for 1 real filing; KMI:
-29 rows for 4; SMMT: 20 for 3; ET: 15 for 4) — the mechanism has been
-silently over-counting for every affected ticker since the day it
-shipped, invisible until someone happened to check the raw data.
-
-**A second, independent issue surfaced by the same data, requiring a
-real design decision, not just a mechanical fix.** Even after
-collapsing to distinct `filing_accession` values, TWST still showed 4
-— but all 4 (one 8-K + its own exhibits, a preliminary and a final
-424B5 for the same offering, and a later 10-Q mention of it) were first
-detected in the exact same `evaluatePreGate()` sweep, with sequentially-
-numbered accession numbers from the same filing agent — the ordinary
-multi-document SEC paperwork trail for **one** registered offering, not
-4 separate dilution events. Scoped via `AskUserQuestion` rather than
-assumed: confirmed filings within a short window of each other should
-collapse into a single escalation-counted event, since that's what the
-mechanism's own stated intent ("2+ soft triggers within 30 days
-escalating") is actually trying to catch — a genuine pattern of
-separate, repeated capital raises over time, not the routine paperwork
-for one deal.
-
-**Fix, two parts:**
-- `logPreGateTrigger()` now skips the insert entirely when the exact
-  `(ticker, category, filing_accession)` is already logged — not
-  perfectly race-proof (no unique constraint/upsert; a no-migration fix
-  was preferred, and `evaluatePreGate()`'s own 24h cache already makes a
-  concurrent double-insert for the same ticker rare in practice), but
-  sufficient given the read-side fix below stays correct even against a
-  rare duplicate.
-- `getRecentSoftTriggerCount()` now clusters distinct filings by time
-  (`countTriggerClusters()`, new `PRE_GATE_CLUSTER_WINDOW_DAYS = 7`) —
-  any run of filings within 7 days of each other, chained (not each one
-  measured only against the cluster's first element), collapses into
-  one counted event. A real second filing landing more than 7 days after
-  the last one starts a new cluster and still escalates correctly.
-
-**One-time Supabase cleanup, same session, via direct MCP access:**
-deduped `pre_gate_triggers` from 222 rows down to 28 — exactly one row
-per real `(ticker, category, filing_accession)` combination across every
-affected ticker — so the fix takes effect immediately on the next check
-rather than waiting for the 30-day window to age the bad rows out on its
-own.
-
-**Verified against the real data, not synthetic guesses first:**
-extracted the actual `detected_at` timestamps Supabase held for all 4
-affected tickers (TWST, KMI, SMMT, ET) and ran them through the real
-`countTriggerClusters()` logic — every one collapses to exactly 1
-cluster (no escalation), matching the "one clustered real event" theory
-exactly. Separately confirmed the mechanism still works going forward:
-a synthetic 20-day-separated second event correctly escalates (2
-clusters), the exact 8-day boundary still escalates, and the exact
-6-day boundary correctly merges into one. `node --check`/`npm test`
-(75/75) in both repos, unaffected.
-
-**Not yet verified against a live re-deploy** — same standing posture as
-every backend change in this file. To confirm: re-check TWST after `Tra`
-redeploys and confirm Pre-Gate no longer reports a HARD trigger for it.
-
-## Backend: Gate 2 corroboration was dead — Session Context retirement silently broke Proposal 4, not just decay (Aug 28, 2026, `trade-verdict` PR #249, `Tra` PR #72)
-
-Prompted by a direct question: "have you built the backend for the
-historical evidence that was logged in notion?" — asking about Proposal
-7 (the Verdict Accuracy Scorecard + Corroboration Decay Indicator).
-Verified with real evidence rather than trusting a stale task list:
-`verdict_log`/`corroboration_log` tables exist with the exact schema
-the proposal specified, a real 30-minute grading job runs
-(`runVerdictGradingSweep`), `/scorecard` has genuine tier-scoped logic
-(Free aggregate/Directional-only, Starter personal, Pro full
-breakdown), and — confirmed via Supabase — 77 real `verdict_log` rows
-had already accumulated since Aug 26. **The backend is genuinely built,
-not just claimed.**
-
-**But verifying it surfaced two real, previously-unnoticed problems.**
-`corroboration_log` had **zero rows, ever**. Its only write path
-(`logCorroborationHits`) sat behind `if (marketContext &&
-marketContext.trim().length > 0)` — and every tier's client has sent an
-empty `marketContext` since Session Context was retired app-wide (Aug
-26-27, 2026, replaced by the Agitator Gauge — see that section above).
-The Corroboration Decay Indicator's backend has had no way to receive
-data since the day Session Context left the UI. **The bigger half of
-the finding:** the identical gate also blocks Proposal 4's Gate 2
-corroboration modifier — a real, already-shipped, verdict-influencing
-feature — entirely. Confirmed live: every `verdict_log` row logged
-since Scorecard shipped had a null `gate2_corroboration_state`. This
-wasn't a decay-display cosmetic issue; a real piece of the verdict
-pipeline had been silently dark since the Session Context removal, and
-nobody had noticed because nothing in that removal's own testing
-exercised this downstream dependency.
-
-**Fix: stopped treating this as "broken," fixed the actual design
-instead.** Of the three original corroboration sources (news-content
-match against a user-typed claim, Gate 3's buildup pattern, a real
-earnings-calendar event), only the first ever depended on user-typed
-text — the other two are genuine, always-computable deterministic
-market signals that never needed Session Context in the first place.
-Removed the news-content-match source and its now-fully-dead support
-code (`gx.contextTextMatches`, `fetchNewsBodiesForCorroboration`,
-`stripHtmlForCorroboration`) entirely rather than leaving it disabled,
-renamed `corroborateSessionContext` → `computeGate2Corroboration`
-(gates-extended.ts, recompiled via `tsc -p tsconfig.build.json` and
-re-verified with a direct `require()` check per this file's own
-documented CommonJS-export gotcha for this exact file), and removed the
-`marketContext` gate — corroboration now runs unconditionally on every
-`/analyze` call using only the two deterministic signals, requiring
-both (2-of-2, same `CONTEXT_CORROBORATION_THRESHOLD=2` constant as
-before, now literally "both must agree" since only 2 sources remain) to
-promote to a new `GATE2-CORROBORATED` modifier.
-
-**A related, previously-unwired gap closed in the same pass.**
-Proposal 7's own spec named "Gate 2 corroboration state" as one of the
-Scorecard's per-gate breakdown dimensions — but `/scorecard`'s SELECT
-and breakdown object never actually included
-`gate2_corroboration_state`, even though `logVerdict` had been writing
-it (always null) the whole time. Added it to both, so real data can
-finally reach the Pro-tier breakdown this was supposed to feed all
-along — directly answering "operates in the scorecard as scoped."
-
-**SYSTEM_PROMPT and response text updated to match**, not left
-referencing a retired UI element: Step 5's description now describes
-the deterministic mechanism instead of "Session Context," the `/analyze`
-prompt's context line reads "Gate 2 corroboration" instead of a
-sometimes-N/A "Session Context corroboration," and the Gate 2 note tag
-is now only appended on an actual positive hit (`GATE2-CORROBORATED,
-N/2`) rather than on every single analysis — this check runs
-unconditionally now, and most tickers on most days won't have both
-signals, so tagging every miss would just be visual noise nobody asked
-for.
-
-**Verified:** `node --check` clean in both repos; `npm test` (72/72 —
-3 fewer than the prior 75, since `contextTextMatches`'s own dead tests
-were removed along with the function it tested); a direct `require()` +
-behavioral check against 3 realistic scenarios (both signals real,
-neither real, only one real) all produced correct
-`GATE2-CORROBORATED`/`UNCORROBORATED` results and correct
-`gate2_corroboration_state` strings. **Not yet verified against a live
-deploy** — same standing posture as every backend change in this file.
-To confirm: check Render logs for real `corroboration_log` inserts and
-watch for the first non-null `gate2_corroboration_state` values landing
-in `verdict_log` after this deploys.
-
-## Backend/Frontend: Scorecard gets a per-ticker breakdown, personal vs. pool (Aug 28, 2026, `trade-verdict` PR #251, `Tra` PR #73)
-
-Prompted by a direct question about what Proposal 7 (the Verdict Accuracy
-Scorecard) was originally scoped to do. Re-checked the actual Notion spec
-rather than trusting the shipped implementation as the ground truth, and
-found a real gap: the spec's tier rollout table names Starter's scope as
-literally **"personalized to user's tickers"** (Pro's own line, "full
-breakdown by gate/branch fired," was meant to layer on top of that, not
-replace it) — but the shipped `/scorecard` only ever delivered the
-gate/branch breakdown, gated to Pro/Shark via `tierConfig.tracker`. No
-tier ever got a per-ticker view, even though that was Starter's literal
-named scope.
-
-**Separately, a direct product point:** since grading is 100% objective
-(real N-day forward price return vs. the verdict, graded automatically —
-no manual position logging), a user's *personal* ticker-accuracy slice is
-just a thin, often-small-sample subset of the exact same ground truth
-every other user's verdicts on that same ticker also contribute to.
-Pooling is strictly more statistically meaningful for judging whether the
-app's read on a given ticker is reliable, and doesn't require any new
-data — `verdict_log` already carries every user's rows. Direct
-instruction: build the per-ticker breakdown, and pool it.
-
-**Shipped:** `/scorecard`'s personal-scope response now includes
-`tickerAccuracy`, keyed by ticker — for each ticker the user has graded
-verdicts on, both their own personal stat and the same ticker's stat
-pooled across every user (one extra `verdict_log` query, `.in("ticker",
-tickers)` scoped to only the tickers already in the personal breakdown,
-not a full-table scan). New `SCORECARD_TICKER_MIN_GRADED = 5` — separate,
-lower floor than the overall `SCORECARD_MIN_GRADED = 20`, since a single
-ticker's sample is naturally much smaller than the whole-account total;
-a ticker below the floor (on either side, personal or pool,
-independently) reports `insufficientData` instead of a noisy percentage,
-same "don't publish 100%/0% off 2-3 samples" reasoning `SCORECARD_MIN_GRADED`
-itself already established. Available to Starter as well as Pro/Shark —
-unlike the gate/branch breakdown, this one is not gated behind
-`tierConfig.tracker`, matching the spec's own tier split.
-
-**Frontend:** Pro's and Starter's `renderScorecardCard()` both render a
-new "BY TICKER (yours vs. pool)" section from this data. Also fixed in
-the same pass, found while touching this function: `gate2_corroboration_state`
-has been returned by `/scorecard`'s breakdown object since the Aug 28
-Gate 2 corroboration fix above, but neither tier's frontend ever added a
-`section()` call for it — a "wired the data but never surfaced it" gap of
-the exact same shape this whole thread of work was already correcting,
-left unaddressed would have repeated it. Both tiers now render "BY GATE 2
-CORROBORATION" alongside the existing gate/branch sections.
-
-**Explicitly not built in this pass, flagged as a future direction, not
-implied by this one:** using the pooled data to let the app "learn from
-its own mistakes" — e.g., feeding a ticker/trigger combo's pooled
-accuracy back into Gate 2 corroboration or auto-adjusting confidence. A
-real, bigger idea, but a separate, deliberate decision — this pass only
-surfaces the pooled comparison to the user, it doesn't feed it back into
-the verdict pipeline anywhere.
-
-**Verified:** `node --check` clean in both repos; `npm test` (72/72 in
-each, unaffected — this doesn't touch `gates-extended.ts`/
-`analyze-helpers.ts`); a standalone Node simulation of the grouping/floor
-logic against synthetic personal + pool data (below-floor, at-floor, and
-multi-ticker cases); `npx tsc --noEmit` against `tsconfig.json` and each
-tier's own `app.ts` directly — same known 7-error `?v=N` baseline, zero
-new errors; `esbuild` rebuild + chunk-header grep confirmed no
-duplicate-module regression across all three bundles; a real
-headless-Chromium pass (mocked `/scorecard`) on both Pro and Starter
-confirmed the ticker section renders with correct personal/pool values,
-a below-floor ticker correctly falls back to "—" on both sides, and the
-new Gate 2 corroboration section renders with real data. `?v=` bumped on
-`pro/index.html` (35→36) and `starter/index.html` (89→90) since each
-tier's bundled `app.js` content changed. **Not yet verified against a
-live deploy** — same standing posture as every backend change in this
-file. To confirm: check a real signed-in Starter/Pro account's
-`/scorecard` response once enough graded verdicts exist and confirm
-`tickerAccuracy` populates with sane personal/pool numbers.
-
-## Backend: Agitator resolved a macro event name to an unrelated real company (Aug 28, 2026, `trade-verdict` PR #253, `Tra` PR #74)
-
-Live report: typing "Jackson Hole Economic Policy Symposium" (a
-well-known annual Fed/central-bank macro event, no single tradable
-company) into the Agitator Gauge resolved to **JXN — Jackson Financial
-Inc**, a Michigan-based insurance holding company with zero connection
-to the actual query, just the coincidentally shared word "Jackson."
-
-**Root cause, confirmed by reading the real resolution path (`raw` never
-matched directly, so `directMatch` stayed false and `headlineOverride`
-was set to the raw query — exactly matching the screenshot rendering the
-raw text as the "headline," not a real JXN news headline).**
-`extractCompanyCandidates()` breaks a headline into capitalized-word
-runs, then — per its own documented purpose (recovering "Tesla" out of a
-merged "Tesla Q" run) — also tries each run's individual words as
-fallback candidates. "Jackson Hole Economic Policy Symposium" forms one
-unbroken 5-word run (none of its words are in `CANDIDATE_STOPWORDS`);
-the full run correctly fails to match any company, but the single-word
-fallback then tries "Jackson" alone, and Finnhub's fuzzy search
-surfaced a real, live-quoted match (JXN) for it. **The Round 6
-"must have a real positive quote" guard (`computeAgitatorComps`) can't
-catch this class of bug** — JXN isn't a junk/dead symbol like GDVM/PRDL
-were, it's a perfectly legitimate real company, just the wrong one.
-
-**A length-based fix would have broken a real, desired case — checked
-before shipping, not assumed.** The obvious first idea (only decompose
-short runs into single words) would fix the reported case but also
-silently break "Nvidia Reports Record Quarter" — a realistic 4-word
-headline shape where single-word decomposition is exactly what recovers
-"Nvidia" and lets the query resolve at all. Run length doesn't actually
-distinguish "a real headline with a company name as its first word"
-from "an event/place name that coincidentally shares a word with an
-unrelated company" — both are multi-word capitalized runs of similar
-length.
-
-**Fix: a small, narrow `EVENT_NAME_MARKERS` set** (Symposium, Summit,
-Conference, Forum, Hearing, Testimony, Convention) — a real company
-headline essentially never ends in one of these, so a run containing
-one of them skips single-word decomposition entirely (the full run is
-still tried as its own candidate, correctly fails, and the query
-degrades to the existing "Couldn't find a company for ..." message —
-an honest miss instead of a confidently wrong resolution). Same
-"pair a general mechanism with a small guaranteed override for the
-actually-reported case" posture as the DRAM/Google-brand-name sagas
-elsewhere in this file, applied to a exclusion list instead of an
-inclusion one.
-
-**Verified:** `node --check` clean in both repos; `npm test` (72/72,
-unaffected); extracted the real `extractCompanyCandidates()` and ran it
-against 5 cases — the reported query (no longer yields bare "Jackson"),
-a variant with the marker elsewhere in the run ("FOMC Jackson Hole
-Summit Speech"), and three regression cases confirming legitimate
-single-word decomposition still works unchanged (the Nvidia headline
-above, the documented "Tesla Q" case, "Roundhill Memory ETF") — all 5
-pass. **Not yet verified against a live Finnhub response** — same
-standing sandbox limitation as every other Finnhub integration in this
-file. To confirm: re-run the exact reported query on a live deploy and
-confirm it now shows "Couldn't find a company for ..." instead of a
-JXN result.
-
-## Backend/Frontend: Agitator distills a real topical article's sentiment when no company applies (Aug 31, 2026, `trade-verdict` PR #255, `Tra` PR #75)
-
-Direct follow-up to the Jackson Hole/JXN fix above: "instead of saying
-'Couldn't find a company for ...' make a calculation like the 'look for'
-section... find the newest article that fits and distill it to a single
-sentence sentiment... if it does correlate to a company display the
-symbol otherwise leave 3 dashes in place of symbol and just show a
-sentiment in place with hyperlink to news article citing as evidence."
-
-**Why literal keyword-matching the query's own words against news text
-wouldn't work.** "Jackson Hole Economic Policy Symposium" is a real
-macro/Fed event with no ticker to resolve to — but the user's own
-example was clear that the query is really *about* inflation, even
-though the literal text shares zero words with a real "inflation data
-cools, futures rally" headline. A plain keyword-overlap search (the
-technique this codebase already uses for per-company news relevance)
-structurally cannot connect the two, since there's no shared vocabulary
-to overlap on — this needed real semantic topic matching, which only an
-AI call can do here, not another deterministic heuristic.
-
-**The safety constraint that shaped the whole design: never let the
-model invent the citation.** A "sentiment + hyperlink as evidence"
-feature is worthless (worse than worthless — actively misleading) if
-the link can be a hallucinated URL pointing nowhere, or somewhere real
-but wrong. Fixed by construction, not by validation after the fact:
-`computeMacroTopicalSentiment()` fetches a real batch of currently-
-published general-news headlines first (`fetchGeneralNews()`, Finnhub
-`/news?category=general` + Alpaca `/v1beta1/news`, no symbol filter —
-a new kind of fetch for this app, every other news fetch here is
-per-ticker), then asks the model to pick that article by its own INDEX
-in the list it was just handed — never asked to produce its own
-headline or URL text at all. The server then pulls the actual
-headline/URL back out of its OWN array at that index. There is
-structurally no code path where the served link doesn't point to a
-real, just-fetched article.
-
-**Response shape:** `/agitator`'s existing `!symbol` dead-end branch
-now calls `computeMacroTopicalSentiment(raw)` before responding —
-`{resolved:false, query, topical: {headline, url, source, sentiment,
-summary} | null}`. `topical` stays `null` (falling back to the
-original "Couldn't find a company for ..." message, unchanged) when the
-model finds nothing genuinely on-topic (returns index `-1`), or when
-any part of its response fails validation.
-
-**Two caches, both new, both deliberately short-TTL for different
-reasons.** `generalNewsCache` (5 minutes) — the general news feed
-itself churns fast, a stale cache here means missing "the newest
-article." `macroTopicCache` (15 minutes, keyed by the normalized typed
-query) — caches the fully-resolved result (a real article + sentiment),
-not raw AI output, so a repeat check of the identical typed text costs
-zero further API calls of either kind (general-news fetch or the AI
-call) within the window. This directly answers the token-cost question
-from the same conversation that led to this fix — baked into this
-feature's design from the start rather than bolted on separately.
-
-**A real, unrelated latent bug found and fixed while touching this
-area, not part of the actual ask.** `fetchWeekOwnRange()` (Aug 22, 2026,
-the Gate 3 Friday full-weight check) called `alpacaKeys()` — a function
-that only exists in `Tra`, never defined anywhere in this repo's own
-`server.js`. Since that function only runs on Fridays
-(`etWeekday() === 5`), this would have thrown `ReferenceError:
-alpacaKeys is not defined` the first time this repo's own copy of that
-code path actually executed — invisible until now since nothing had
-exercised it. Fixed with the same direct `process.env.ALPACA_KEY &&
-process.env.ALPACA_SECRET` check `alpacaGet()` itself already uses
-in this file, rather than defining a whole new helper function for one
-call site.
-
-**Frontend (all three tiers, `app.ts`/`starter/app.ts`/`pro/app.ts`):**
-the no-company branch of `runAgitatorCheck()` now renders "---" in the
-ticker slot, a colored dot + the sentiment word (BULLISH/BEARISH/
-NEUTRAL — green/red/amber, the same three-color convention used
-everywhere else in this app, e.g. `confColor()`), and the one-sentence
-summary as a real hyperlink to the cited article (reusing the existing
-`.trigger-row`/`.headline` markup/classes already used for a resolved
-ticker's own news line — no new CSS). Falls back to the original
-"Couldn't find a company for ..." message when `topical` is `null`.
-
-**Verified:** `node --check` clean in both repos; `npm test` (72/72,
-unaffected — this doesn't touch `gates-extended.ts`/`analyze-helpers.ts`);
-a standalone Node simulation of the index-resolution/validation logic
-against 6 cases (a real match, no relevant article, an out-of-range
-index, an invalid sentiment enum, an empty summary, a non-integer
-index) — all 6 behave correctly, only the real match produces a
-result; `npx tsc --noEmit` against all three tiers' own `app.ts` —
-same known 7-error `?v=N` baseline, zero new errors; `esbuild` rebuild
-+ chunk-header grep confirmed no duplicate-module regression across
-all three bundles; a real headless-Chromium pass on Free/Starter/Pro
-(mocked `/agitator`) confirmed the full topical-match render (dash,
-correct sentiment word/color, summary text, real hyperlink) and
-confirmed the original "Couldn't find a company for ..." message still
-renders correctly when no topical match exists either. **A real,
-self-inflicted testing gotcha hit again, worth re-confirming rather
-than assuming fixed:** the first Free-tier test run failed with
-"Agitator Gauge unavailable right now" even though Starter/Pro passed
-identically — the exact Service-Worker-breaks-`page.route()`-mocking
-issue this file's own testing notes already document; fixed by
-blocking `navigator.serviceWorker.register` before `page.goto()`, same
-as that note prescribes.
-
-**Not yet verified against a live deploy** — same standing posture as
-every backend change in this file; `fetchGeneralNews()`'s exact
-Finnhub/Alpaca response shapes are implemented from documented formats,
-not confirmed against a real response, same as every other integration
-here. To confirm: type a real macro/event query with no company match
-(the Jackson Hole example itself, once its own fix from the entry above
-is live) and confirm a real, currently-published article's sentiment
-renders with a working citation link instead of the old dead-end
-message; check Render logs for `computeMacroTopicalSentiment` errors.
-
-## Backend: Agitator topical-sentiment was caching a miss, not just a match (Aug 31, 2026, `trade-verdict` PR #257, `Tra` PR #76)
-
-Live report, same day the fallback above shipped: the exact same
-"Couldn't find a company for 'Jackson Hole Economic Policy Symposium'."
-message showed up again, on a retry several minutes later, on a
-*different tier* (Free, then Pro). Same message, same query, two
-different sessions minutes apart — the specific signature of a shared
-server-side cache serving a stale negative result, not two independent
-genuine misses.
-
-**Root cause, confirmed by re-reading the code rather than guessing at
-Render-deploy timing first.** `computeMacroTopicalSentiment()` wrote
-*every* outcome to `macroTopicCache` for the full 15-minute TTL,
-including a `null` (no topical match). The cache is server-global,
-keyed only by the normalized query text — not per-user, not per-tier
-— so a single transient miss (a fetch hiccup, or the general-news feed
-just not having picked up the story yet at that exact moment) got
-replayed identically to every caller asking about the same query, from
-any tier, for up to 15 minutes, with zero chance of a different
-outcome even once whatever caused the original miss had cleared. This
-directly undercut the whole point of the feature — "find the *newest*
-article" — by making a bad first attempt sticky for a quarter of an
-hour.
-
-**Fix:** only a real, validated match is ever written to
-`macroTopicCache` now; a miss (for any reason) always re-attempts
-fresh on the next call, no exceptions. Confirmed via simulation this
-doesn't reopen a spam/cost concern: the endpoint's existing per-user
-rate limit (`AGITATOR_RATE_LIMIT_MAX = 20`/hour) already bounds
-worst-case repeated-attempt volume regardless of caching, so there's no
-real trade-off in removing negative caching.
-
-**Also added, since there was previously no way to tell which failure
-mode was actually occurring:** explicit logging at every branch that
-can produce a `null` result — a missing `ANTHROPIC_API_KEY`, zero
-general-news articles fetched from Finnhub/Alpaca, a non-ok Anthropic
-response, an unparseable AI response, a genuine model-reported
-no-match (`index: -1`), or a response that fails the existing
-validation. Before this, every one of those distinct causes looked
-identical from the outside — the same generic fallback message with
-nothing in Render logs to distinguish them.
-
-**Verified:** `node --check` clean in both repos; `npm test` (72/72,
-unaffected); a standalone Node simulation confirming a miss is never
-cached (a retry always re-attempts) while a real match IS cached and
-reused on a subsequent call — all 3 scenarios (miss, retry-succeeds,
-cached-hit-on-success) pass. **Not yet confirmed which of the newly-
-logged branches was actually firing for the reported query** — that
-requires a live Render log check post-deploy, which this sandbox can't
-do. To confirm: re-run the exact reported query after this deploys and
-check Render logs for one of the new `computeMacroTopicalSentiment`
-lines to see whether it was a missing API key, an empty general-news
-fetch, an Anthropic error, or a genuine no-match — rather than
-continuing to guess from the symptom alone.
-
-## Backend: the event-name-marker fix only blocked single-word candidates, not the full phrase (Aug 31, 2026, `trade-verdict` PR #259, `Tra` PR #77)
-
-Live-reported a second time, same day, same exact query — this time
-typed in **lowercase**: "jackson hole economic policy symposium" still
-resolved to **JXN**, even after the earlier `EVENT_NAME_MARKERS` fix
-shipped and deployed. Not a repeat of the negative-caching bug fixed
-immediately before this — a fresh, previously-uncached query, still
-wrong.
-
-**Root cause: the first fix protected the wrong half of the mechanism,
-on an assumption that turned out to be false.** That fix reasoned "the
-full run itself is still tried as its own candidate, which correctly
-fails to match any company" — an assumption based on how the
-5-word phrase *should* behave against Finnhub's fuzzy search, never
-actually confirmed against a live response (this sandbox can't reach
-Finnhub). Live evidence now disproves it directly: Finnhub's search
-apparently still surfaces Jackson Financial Inc for the **entire**
-"jackson hole economic policy symposium" string, not just the bare word
-"jackson" — so guarding only the single-word decomposition left the
-full-phrase candidate exposed the whole time.
-
-**A second, independent gap, worse in a specific way: an all-lowercase
-query never even reaches the code the first fix touched.**
-`extractCompanyCandidates()`'s run-building step only accepts words
-matching `/^[A-Z][a-zA-Z]*$/` — a lowercase query produces zero
-"runs" and therefore zero candidates from that function at all. The
-actual path a lowercase query takes is `/agitator`'s own **initial**
-`searchSymbolByName(raw)` call, made directly on the untouched raw
-string, *before* `extractCompanyCandidates()` is ever reached on a
-failure. The first fix, scoped entirely inside that later function,
-structurally could not have protected this exact input shape —
-independent of the full-phrase-matching gap above.
-
-**Fix, two parts, addressing both gaps:**
-- New `containsEventNameMarker(text)` — a case-insensitive whole-word
-  regex test against the same `EVENT_NAME_MARKERS` set — now guards
-  `/agitator`'s initial `searchSymbolByName(raw)` attempt directly,
-  before it's ever called, regardless of casing or whether the text
-  forms a capitalized "run."
-- `extractCompanyCandidates()` itself corrected too, as defense in
-  depth for any other caller: a marker-containing run now contributes
-  **no** candidates at all — neither the full run nor any of its
-  words — not just its single-word decomposition as before.
-
-**Verified, this time against every casing variant, not just the one
-originally reported.** Simulated the actual `/agitator` resolution
-decision (mocking `searchSymbolByName` to match Finnhub's real observed
-behavior — "succeeds on any string containing 'jackson,' case-
-insensitive") across 5 cases: the exact reported lowercase query, a
-Title Case variant, an ALL CAPS variant, a variant with the marker word
-elsewhere in the run ("FOMC Jackson Hole Summit Speech"), and a
-genuinely legitimate "jackson financial earnings" query with no marker
-— the first four all correctly resolve to no company, the last still
-correctly resolves to JXN. `node --check` clean in both repos, `npm
-test` (72/72) unaffected.
-
-**Lesson, worth keeping distinct from the negative-caching fix
-immediately before this one:** that fix was a real, separate bug (a
-correct mechanism whose result was getting stuck), while this one is
-the mechanism itself having been incomplete from the start — built
-against a live-untestable assumption about Finnhub's fuzzy-match
-behavior that a second real report proved wrong, plus a code-path gap
-(the direct raw-string attempt) that a synthetic regression test with a
-Title-Case-only fixture never would have exercised. When a fix can't
-be verified against the real live dependency it targets, treat the
-first live report that contradicts it as real evidence to re-derive
-from — not as a second instance of the same already-diagnosed cause —
-and re-check every code path the input could actually take, not just
-the one the original bug report happened to use.
-
-**Not yet verified against a live deploy** — same standing posture as
-every backend change in this file. To confirm: re-run the exact
-reported query (in whatever casing) on a live deploy and confirm it
-now shows the topical-sentiment fallback (or the honest "couldn't find
-a company" message) rather than JXN.
-
-## Backend: topical sentiment now always commits to an article, never declines (Aug 31, 2026, `trade-verdict` PR #261, `Tra` PR #78)
-
-Direct correction after the ticker-mismatch fix landed and was
-confirmed working (JXN no longer showed for the Jackson Hole query) —
-but the result was still the plain "Couldn't find a company for ..."
-message, no sentiment, no link. Restated requirement, precisely: when
-no company genuinely correlates, the result must **always** be dashes
-in place of a symbol, a sentiment, and a hyperlink to a real article —
-never a bare dead-end message. "There should always be a hyperlink in
-the text."
-
-**The actual gap.** `MACRO_TOPIC_PROMPT` gave the model an explicit
-out — "if none of the listed articles are genuinely about the same
-subject, use index -1" — and that decline path, not a fetch/API
-failure, was the routine reason the dead-end message kept appearing.
-Distinct from both bugs fixed earlier the same day (the negative-cache
-bug, the event-marker full-phrase bug): those were about a wrong
-*ticker* resolution; this is about the *topical fallback itself*
-being allowed to give up.
-
-**Fix: removed the decline option entirely.** The model is now
-instructed to always pick the single closest available article and
-rate its sentiment, explicitly "even if the connection is broad rather
-than exact — picking the best available option is always more useful
-than refusing." Any index that isn't a real, in-range number is now
-treated as a genuine response error (bad JSON, model malfunction), not
-a legitimate decline — there's no longer a "the model chose not to
-answer" case in the parsing logic at all. The plain fallback message
-now only fires on an actual failure: zero general-news articles
-fetched, a missing API key, or a non-ok Anthropic response — rare
-conditions, not the everyday case it used to cover.
-
-**Verified:** `node --check` clean in both repos; `npm test` (72/72,
-unaffected); a standalone Node simulation of the updated resolution
-logic against 5 cases — a real match, the model committing to a loose/
-broad match instead of declining, a model that still tries to decline
-(now correctly treated as an error rather than accepted), an
-out-of-range index, and an invalid sentiment enum — all behave as
-intended. **Not yet verified against a live deploy** — same standing
-posture as every backend change in this file. To confirm: re-run the
-Jackson Hole query (or any other no-company query) and confirm it now
-always shows dashes + a sentiment + a real hyperlink, never the plain
-"couldn't find" text.
-
-## Backend/Frontend: Agitator entity resolution rebuilt from a Notion plan — deterministic matching, news_cache, options data, always-on score (Sep 1, 2026, `Tra` PR #79 / `trade-verdict` PR #263)
-
-Direct continuation of the "Jackson Hole" saga above. Three consecutive
-keyword-blocklist patches (`EVENT_NAME_MARKERS`) each got bypassed by a
-new phrasing (Title Case, then lowercase, then a report with no marker
-word at all) — the pattern itself, not any one patch, was the actual
-problem. Direct instruction after the third bypass: **"stop making
-repeative changes of things I've asked you not to do. going forward,
-tell what you plan to change before you change anything."** A follow-up
-also rejected adding a second AI confirmation call to fix the mismatch:
-**"why does it have to be an AI call?? ... I've asked several times for
-this to be a search engine that can decide whether I'm asking for
-context or I'm asking for a ticker aggregation."** Mr. T then worked out
-a fuller plan in a separate conversation and logged it to Notion
-("Proposal 5 — Amendment: Entity Resolution, News Caching, Options Data
-Gap, Topical Fallback") with instructions to search Notion, ask
-clarifying questions, and build it as written — which is what this entry
-covers. Clarifying questions and their answers, load-bearing for the
-implementation below: **(1)** the "Did you mean" popup's Yes/Cancel
-carries no new web-search call — reuses data already in hand (Finnhub's
-own matched name), Path B still renders alongside it regardless of
-whether the user acts; **(2)** the known-ticker shortcut is a backend
-optimization for every tier including anonymous Free (via a client-sent
-watchlist), while the UI itself stays as tier-diluted as every other
-Agitator element already is; **(3)** `news_cache` wires into every
-regular per-ticker news fetch, not just the Agitator; **(4)** contrary to
-the Notion plan's own "no fake score for something that was never a
-single-company story" — direct correction: **"the user should see a
-score either way and pro should see that breakdown."**
-
-**Fix 1 — deterministic entity resolution, replacing the keyword
-blocklist entirely.** New `classifyEntityMatch(query, canonicalName)` —
-strips legal suffixes (`stripLegalSuffix`), then classifies `exact`
-(every word matches both ways), `partial` (every query word is present
-in the canonical name, but the canonical name has more words — e.g.
-"Summit" vs "Summit Therapeutics"), or `none` (the query has a word the
-canonical name doesn't — e.g. "Jackson Hole Economic Policy Symposium"
-vs "Jackson Financial Inc," which has four words the canonical name
-never contains). This is what actually separates the two Notion-doc
-examples that look identical under a naive "shares a word" test: the
-comparison always runs against the full text a caller is testing, never
-a pre-decomposed single word — which is also what makes the old keyword
-blocklist unnecessary. `EVENT_NAME_MARKERS`/`containsEventNameMarker`
-removed outright, not left disabled — `resolveCompanyEntity()` (renamed
-from `searchSymbolByName`) now judges every Finnhub hit, in Finnhub's own
-ranked order, against the query as typed; first hit that isn't `none`
-wins. A decomposed single-word candidate (from `extractCompanyCandidates`,
-still used to recover a company name from a longer pasted headline) can
-still classify as `partial` against an unrelated company, but `partial`
-is never auto-accepted — worst case it surfaces an unconfirmed
-suggestion, never a silent wrong resolve, closing the actual bug class
-instead of chasing its latest phrasing.
-
-**Known-ticker shortcut.** `resolveKnownTicker()` skips Finnhub `/search`
-entirely for a symbol already on the fixed `SYSTEM_TRACKED_SYMBOLS` list
-or the caller's own watchlist — checked before any Finnhub call. Per
-answer (2) above, `/agitator` now accepts a `watchlist` query param sent
-by every tier's `runAgitatorCheck()` (including anonymous Free from its
-local `tv_wl`), plus a signed-in account's saved server watchlist
-regardless of tier. A company-name match against a known ticker only
-fires when that ticker's real name is already sitting in the existing
-24h fundamentals cache (a read-only peek, never a new fetch) — a cache
-miss just means no shortcut benefit that one time, never a wrong answer.
-
-**Frontend: the "Did you mean" confirm + Path B always rendering
-alongside it.** `/agitator`'s response now carries a `suggestion:
-{company, ticker}` field on a `partial` match, independent of `topical`
-— per answer (1), both are always present together rather than gating
-one behind the other. All three tiers' `runAgitatorCheck()` render a
-banner ("Did you mean **Summit Therapeutics, Inc.** (SMMT)? [Yes]
-[Cancel]") above the Path B card; **Yes** sets the query box to the
-suggested ticker and re-runs the check (a full Path A resolve); **Cancel**
-just removes the banner, leaving the already-rendered Path B content in
-place. No new fetch either way — matching the "no web search" answer.
-
-**Fix 2 — `news_cache`, wired app-wide per direct instruction, not
-scoped to the Agitator.** New Supabase table
-(`supabase-ddl-patch11-news-cache.sql`, two-timestamp design:
-`last_checked_at` updates on every check regardless of outcome,
-`published_at` only updates on a genuinely new URL — kept separate so
-Proposal 7's Corroboration Decay Indicator never reads a re-checked-but-
-unchanged headline as falsely "Fresh"). Wired directly into `fetchNews()`
-itself — the one shared function `/ticker/:symbol`'s card news, the
-Agitator's primary ticker, and its comps all already call — so this one
-change covers every per-ticker news lookup in the app, per the direct
-answer to clarifying question (3). Live fetch always runs first; the
-cache is read as a fallback only when the live call comes back empty. A
-genuinely new cached article also inserts a `corroboration_log` row
-(`source: 'finnhub_secondary'`) — one write path feeding both, not two
-separate pipelines for the same event. `corroboration_log`'s `source`
-CHECK constraint widened (`finnhub_secondary` added) rather than
-replaced, so the three pre-existing values keep working on old rows.
-Applied directly via the Supabase MCP connection (table created, RLS
-disabled + `anon`/`authenticated` revoked, confirmed zero rows on the
-standard grants-check query) — same two-step pattern this file's own
-established rule requires for every service-role table.
-
-**Fix 3 — Alpaca `/snapshots` extends (not replaces) the Options/IV
-sub-factor.** `fetchOptionsSnapshot()` pulls a real average IV across the
-live options chain for a ticker, feeding `ivEnvironment` ahead of the
-existing single-figure `fetchImpliedVolatility()` (kept as the fallback,
-and left completely untouched as Pro/Shark's own CSV-export data source —
-this is Agitator-scoped only, per the same "give a new Alpaca-backed
-feature its own tier flag" caution this file already carries elsewhere).
-Market Positioning (`positioning`) deliberately stays AI-judged — the
-Notion amendment names an options-data source for IV but gives no
-concrete deterministic formula for "positioning" the way it does for IV,
-and inventing one wasn't worth the risk of a second unverified guess.
-**Unverified against live Alpaca options entitlement**, same posture as
-every other unconfirmed integration in this file.
-
-**Fix 4 — Historical Reaction, activated.** `computeHistoricalReaction()`
-pools `verdict_log` (Proposal 7) across every user's graded verdicts for
-the resolved ticker — a property of the ticker itself, not one user's own
-history, same reasoning `/scorecard`'s own per-ticker pool stat already
-uses. Explicit `null` ("no data") below `SCORECARD_TICKER_MIN_GRADED`,
-reusing that existing floor rather than inventing a second one for the
-same "too few graded rows to publish" shape. Replaces the permanent
-"not tracked yet" placeholder this factor has shown since the Agitator
-first shipped.
-
-**Fix 5 — Path B rebuilt: always a real score, direct correction to the
-Notion doc's own "no fake number" plan.** `computeTopicalFallback()`
-(renamed from `computeMacroTopicalSentiment`) still corroborates via real
-general news first (no AI call at all if `fetchGeneralNews()` returns
-nothing) — but the one AI call now also extracts 0-5 real company names
-plus surprise/uncertainty/freshness scores from the confirmed article in
-the same response, instead of just an index + sentiment + summary. Every
-extracted name is re-validated through the identical `classifyEntityMatch`
-gate a real typed query goes through — an AI-invented or misremembered
-name is rejected here exactly like a bad query would be upstream, so the
-hallucination risk documented as a real design constraint when this
-feature first shipped never just moves down one layer. Each validated
-company gets a real price reaction since the article's own publish time
-(`computeReactionSincePublish()`, an Alpaca dated-bars fetch, same shape
-as `fetchWeeklyCarryover`/`fetchWeekOwnRange` elsewhere in this file —
-`dailyCloses` is deliberately not date-anchored, so it can't be reused
-here either). `computeTopicalFactors()` then builds a deterministic
-event-level gauge — the AI's own surprise/uncertainty/freshness reads,
-plus Ripple Effect/Swing Risk/Expected Move computed directly from the
-validated companies' real average price move (no AI for those three) —
-run through the same `computeAgitatorComposite()` every resolved-ticker
-check already uses. `/agitator` gates the sub-factor breakdown behind the
-same `isFull` (`tierConfig.tracker`) flag Path A already uses, so Pro
-sees the full 6-signal breakdown and every other tier sees just the
-composite level/score — directly satisfying "the user should see a score
-either way and pro should see that breakdown." A pure-macro query with
-zero validated companies (Jackson Hole itself) still gets a real
-composite score computed from the AI's three article-level factors alone
-— dashes for the symbol slot, but never an empty gauge.
-
-**Two-repo split, same as always.** `Tra` (PR #79) is the real backend
-change; `trade-verdict`'s `server.js` mirror (PR #263) is
-cosmetic/historical, adapted for this repo's different `alpacaGet(url)`
-contract (full URL + raw `Response`, vs `Tra`'s path-only URL +
-pre-parsed JSON, and no `alpacaKeys()` helper — checked inline like every
-other Alpaca call site here) — not a straight copy-paste. `trade-verdict`
-PR #263 also carries the real frontend (`app.ts`/`starter/app.ts`/
-`pro/app.ts`, byte-identical Agitator logic across all three, confirmed
-via diff before shipping) and the `news_cache` migration, since `Tra` has
-no frontend and no migration-file convention of its own.
-
-**Verified:** `node --check`/`npm test` (72/72, unaffected — none of this
-touches `gates-extended.ts`/`analyze-helpers.ts`) in both repos; a
-standalone `classifyEntityMatch` simulation against all three real
-live-reported bug phrasings (Title Case, lowercase, and the no-marker-word
-report) plus Tesla/Apple/Summit/Nvidia/Roundhill regression cases — all
-8 pass; a real local boot test of `Tra`'s `server.js` (clean start, zero
-crashes); `tsc` against each tier's own `app.ts` (known `?v=N`-import-
-resolution baseline only, zero new errors) and an `esbuild` rebuild +
-chunk-header grep (no duplicate-module regression across all three
-bundles); a real headless-Chromium pass on Starter confirming a `partial`
-match renders the suggestion banner + topical card together, tapping
-"Yes" re-fires scoped to the suggested ticker, the Jackson-Hole-shaped
-zero-company case still shows a real composite score with no RELATED
-section, an exact match is unaffected, and the `watchlist` param is sent
-on every request. **Not yet verified against live Finnhub/Alpaca/
-Anthropic credentials or a real deploy** — same standing sandbox
-limitation as every integration in this file. To confirm after `Tra`
-redeploys: re-run "Jackson Hole Economic Policy Symposium" (any casing)
-and confirm it shows a real score + article instead of resolving to JXN
-or dead-ending; type "Summit" and confirm the suggestion banner appears;
-check Render logs for `fetchOptionsSnapshot`/`computeHistoricalReaction`
-errors.
-
-**Follow-up, same day: consistency fix + a real stale-row bug, both
-merged before the above ever went live.** Live screenshots against the
-*still-deployed pre-fix* app were reported as "still not fixed" — the
-JXN mis-resolve in them was the old keyword-blocklist code, confirmed
-directly (`classifyEntityMatch("Jackson hole economic meeting", "Jackson
-Financial Inc")` returns `'none'`, not the JXN match shown). But a
-separate, real complaint landed alongside it: **"sometimes there's the
-signal breakdown, sometimes there's not, sometimes there's a headline
-link sometimes not, sometimes recommended companies sometimes not... all
-of these should be ALL THE TIME."** Root cause: RELATED and the headline
-line were coded to omit the entire section whenever empty, rather than
-say so — reads as broken, not as "no data this check." Fixed in all
-three tiers: both sections now always render a row, real content when
-there is any, an explicit "No related companies found." / "No recent
-related news found." line when there isn't.
-
-**Caught in the same pass, not reported but real:** the "Past Reactions"
-row was still hardcoded to the literal string "not tracked yet" in every
-tier's frontend, even though Fix 4 (same PR, same day) had already
-activated real `historicalReaction` data server-side — the frontend
-simply never read the field. Wired through `agitatorFactorRow` like
-every other signal now.
-
-**Merged and live as of this writing** (`Tra` #79, `trade-verdict` #263/
-#264, all merged) — Render/GitHub Pages are the actual deploy target for
-each; propagation can take a few minutes (Render) to ~22 minutes (GitHub
-Pages CDN, per this file's own documented ceiling). Re-check the reported
-phrasing and the consistency of RELATED/headline/SIGNALS once both have
-had time to roll out.
-
-## Backend: Agitator Path B — headline-only extraction was blind to companies named in the article body (Sep 1, 2026, `Tra` PR #80 / `trade-verdict` PR #266)
-
-Live report, once the deploy above was actually live: a real query
-corroborated to a real article and rendered a real citation link exactly
-as designed — but RELATED still said "No related companies found" even
-though the linked article did name a real company (LGLC).
-
-**Root cause.** `computeTopicalFallback()`'s AI call — both for picking
-the closest real article and for extracting company names from it — was
-only ever given each candidate article's bare **headline**. Never the
-body. So a company named only in the article's own text, not in its
-headline, was structurally invisible to extraction regardless of how
-correctly corroboration and citation were already working — this was a
-real gap in what the model could see, not a validation-logic bug in
-`classifyEntityMatch` (which only ever gets a chance to run on names the
-extraction step actually produces).
-
-**Fix.** `fetchGeneralNews()` now also captures each item's real
-`summary`/`content` field — Finnhub's `/news` response includes a
-`summary` field, Alpaca's `/v1beta1/news` includes `summary`/`content`;
-both are real, documented fields this codebase already used once before
-for the now-retired Proposal 4 news-content-match corroboration source,
-so this isn't a new, unverified assumption about either API's shape.
-`computeTopicalFallback()` now includes a truncated (300-char) excerpt
-alongside each headline in the listing fed to the model, and
-`TOPICAL_PROMPT`'s own companies instruction now explicitly says to read
-the excerpt, not just the headline.
-
-**Verified:** `node --check`/`npm test` (72/72, unaffected) in both
-repos. **Not verified against a live Finnhub/Alpaca response** — same
-standing sandbox limitation as every other integration in this file. The
-real test is whether a future report of this exact shape (a real,
-correctly-cited article whose named company doesn't show up under
-RELATED) stops recurring once this is live. Merged same day as reported;
-Render/GitHub Pages propagation ceilings apply as always.
-
-## Backend: Agitator Path B gets real keyword search via Marketaux (Sep 1, 2026, `Tra` PR #81 / `trade-verdict` PR #268)
-
-Direct follow-up to the Shein/PDD-AMZN-GAP-WMT-TGT-META-GOOGL report above.
-The excerpt-reading fix (immediately above) closed the "extraction can't
-see the article body" gap, but the user pushed back that RELATED was
-still empty for that exact query and reframed the whole issue directly:
-**"this is a problem with Finnhub, and is a bug if we're not getting real
-news from a hot headline from our source. I keep bringing up that Google
-does a better job..."** — not an extraction-logic bug, a real
-data-source/coverage gap. Confirmed by re-reading both vendors' own
-documented parameters (not assumed): neither Finnhub's `/news` (category-
-only — general/forex/crypto/merger) nor Alpaca's `/v1beta1/news`
-(symbol-only) supports genuine free-text/keyword search at all. A real,
-topical "hot" story a user types about can be entirely invisible to
-`computeTopicalFallback()` if it simply didn't land in that day's generic
-category/symbol-less pool — no amount of better excerpt-reading fixes
-that, since the AI can only ever pick from what the pool actually
-contains.
-
-Researched real keyword-searchable financial-news vendors before writing
-any code, per the user's own explicit ask ("Research real search-capable
-providers, come back with options") and this session's standing "tell me
-your plan before you change anything" instruction: **Marketaux**
-(finance-specific, resolves articles to real ticker entities + sentiment,
-free tier ~100 req/day), NewsAPI.org (real Boolean search, $449/month
-minimum — not viable for this feature), GNews (freemium, general-purpose,
-less finance-specific). User already had a Marketaux account and chose it.
-Credential handoff followed this app's own established convention for
-every other integration (`FINNHUB_KEY`, `ALPACA_KEY`/`ALPACA_SECRET`,
-`ANTHROPIC_API_KEY`, `SUPABASE_SERVICE_KEY`): the key was never pasted
-into chat, only set directly as a Render environment variable
-(`MARKETAUX_API_KEY`) on the `Tra` service.
-
-**Shipped: `fetchMarketauxNews(query)`** — real keyword search against
-Marketaux's `/v1/news/all?search=`, called alongside (not instead of) the
-existing `fetchGeneralNews()` pool inside `computeTopicalFallback()`.
-Results are merged with Marketaux's hits listed first (real topical
-matches for the actual typed query, ranked ahead of the generic pool),
-deduped by URL. Optional dependency by construction — `MARKETAUX_API_KEY`
-unset, a request/parse error, or the daily quota being spent all fail
-safe to an empty array, in which case `computeTopicalFallback()` runs
-exactly its pre-Marketaux behavior with zero regression.
-
-**The bigger value-add over just "more articles": trusting Marketaux's own
-vendor-tagged entities directly, ahead of the existing AI-extraction
-path.** Each Marketaux article already ships pre-tagged with real,
-resolved entities (ticker + name + sentiment score) — this is exactly the
-gap the user's own researched Shein example was pointing at (PDD/AMZN/
-GAP/WMT/TGT/META/GOOGL as real, market-relevant related companies a
-generic AI-excerpt-reading pass might never surface). Since a
-vendor-tagged entity is already a real, pre-resolved ticker — not an AI
-guess — it doesn't carry the hallucination risk `classifyEntityMatch()`
-exists to catch, so it's trusted directly rather than re-validated through
-that gate. AI-extracted names (from the excerpt-reading path) still go
-through the identical `classifyEntityMatch` validation as before, since
-that path is the one that can actually invent or misremember a name — the
-anti-hallucination design principle from the whole Agitator saga is
-preserved, not loosened, for the one source that still needs it. The
-combined list (Marketaux entities first, then validated AI extractions)
-is capped at 5, matching the pre-existing cap.
-
-**A lightweight daily budget guard**, not a rolling-window throttle like
-Finnhub/Alpaca/SEC's own queues — Marketaux's free tier is capped at
-~100/day, not per-minute, so a simple UTC-day counter
-(`MARKETAUX_DAILY_LIMIT = 90`, reset at the next UTC midnight) is the
-right shape for this constraint. Exhausting the budget silently falls
-back to the pre-Marketaux pool, same as a missing key — no error surfaced
-to the user.
-
-**UNVERIFIED AGAINST A LIVE RESPONSE — same standing posture as every
-integration in this file.** `api.marketaux.com` is unreachable from this
-sandbox (confirmed via a direct fetch attempt, `EGRESS_BLOCKED`), joining
-the long-documented list of finance/data-API domains this sandbox's
-egress proxy blocks outright. Field names (`title`/`description`/
-`entities[].symbol`/`entities[].sentiment_score`, the `search=`/
-`api_token=`/`filter_entities=` query params) are triangulated across
-Marketaux's own published docs summary, a PHP integration example, and an
-MCP-server tool description — not confirmed against a real response —
-so every field read has a defensive fallback (`a.title || a.headline`,
-etc.) and the whole function fails safe to `[]` on any mismatch, same
-posture as the DRAM SEC-CIK override and every other unverified-from-
-sandbox integration in this file.
-
-**Verified by simulation, not a live call, same discipline as everywhere
-else in this file:** `node --check`/`npm test` (72/72, unaffected — this
-doesn't touch `gates-extended.ts`/`analyze-helpers.ts`) in both repos; a
-local boot test (`require('./server.js')`) in `Tra` — clean start, zero
-crashes; a standalone Node simulation of the merge/dedup/entity-priority
-logic (7 cases: Marketaux-plus-generic with no overlap, same-URL dedup
-preferring the Marketaux copy, Marketaux-empty fallback to the generic
-pool, both-empty producing the correct "nothing corroborates" path,
-Marketaux entities + AI-extracted names combining and capping at 5,
-duplicate-symbol suppression between the two sources, an AI-extracted
-name that fails `classifyEntityMatch` being dropped) — all 7 pass;
-a standalone simulation of the daily-budget guard (allows exactly 90,
-blocks the 91st, resets cleanly at the next UTC day) — passes.
-
-**To confirm live:** re-run the exact reported "Shein Hong Kong listing"
-query once `MARKETAUX_API_KEY` is set and `Tra` has redeployed, and check
-whether PDD/AMZN/GAP/WMT/TGT/META/GOOGL (or whatever Marketaux's own
-tagging actually surfaces for that story) show up under RELATED instead
-of "No related companies found." Check Render logs for
-`fetchMarketauxNews` errors to confirm the real field-name guesses above
-actually match Marketaux's live response shape — if they don't, the
-function still fails safe to the pre-Marketaux behavior, but Render logs
-are the only way to tell the difference between "no Marketaux match
-found" and "the response shape guess was wrong," so check logs before
-assuming either.
-
-## Backend: Agitator entity resolution — the QNX/BlackBerry saga, consolidated (Sep 1-2, 2026)
-
-Consolidated from what was originally five separate rounds of live-reported
-bugs and fixes, all chasing the same underlying case (typing "Qnx automotive
-iot" into the Agitator Gauge) — kept as one entry, same convention as this
-file's other multi-round sagas, since the individual rounds matter less than
-the real lesson at the end.
-
-**Round 1 — a real, small bug: digit-stripping broke candidate extraction
-(`Tra` PR #85 / `trade-verdict` PR #273).** Found via a pasted Render log
-showing a garbled search candidate ("Other Takeaways From His G Speech")
-being sent to Finnhub. Root cause: `extractCompanyCandidates()`'s
-punctuation-stripping regex also stripped trailing digits, so "G20" silently
-became "G" and merged into an unrelated word run. Fixed by forcing a run-
-break on any digit-bearing token before the shape test runs.
-
-**Round 2 — challenged and corrected mid-fix.** The actual reported bug
-("Qnx automotive iot" resolving to nothing, with an unrelated Dell headline)
-was about to be patched with a single hardcoded `qnx: "BB"` entry in
-`KNOWN_BRAND_TICKER_OVERRIDES` — matching the existing Google/Facebook
-pattern. Direct challenge mid-build: **"what happened to using marketaux??"**
-— correctly pointing out that a bare override does nothing for article/
-related-company enrichment, only symbol resolution. Per direct instruction
-("Wire Marketaux into resolution, not just Path B"), built `resolveViaMarketaux(query)`
-as a general mechanism (any article's first tagged entity can resolve a
-query, not just this one hand-added case) — landed alongside the `qnx` override
-as a zero-cost fast path checked first (`Tra` PR #86 / `trade-verdict` PR #274).
-
-**Round 3 — "seriously, you fix one problem and another one comes back."**
-BB now resolved correctly, but the card showed the raw query text as a fake,
-unlinked headline and "No related companies found." Root cause: the `qnx`
-override resolved `symbol` inside the Finnhub-candidate loop, before
-`resolveViaMarketaux` was ever reached (guarded behind `if (!symbol)`), so no
-enrichment fetch ever ran for an override-resolved ticker; separately,
-Finnhub's `/stock/peers` returned empty for BB with no fallback. A fix was
-in progress (re-calling Marketaux post-resolution for enrichment) when —
-
-**Round 4 — the actual turning point: "what happened to the table logic that
-we built. why is it not being implemented?"** A direct, correct call-out:
-this session had spent three rounds building parallel, ad-hoc patches
-(Finnhub-peers investigation, a Marketaux-enrichment re-fetch) without ever
-wiring in or populating the Neo4j Knowledge Graph — infrastructure already
-built and explicitly scoped, in an earlier design conversation, to solve
-exactly this class of problem ("what's this graph actually for" had already
-been answered as "the Agitator Gauge's RELATED companies"). Acknowledged
-directly: the graph existed and worked (Phase 1 shipped) but was never
-called from `/agitator`, and its only seed data was the original 7-company
-TSMC demo cluster — it genuinely had zero BlackBerry coverage, so it could
-not have helped even if wired in. The in-progress Marketaux-enrichment patch
-was discarded rather than shipped on top of a known-wrong foundation.
-Scoped via `AskUserQuestion` — "Stop patching, go straight to wiring +
-populating the graph" was chosen over shipping the patch first.
-
-Landed (`Tra` PR #87 / `trade-verdict` PR #275): `fetchGraphPeers()` (the
-function already reading `kg.getCompanyRelationships()` for the Agitator's
-RELATED tier) was already correct — it just needed real data. A real
-BlackBerry/automotive cluster was researched and added to `neo4j-seed.js`:
-BlackBerry (BB), Aptiv (APTV), Wind River Systems (private, `ticker:null`),
-Ford (F), Qualcomm (QCOM) — with `competes_with`/`supplies`/`subsidiary_of`
-edges (QNX vs. VxWorks, QNX vs. Snapdragon Digital Chassis, the real 2023
-BlackBerry QNX/Ford partnership, Aptiv's real 2022 Wind River acquisition).
-**Not yet live at this point** — the seed script had never been run against
-the actual Neo4j Aura instance, only committed as source.
-
-**Round 5 — Marketaux re-added as a complementary layer, not a competing
-one (`Tra` PR #88 / `trade-verdict` PR #276).** Once the graph was correctly
-the primary mechanism, Marketaux enrichment was added back as a genuinely
-lower-priority fallback: `computeAgitatorComps()`'s final priority chain,
-end to end, is **literal mentions in the user's own text > Knowledge Graph
-(curated) > Marketaux (automated search) > generic Finnhub peers**.
-Marketaux's own tagged entities are kept in a separate `marketauxMentioned`
-array, never merged into the higher-priority `mentionedSymbols` list, so an
-automated keyword match can never silently outrank a hand-curated graph
-edge.
-
-**The lesson, worth keeping independent of this specific bug:** when a
-fix depends on a class of data (real-world company relationships) that
-already has dedicated infrastructure built for it, check whether that
-infrastructure is actually wired in and populated *before* building a
-parallel, narrower patch — three rounds of increasingly specific patches
-here were all solving a smaller version of a problem the graph was already
-designed to solve, and nobody asked "wait, why isn't the graph handling
-this" until directly prompted to.
-
-### The headline still didn't show up — a second, distinct bug (Sep 2, 2026, `Tra` PR #90 / `trade-verdict` PR #278)
-
-Reported again after the graph wiring shipped: BB now resolved correctly,
-but the card *still* showed the raw query text as a fake, unlinked headline.
-Traced through the actual code this time, not re-guessed: once a ticker
-resolves via the `extractCompanyCandidates()` loop (as `qnx` does) rather
-than a direct match, `directMatch` stays `false`. The enrichment block
-correctly tries a real Marketaux search on the raw query — but "Qnx
-automotive iot" is an artificial test phrase no real article is published
-under, so it comes back empty. The line immediately after that then set
-`headlineOverride = raw` as a fallback — and the block right after **that**
-branches on `headlineOverride`'s mere presence to decide whether to run the
-real per-ticker `fetchNews(symbol, companyName)` call at all. So the
-fallback for "nothing found yet" was itself what prevented the real news
-source from ever being tried — a real BlackBerry article was one fetch
-away and the code never asked for it.
-
-**Fix:** stopped tainting `headlineOverride` with the raw-text fallback —
-it now only ever means a genuine, explicit client-supplied `headline` query
-param (its original, correct meaning), so the `else if (headlineOverride)`
-branch (skip `fetchNews`) fires only when the client actually asked for
-that. The raw-text echo moved to a true last resort in `effectiveHeadline`,
-reached only after the real `fetchNews()` call has already run and also
-come back empty. Verified via a 5-case standalone simulation (the exact
-reported bug shape, the true-last-resort echo, a real Marketaux-resolved
-primary, an explicit client headline override, and the existing plain-
-ticker path) — all correct, nothing regressed.
-
-**Not yet verified against a live deploy** — same standing posture as every
-backend-dependent feature in this file; Finnhub/Marketaux are unreachable
-from this sandbox.
-
-## Ops: Neo4j seed script actually run against live Aura (Sep 2, 2026)
-
-The BlackBerry/automotive cluster added to `neo4j-seed.js` above sat
-uncommitted-to-production for a full day — this sandbox has never had, and
-will never have, the real `NEO4J_URI`/`NEO4J_USERNAME`/`NEO4J_PASSWORD`
-credentials, so `node neo4j-seed.js` here only ever prints "nothing to
-seed" and exits.
-
-**A Render MCP connector became available mid-session** (distinct from any
-Neo4j-specific connector — confirmed directly with the user which one was
-actually meant, after an initial "you're connected to neo4j now" turned out
-to mean Render). Used it to inspect (not modify blindly) the real `Tra`
-service config via `list_services`/`get_service` — confirmed it's a
-free-tier Node web service (`srv-d9c6gdvavr4c73af40p0`, `tra-zacg.onrender.com`).
-Render's API/MCP tools do not expose existing secret env var *values* back
-out (by design) — only let you set new ones — so there was still no way to
-read Tra's real Neo4j credentials from here even with Render access.
-
-**The actual mechanism used: a temporary, one-off Render Cron Job**, not a
-change to the live `Tra` service. Created via `create_cron_job` — same
-repo (`turneraroundauto-hub/Tra`), same branch (`main`), `build: npm install`,
-`start: node neo4j-seed.js`, scheduled for Feb 31 (a date that never occurs,
-so it can never auto-fire) so it only ever runs when manually triggered.
-**Real, disclosed cost, confirmed with the user before creating it:**
-Render does not offer a free-tier Cron Job — the cheapest valid plan is
-`starter`, a real (if small) charge — flagged explicitly via
-`AskUserQuestion` before creating it, not assumed. The three real secret
-values were added by the user directly in that job's own Environment tab
-in the Render dashboard — never pasted into this conversation, same
-standing rule as every other credential handoff in this file.
-
-**Verified as genuinely successful, not just "it ran," via real Render
-logs:** `list_logs` on the cron job's resource ID showed a full, clean run
-— `Ensuring schema...`, `Upserting 12 companies...` (every company in
-`neo4j-seed.js`, TSMC cluster and BlackBerry cluster both), `Upserting 10
-relationships...` (every edge, printed by name), then both verification
-blocks the script itself runs: `OK — all 6 relationships confirmed
-round-trip through Neo4j` (TSM) and `OK — all 3 relationships confirmed
-round-trip through Neo4j` (BB), ending in `Cron job run finished
-successfully`. This is the first genuinely-confirmed-live Neo4j write in
-this project's history — every other Neo4j claim in this file up to this
-point was "verified by simulation only."
-
-**Cleanup, still open:** this MCP toolset has no delete/destroy tool for
-Render resources (only create/list/get/metrics) — the cron job itself
-(`crn-dabqlmu7bikc73dvmv90`) needs to be deleted by hand via the Render
-dashboard (Settings → Delete Cron Job). Flagged to the user, not yet
-confirmed done as of this writing.
-
-**What this actually unblocks:** the Agitator Gauge's RELATED companies for
-BB should now show real data (Ford, Qualcomm) for the first time, and the
-TSMC cluster's own relationships (already there since Phase 1) are
-re-confirmed live and intact. The correlation/classification side (see the
-Phase 1.5 entry below) needed no seeding at all — it grows automatically
-from real traffic — but the hand-curated `RELATED_TO` facts (supply chain/
-competitor relationships) only ever grow when someone researches and adds
-them to `neo4j-seed.js` the same way, then runs it live the same way. There
-is no automatic mechanism that discovers a fact like "BlackBerry supplies
-Ford" from traffic alone — confirmed directly to the user when asked
-whether new tickers "auto-populate" the graph (they don't, for this half of
-it).
-
-## Backend: Neo4j Phase 1.5 — correlation/classification graph, wired into Proposal 5 & Proposal 7 (Sep 2, 2026, `Tra` PR #89 / `trade-verdict` PR #277)
-
-Direct instruction to move forward implementing Neo4j into "the previous
-proposals 5 & 7" — clarified via a pasted framing (originally from an
-earlier design conversation, restated here as the actual scope): the
-90-day correlation-comparables system and the Dynamic Proxy Resolution
-Algorithm's proxy-basket matching are graph problems — "which tickers
-correlate with which sector proxies" — and the Agitator Gauge/Corroboration
-Decay Indicator are network-discovery problems on top of that same
-structure. Scoped down (via `AskUserQuestion`) to the concrete, bounded
-piece: wire the graph into data this app was *already computing* rather
-than inventing new correlation math, and keep event classification
-deterministic (no new AI call) rather than building a speculative Event
-node layer.
-
-**Landed, `neo4j-graph.js`:**
-- New `Sector` node type (`sector_id` unique constraint) — the same
-  `PROXY_RULES`/`DEFAULT_PROXY` category strings already shown in the UI
-  (`AI/Semiconductor`, `Biotech/Medical`, etc.), no new taxonomy invented.
-- `upsertClassification(ticker, sectorId, {tier})` — a `CLASSIFIED_AS` edge,
-  `tier` matching `resolveGate5`'s own vocabulary (`primary`/`secondary`/
-  `fundamentals-confirmed`/`fundamentals-speculative`).
+## Backend: Pre-Gate solvency saga — revert, rebuild, per-category search, narrow keywords, exhibit filter (Aug 18 – Sep 7, 2026)
+
+**Revert (Aug 18).** Six same-day PRs (`Tra` #41-#46 / `trade-verdict` #180-#185) were all reverted: widened keywords, `dateRange=custom`, a persistent no-decay solvency flag (`pre_gate_solvency_state`), a 730-day lookback, a cross-company guard, and a `max_tokens` bump. Trigger: the persistent flag produced a live false positive on MU while distressed XTI stayed GREEN. Code reset to commit `e31db3f`; patch10/patch11 SQL files removed. The table itself was left behind (see the Aug 26 Supabase entry).
+- Lesson: don't stack changes on an unverified live system in one day.
+- Lesson: verify a merge actually happened in the repo that deploys. `Tra` #46 was reported merged but never was; only the mirror #185 merged.
+
+**Observation-first rebuild (`Tra` #48 / `trade-verdict` #187).** Re-landed only the two request fixes (widened keywords, `dateRange=custom`) plus logging. `getCik()` logs the tier and company name. `searchEdgarFilings()` logs URL, status, hit count, and every hit's company name. No persistent flag, wide lookback, or cross-company guard. Check Render logs with grep `[PRE-GATE]`.
+
+**Real root cause (`Tra` #49 / `trade-verdict` #188).** BALY logs showed the search was correct (3 hits, all Bally's). The bug was downstream: one combined query, then re-classifying hits by scanning `hit.highlight`, which EDGAR doesn't reliably populate, so real hits fell to GREEN. Fix: `evaluatePreGate()` runs one `searchEdgarFilings()` per `PRE_GATE_TRIGGERS` category; the query is the classification. That's 3 SEC calls per check, once per ticker per 24h (`preGateCache`).
+
+**False-positive trims (`Tra` #50, #52 / `trade-verdict` #189, #190).**
+- STWD went RED on "going concern basis" in a merger-agreement exhibit's Solvency rep (valuation boilerplate). So "going concern" was removed and "substantial doubt" kept; GAAP/PCAOB require it in real auditor qualifications.
+- STWD then matched "insolvent" (1,648 boilerplate hits). Removed as a class: `insolvent`, `insolvency`, `receivership`, `event of default`, `notice of default`, `acceleration of indebtedness`.
+- **Current solvency list:** `"substantial doubt"`, `"chapter 11"`, `"chapter 7 bankruptcy"`, `"voluntary petition for bankruptcy"`, `"bankruptcy protection"`, `"notice of delisting"`, `"delisting notice"`. Precision over recall; this will miss distress described in other words.
+- Method for any future false positive: get the Render `[PRE-GATE]` lines, then the matched sentence via EDGAR's CIK-scoped search UI, before touching code.
+
+**Exhibit filter (`Tra` #52 / `trade-verdict` #191).** XBRL `SubstantialDoubtAboutGoingConcernTextBlock` was a dead end: BALY's `companyfacts` has zero GoingConcern concepts. Restricting forms was also ruled out, since the STWD exhibit was filed inside a 10-Q. Fix: `searchEdgarFilings()` drops hits whose `_source.file_type` starts with `EX-` (`isExhibit()`, case-insensitive). Hits with missing metadata are kept (fail permissive). Excluded counts and types are logged (`excluded N exhibit-only hit(s)`).
+- **Do not restore the broad keywords** because of this filter. Item 1A Risk Factors in the primary document carries the same hypothetical boilerplate, and the exhibit filter doesn't catch it. Only broaden alongside an evidence-driven fix for that vector.
+
+**Live status (Sep 7).** STWD confirmed GREEN in production: Render logs show all 3 categories at 0 hits with the trimmed queries, 5 `verdict_log` rows GREEN, no `pre_gate_triggers` rows. Explained by the keyword trim alone.
+- **Open:** BALY should be RED (still unconfirmed, no recent check).
+- **Open:** the exhibit filter has never fired live. Watch for `excluded N exhibit-only hit(s)`.
+
+## Backend: Gate 4 (Phase) is server-side math (Aug 22, 2026)
+
+New `evaluateGate4(metricsData)`, same shape as `evaluateGate1`, reads `rangePosition` (52-week range %, already in `metricsData`): `<30%` GREEN, `30-70%` YELLOW, `>70%` RED. `/analyze` overwrites `parsed.gates.g4_phase` after parsing. SYSTEM_PROMPT marks Gate 4 "server-provided, never recalculate," and the prompt gets a `GATE 4 — USE EXACTLY THIS` block. The model now runs only Gates 2 and 3. `phaseProxy`'s cosmetic PHASE labels are unchanged. Not verified live: a >70% ticker should render RED.
+
+## Backend: Gate 3 Friday full-weight exception + UP-with-one-RED sizing (Aug 22, 2026)
+
+Both confirmed via `AskUserQuestion`.
+- **Gate 5 "30 days of decoupling" wording:** plain-English framing of the existing weekly rolling-20-day correlation check. No code change.
+- **Friday full-weight exception:** Friday normally gets a skepticism discount. Full weight applies when this week's Mon-Thu move is flat (±0.3%, reused from `fetchWeeklyCarryover`; not independently calibrated) AND Friday's 3-bar sequence is bullish/convicted.
+  - `fetchWeekOwnRange(symbol)` is a dated-bars fetch (not `dailyCloses`, which is not date-anchored), called inside `/analyze` only when `etWeekday() === 5`. It is deliberately not relayed through `/ticker` or clients, so there are no frontend or `?v=` changes.
+  - The prompt gets a `Gate 3 Friday full-weight check` line.
+  - Revisit the threshold once real Friday data exists.
+- **UP with one RED:** UP allows at most one RED among Gates 2/3/4; with exactly one, sizing caps at QUARTER (not NONE). Two or more REDs stay DOWN/FLAT. This is a SYSTEM_PROMPT rule only (sizing was never server-enforced except forceDown→NONE).
+- **LOOK FOR** already shows on every verdict; only docs were wrong.
+- Not verified live.
+
+## Backend: Pre-Gate joins the corroboration pool — no blanket forceDown (Aug 22, 2026)
+
+Direct instruction, scoped via `AskUserQuestion`:
+- Pre-Gate RED alone no longer forces DOWN. It sets `parsed.verdict = "DOWN"` as a candidate and updates `reason`.
+- `preGateResult.hardTrigger` was removed from `downForceAuthorized`.
+- The congruency `redCount` now includes `preGateResult.status`.
+- New `threeYellowBreakdown` (`g2Status`, `g3Status`, `g4Status` all YELLOW): when true, a single RED is enough to force DOWN. Implemented generically.
+- Gate 3 is read only for this check, never in the RED tally.
+- SYSTEM_PROMPT's Pre-Gate section was rewritten; the model still copies Pre-Gate status/note.
+- Deliberate trade-off: a real solvency filing can now render FLAT when it's the only red flag. If a distressed ticker gets FLAT'd in a way that reads wrong, revisit. Not verified live.
+
+## Frontend: touch-and-feel polish + Glossary overhaul (Aug 22, 2026, `trade-verdict` #201-#207)
+
+All three tiers.
+- **Gate 0 label:** "OPEN"/"CLOSED" (no "MARKET "). The dot still shows Gate 0's market-direction color.
+- **Gate rows on one line:** `.gate-row-head` removed, `.gate-row` is a flex row, `.gate-dot` `margin-top:6px` (measured against real Martian Mono). Reads `G1  14D - note...`.
+- **IEX/regular-session disclaimer** moved from `.session-note` into `HELP_CONTENT.gate`'s balloon.
+- **Swipe hint:** `.ticker-swipe-hint` nests inside `.ticker-left` with `flex-basis:100%`, so a tall verdict badge can't push it down.
+- Lesson: "Pro first" is not "Pro only." Confirm the final scope up front. #206/#207 had to back-fill Free/Starter and Pro.
+
+**Glossary:**
+- `.glossary-term-name` = `--amber`; `.glossary-term-def` = `--ink`; `.glossary-term-example` unchanged.
+- Categories are alphabetical with CRF FRAMEWORK pinned first. Terms are alphabetical with "CRF (Catalyst Response Framework)" pinned first in its category (About depends on this).
+- New category PRICE & VALUATION LANGUAGE (25 terms, identical text all tiers): Overweight, Undervalued, Overvalued, Fairly Priced, Par, Premium, Discount, 52-Week High/Low, ATH, ATL, Bullish, Bearish, Overbought, Oversold, Breakout, Breakdown, Range-bound, Sideways, Volatile, Rallying, Gapping Up/Down, Floating, Frozen.
+- Pro has 3 extra terms (Proxy Resolution Explorer, Sector Heat Map, Proxy tier) and lacks "Phase 1 / 2 / 3". That's a pre-existing asymmetry.
+
+**Purple auto-links.**
+- `GLOSSARY_LINK_TERMS` / `linkTextSegment()` / `autoLinkGlossaryTerms()` link a curated subset in card headlines, gate `.gn` notes, the LOOK FOR line, and `#gateNote` (now `.innerHTML`). Pro also links `.compact-news`.
+- It is a single pass over the original text, plain-text runs only, so a `<mark class="ctx-match">` nests correctly.
+- Links are `.help-glossary-link term-link` (`var(--purple)`), clicked via `initHelpBalloons()`'s delegated listener.
+- `wrapHeadlineLinks()` splits around term anchors so the article `<a>` and the term `<a>` are siblings, never nested.
+- Gotcha: the split regex must be attribute-order-agnostic (`<a\b[^>]*\bclass="[^"]*\bterm-link\b[^"]*"[^>]*>`). An `href`-before-`class` mismatch once silently dropped the article link. A pure-logic Node test caught it.
+
+## Frontend/Backend: Import recognizes company names (Aug 23, 2026, `Tra` #56 / `trade-verdict` #213)
+
+Chosen via `AskUserQuestion`: a live backend lookup, not a static map.
+- **Backend:** `GET /lookup?q=` (normal auth, no credit). `searchSymbolByName(query)` → Finnhub `/search` via `finnhubGet()`. Picks the first hit with a bare US symbol (`^[A-Z]{1,5}$`) and type `Common Stock`/`ETP`. Results and misses are cached a week in `symbolSearchCache`.
+- **Frontend:** `lookupSymbol()` in `shared/ticker-cache.ts`. `addTickers()` (`shared/watchlist.ts`) splits on comma/semicolon/pipe/newline only, so multi-word names survive.
+  - A fully UPPERCASE whitespace token is a literal ticker (zero network).
+  - Any other casing is one company-name lookup.
+  - `Promise.all` keeps typed order.
+  - Results are deduped (first wins) before the cap check, so "AAPL, Apple" counts once.
+  - The button shows `ADDING…` with `.btn-running`/`runPulse` and reverts in `finally`. One alert lists unresolved entries.
+- Placeholder is `"e.g. AAPL, Tesla, NVDA..."`; the help text states the caps rule.
+- **Test gotcha (Free only):** `sw.js` breaks `page.route()` mocking. Block registration with `page.addInitScript(() => { navigator.serviceWorker.register = () => Promise.reject(new Error('blocked for test')); })` before `goto` (a 404 on `sw.js` is not enough).
+- Not verified against live Finnhub.
+
+## Supabase: a reverted feature's table left wide open; all advisor findings cleared (Aug 26, 2026)
+
+**Finding.** `pre_gate_solvency_state` (from the reverted Aug 18 saga) sat RLS-disabled with full `anon`/`authenticated` grants for 8 days. The six previously-fixed tables were still clean. Fixed: `revoke all on public.pre_gate_solvency_state from anon, authenticated;`, verified by zero grant rows and a clean advisor scan. All 11 rows were inspected; all were legitimate Aug 18 data with no later activity.
+
+**Rule: any revert of a feature that created a table must drop the table or run the disable-RLS + revoke pattern on it.** "The revert removed the code" is not enough. Periodically re-run the grants check across every service-role table, including this one.
+
+**Same-day follow-ups (via Supabase MCP):**
+- `alter table public.subscribers enable row level security;` activates its existing `"service_role full access"` policy and clears `policy_exists_rls_disabled`. Safe: zero anon/auth grants, and the service-role client bypasses RLS.
+- `alter function public.<fn>(...) set search_path = '';` on `get_or_create_user_credits`, `add_purchased_credits`, `upgrade_user_tier`, `set_user_tier`, `deduct_user_credit`. Safe because every reference in their bodies is already schema-qualified. Verified by a chained smoke test inside a rolled-back transaction.
+
+**Deferred: leaked-password protection** (Auth WARN). The org is on the Free plan (the feature is Pro-plan+), and it's an Auth setting the MCP can't change. Judged low priority: conditional credential-stuffing risk, modest account exposure, bcrypt hashing. Revisit if more sensitive per-account data is stored, credential-stuffing shows up in auth logs, or the org upgrades.
+
+## Agitator Gauge (Proposal 5) + Aggression Dial (Proposal 6) — design, lessons, and current shape (Aug 26-27, 2026)
+
+Live on Pro, Starter, and (simple gauge) Free. PRs: initial rounds `trade-verdict` #221-#230 / `Tra` #59-#65; comp validation #232 / `Tra` #66; Session Context replacement + Free + "+" buttons #233 / `Tra` #67; relevance + overflow-style rows #235 / `Tra` #68; brand overrides #237 / `Tra` #69; `fetchQuote()` extended hours #239 / `Tra` #70; flat color #241; dial drag/labels #243; "CRF Default" #245.
+
+**Lessons, one per real correction round:**
+- If a feature's name implies a physical object (dial, slider, gauge, barometer), build that interaction model, not just a control with the same output. The button row was replaced with a real `<input type="range">` / drag dial.
+- Placement is part of the spec for an actively tuned control (the dial moved to the top of the page).
+- "Recognize context like a search engine" means one box, with resolution logic server-side; never ask the user to pre-sort input. Backend takes a single `q`.
+- Evidence must be independently checkable. Headlines are real links. The resolved ticker shows its live price/% change (`tickerQuote`). Comps come from real data.
+- Don't gate a correctness-critical fallback behind a proxy heuristic (length, punctuation). Test the real condition: did the raw text resolve as typed.
+- Verify a claimed anomaly against the real data before explaining it.
+- In a fast-glance UI, use plain-English labels, with the precise term behind `(?)`. Factors: Surprise, Uncertainty, Freshness, Ripple Effect, Swing Risk, Expected Move. A value the user only needs to classify should be a visual band gauge (3 bands + arrow, no digits), not a number.
+- When the user already named the answer (companies typed in their own input), prefer it over a generic algorithm. Mentioned companies rank ahead of peer lookups.
+- When the user names an existing UI element as the reference ("exactly like X"), stop designing and reuse it.
+- **The thread through all of these:** don't stop at the first literally-correct implementation. Build toward the real-world metaphor and toward checkable evidence first.
+
+**Current shape:**
+- **Session Context card retired on all tiers; Agitator takes its slot** (after Pulse, before Import). "Analyze All" lives in the Import card. `marketContext` is always sent as `''` (the normal blank case). Backend Session-Context paths (Proposal 4 corroboration, `highlightContextMatches()`, `refreshNewsHighlights()`) are untouched; `wireContextHighlight()` was deleted. On Pro the Agitator card moved above `#roloIndex`; `snapCardUnderDock()` adapts automatically.
+- **Free has the Agitator:** `TIERS.free.agitator = true`. `isFull = !!req.tierConfig?.tracker` gives Free/Starter the simple LOW/MEDIUM/HIGH gauge; Pro/Shark get the SIGNALS breakdown.
+- **"+" add buttons:** `addKnownTicker(symbol)` in `shared/watchlist.ts` adds an already-resolved ticker, skipping parsing/lookup, with the same cap-eviction `confirm()`. An already-present ticker shows a disabled checkmark. Test gotcha: Free's 3-ticker cap is already full with defaults, so handle the dialog: `page.on('dialog', d => d.accept())`.
+- **RELATED source order:** companies named in the user's own input (re-scanned via `extractCompanyCandidates()`), then the generic Finnhub peer fallback. Comps get their own fundamentals + relevance-filtered news.
+- **RELATED rows** (`relatedRowHTML`) reuse Pro's Watchlist-overflow `.compact-row-wrap` / `.compact-row` / `.compact-plus-btn` markup on all tiers, with news via `newsHref()`. The old `.comp-chip*` CSS was removed.
+- **Comp validation:** Title-Case headlines made common words into candidates that fuzzy-matched junk tickers (GDVM, PRDL). `computeAgitatorComps` pulls a pool of 6, displays 3, and keeps only candidates with a real positive live quote (validate the real condition, don't add stopwords). The mention-scan stops after N scanned, not N found.
+- **Relevance:** `isHeadlineRelevant(headline, symbol, companyName)` (ticker or first word of the legal-suffix-stripped company name). `fetchFinnhubNews` / `fetchAlpacaNews` use `find(relevant) || articles[0]` (fallback unchanged). The plain `/ticker` card news passes no `companyName`, so it is unaffected.
+- **Rating caption:** `X/10 avg. of 6 signals`. The `(?)` sits on the LOW/MEDIUM/HIGH rating, not the ticker. The query box has a clear (X) button and Enter-to-submit.
+- **Help balloons** (`initHelpBalloons`): the close timer is `Math.ceil(lines / 4) * 5000`, measured from the real rendered line-height.
+- **Brand names:** `KNOWN_BRAND_TICKER_OVERRIDES`, checked before Finnhub (google/alphabet/youtube → GOOGL; facebook/instagram/whatsapp → META). Finnhub matches legal names, not brands. Same pattern as the DRAM CIK override: a small guaranteed map for reported cases. Keep it narrow. Fixes Import and the Agitator alike (shared resolver).
+- **`fetchQuote()` extended hours:** during `isExtendedHoursWindow()` it substitutes `fetchExtendedHoursPrice()` (Alpaca IEX), falling back to Finnhub. Skipped for BTC/crypto. It previously showed post-close moves as flat.
+- **Flat color:** `direction:"flat"` (inside ±0.5%) renders `var(--amber)`, not `--ink-dim`, which means no data (6 call sites across tiers).
+
+**Aggression Dial (Starter 3 positions, Pro 5):**
+- Real pointer-drag (`wireDialDrag()` / `dialPosFromClientX()`), snapping live. `#dial-track` is re-queried on every call, because `setDialPosition()` re-renders `dial-body`. `touch-action:none` on the track and thumb.
+- Active state is amber (`--amber` / `--amber-dim`) with a glowing thumb.
+- Display labels: Aggressive, Light Aggressive, CRF Default, Light Passive, Passive (Starter's narrow range: the middle three). Detail rows read "CRF default". The dial's `(?)` help text uses the same on-screen words.
+- **Only display labels changed.** Keys (`ACTIVE_SWING`, `POSITION_LONG`, `NEUTRAL`, ...) are wire values matched against `Tra`'s `DIAL_POSITIONS` (`sizingCeiling`) and stored in `tv_dial_position`. Don't rename them.
+
+## Backend: Pre-Gate soft-trigger escalation over-counted since it shipped (Aug 27, 2026, `Tra` #71 / `trade-verdict` #247)
+
+TWST escalated to HARD from "repeated soft triggers" with no real issue. Supabase showed 68 rows for 8 real filings: `logPreGateTrigger()` had no dedup, and the same in-window filing was re-inserted on every 24h re-check. This was systemic (IMVT 15 rows for 1 filing; KMI 29 for 4; SMMT 20 for 3; ET 15 for 4). TWST's 4 distinct filings were also one offering's paperwork trail. Confirmed via `AskUserQuestion`: cluster them.
+- `logPreGateTrigger()` skips the insert if `(ticker, category, filing_accession)` is already logged. Not race-proof (no unique constraint), but the read side tolerates a rare duplicate.
+- `getRecentSoftTriggerCount()` counts time clusters via `countTriggerClusters()`. `PRE_GATE_CLUSTER_WINDOW_DAYS = 7`, chained. Escalation still needs `PRE_GATE_ESCALATION_COUNT = 2` clusters within 30 days.
+- One-time cleanup: `pre_gate_triggers` deduped from 222 rows to 28.
+- Verified against real timestamps for TWST/KMI/SMMT/ET (each is 1 cluster) plus boundary cases.
+- **Open:** re-check TWST live; it should no longer be HARD.
+
+## Backend: Gate 2 corroboration rebuilt after Session Context retirement (Aug 28, 2026, `trade-verdict` #249 / `Tra` #72)
+
+Checking Proposal 7 (Verdict Accuracy Scorecard + Corroboration Decay
+Indicator) confirmed the backend is real: `verdict_log`/`corroboration_log`
+tables, a 30-min grading job (`runVerdictGradingSweep`), and tier-scoped
+`/scorecard` (Free aggregate/Directional-only, Starter personal, Pro full
+breakdown).
+
+**The bug.** `corroboration_log` had zero rows ever. Its only write path
+(`logCorroborationHits`) sat behind `if (marketContext && marketContext.trim()...)`,
+and every tier has sent an empty `marketContext` since Session Context was
+retired (Aug 26-27). The same gate also silently disabled Proposal 4's Gate 2
+corroboration modifier, a real verdict input. Every `verdict_log` row had a
+null `gate2_corroboration_state`. Nothing in the Session Context removal's own
+testing exercised this downstream dependency.
+
+**Fix.** Of the three corroboration sources, only the news-content match ever
+needed user-typed text. Removed it and its dead support code
+(`gx.contextTextMatches`, `fetchNewsBodiesForCorroboration`,
+`stripHtmlForCorroboration`). Renamed `corroborateSessionContext` →
+`computeGate2Corroboration` (gates-extended.ts; recompiled via
+`tsc -p tsconfig.build.json`, re-checked with `require()`). It now runs on
+every `/analyze` call using the two deterministic signals (Gate 3 buildup
+pattern, real earnings-calendar event). Both must agree
+(`CONTEXT_CORROBORATION_THRESHOLD=2`) to set the `GATE2-CORROBORATED`
+modifier. The Gate 2 note tag (`GATE2-CORROBORATED, N/2`) is appended only
+on a positive hit. SYSTEM_PROMPT Step 5 and the context line now say
+"Gate 2 corroboration," not "Session Context."
+
+Also added `gate2_corroboration_state` to `/scorecard`'s SELECT and breakdown
+(Proposal 7's spec named it; it was written but never read).
+
+Tests: 72/72 (3 dead `contextTextMatches` tests removed). **Not verified
+live.** Confirm: real `corroboration_log` inserts in Render logs and non-null
+`gate2_corroboration_state` in `verdict_log`.
+
+## Backend/Frontend: Scorecard per-ticker breakdown, personal vs. pool (Aug 28, 2026, `trade-verdict` #251 / `Tra` #73) — later removed
+
+The Proposal 7 spec named Starter's scope as "personalized to user's tickers."
+Grading is objective, so a pooled cross-user stat per ticker is more
+meaningful than a thin personal slice. Shipped `tickerAccuracy` (personal +
+pooled) with `SCORECARD_TICKER_MIN_GRADED = 5`, not gated behind
+`tierConfig.tracker`. Also wired the missing "BY GATE 2 CORROBORATION"
+section on both tiers.
+
+**Superseded Sep 2, 2026** (see the Verdict Scorecard rework below): the
+`BY TICKER` section was removed and replaced by a pooled TRACK RECORD row on
+each ticker card. `SCORECARD_TICKER_MIN_GRADED` stays as the floor.
+
+Flagged as a future idea, not built: feeding pooled accuracy back into the
+verdict pipeline (partly done later — see the same-direction accuracy ceiling
+in a later section).
+
+## Backend/Frontend: Agitator Gauge entity resolution and topical fallback (Aug 28 – Sep 2, 2026, `Tra` #74-#90 / `trade-verdict` #253-#278)
+
+### The Jackson Hole saga (Aug 28-31, `Tra` #74-#78)
+
+"Jackson Hole Economic Policy Symposium" (a Fed event, no company) resolved to
+JXN (Jackson Financial). Three keyword-blocklist patches (`EVENT_NAME_MARKERS`)
+each got bypassed by a new phrasing: Title Case, then lowercase (lowercase
+never forms a capitalized "run," so it hits the initial raw
+`searchSymbolByName(raw)` call directly), then a phrase with no marker word.
+Finnhub's fuzzy search matches the full phrase, not just the single word.
+
+Mr. T's direct instructions after the third bypass, now standing:
+- **"Stop making repetitive changes of things I've asked you not to do. Going
+  forward, tell what you plan to change before you change anything."**
+- He rejected adding a second AI confirmation call: the resolver should be a
+  search engine that decides "context" vs. "ticker," not another AI call.
+
+Other fixes from these rounds that still apply:
+- **Topical fallback (`Tra` #75).** When no company resolves, find the newest
+  related article and distill one-sentence sentiment, show `---` for the
+  symbol, and hyperlink the cited article. The model picks an article by
+  **index** from a real fetched list, never writes its own headline/URL, so a
+  citation can't be hallucinated. `fetchGeneralNews()` (Finnhub
+  `/news?category=general` + Alpaca `/v1beta1/news`, no symbol filter),
+  `generalNewsCache` (5 min), `macroTopicCache` (15 min, normalized query).
+  Also fixed a latent bug in this repo's mirror: `fetchWeekOwnRange()` called
+  `alpacaKeys()`, which only exists in `Tra`.
+- **Never cache a miss (`Tra` #76).** `macroTopicCache` is server-global and
+  keyed only by query, so a cached null replayed to every tier for 15 min.
+  Only a real, validated match is cached. Every null branch now logs its cause
+  (no API key, zero articles, non-ok Anthropic, unparseable, invalid).
+- **Always commit to an article (`Tra` #78).** The prompt's "index -1 =
+  none" decline option was removed. The plain "Couldn't find a company" text
+  now appears only on a real failure (no articles, no key, Anthropic error).
+
+Lesson (Aug 31): when a fix can't be verified against the live dependency it
+targets, treat the first contradicting live report as real evidence. Re-check
+every code path the input can take, not just the one a synthetic fixture used.
+
+### Rebuild from the Notion plan (Sep 1, `Tra` #79 / `trade-verdict` #263, #264)
+
+Built from Notion "Proposal 5 — Amendment: Entity Resolution, News Caching,
+Options Data Gap, Topical Fallback." Clarified decisions:
+1. The "Did you mean" Yes/Cancel uses data already in hand (Finnhub's matched
+   name); no new search. Path B renders alongside it regardless.
+2. The known-ticker shortcut is a backend optimization for every tier
+   (including anonymous Free, via a client-sent `watchlist` param); UI stays
+   tier-diluted.
+3. `news_cache` wires into every per-ticker news fetch, not just Agitator.
+4. Overriding the Notion doc: **"the user should see a score either way and
+   Pro should see that breakdown."**
+
+What shipped:
+- **`classifyEntityMatch(query, canonicalName)`** — strips legal suffixes
+  (`stripLegalSuffix`) and returns `exact` / `partial` (all query words in the
+  name, name has more) / `none` (the query has a word the name lacks).
+  `EVENT_NAME_MARKERS`/`containsEventNameMarker` were removed.
+  `resolveCompanyEntity()` (renamed from `searchSymbolByName`) takes the first
+  Finnhub hit that isn't `none`. `partial` is never auto-accepted; it only
+  produces a `suggestion: {company, ticker}`.
+- **`resolveKnownTicker()`** skips Finnhub `/search` for symbols on
+  `SYSTEM_TRACKED_SYMBOLS` or the caller's watchlist (plus a signed-in user's
+  saved watchlist). Name matching only uses the existing 24h fundamentals cache
+  (read-only peek).
+- **Frontend (all three tiers):** "Did you mean X (TICKER)? [Yes] [Cancel]"
+  banner above the Path B card. Yes re-runs with the ticker; Cancel removes the
+  banner.
+- **`news_cache` table** (`supabase-ddl-patch11-news-cache.sql`):
+  `last_checked_at` updates on every check, `published_at` only on a new URL
+  (so the Decay Indicator doesn't read a re-check as fresh). Wired into
+  `fetchNews()`: live fetch first, cache only on an empty result. A new cached
+  article also writes `corroboration_log` with `source: 'finnhub_secondary'`
+  (CHECK constraint widened). RLS disabled + revoked, grants verified.
+- **`fetchOptionsSnapshot()`** (Alpaca `/snapshots`, average IV across the
+  chain) feeds `ivEnvironment` ahead of `fetchImpliedVolatility()`. The latter
+  stays as fallback and as Pro/Shark's CSV-export source. Agitator-scoped
+  only. Positioning stays AI-judged. **Unverified against live Alpaca options
+  entitlement.**
+- **`computeHistoricalReaction()`** pools `verdict_log` per ticker across all
+  users, `null` below `SCORECARD_TICKER_MIN_GRADED`. Replaces the old "not
+  tracked yet" placeholder.
+- **Path B always scores.** `computeTopicalFallback()` (renamed from
+  `computeMacroTopicalSentiment`) corroborates with real news first (no AI call
+  if none). One AI call returns the article index, sentiment, 0-5 company
+  names, and surprise/uncertainty/freshness scores. Every company name is
+  re-validated through `classifyEntityMatch`. `computeReactionSincePublish()`
+  (Alpaca dated bars) gives each company's move since publish.
+  `computeTopicalFactors()` builds Ripple Effect/Swing Risk/Expected Move
+  deterministically from those moves; composite via
+  `computeAgitatorComposite()`. Sub-factor breakdown gated by `isFull`
+  (`tierConfig.tracker`). A pure-macro query with zero companies still gets a
+  real composite score.
+- Mirror note: this repo's `alpacaGet(url)` takes a full URL and returns a raw
+  `Response` (vs. `Tra`'s path-only, pre-parsed JSON) — adapted, not copied.
+
+Follow-up (#264): RELATED and the headline line always render a row (real
+content, or "No related companies found." / "No recent related news found.")
+instead of vanishing. The "Past Reactions" row was hardcoded "not tracked yet"
+in every frontend; now wired to real `historicalReaction`.
+
+### Path B reads article bodies and gets keyword search (Sep 1, `Tra` #80-#81 / `trade-verdict` #266, #268)
+
+- **#80:** `fetchGeneralNews()` now captures `summary`/`content`;
+  `computeTopicalFallback()` sends a 300-char excerpt per headline so
+  companies named only in the body can be extracted.
+- **#81, Marketaux.** Finnhub `/news` is category-only and Alpaca news is
+  symbol-only; neither supports keyword search, so a hot story can be missing
+  from the pool. Mr. T chose Marketaux (he already had an account). Key is
+  the Render env var `MARKETAUX_API_KEY` on `Tra` (never pasted in chat).
+  `fetchMarketauxNews(query)` hits `/v1/news/all?search=`; results are merged
+  ahead of the generic pool and deduped by URL. Marketaux's own tagged entities
+  are trusted directly; AI-extracted names still go through
+  `classifyEntityMatch`. Combined companies capped at 5. Daily budget guard
+  `MARKETAUX_DAILY_LIMIT = 90` (UTC day; free tier ~100/day). Missing key,
+  error, or exhausted budget all fail safe to the old behavior.
+  **Unverified against a live response** — field names
+  (`title`/`description`/`entities[].symbol`/`entities[].sentiment_score`)
+  are triangulated from docs. Check Render logs for `fetchMarketauxNews`
+  errors.
+
+### QNX/BlackBerry and wiring in the Knowledge Graph (Sep 1-2, `Tra` #85-#90 / `trade-verdict` #273-#278)
+
+"Qnx automotive iot" didn't resolve.
+- **#85:** `extractCompanyCandidates()`'s punctuation strip also dropped
+  digits ("G20" → "G"); digit-bearing tokens now break a run.
+- **#86:** `resolveViaMarketaux(query)` resolves a query from an article's
+  first tagged entity, plus a `qnx: "BB"` entry in
+  `KNOWN_BRAND_TICKER_OVERRIDES` as a fast path.
+- **#87 — the real fix.** Mr. T: "what happened to the table logic that we
+  built?" The Neo4j Knowledge Graph was built for exactly this (Agitator
+  RELATED companies) but was never wired into `/agitator` and only had the
+  TSMC demo cluster. `fetchGraphPeers()` reads
+  `kg.getCompanyRelationships()`. Added a researched BlackBerry/automotive
+  cluster to `neo4j-seed.js`: BB, APTV, Wind River (private, `ticker:null`),
+  F, QCOM, with `competes_with`/`supplies`/`subsidiary_of` edges.
+- **#88:** RELATED priority chain in `computeAgitatorComps()`: **literal
+  mentions in the user's text > Knowledge Graph (curated) > Marketaux > generic
+  Finnhub peers.** Marketaux entities stay in a separate `marketauxMentioned`
+  array so they never outrank a curated edge.
+- **#90:** setting `headlineOverride = raw` as a fallback also skipped the real
+  `fetchNews(symbol, companyName)` call. `headlineOverride` now only means an
+  explicit client `headline` param; echoing the raw text is a true last resort
+  after `fetchNews()` comes back empty.
+
+Lesson: before building a narrower patch, check whether infrastructure built
+for that class of problem is actually wired in and populated.
+
+### Smaller Agitator resolution rules still in effect (Aug 27-28)
+
+- `KNOWN_BRAND_TICKER_OVERRIDES` (checked first in the resolver):
+  `google`/`alphabet`/`youtube` → GOOGL, `facebook`/`instagram`/`whatsapp`
+  → META, `qnx` → BB. Finnhub `/search` matches legal names, not brands.
+- `extractCompanyCandidates()` still decomposes multi-word runs into single
+  words (needed for "Nvidia Reports Record Quarter," "Tesla Q").
+
+## Ops: Neo4j seeding against live Aura (Sep 2, 2026)
+
+This sandbox never has the Neo4j credentials. **Technique:** a temporary
+Render Cron Job on the `Tra` repo (`build: npm install`, `start: node
+neo4j-seed.js`), scheduled for Feb 31 so it never auto-fires, triggered
+manually. Cron jobs don't inherit env vars, so Mr. T adds
+`NEO4J_URI`/`NEO4J_USERNAME`/`NEO4J_PASSWORD` to that job's own Environment
+tab. No free tier for cron jobs (`starter` plan, a real small charge — confirm
+with Mr. T first). The Render MCP has no delete tool; delete the job by hand
+in the dashboard afterward. Render's API never returns existing secret values.
+
+Live result: schema ensured, 12 companies and 10 relationships upserted, both
+round-trip checks passed (TSM 6, BB 3). First confirmed live Neo4j write.
+
+**`RELATED_TO` facts (supply chain/competitors) only grow when someone
+researches them, adds them to `neo4j-seed.js`, and runs the seed live as
+above.** Nothing discovers them from traffic. The correlation/classification
+half (next section) grows automatically.
+
+## Backend: Neo4j Phase 1.5 — correlation/classification graph (Sep 2, 2026, `Tra` #89 / `trade-verdict` #277)
+
+Scoped: wire the graph into data already being computed; deterministic
+classification, no new AI call.
+
+`neo4j-graph.js`:
+- `Sector` node (`sector_id` unique) using the existing `PROXY_RULES`/
+  `DEFAULT_PROXY` category strings.
+- `upsertClassification(ticker, sectorId, {tier})` — `CLASSIFIED_AS` edge,
+  tier from `resolveGate5`'s vocabulary.
 - `upsertCorrelation(fromTicker, toTicker, {coefficient, tier, source})` —
-  a `CORRELATES_WITH` edge, deliberately undirected (`MERGE (a)-[r]-(b)`
-  with no arrow, the standard Neo4j idiom for a relationship with no real
-  direction — a correlation coefficient has none), distinct from
-  `RELATED_TO`'s directed supply-chain edges.
-- `getComparableTickers(ticker)` — the literal "tickers within 2 hops of X
-  via a shared proxy or sector" traversal from the original design
-  conversation, via a single Cypher `*1..2` variable-length pattern over
-  both new relationship types.
-- Both `upsertClassification`/`upsertCorrelation` lazily create a minimal
-  stand-in `Company` node (`MERGE` on `ticker`, `company_id = ticker`) for
-  a ticker that only ever shows up as a proxy/correlation target (SPY, TSM,
-  etc.) and doesn't already have a full node from `upsertCompany()` — a
-  later, richer `upsertCompany()` call for the same ticker still matches
-  and fills in the real name/industry rather than creating a duplicate.
-
-**Wired into `server.js`, fire-and-forget, fail-safe by construction:**
-- `resolveGate5`'s static-classification branch calls
-  `syncClassificationToGraph(symbol, staticRule.category, "primary")` —
-  deduped per-process via a plain `Set` (a ticker's static classification
-  never changes at runtime, and this branch fires on every
-  `/ticker/:symbol` refresh for the common case, so writing more than once
-  per process lifetime would be pure waste).
-- `resolveGate5`'s dynamic-resolution branch and `resolveProxyRegime`'s
-  weekly Taiwan/Korea regime check both call
-  `syncCorrelationToGraph(symbol, proxySymbol, coefficient, tier, source)`
-  — never deduped (these paths are already rare: quarterly recompute, or a
-  weekly check), always fire-and-forget (never awaited at the call site).
-- `fetchGraphPeers()` (the Agitator's RELATED-companies source) now merges
-  `kg.getComparableTickers()` in behind the existing hand-curated
-  `RELATED_TO` peers — curated facts still rank first, statistically-
-  derived correlation/sector comparables fill in behind them, deduped
-  against both the symbol itself and each other.
-
-**Also touched `/scorecard` (Proposal 7) in the same PR — later reworked
-the same day, see the entry below** — the very first version of this PR
-added a third `peers` comparison (pooled accuracy across graph-comparable
-tickers) to the per-ticker breakdown; that whole breakdown was removed a
-few hours later on direct live feedback, so the `peers` addition never
-shipped in its original form. Kept here only as a note that it existed
-briefly, not as a currently-true description of `/scorecard`'s shape — see
-the Scorecard-rework entry immediately below for what actually shipped.
-
-**Verified:** `node --check`, `npm test` (72/72, unaffected), a real local
-boot (clean start, zero crashes), and standalone Node simulations of
-`sectorIdFor()`, the `fetchGraphPeers` merge/dedup logic, and (before its
-removal) the `/scorecard` peer-grouping logic — all passed. **Not verified
-against live Neo4j at the time this PR merged** — confirmed live
-afterward, see the Ops entry above.
-
-## Frontend/Backend: Verdict Scorecard rework — per-ticker breakdown replaced by a pooled TRACK RECORD line on the ticker card itself (Sep 2, 2026, same `Tra` PR #89 / `trade-verdict` PR #277)
-
-Direct live feedback against real screenshots of the deployed Pro-tier
-Scorecard card: **"individual tickers is unnecessary in the scorecard,
-however if they were displayed at the bottom of the corresponding ticker
-verdict card, that would be helpful if it showed total accuracy percentage
-pooled — on every tier."** Confirmed via a follow-up clarification exchange
-that this means exactly what `computeHistoricalReaction()` already
-computes: pooled (cross-user) directional accuracy for verdicts issued
-**specifically on that one ticker** — never mixed with correlated/"peer"
-tickers, which is precisely the distinction that made the graph-peers
-addition (see the Phase 1.5 entry above) the wrong thing to keep once this
-request landed.
-
-**What the reported screenshot actually showed, worth keeping as the
-evidence:** 15 tickers listed under "BY TICKER," 14 of them rendering
-`— pool —` (both personal and pool stats below the 5-graded floor), only
-MU showing a real number. A near-useless wall of placeholders, not a
-hypothetical concern.
-
-**Removed entirely from `/scorecard`:** the whole personal/pool/graph-peers
-per-ticker block (`tickerGroups`, the pool query, the graph-peers query) —
-deleted from the backend response, not just hidden client-side, so the two
-extra Supabase queries and N Neo4j traversals per load stop happening too.
-Same removal on the frontend: `renderScorecardCard()`'s `BY TICKER` section
-deleted from both `pro/app.ts` and `starter/app.ts`.
-
-**Replaced with:** `computeHistoricalReaction(symbol)` — already built for
-the Agitator Gauge — now also relayed through `refreshMarketEntry`/
-`symbolMarketCache`/`/ticker/:symbol`'s own response, so it's available on
-**every tier**, with no sign-in and no tier gate (matching that function's
-existing free/unauthenticated-safe posture). Its return shape changed from
-a bare `0-100` number to `{ directionalPct, gradedCount }` (the ticker card
-needed to show the sample size too, the Agitator's own gauge display
-didn't and still doesn't — that one call site was updated to read
-`.directionalPct` and otherwise unaffected). A new 1h in-memory cache
-(`historicalReactionCache`) was added since this now rides
-`refreshMarketEntry`'s own cache cycle — as often as every 1 minute on
-Pro — rather than only the Agitator's on-demand call; grading only updates
-every 30 minutes regardless, so a much longer TTL here is pure waste
-avoidance, not staleness risk.
-
-Rendered as a new `TRACK RECORD` row (e.g. `TRACK RECORD  65% (12
-graded)`) at the bottom of `gateListHTML()`'s gate list, right after
-CONFIDENCE, on Free/Starter/Pro alike — omitted entirely (not a placeholder
-dash) below the 5-graded floor. Free had never had any Scorecard-adjacent
-feature at all before this; this is the first ticker-level track-record
-signal to reach that tier.
-
-**Two smaller, related fixes landed in the same PR, from the same round of
-screenshot feedback:**
-
-1. **Card-sub subtitle truncation, several utility cards on Pro + one on
-   Starter.** The screenshots showed "Proxy + live coherence per ti…",
-   "Fixed sectors + your wat…", "Log verdicts and track your a…", and
-   "Real accuracy, graded automat…" all visibly clipped. Confirmed and
-   fixed via a **real headless-Chromium pixel measurement** (a local static
-   HTTP server + Playwright, not eyeballed) rather than guessed character
-   counts: Proxy Resolution Explorer was 6px over, Sector Heat Map 25px
-   over, Track Record 30px over, Verdict Scorecard 22px over. Same
-   regression *class* as the Aug 18, 2026 card-sub truncation fix earlier
-   in this file — caused the same way: a later `.help-btn` addition (for
-   the help-balloon system) shrank `.card-title-wrap`'s available width on
-   cards that fix never re-measured. Shortened each subtitle with real
-   character-count margin, not just barely clearing (`"Proxy + live
-   coherence per ticker"` → `"Coherence per ticker"`, `"Fixed sectors +
-   your watchlist"` → `"Sectors + your watchlist"`, `"Log verdicts and
-   track your accuracy"` → `"Log & track accuracy"`, `"Real accuracy,
-   graded automatically"` → `"Auto-graded accuracy"`), re-measured to
-   confirm zero overflow on Pro and (separately) on Starter's own single
-   affected card.
-2. **`gate0_read`'s logged value used to collapse "genuinely GREEN" and
-   "no data at all" into the same bucket.** `gate0Status` (the value used
-   for actual verdict enforcement) has always correctly defaulted to
-   `GREEN` on missing `sectorContext.gateStatus` — a deliberate fail-safe,
-   left untouched. But the *same* defaulted value was also what got written
-   to `verdict_log.gate0_read` for the Scorecard's own "BY GATE 0 READ"
-   breakdown — so a screenshot showing 37/37 graded verdicts as Gate 0
-   GREEN was genuinely ambiguous: real market calm, or missing client data
-   silently defaulting? Fixed by splitting the two: a new `gate0Reported`
-   variable carries the *raw* client-sent value (or the literal string
-   `"UNKNOWN"` when absent), used only for the `verdict_log` write —
-   `gate0Status` itself, and every enforcement decision built on it, is
-   completely unchanged.
-
-**A real testing-methodology lesson surfaced while verifying the TRACK
-RECORD row end-to-end, worth keeping alongside this file's other Playwright
-lessons:** the first attempt at a real headless-Chromium click-through
-(mock `/ticker/:symbol` and `/analyze`, tap a pill, check the rendered
-result) silently returned an empty `{}` response for *every* mocked route,
-including the specific ones. Root cause: **Playwright matches
-`page.route()` patterns LIFO (last-registered wins), not in registration
-order** — a broad catch-all (`page.route(API + '/**', ...)`) registered
-*after* the specific routes (`/ticker/**`, `/analyze**`) silently
-intercepted everything, since `/**` also matches those exact paths. The fix
-is procedural, not a code bug: **register the catch-all first, specific
-routes after**, so the more specific ones actually take priority. This
-likely also affected at least one earlier test in this file's own history
-that used the same catch-all-last pattern without noticing (the mocked
-`/watchlist` ticker list silently never took effect in an earlier
-verification pass, though that test's own goal — measuring layout, not
-which tickers rendered — was unaffected by the mistake).
-
-**Verified end-to-end, not just via simulation:** a real headless-Chromium
-pass on all three tiers (mocked backend, a real `page.mouse.click()` at a
-pill's real screen coordinates, not the DOM `.click()` method, which
-doesn't reliably trigger this app's pointer-event-based tap handling)
-confirmed the `TRACK RECORD` row renders with the correct percentage and
-graded count, all 6 gates render, `BY TICKER` is gone, and the previously-
-truncating subtitles measure zero overflow against the real compiled
-bundle and CSS. `npx tsc --noEmit` (same known 7-error `?v=N` baseline,
-zero new), `node esbuild.config.mjs` (all three bundles rebuild clean, no
-duplicate-module regression), `?v=` bumped on all three tiers' `<script>`
-tags.
-
-**Not yet verified against a live deploy** — same standing posture as
-every backend-dependent feature in this file. To confirm: check a real
-analyzed ticker's card for a `TRACK RECORD` line once it has 5+ graded
-verdicts, and confirm the Scorecard card no longer shows a `BY TICKER`
-section at all.
-
-## Agitator Gauge — commodity/spot-price path (XAU/XAG), full saga, and the standing "always news + recommendations" rule (Sep 5, 2026, `Tra` PRs #93-#99 / `trade-verdict` PRs #290, #292-#297, all merged)
-
-A user-reported gap ("typing xau/gold into the Agitator does nothing
-useful") turned into a seven-PR arc adding a fourth Agitator input shape
-(commodity/currency spot codes) alongside the existing resolved-ticker/
-topical-fallback paths — consolidated here as one entry per this file's
-own convention for a multi-round saga, since the individual rounds matter
-less than the final shape and the standing rule it produced.
-
-**What shipped, in order:**
-1. **Original commodity feature (`Tra` #93 / `trade-verdict` #290).**
-   New `COMMODITY_CODES` map (`xau`→Gold, `xag`→Silver) checked in
-   `/agitator` ahead of the normal ticker/topical resolution path.
-2. **Tradable-proxy fallback (`Tra` #94 / `trade-verdict` #292).** Real
-   spot-price sourcing wasn't there yet, so GLD/SLV (via the already-
-   working `fetchQuote()`) shipped first as a stand-in — correctly
-   rejected by the user ("that's not what I asked for... you need to pull
-   the actual spot"), since a proxy substituting for the real answer is
-   not the same as actually pursuing the real answer through the app's
-   other real connections.
-3. **Real spot price via goldprice.dev (`Tra` #95 / `trade-verdict`
-   #293).** First attempt assumed goldprice.dev's documented "no API key
-   required for basic access" claim was true — live Render logs
-   (`fetchCommodityPrice xag: goldprice.dev 403`) proved it false. The
-   user signed up for a real key.
-4. **API-key auth (`Tra` #96 / `trade-verdict` #294).** Wired
-   `GOLDPRICE_API_KEY` as a Render env var + `Authorization: Bearer`
-   header — never pasted into chat, same standing credential-handoff
-   convention as every other integration in this file.
-5. **Diagnostic logging (`Tra` #97 / `trade-verdict` #295).** Needed
-   because the auth fix alone still silently produced nothing — see the
-   real bug below.
-6. **Real-shape parsing fix (`Tra` #98 / `trade-verdict` #296)** — the
-   fix the logging from step 5 actually made possible.
-7. **News + 2-3 recommendations + signal-breakdown consistency (`Tra`
-   #99 / `trade-verdict` #297, merged Sep 5, 2026)** — closing the gap
-   documented in the standing rule below.
-
-**The real bug that cost two full "check the logs" rounds: a silent
-shape-mismatch swallowed every failure with zero log output.** The
-original parsing code was `if (raw == null || raw <= 0) return null;` —
-correct defensively, but silent. That made a genuine response-shape
-mismatch completely indistinguishable from "nothing to report," even
-though a real network round trip was visibly happening (the button ran
-for close to a minute). Fixed by adding `console.error` logging the
-actual truncated response body on any mismatch, plus a `console.log`
-confirmation on success — only once that was in place did the real shape
-become visible.
-
-**The real shape, once visible via the new logging:** goldprice.dev
-nests the result under a `symbols` array with **string** values, not the
-flat, numeric shape originally assumed:
-```json
-{"symbols":[{"symbol":"XAU","quote_currency":"USD","unit":"troy_ounce",
-"contract_type":"spot","price":"4429.83","bid":"4429.83","ask":"4429.83",
-"is_stale":false,"computed_at":"..."}]}
-```
-`fetchCommodityPrice()` was corrected to read `data.symbols[0].price`
-(falling back to the bid/ask average if `price` is absent), `Number()`-
-coerced, defensively fails safe to `null` with a logged reason on any
-other shape. Confirmed live via a real screenshot: Gold $4429.83/oz.
-
-**The standing rule, confirmed directly by the user and now permanent —
-read this before touching the Agitator Gauge again, do not make the user
-re-state it:** every single query typed into the Agitator, with zero
-exceptions for query type, must produce (1) at least one real, cited news
-article, (2) 2-3 related recommendations, and (3) a composite signal
-score (with Pro/Shark additionally seeing the full per-factor SIGNALS
-breakdown) — uniformly across all current result shapes: a resolved
-company/ticker match (Path A), the no-company topical fallback (Path B),
-and a commodity/currency spot-code match (Path C, xau/xag today). None of
-these three is a lesser or different case — each gets the exact same
-three things. **Do not treat this as optional polish or something to
-re-litigate per request** — a future change to any path that leaves a
-result without a real article, 2-3 recommendations, and a composite score
-is a regression against this rule, not a design choice to reconsider from
-scratch.
-
-**How PR #99/#297 (the final round) closed the gap.** Two sub-gaps found
-in sequence, both fixed the same day:
-- The commodity path initially had no news/related section at all —
-  fixed by reusing `computeTopicalFallback(commodityEntry.name, new
-  Set())` (the same battle-tested Path B mechanism, not a parallel one)
-  to source a real cited article, then building a 3-item RELATED list
-  from `topical.companies` first, falling back to a small hand-curated
-  `COMMODITY_RELATED_FALLBACK` map (`xau`→GDX/NEM/SLV, `xag`→SIL/PAAS/GLD)
-  when the topical result doesn't surface enough real companies.
-- A "confirmation check" question from the user, asking me to verify my
-  own mental model of how the Agitator is wired end-to-end, surfaced a
-  second gap I found and reported precisely rather than just agreeing:
-  `computeTopicalFallback()` was already computing `factors`/`composite`
-  internally for the commodity path (it's the same function Path B
-  uses) — but the commodity response was discarding both before they
-  reached the client, so Pro never saw a signal breakdown for a
-  commodity query even though the data already existed. Confirmed
-  ("yes, wire that through, keep everything consistent throughout") and
-  fixed: the commodity response now includes `composite` (all tiers) and
-  `factors` (Pro/Shark only, same `req.tierConfig?.tracker` gate Path B
-  already uses), and all three tiers' frontend renders the identical
-  gauge/SIGNALS/RELATED shape for a commodity result as for any other
-  unresolved query — same `agitatorFactorRow()`/`relatedRowHTML()`/
-  `addTickerBtnHTML()` components reused verbatim, not reimplemented.
-
-**Keep this symmetry whenever any of these three paths changes** — a fix
-to Path A/B that isn't mirrored into the commodity path (or vice versa)
-reopens exactly the inconsistency this whole saga exists to prevent.
-
-**Verified via real headless Chromium** (mocked `/agitator` responses,
-all three tiers): Pro renders the full gauge + 6-factor SIGNALS +
-RELATED (with working "+" add-to-watchlist buttons) with zero page
-errors; Starter renders the gauge + RELATED but correctly omits SIGNALS,
-matching the Pro-only gate exactly. `npx tsc --noEmit` (same known
-7-error `?v=N` baseline, zero new), `esbuild` rebuild + chunk-header grep
-(no duplicate-module regression across all three bundles), `npm test`
-(72/72) and `node --check` clean in both repos. `?v=` bumped on all
-three tiers' `<script>` tags (Free 87→88, Starter 103→104, Pro 49→50).
-
-**Not yet verified against a live deploy** — same standing posture as
-every backend-dependent feature in this file; goldprice.dev's real
-response shape was confirmed via live Render logs (not this sandbox,
-which cannot reach `api.goldprice.dev`), but the news/recommendations/
-signal-breakdown extension itself hasn't been spot-checked against a
-live deploy yet. To confirm: type "xau" or "xag" into the Agitator on a
-live Pro account and confirm the full gauge + SIGNALS + RELATED render
-alongside the real spot price.
-
-**Follow-up, same day: XAG was still showing the SLV proxy live, real root
-cause found and fixed (`Tra` PR #100 / `trade-verdict` PR #299, both
-merged).** A real screenshot showed silver still falling back to the SLV
-tradable proxy after the deploy above. Checked live Render logs before
-guessing: XAU consistently resolves (`fetchCommodityPrice xau: resolved
-$4429.83`), but XAG consistently returns `fetchCommodityPrice xag:
-goldprice.dev 403` — including on a request sent minutes after this
-exact deploy, ruling out staleness/propagation. Confirmed via the
-provider's own documentation (not guessed): **goldprice.dev's free plan
-is XAU-only — silver and copper spot require their paid Pro tier.** A
-permanent plan gate, not a transient error or a code bug.
-
-Presented the real trade-off to the user via `AskUserQuestion` — upgrade
-goldprice.dev to Pro (real recurring cost), find a different free XAG
-source, or accept the SLV-proxy fallback as XAG's permanent behavior.
-**Chose: find a different free source.** `fetchCommodityPrice("xag")` now
-routes to a new `fetchSilverSpotFallback()` using **gold-api.com**, a
-keyless single-endpoint API whose free tier includes silver (confirmed
-via its own public docs) — XAU is completely unaffected, still goes
-through goldprice.dev exactly as before. Parsed defensively against
-several plausible field names and logs the raw response body on any
-shape mismatch, applying the goldprice.dev saga's own hard-won lesson
-directly: never let a shape mismatch return `null` with zero log trace,
-or the next report costs a second full guessing round instead of one log
-check.
-
-**Unverified against a live response** — gold-api.com is unreachable from
-this sandbox (egress-blocked), so the field-name guesses (`price`/`rate`/
-`value`) are reasoned from public write-ups describing it as a clean,
-single-endpoint JSON API, not confirmed against a real fetched response —
-same posture as every other integration in this file built this way. To
-confirm: check Render logs for `fetchSilverSpotFallback` after deploy —
-either `resolved $X` (shape matches) or `unexpected response shape: ...`
-(logged raw body tells you the real shape immediately, rather than
-needing a second live report to find out).
-
-**Follow-up, same day: audit for missing commodity coverage — a real word-
-matching bug found, five more metals/energy commodities added (`Tra`
-PR #101 / `trade-verdict` PR #301, both merged).** Asked directly to check
-whether any commodity that should be wired into the Agitator was missing.
-
-**Real bug, confirmed by reading the code, not guessed:** the commodity
-match has always been a bare `COMMODITY_CODES[raw.toLowerCase()]` lookup
-— matches only the literal ISO-style code strings ("xau"/"xag"), never
-the actual word a normal user types ("gold", "silver"). Typing "gold"
-never reached the dedicated SPOT PRICE card at all — it fell through to
-normal ticker/topical resolution instead, which for a bare precious-metal
-word produces at best a fuzzy, unconfirmed result. Fixed with
-`resolveCommodityCode()`/`COMMODITY_ALIASES`, matched against the
-**entire** trimmed/lowercased query, never a substring inside a longer
-phrase — so this is purely additive: "gas prices surge" still falls
-through to normal resolution untouched, verified directly (not assumed)
-via a 23-case standalone simulation covering both the new aliases and
-the non-regression cases.
-
-**Scope audit for additional commodities, researched before adding
-anything:** goldprice.dev's own docs confirm its maximum coverage, even
-on paid Pro, is XAU/XAG/copper (HG) only — no platinum or palladium on
-any tier, so paying for that vendor wouldn't unlock more metals anyway.
-gold-api.com (the XAG keyless fallback) markets itself as gold/silver/
-crypto only. **No confirmed free real-spot vendor exists for oil, natural
-gas, copper, platinum, or palladium.** Presented this to Mr. T directly
-rather than guessing at scope — confirmed adding all three remaining
-categories (energy: oil + natural gas; copper; platinum + palladium) as
-**proxy-only** entries, same honest "tradable proxy" pattern already
-built for gold/silver, via real, liquid US-tradable ETF tickers (USO,
-UNG, CPER, PPLT, PALL) through the already-reliable `fetchQuote()` path
-— no new vendor risk, since `fetchCommodityPrice()` needed zero code
-changes for these: they have no `GOLDPRICE_SYMBOLS` entry, so the
-existing `if (!symbol) return null` guard already routes them straight
-to the proxy display with no wasted vendor call or misleading log.
-
-Each new commodity got its own hand-picked, guaranteed-real RELATED-
-section backfill (own tradable proxy excluded, matching the existing
-gold/silver convention): oil → XOM/CVX/OXY, natural gas → LNG/EQT/RRC,
-copper → FCX/SCCO/COPX, platinum → SBSW/PLG/GLD, palladium →
-SBSW/PLG/SLV.
-
-**Verified:** `node --check`/`npm test` (72/72, unaffected) in both
-repos; the 23-case `resolveCommodityCode()` simulation described above.
-Confirmed the frontend needed zero changes — the commodity card render
-is fully generic off the response object's fields (`name`/`code`/
-`price`/`unit`/`url`/`proxyTicker`/`news`/`related`/`composite`/
-`factors`), no hardcoded xau/xag anywhere in any tier's `app.ts`.
-
-**Not yet verified against a live deploy** — same standing posture as
-every backend change in this file. To confirm: type "oil", "copper", or
-"platinum" into the Agitator on a live account and confirm each renders
-the SPOT PRICE card with its tradable proxy, a real cited article, 2-3
-RELATED recommendations, and a composite score — the same treatment
-gold/silver already get.
-
-**Follow-up, same day: gauge copy fixed on direct feedback against a live
-screenshot (`trade-verdict` PR #303, merged, frontend-only — no `Tra`
-change needed).** The Sep 5, 2026 screenshot that surfaced the XAG spot-
-price bug (now fixed via gold-api.com, see above) also showed two real
-copy/UI problems once the spot price itself started working correctly:
-
-1. **The gauge row's ticker slot showed a plain "---" for every
-   commodity result**, even though a real, tradable proxy ticker (SLV/
-   GLD/USO/etc.) already exists and is exactly what the score is
-   grading. Direct feedback: "the tradable proxy should be what is
-   being graded — where the dashes are." Fixed by replacing the "---"
-   with a real hyperlink to the proxy ticker itself
-   (`tickerHref(cm.proxyTicker)`) — matching the mandatory "every
-   ticker symbol is a hyperlink" rule and the same ticker already shown
-   in the proxy line and RELATED section directly above/below it.
-2. **The disclaimer's trailing clause contradicted the proxy shown right
-   above it.** "not a company, so no Gate breakdown or watchlist entry
-   applies here" is true of the abstract commodity itself, but reads as
-   false and disjointed sitting directly under a real, watchlist-
-   eligible ticker (SLV) — direct feedback: "it seems disjointed the
-   way the jargon is written since slv is tradable." Removed the clause
-   entirely per direct instruction; the disclaimer now just states
-   whether the spot price is live or proxy-only, nothing else.
-
-**Left deliberately untouched:** the topical-fallback path's own "---"
-gauge label (a genuinely unresolved query with no company and no
-tradable proxy at all) — that one is correct as-is, since there's
-truly no ticker to show there. Confirmed by reading the code that this
-is a structurally different code path (`tGaugeHTML`, not `cmGaugeHTML`)
-before touching anything, so the fix couldn't accidentally spread to
-the one case where dashes are actually the right answer.
-
-**Verified via real headless Chromium** (mocked `/agitator`, Free tier,
-same Service-Worker-blocking technique this file's own testing notes
-already prescribe): confirmed the gauge row renders a real hyperlinked
-`SLV` in place of the old dashes, confirmed the "not a company" clause
-is completely absent from the rendered disclaimer, zero page errors.
-`tsc`/`esbuild`+chunk-header-grep/`npm test` (72/72) all clean across
-all three tiers. `?v=` bumped on all three tiers' `<script>` tags (Free
-88→89, Starter 104→105, Pro 50→51).
-
-**Correction, same day: the "left deliberately untouched" call above was
-wrong — the topical-fallback path DOES sometimes have a real tradable
-correlation, and the gauge was hiding it (`trade-verdict` PR #305,
-merged).** Direct pushback: "that fix should be applied broad not just
-this input. any tradable correlation should be in the spot especially if
-it's a proxy." Re-examined the topical-fallback path more carefully: it
-already validates real companies mentioned in the article
-(`topical.companies`, via `computeTopicalFallback()`'s own
-`classifyEntityMatch()` guard against hallucination — see the Aug 31,
-2026 entry above) and shows them, hyperlinked, in its own RELATED list
-right below the gauge. The gauge's "---" was structurally correct only
-for the subset of topical results with **zero** validated companies —
-not, as the prior entry assumed, the whole path.
-
-**Fix:** the gauge now shows the first/most relevant validated company's
-real, hyperlinked ticker whenever `topical.companies` has at least one
-entry, falling back to "---" only when there's genuinely nothing
-tradable correlated to the query at all (the actual, narrower case the
-dashes are honestly meant for). Applied identically to all three tiers.
-
-**Verified both branches directly, not just the happy path:** a mocked
-result with a real validated company (a Fed-related headline mentioning
-JPMorgan) renders that ticker's hyperlink in the gauge; a mocked result
-with zero validated companies still correctly falls back to dashes.
-`tsc`/`esbuild`+chunk-header-grep/`npm test` (72/72) all clean across all
-three tiers, zero page errors in either case. `?v=` bumped again on all
-three tiers (Free 89→90, Starter 105→106, Pro 51→52).
-
-## Frontend: Pro Watchlist card — sort control pinned, oversized text fixed (Sep 5, 2026, `trade-verdict` PR #307)
-
-Direct report: "the watchlist frame is not including the sorting
-feature. And the Sorting by text is too large, should be same size as
-the other text in the frame... the sorting/searching features should
-not scroll with cards, they should be included in the frame." Both
-turned out to be real, confirmed bugs in the Watchlist overflow
-accordion (`data-card="watchlist"`), not one issue described two ways.
-
-**Bug 1 — `.ctx-hint` (the "Sorted by % change" label) had no CSS rule
-anywhere in the file.** Grepped every tier to confirm — the class is
-used exactly once, only in `pro/index.html`, and was never given a
-`font-size`/`color` at all, so it rendered at the browser's default
-size instead of this app's mandatory 11px/`var(--ink-dim)` convention
-for secondary text (see the Aug 16, 2026 typography-convention entry
-above). Fixed with the missing rule.
-
-**Bug 2 — `.wl-overflow-hdr` (the row holding that label + the sort
-button) had no sticky positioning**, so it scrolled away with the
-ticker rows inside `.card-body-pad`'s own capped, scrollable body (the
-Aug 18, 2026 card-height-cap fix) — reading exactly like "not included
-in the frame" once scrolled past, and explaining both halves of the
-report as the same root cause. Fixed with `position:sticky; top:0` plus
-an opaque `background:var(--bg)`, switching its bottom spacing from
-`margin-bottom` to `padding-bottom` so the sticky element's own painted
-background actually covers that gap — a margin isn't part of an
-element's own painted box, so list content would otherwise peek through
-underneath it as it scrolled past, the same lesson this file's own
-`#roloIndex` sticky-pill-strip work already learned.
-
-Pure CSS change, no `.ts`/`.js` touched — no `esbuild` rebuild or `?v=`
-bump needed.
-
-**Verified via real headless Chromium, not a superficial check — a
-genuinely long (35-row) overflow watchlist forcing real scrolling
-(confirmed `scrollTop` actually moved 1188px, not stayed at 0):** the
-header's on-screen position (`getBoundingClientRect().top`) was
-identical before and after the scroll, confirming it's genuinely
-pinned rather than just visually static because nothing moved.
-Confirmed the label's computed style is exactly `11px` /
-`rgb(152,161,173)` (`--ink-dim`). `npm test` (72/72) unaffected.
-
-**No search feature exists in this card at all** — confirmed via grep
-before assuming otherwise. The report's "sorting/searching" phrasing is
-read here as describing the header-controls region generically (the
-only literal control in it is the sort toggle); no search/filter input
-was added, since none was previously built or specified. If a real
-ticker-filter search box is wanted for this card (mirroring the
-Glossary card's own search), that's a distinct feature request, not
-implied by this fix.
-
-## Frontend: every utility-card controls row pinned; a wrong background caused a black band (Sep 5, 2026, `trade-verdict` PR #309)
-
-Direct follow-up on real screenshots, same day as the fix above: a
-black band had appeared above the Watchlist sort row, its text still
-read as "too small, should be the same size not smaller," and the
-identical scroll-away problem existed on Proxy Resolution Explorer's
-SORT row and the Glossary card's search box — "all means all. settings.
-should. be. in. frame." Both complaints were real, confirmed bugs, not
-one thing restated.
-
-**Black-band root cause.** The prior fix's sticky background was
-`var(--bg)` (`#080c12`, the page root's background) instead of
-`var(--surface)` (`#121a24`, the card's OWN background) — a visibly
-mismatched dark rectangle painted across the sticky area against the
-card's real surface color. Every card in this app is `var(--surface)`,
-one shade lighter than the page root, so using the wrong token here was
-the whole bug. Fixed by switching to `var(--surface)`.
-
-**Text-size root cause, a real measurement error, not an illusion.**
-The prior fix set `.ctx-hint` to this app's generic 11px secondary-text
-convention (the Aug 16, 2026 typography rule) without checking THIS
-card's actual surrounding sizes first. Measured directly and confirmed
-a real mismatch: `.card-sub` ("Beyond top 15," two lines above it) and
-`.sort-btn`/`.compact-pct` (the row values right below it) are all
-13px, not 11px — the generic convention doesn't apply uniformly to
-every secondary-text instance in this app, and this card's own
-prevailing size is 13px. Fixed to 13px, confirmed via computed style
-that it now exactly equals `.card-sub`'s. **Lesson: when fixing a
-text-size mismatch, measure the actual surrounding elements in that
-specific card before reaching for a general convention — a rule that's
-correct elsewhere in the app isn't automatically correct here.**
-
-**Audited proactively for the same gap, not just reactively fixed where
-reported.** Applied the identical sticky-controls-row treatment
-(`position:sticky; top:0; background:var(--surface)`) to two more
-places with the same scroll-away pattern: Proxy Resolution Explorer's
-`.proxy-sort-row` (Pro only), and Glossary's `.glossary-search-wrap`
-(all three tiers — Free, Starter, Pro all share this card, confirmed
-byte-identical CSS across all three before editing all three).
-Checked Heat Map and Track Record too and found neither needs this:
-Heat Map's refresh button lives in the card-head, never in the
-scrollable body; Track Record's only control is a one-off CLEAR ALL
-action, not a list-navigation aid a user needs to keep looking at while
-scrolling past it.
-
-Pure CSS change across all three tiers' `index.html` — no `.ts`/`.js`
-touched, no `esbuild` rebuild or `?v=` bump needed.
-
-**Verified via real headless Chromium, all three fixed cards, with
-genuinely long lists forcing real scroll distances** (Watchlist
-1188px, Proxy Resolution Explorer 1499px, Glossary ~14,700px on both
-Pro and Free): each control row's on-screen position
-(`getBoundingClientRect().top`) stayed identical before and after
-scrolling, and each one's computed `background-color` now exactly
-matches its own card's `background-color` — confirming the mismatch is
-genuinely gone, not just visually covered up by coincidence. Confirmed
-`.ctx-hint`'s computed font-size now equals `.card-sub`'s (13px = 13px)
-via direct measurement, not eyeballed. `npm test` (72/72) unaffected.
-
-## Frontend: landscape HUD — ribbon and card pane now scroll independently (Sep 5, 2026, `trade-verdict` PR #311)
-
-Direct request: in landscape mode (the ribbon+pane consolidation
-documented above, "Landscape HUD"), the utility-card ribbon should
-scroll separately from the active card's pane — a short ribbon
-shouldn't force the pane's own, potentially much longer, content into a
-cramped scrollable area shared with it.
-
-**Real, confirmed bug, same class as this file's own repeated lesson
-about height-boundedness.** `snapLandscapeHudUnderDock()` only ever set
-`.utility-pane`'s own `max-height`, never `.landscape-hud` itself.
-`.landscape-hud` is a plain flex row with the default
-`align-items:stretch` — capping one child's `max-height` doesn't bound
-the *container*; the flex layout just stretches that child back up to
-match its sibling's (the ribbon's) taller natural height, and neither
-ever gets a real bounded box to scroll within. Confirmed live rather
-than reasoned about: `#scroller` (the whole page) was doing all the
-scrolling (`scrollHeight` 1471 vs `clientHeight` 321 in one real test),
-while both `.utility-ribbon` and `.utility-pane` individually reported
-`scrollHeight === their own height` — their already-declared
-`overflow-y:auto` had nothing to actually scroll. The exact "the
-ancestor chain must be height-constrained, not just min-height-floored"
-principle already documented at the top of every tier's `index.html`
-(and repeated in several sticky-header entries above), just never
-applied to the HUD's own box.
-
-**Fix, in `shared/rolodex.ts` (so it applies uniformly to all three
-tiers):** a new `sizeLandscapeHud()` computes the available height once
-— the same `dockOffsetFor()`-based math `snapCardUnderDock()`/
-`recapExpandedCards()` already use for portrait's card-snap — and
-applies it to `.landscape-hud` itself instead of the pane. Both
-children, already `overflow-y:auto`, now stretch to fill that bounded
-height and scroll independently for free — no change needed to either
-child's own CSS. Wired into three places: `activateLandscape()` (so the
-ribbon is scrollable immediately, before any card is ever tapped, not
-just after the first tap triggers `snapLandscapeHudUnderDock()`), the
-existing `window.addEventListener('resize', ...)` block (rotation/
-resize re-sizes it, matching `recapExpandedCards()`'s own pattern), and
-the pre-existing `snapLandscapeHudUnderDock()` call site itself (now
-calling the new function instead of duplicating the math inline).
-`deactivateLandscape()`'s cleanup updated to reset `hud.style.maxHeight`
-instead of the pane's, matching where the constraint now actually lives.
-
-**Verified via real headless Chromium in actual landscape dimensions
-(844x390), on both Pro and Free** (`shared/rolodex.ts` feeds all three
-bundles, so one fix covers all of them): with a genuinely tall
-Watchlist (35 overflow rows) and Glossary (90+ terms) open, confirmed
-both the ribbon and the pane are independently, internally scrollable;
-confirmed scrolling the ribbon to its end leaves the pane's on-screen
-position completely unaffected, and vice versa; confirmed `#scroller`
-is no longer the thing doing the scrolling for this content once a
-card with real height is open. `npx tsc --noEmit`/`esbuild` rebuild +
-chunk-header grep (no duplicate-module regression, same 7/8/10 shared-
-module counts as before) /`npm test` (72/72) all clean. `?v=` bumped on
-all three tiers' `<script>` tags (Free 90→91, Starter 106→107, Pro
-52→53).
-
-## Frontend: landscape HUD — stale card-height cap after rotation, ribbon selection made to scroll deliberately (Sep 5, 2026, `trade-verdict` PR #313)
-
-Direct live report against the independent-scroll fix above: "the ribbon
-buttons are not snapping to on click. and those cards are still not tall
-enough they're not feeling [filling] the panel screen." Both root-caused
-by direct measurement, not guessed at.
-
-**Bug 1 — ribbon "snapping" was never deliberate.** `selectLandscapeCard()`
-toggled the active ribbon button's class but never explicitly scrolled it
-into view within `.utility-ribbon`'s own scroll box — a first headless
-test happened to show scrolling occur anyway, which turned out to be the
-browser's own native "scroll focused element into view" behavior kicking
-in, not this app's own code. That's exactly the class of behavior this
-file has already learned not to build on (the ticker-pill marquee needed
-an explicit `preventDefault()` for the identical inconsistency). Fixed
-with a deliberate `btn.scrollIntoView({behavior:'smooth', block:'nearest'})`
-call, so the ribbon reliably reveals whichever item was just tapped
-regardless of native browser quirks.
-
-**Bug 2 — a real, measured strangled-card bug, found by reproducing a
-real user flow (expand in portrait, then rotate), not by staring at the
-already-shipped fix.** The prior PR correctly bounded `.landscape-hud`
-itself so the outer ribbon+pane box fills available space — but a card
-expanded once in **portrait** carries an inline `max-height` on its own
-`.card-body-pad`, set by `capCardBodyHeight()`. Nothing clears that value
-when the card gets moved into the landscape pane, and `recapExpandedCards()`
-(already wired to the shared resize listener, which fires on rotation)
-doesn't check whether a card is currently in landscape mode before
-re-matching `.card.expanded[data-card]` and re-capping it — it recomputed
-a NEW, wrong, smaller cap using portrait-only `dockOffsetFor()` math that
-assumes the card sits in normal page flow, not inside `.utility-pane`.
-Confirmed directly: a card's real cap went from 602px (portrait) to 148px
-(after rotating to landscape) — the outer HUD/pane were correctly sized
-the whole time, but the card's own inner content was separately strangled
-by a stale, wrong-context measurement nobody had cleared.
-
-**Fixed two ways, not just the one that happened to be visible:**
-`recapExpandedCards()` now returns immediately while `isLandscapeMode()`
-is true — landscape has its own HUD-level sizing mechanism entirely
-(`sizeLandscapeHud()`), and portrait's per-card capping was never meant
-to apply to any card while landscape governs its container instead, not
-just the ones that happened to get caught scrolling. `activateLandscape()`
-also clears any leftover inline `max-height` on a card's `.card-body-pad`
-the instant it's moved into the pane, so a stale portrait-session value
-can't linger even for the brief window before the next resize event would
-otherwise have cleared it.
-
-**Verified via real headless Chromium, reproducing the exact reported
-sequence:** expanded Watchlist in portrait (confirmed a real 602px cap
-set), rotated to landscape, confirmed `.card-body-pad`'s inline
-`max-height` is now empty and the card shows its full real content
-(previously stuck at 148px); confirmed tapping an off-screen ribbon item
-(Glossary, scrolled out of the visible ribbon) now measurably scrolls it
-into view via `getBoundingClientRect()` comparison, not just a `scrollTop`
-change that could be coincidental; confirmed the HUD/pane still fill
-available space correctly, unaffected by this pass. `npm test` (72/72)
-and `node --check` clean; `tsc`/`esbuild` chunk-header grep confirm no
-duplicate-module regression (7/8/10 shared modules, unchanged).
-
-## Frontend: landscape mode scales to fit tablets, Chromebooks, and desktop windows — real zoom, not a reflow (Sep 5, 2026, `trade-verdict` PR #315)
-
-Direct question after the landscape HUD work above: "is the landscape
-view adaptable per device? say a 10\" tablet or Chromebook will it
-expand to fit larger screens?" Live-tested rather than guessed — real
-headless-Chromium checks at 1280x800 (10" tablet), 1366x768
-(Chromebook), and 1920x1080 (desktop window) confirmed the honest
-answer was no: `.app-shell` has always capped at `max-width:960px` in
-landscape (`@media (orientation:landscape)`), so anything wider than
-that just centered the same phone-tuned layout with a growing dead
-margin on both sides — fonts, pills, everything stayed pixel-locked at
-their phone size regardless of how much real screen was available.
-
-**Direct correction of my own first framing.** Presented three options
-via `AskUserQuestion` (leave as-is / raise the width cap / a real
-tablet-specific redesign) — none were picked. Instead, a direct
-statement of actual intent: **"Why can't the framing zoom [and]
-maintain aspect ratio and keep font sizes... behave like a normal app
-that adapts naturally for all different screens."** Not a responsive
-reflow into a different (e.g. multi-column) layout — a genuine
-uniform zoom, the whole design scaled up together, matching how a
-native app or a browser's own page-zoom behaves on a larger screen.
-
-**Implementation (`shared/rolodex.ts`, `updateResponsiveScale()`,
-`APP_SCALE_REFERENCE_WIDTH = 960`) — `transform:scale()` on
-`.app-shell`, with one real subtlety worth keeping.** Naively scaling
-up a `height:100dvh` element makes its rendered height grow right
-along with its width (a 1.33x-wider screen scaled 1.33x also renders
-1.33x TALLER), overflowing the real viewport vertically — a
-scale-then-scroll result, not a clean fill. Fixed by feeding
-`.app-shell` an explicit height of `(real viewport height / scale)`
-instead of `100dvh` — rendering the app as if the device were exactly
-960px wide with a proportionally shorter "virtual" height, then
-scaling the whole rendered result back up to real screen pixels. The
-scale-up exactly cancels the height shrink, so the visual result fills
-the real viewport in both dimensions with zero dead margin and zero
-overflow — no page-level scrolling ever needed to see the rest of a
-"too tall" scaled result, unlike a naive width-only scale. Below 960px,
-or in portrait on any device, this is a complete no-op (`transform`/
-`width`/`height` all cleared) — phones are completely untouched.
-
-**Why nothing else in this file's own dock/snap/scroll math needed to
-change.** Every one of those mechanisms (`updateGateDockState()`,
-`snapCardUnderDock()`, the marquee wrap-boundary math, etc.) already
-relies on `getBoundingClientRect()` for real screen positions — which
-already reflects the real, POST-scale position under a CSS transform,
-standard browser behavior, not something this file has to account for.
-The internal layout-budget numbers (`clientHeight`/`scrollHeight`, used
-for things like `GATE_DOCKED_H`) report the PRE-scale "virtual" box
-instead — exactly what's wanted there too, since those only ever need
-to stay internally consistent with each other, never with real screen
-pixels. Wired into both `initLandscapeMode()`'s `matchMedia` change
-listener (recomputed before `activateLandscape()`/`deactivateLandscape()`
-run, since both measure shell-derived dimensions that are only correct
-once the scale is applied for the new orientation) and `initRolodex()`'s
-resize-listener registration, deliberately registered FIRST — same-event
-listeners fire in registration order, and every other resize handler on
-that list measures shell-derived dimensions too.
-
-**A real, embarrassing near-miss caught before shipping, worth keeping
-as its own lesson.** The first attempt at rebuilding the three bundles
-copied forward a `/tmp` backup taken before this session's branch was
-restarted from `origin/main` (per this file's own standard
-already-merged-PR restart protocol) — and that backup was stale
-relative to `origin/main`'s current `starter/app.ts`/`shared/prefs.ts`
-(other, unrelated work had landed on `main` in the meantime). Committing
-it would have silently reverted real, already-shipped functions
-(`buildTemplateFromExample`, `detectTickerInUrl`, `setCustomTemplate`,
-and more) out of `starter/app.js` — invisible in a routine review of
-just the new function's own diff, only surfaced by actually checking
-`git diff origin/main --stat` and noticing an 877-line deletion where a
-~20-line addition was expected. Fixed by discarding the stale bundle
-copies entirely and rebuilding all three fresh via `node
-esbuild.config.mjs` against the real, current source tree — the
-re-diffed result was the clean, expected ~22-line addition per bundle.
-**Lesson: after any branch restart from `origin/main`, verify a
-rebuilt bundle's diff SHAPE against `origin/main` before committing,
-not just that it compiles/typechecks/passes tests — a stale source
-file can produce a bundle that is internally consistent and fully
-green on every check while still silently reverting unrelated, already-
-merged work that happened to land on `main` in between.**
-
-**Verified two ways, not just dimensionally.** (1) Real headless-
-Chromium dimensional checks across phone landscape/portrait (both
-completely untouched — empty inline `transform`/`width`/`height`), a
-10" tablet (1280x800: shell visual rect exactly 1280x800, `scale
-(1.33333)`, virtual `960x600`), a Chromebook window (1366x768: exact
-fill, `scale(1.42292)`, virtual height `539.736px`), and a large
-desktop window (1920x1080: exact fill, `scale(2)`, virtual `960x540`)
-— zero page-level scroll needed and zero page errors in every case.
-(2) Interaction regression AT the scaled tablet dimensions, not just
-static layout — confirmed a real `.click()` on a landscape-ribbon item
-correctly selects that card (both the pane content and the ribbon's own
-`.active` class); confirmed the HUD sizes correctly with the
-Watchlist's real (uncapped, `.utility-pane`-scrolled) content;
-confirmed the Gate genuinely docks on a real wheel-scroll of `#scroller`
-(scrollTop actually moved, `.docked` class applied); confirmed a real
-pointer-drag swipe-to-delete (mouse down → moved 240px left over 15
-steps → up) correctly removes the swiped ticker from the Rolodex stack
-— all four resolving correctly against real, post-transform screen
-coordinates, exactly as `getBoundingClientRect()`/pointer-event
-semantics under CSS transforms are documented to behave, not something
-new this file had to work around.
-
-`npm test` (72/72) and `node --check` clean on all three bundles plus
-`server.js` (untouched — this is a pure frontend change); `tsc --noEmit`
-shows only the known baseline `?v=N` import-resolution errors, zero new;
-chunk-header grep confirms no duplicate-module regression across all
-three bundles (7/8/10 shared modules, matching the established
-baseline). `?v=` bumped on all three tiers' `<script>` tags (`index.html`
-92→93, `starter/index.html` 108→109, `pro/index.html` 54→55).
-
-**Not yet verified on a real physical tablet or Chromebook** — every
-check above is a headless-Chromium viewport simulation, not a real
-device with real touch input, real DPI, or a real on-screen keyboard
-that could resize the viewport mid-session. Spot-check on an actual 10"
-tablet or Chromebook once deployed, particularly around whether the
-zoomed touch-target sizes (pills, ribbon buttons, swipe gestures) feel
-right at real finger scale rather than just passing a synthetic
-pointer-coordinate check.
-
-## Frontend: landscape HUD polish — bottom-edge height, white dividers, ribbon-click scroll reset; a real scale-mismatch bug found along the way (Sep 6, 2026, `trade-verdict` PR #317)
-
-Three direct fixes from a live phone-landscape screenshot: "make the
-panel a little taller to come to the bottom edge of the screen. make
-the boarders between the ribbon and card, as well as between different
-proxy tickers and term, white, so theres clear division. check for
-anything else that could use deliniation. when clicking a button
-ribbon, scroll prompt up so you can see further down the list."
-
-**1. Bottom-edge height — two real causes, not one.** `sizeLandscapeHud()`
-was only ever setting `max-height`, not `height` — correct for capping
-how TALL the box is allowed to grow, but a flex container with content
-naturally shorter than that budget (a 15-ticker Watchlist with no
-overflow rows, the exact case in the reported screenshot) just shrinks
-to fit its content instead of stretching to fill the reserved space, so
-the box was landing well short of the bottom edge regardless of how much
-room was actually reserved for it. Fixed by setting a real `height`
-instead — the box now always occupies exactly the computed available
-space, with taller content still scrolling correctly inside it via each
-child's own existing `overflow-y:auto`. `LANDSCAPE_HUD_BOTTOM_MARGIN`
-(the only genuine slack in the calc) was also trimmed from 16 to 4.
-
-**2. Faint dividers, everywhere in the HUD.** Every divider between
-stacked items inside the HUD — the ribbon-to-pane border, between ribbon
-buttons, between Proxy Resolution Explorer ticker items, between
-Glossary terms/categories, between Agitator SIGNALS rows, between
-Track Record log rows — was at 5-8% white opacity (`--border` at 8%,
-and `.glossary-term`'s own even-fainter hardcoded 5%), reading as barely
-any division at all on a real screen. Added a new `--border-3` token
-(32% white) to all three tiers' `:root` and applied it to every one of
-these selectors — the explicitly-named "ribbon and card" and "proxy
-tickers and term" dividers, plus the Agitator/Track-Record rows found by
-auditing every other faint-line-between-stacked-items pattern in the
-same HUD area, per the "check for anything else" ask.
-
-**3. Ribbon-click scroll reset.** `.utility-pane` is one shared scroll
-box for whichever card is currently active — switching cards via the
-ribbon while scrolled deep into the PREVIOUS card's content used to
-leave the newly-selected card already scrolled partway down, hiding its
-own top and cutting into how much of it was visible without an extra
-manual scroll first. `selectLandscapeCard()` now resets
-`lsEls.pane.scrollTop = 0` on every ribbon click.
-
-**A real, separate bug found and fixed while investigating (1), not
-part of the original three asks.** `dockOffsetFor()` and several sibling
-functions (`listHeadHeight`, `currentGateFullHeight`, `capCardBodyHeight`,
-`capRoloCardHeight`, `forceGateDockedSync`, `recapExpandedCards`) all
-read `getBoundingClientRect().height` and combined it directly with
-`scroller.clientHeight`/`GATE_DOCKED_H`/`style.height` assignments. Since
-the Sep 5, 2026 responsive-scale feature (the previous entry above)
-applies a CSS `transform:scale()` to `.app-shell` on any landscape screen
-wider than 960px, `getBoundingClientRect()` on a descendant now returns
-REAL, post-transform screen pixels, while `clientHeight`/CSS-constant
-values/`style.height` all operate in the SAME pre-transform "virtual"
-pixel space `.app-shell` is laid out in — a genuine unit mismatch,
-invisible at scale=1 (a phone, or any landscape width at or under the
-reference — the case in the actual reported screenshot, and the only
-case fully verified and fixed here) but present the moment a real
-tablet/Chromebook/desktop window engages the scale transform. Confirmed
-directly: at scale=1.333 (a 10" tablet), the HUD-to-bottom gap measured
-~96-116px instead of the intended ~5px, and reading the un-normalized
-`roloIndexH` back out showed it was inflated by almost exactly the scale
-factor. Added `currentAppScale()` (mirrors `updateResponsiveScale()`'s
-own landscape-and-width condition) and divided every one of those
-`getBoundingClientRect()` height reads by it before using them in a
-virtual-unit calculation.
-
-**A second, deeper issue surfaced chasing that fix, correctly scoped
-out rather than chased further.** Even after normalizing every read
-above, a residual gap (~90-350px, scaling non-linearly with the scale
-factor) remained at scale != 1 specifically. Traced as far as confirming
-it's not a "not enough scrollable content yet" clamp (reordering
-`snapLandscapeHudUnderDock()` to call `sizeLandscapeHud()` before
-`scrollIntoView()` — matching this file's own established "settle the
-real final layout before computing a scroll target" discipline — is a
-correctness improvement kept in this PR, but didn't close the gap) —
-the remaining discrepancy looks like `scrollIntoView()` combined with
-`scroll-margin-top` not fully reconciling against an ancestor's
-`transform:scale()` at the browser level, a plausible but unconfirmed
-theory. **Deliberately not chased further in this pass**: it only
-affects the wide-screen scale-to-fit feature (itself less than a day
-old, and not what was reported here), the core mechanism still works
-functionally at every scale (ribbon selection, Gate dock/undock, and
-swipe-to-delete were all re-verified clean, including in isolation at
-tablet scale), and fully root-causing a `scrollIntoView`-under-transform
-browser interaction would be a much larger, separate investigation than
-this HUD-polish pass warranted. **Flagged here as a known, open follow-
-up**: on a real tablet/Chromebook/wide desktop window, expect the
-landscape HUD panel to still fall noticeably short of the bottom edge
-even after this PR, whereas a phone-width landscape screen is fully
-fixed. Revisit with the same live-evidence discipline as everything else
-in this file if it's ever reported as an actual live complaint (nobody
-has hit the scale-to-fit feature long enough yet for that to have
-happened) — start from a real `scrollIntoView`/`scroll-margin-top`-under-
-`transform` repro rather than another guess.
-
-**Verified via headless Chromium at real phone-landscape dimensions,
-matching the reported screenshot exactly:** HUD-to-bottom gap measures
-4.0px; all three divider colors confirmed via computed style
-(`rgba(255,255,255,0.32)`); the pane's `scrollTop` reliably resets to 0
-after a ribbon click even when previously forced to 2000px deep into a
-different (genuinely scrollable — Glossary) card's content. Re-ran the
-existing ribbon-select/Gate-dock/swipe-to-delete regression suite — all
-still pass, including in isolation at tablet scale (an initial swipe
-test that opened the Watchlist card first, then tried to swipe the
-active ticker card, returned a false negative from the exact card-
-overlap-after-opening-a-different-card artifact this file's own ZA-pill
-testing lesson already documents — not a real regression, confirmed by
-re-running the swipe check in isolation).
-
-`npm test` (72/72) and `node --check` clean; `tsc --noEmit` shows only
-the known baseline `?v=N` import-resolution errors, zero new.
-
-## Frontend: landscape HUD round 2 — ribbon-tap advance, sticky control rows, rotate-from-portrait fix (Sep 6, 2026, `trade-verdict` PR #319)
-
-Three more direct fixes on the same landscape HUD, same day: "for
-instance, the ribbon didn't advance towards the top when I tapped
-watchlist so I can't tell there's another button below. also just
-realized the frame isn't holding the sort/filter/search bar isn't
-holding to the frame but will need to be framed really tight to save
-room. also the HUD breaks when you go from portrait to landscape when
-you rotate from within one of the drop-downs from portrait."
-
-**1. Ribbon-tap now advances toward the top, not just "into view."**
-`selectLandscapeCard()`'s ribbon-scroll used `block:'nearest'` — a
-no-op the instant the tapped item is already fully visible, which is
-the common case for anything not right at the very bottom of the
-ribbon's own scroll box. Switched to `block:'start'`, so the tapped
-item always moves to the top of the ribbon's visible area, pulling
-whatever follows it into view too — the actual signal a user needs
-that the list continues below the fold.
-
-**2. Sticky sort/search rows weren't actually sticking in landscape —
-root-caused by walking the real computed ancestor chain, not guessed.**
-Watchlist's `.wl-overflow-hdr`, Proxy Resolution Explorer's
-`.proxy-sort-row`, and Glossary's `.glossary-search-wrap` are all
-`position:sticky; top:0`, correctly stuck to `.utility-pane` in
-portrait (each card's own `.card-body-pad` gets a JS-driven
-`overflow-y:auto` there) but silently NOT sticking once moved into the
-landscape HUD. `getComputedStyle` on the real ancestor chain (from the
-sticky element up to `#utilityPane`) showed the actual cause: `.card`,
-`.card-body-inner`, and `.card-body-pad` each carry their own
-UNCONDITIONAL `overflow:hidden`/`auto` in the base portrait rules
-(rounded-corner clipping on `.card`; the 0fr/1fr accordion-collapse
-trick on `.card-body-inner`; the Aug 18, 2026 card-height cap on
-`.card-body-pad`) — and per spec, ANY ancestor with an overflow value
-other than `visible` counts as a valid `position:sticky` containing
-block, whether or not it actually scrolls anything. So these rows were
-resolving their sticky containing block against one of these three
-non-scrolling ancestors instead of `.utility-pane` (the one that
-genuinely scrolls in landscape), and a non-scrolling containing block
-means "sticky" just sits in its normal document position and scrolls
-away like anything else. **Took two attempts to find all three, not
-one**: a first pass cleared only `.card-body-inner` and
-`.card-body-pad`, confirmed via the same before/after-scroll
-`getBoundingClientRect()` check that the bar still didn't stick, then
-found `.card` itself was the third (outermost) interceptor. All three
-are safe to override to `overflow:visible` in landscape: rounded
-corners are already reset (`border-radius:0`, the existing landscape
-override right next to it), the accordion-collapse trick never runs in
-landscape (cards show/hide via `display:none`/`block` on the card
-itself, not the grid trick), and `capCardBodyHeight()` never runs in
-landscape either (`recapExpandedCards()` explicitly skips while
-`isLandscapeMode()`). Also tightened these three rows' own padding
-while in landscape, per the same report ("will need to be framed
-really tight to save room") — landscape has far less vertical room
-than portrait and these rows work fine smaller.
-
-**3. Rotating from within an already-expanded portrait card used to
-drop into the HUD's empty placeholder, discarding context.** Confirmed
-real via a headless test that expanded Watchlist in portrait, scrolled
-into its content, then resized the viewport to landscape dimensions:
-the resulting HUD showed `activeCards: []` and the empty "tap a card"
-placeholder, even though Watchlist was the card the user was actively
-viewing a moment before. Root cause: `lsActiveCard` (the module-level
-variable `activateLandscape()` checks to decide which card to show) is
-otherwise only ever set by tapping a ribbon item WHILE ALREADY in
-landscape — the very first activation, coming from portrait, had no
-way to know a card was already open via the portrait `.expanded` class,
-a completely different mechanism. Fixed: `activateLandscape()` now
-falls back to whichever card already carries `.expanded` when
-`lsActiveCard` is still unset, before deciding between "select it" and
-"show the empty placeholder."
-
-**Verified via headless Chromium:** rotating out of an expanded,
-scrolled-into Watchlist card now lands on Watchlist active in both the
-`.utility-pane` and the ribbon's own `.active` class; all three sticky
-rows confirmed holding their exact position (`getBoundingClientRect().top`
-identical before and after scrolling the pane 150-500px, not just
-"has `position:sticky` in the CSS"); tapping a ribbon item measurably
-advances the ribbon's own `scrollTop` toward the top. Re-ran the full
-existing regression suite from the prior PR (HUD-to-bottom-edge gap
-still ~4px, Gate dock/undock, ribbon-click pane-scroll-reset,
-swipe-to-delete) — all still pass. **A real testing-methodology lesson
-worth keeping, distinct from the ZA-pill one already documented above:**
-an initial swipe-to-delete check in this same pass returned a false
-"failure" after a rotation — traced to `document.elementFromPoint()` at
-the guessed swipe coordinates returning `null`, meaning the ticker
-card's real computed rect placed it partially BELOW the short (390px)
-landscape viewport at that point in the test, not actually visible at
-all. Not a real regression: switched from a hand-guessed
-`mouse.wheel()` scroll amount to the app's own pill-tap-to-scroll
-mechanism (which correctly computes and settles the right scroll
-position via `scrollToActiveCard()`), and the swipe worked correctly.
-**When a headless check needs an element to be on-screen, verify its
-real rect is actually within the viewport bounds before interacting
-with it, rather than assuming a scroll gesture landed where intended.**
-
-`npm test` (72/72) and `node --check` clean; `tsc --noEmit` shows only
-the known baseline `?v=N` import-resolution errors, zero new.
-
-## Frontend: landscape HUD/pill-tap snap fixed for real — the earlier scale-mismatch fix wasn't the whole story (Sep 6, 2026, `trade-verdict` PR #321)
-
-Direct report: "the ribbon selections are not snapping to HUD under
-docked ticker pills." This is the exact residual issue flagged as a
-known, deliberately-not-chased-further follow-up in the "landscape HUD
-polish" entry above — reproduced this time, cleanly and deterministically
-(a real, consistent gap on every single ribbon tap at a wide/scaled
-landscape width, not a timing flake), so it got the full root-cause
-treatment this time instead of staying deferred.
-
-**Bug 1, confirmed real via direct measurement, not assumed.**
-`hudEl.scrollIntoView()`/`wrap.scrollIntoView()` (used by
-`snapLandscapeHudUnderDock()` and `scrollToActiveCard()`) genuinely
-miscompute their own scroll target once `.app-shell` has the Sep 5, 2026
-responsive-scale `transform:scale()` applied — confirmed by manually
-computing the mathematically-correct `scrollTop` via a from-scratch
-formula and comparing it against what `scrollIntoView` actually
-produced: a consistent ~73px (virtual) over-scroll, the same on every
-call. Fixed by adding `scrollToUnderDock(el, dockOffset)` — a small
-helper that measures the real (post-scale) gap between `el` and the
-scroller, divides by the current scale to recover the true virtual
-position, and sets `scroller.scrollTop` directly via `scrollTo()`
-instead of asking the browser's own (apparently confused-by-the-
-transform) `scrollIntoView` to find the target itself. At scale=1 (a
-phone, or portrait on any device) this reduces to exactly the same
-behavior `scrollIntoView` already produced correctly there, so nothing
-regresses.
-
-**Bug 2 — this alone only reduced the gap (from ~97px to ~60px real),
-it didn't close it, which is what forced tracing it further instead of
-declaring it fixed on the first improvement.** Measured precisely: the
-`dockOffset` value `scrollToUnderDock()` was being *given* was itself
-wrong (68 virtual px instead of the correct, independently-confirmed
-113), even though every individual piece that's supposed to sum to
-113 (`GATE_DOCKED_H`=44, `listHeadHeight()`=23, `roloIndexH`=46, all
-already correctly scale-normalized) checked out fine when read fresh.
-That contradiction — right inputs, wrong result — pointed at something
-ELSE moving the scroll position *after* the correct value had already
-been set, not a bad computation. Confirmed directly: manually setting
-`scroller.scrollTop` to a hand-computed, verified-correct value (bypassing
-the app's own code entirely) still didn't stick — it drifted to a
-different value moments later. Traced to `snapFirstCardUnderGateDock()`
-(the portrait-only Sector-Pulse-under-the-docked-Gate soft-snap
-correction, see the Aug 18, 2026 entry earlier in this file) — it has no
-`isLandscapeMode()` guard at all, unlike its sibling functions
-(`recapExpandedCards()`, `capCardBodyHeight()`), and it's wired to
-*every* `#scroller` scroll event via a 200ms-debounced check. The scroll
-that `snapLandscapeHudUnderDock()`/`scrollToActiveCard()` themselves
-cause is itself a scroll event — so ~200ms after landing correctly, this
-completely unrelated portrait mechanism fired, read `.content`'s first
-child (whatever that resolves to once landscape has moved every utility
-card into the HUD's own pane), and silently re-adjusted `scrollTop`
-toward aligning *that* under the Gate — a target with nothing to do with
-where the ribbon/pill snap was trying to go. Fixed with the missing
-guard.
-
-**Verified via headless Chromium, waiting well past the 200ms debounce
-window specifically to catch the delayed-override bug, not just the
-immediate result:** at tablet scale (1280x800), every ribbon tap
-(watchlist/proxy/heatmap/pulse/glossary) and a ticker-pill tap now land
-with an exact 0.0px gap under the docked pill strip, holding there after
-a 1200ms wait — not just landing correctly for a moment before drifting.
-Phone scale (844x390) reconfirmed unaffected, still 0.0px. Portrait's own
-`snapFirstCardUnderGateDock()` behavior reconfirmed working normally
-(the new guard is a no-op there, since `isLandscapeMode()` is false).
-
-**The methodology worth keeping from this one:** the first fix (the
-`scrollIntoView` replacement) was real and necessary, but stopping there
-because the gap *shrank* would have shipped a half-fix and probably
-generated a second, confusing follow-up report ("it's better but still
-off"). Measuring the ACTUAL dockOffset value in effect — not just the
-resulting gap — and finding it didn't match what every individual input
-correctly summed to is what surfaced that a second, unrelated mechanism
-was interfering, rather than assuming the first fix's math just needed
-another tweak.
-
-`npm test` (72/72) and `node --check` clean; `tsc --noEmit` shows only
-the known baseline `?v=N` import-resolution errors, zero new.
-
-## Backend: MCP-over-HTTP server + OAuth connector — Trade Tribunal reachable from chat (Sep 7, 2026, `Tra` PRs #103-#108)
-
-**The problem this solves.** Every Claude-driven surface tested this session — this dev
-sandbox and a real Cowork session — is blocked by an org-wide egress policy from reaching
-`tradetribunal.app`/`tra-zacg.onrender.com` directly (confirmed via matching
-`connect_rejected`/403 failures on both, `curl` and `WebFetch` alike). But this project's
-own Supabase/Render/GitHub MCP connectors demonstrably route around that exact same block
-from inside the exact same sandbox. That gap — and only that gap — is what this work closes:
-a real MCP server bolted directly onto Tra gives a connected Claude chat session live
-production data (and, cautiously, a path toward acting on it) it otherwise has no way to
-reach at all.
-
-**What shipped, in the order it actually happened (six PRs, each a real live bug found and
-fixed, not a single clean build):**
-
-1. **`Tra` PR #103 — `mcp-server.js`, four tools at `POST /mcp`.** A Streamable HTTP MCP
-   transport (`@modelcontextprotocol/sdk`) mounted directly on Tra's existing Express app —
-   same repo, same Render auto-deploy, no new service. Three free, read-only tools
-   (`get_market`, `get_ticker`, `check_agitator`) forward to Tra's own real endpoints via an
-   internal loopback fetch. `/mcp` is deliberately **not** on the auth-bypass allowlist — it
-   goes through the exact same secret/token middleware every other route does. A fourth tool,
-   `analyze` (a real, credit-spending Gate 0-5 run), needed its own credential decision —
-   landed in the same PR's second commit as a new, dedicated `MCP_AGENT_KEY` env var
-   resolving to a fixed pro tier via a new auth-middleware branch (PATH 1.5), with its own
-   dedicated credits/tier key (`mcp:agent`) — never a reuse of the real `PRO_KEY`, so this
-   can never touch or drain a real paying customer's balance. `analyze`'s request body is
-   assembled server-side from `/market` + `/ticker/:symbol`, mirrored line-for-line from
-   `starter/app.ts`'s real `analyzeOne()` — not re-derived, given this app's own history of
-   that exact wiring going subtly wrong (the Aug 13, 2026 Gate 5 bug). The `mcp:agent`
-   credits row was provisioned directly via Supabase (`get_or_create_user_credits`/
-   `set_user_tier`/`add_purchased_credits`, the same RPCs `credits.js` itself calls):
-   `tier: pro`, `purchased_credits: 100`.
-
-2. **`Tra` PR #104 — a minimal single-user OAuth 2.1 shim.** claude.ai's remote/custom MCP
-   connector setup doesn't attach a static secret/header to every request the way this app's
-   own tier-key auth expects — it always negotiates OAuth first (discovery metadata, then
-   `/authorize`, then `/token`). Confirmed live: pointing it at `/mcp` produced a real browser
-   navigation to `/authorize` and Tra's own generic 401, since none of that existed yet.
-   `oauth-server.js` adds RFC 8414 authorization-server metadata, RFC 9728 protected-resource
-   metadata, RFC 7591 dynamic client registration, and OAuth 2.1 authorization-code + mandatory
-   PKCE — scoped deliberately to one owner, not a real multi-tenant auth server. Critically,
-   this does **not** loosen who can reach `/mcp` at pro tier: `/authorize` still requires
-   typing the real `MCP_AGENT_KEY` into a plain HTML form before it will ever issue a code —
-   the OAuth dance wraps that same credential, it doesn't bypass it. Only after that check
-   passes does `/token` mint a separate, revocable access token that the auth middleware
-   accepts as equivalent to `MCP_AGENT_KEY` via a new `Authorization: Bearer` check.
-
-3. **`Tra` PR #105 — diagnostic logging, not a guess.** First real connector-setup attempt
-   got past registration but failed at `/authorize` with "Unknown client_id or redirect_uri."
-   Checked Render logs first: the process hadn't restarted since deploy, ruling out the
-   obvious theory. But `oauth-server.js` had zero request-level logging, so there was no way
-   to see what either side actually sent — added `console.log` at every branch of
-   `/register`/`/authorize`/`/token` before attempting a second patch.
-
-4. **`Tra` PR #106 — root cause found, `/mcp2` alias shipped as the fix.** The logs showed
-   `client_id=MCP_AGENT_KEY` (the literal env-var name, not a real generated ID) and zero
-   registered clients — `/register` had never even been called. Something in the pre-existing
-   "Tra" connector entry (created before this OAuth shim existed) had that literal string
-   sitting in a client_id/manual-config field. The user could neither edit nor delete that
-   stuck entry, and claude.ai enforces one connector per URL, blocking a fresh add at the same
-   `/mcp` URL outright. Fix: mounted the identical MCP server a second time at `/mcp2`
-   (`mountMcpAt()`, parameterized instead of hardcoded), with matching RFC 9728 metadata at
-   `/.well-known/oauth-protected-resource/mcp2` — a URL claude.ai had never seen, so nothing
-   to collide with. `/mcp` itself stays mounted too.
-
-5. **`Tra` PR #107 — a second real live bug, caught the moment the connector actually
-   connected.** `tools/list` worked; every real `tools/call` 401'd with "No API key or
-   session token provided." Root cause: `callerCredentialFrom()` (the function that decides
-   what credential each tool's internal loopback call forwards) only ever recognized the
-   original `secret`/`supabase_token` shapes — it had no idea the OAuth shim introduced a
-   third, `Authorization: Bearer`. The outer `/mcp2` request authenticated fine; nothing
-   carried that authentication into the tools' own inner requests. Fixed by teaching
-   `callerCredentialFrom()` to recognize and forward the Bearer header too. **Reproduced the
-   exact live failure first** with a real MCP client using a real minted access token
-   (confirmed the 401), then confirmed the fix resolves it — not just re-running the existing
-   test suite.
-
-6. **`Tra` PR #108 — durable OAuth state, closing a real gap PR #107's own deploy exposed.**
-   The moment #107 deployed, the connector needed re-authorization — the restart wiped every
-   in-memory registered client and token (a known, documented tradeoff at build time, but
-   this was the first real case of it actually costing something). New
-   `public.mcp_oauth_state` Supabase table (RLS disabled + `anon`/`authenticated` revoked,
-   verified via the standard zero-rows grants check — the same mandatory pattern every
-   service-role table in this project uses), one row per `(store, key)` across the four
-   in-memory Maps. Write-through, not a replacement: every mutation still updates the
-   in-memory Map first (that stays the real source of truth within one process's lifetime,
-   zero added latency on the hot path) and now also persists to Supabase; a new
-   `hydrateAll()`, called once at boot, reloads everything non-expired. Falls back to fully
-   in-memory-only when no Supabase client is configured, matching `credits.js`'s own
-   local/Supabase split. Verified directly against the **live** table (not a mock): confirmed
-   the upsert-on-conflict shape actually replaces a row's value, confirmed an already-expired
-   test row correctly reads as invalid under the same filter `hydrateAll()` uses, cleaned up
-   after.
-
-**Confirmed fully working end-to-end, live, same day:** after one required
-`MCP_AGENT_KEY` regeneration (the stuck old connector's cached value never matched;
-regenerating and re-entering fresh resolved it) and the one expected additional
-re-authorization from PR #108's own deploy, a real `mcp__Trade_Tribunal__get_market` call
-from this chat session returned real production data — real SPY/QQQ/BTC prices, a real
-Gate 0 GREEN status, and a real generated sector-pulse narrative (semiconductors leading,
-biotech/gold lagging). This is the first time in this project's history that a Claude chat
-session has read live Trade Tribunal production data directly, not simulated or
-Render-logs-inferred.
-
-**The standing trading-safety rule, agreed explicitly before any of this was built (via
-`AskUserQuestion`, not assumed):** **propose only.** Claude reads a Trade Tribunal verdict via
-the `analyze` tool and may propose a specific trade (ticker, direction, size) for Robinhood,
-but will never call Robinhood's `place_equity_order`/`place_option_order`/etc. off that
-verdict without the user explicitly confirming that exact trade first. No autonomous
-execution, no pre-set risk-budget autonomy tier — full manual confirmation on every single
-trade. This is a behavioral commitment for how any future session uses these two connectors
-together, not something enforced in code on either side — worth restating to a future session
-picking this up, since nothing technical stops a more autonomous mode from being built later
-if explicitly decided.
-
-**The path for a future chat (or Cowork) session to actually use this:**
-1. The `Trade Tribunal` MCP connector lives at the account level (claude.ai → Settings →
-   Connectors), pointed at `https://tra-zacg.onrender.com/mcp2` with "Requires sign-in" on.
-   Once connected, any new chat session in the same account should see
-   `mcp__Trade_Tribunal__get_market`/`get_ticker`/`check_agitator`/`analyze` without any
-   further setup — no need to re-add it per session.
-2. A real trading-assistant turn looks like: call `analyze(ticker)` for a full Gate 0-5
-   verdict, cross-reference with the Robinhood connector's own tools (quotes, portfolio,
-   positions — already configured separately, per the `robinhood-trading` skill) for
-   position-aware context, then **propose** a specific trade and wait for explicit
-   confirmation before calling any Robinhood order-placement tool.
-3. **Not yet verified: this exact connector working from inside a Cowork session
-   specifically.** The underlying mechanism (MCP connectors bypassing the egress block) was
-   confirmed for Supabase/Render/GitHub from within a blocked Cowork session earlier this
-   session, and there's no reason to expect Trade Tribunal's own connector to behave
-   differently — but that's an inference, not a direct test of this specific connector from
-   Cowork. Worth a quick real check the next time Cowork is used for this, rather than
-   assuming.
-4. **If the OAuth token ever needs re-authorization again** (e.g., after a very long idle
-   period past the 30-day access-token lifetime, or if `MCP_AGENT_KEY` is ever rotated): the
-   approval page is a plain form at `/authorize` — enter the current `MCP_AGENT_KEY` value.
-   A real Tra deploy no longer forces this (PR #108), but the token's own 30-day/180-day
-   access/refresh lifetimes still eventually expire on their own.
-
-**Stated next step, not yet acted on:** the user wants to run a real "opening drive" check
-first thing tomorrow morning (market open) using this new chat-connected path. Nothing was
-scheduled for this automatically — flagged here as the actual reason this work was built,
-not just an infrastructure exercise for its own sake.
-
-**Not yet verified against real trading conditions or a real Robinhood-chained proposal** —
-same standing posture as every other integration in this file: the plumbing is confirmed
-live end-to-end (a real `get_market` call, real data, real Gate 0 status), but the actual
-"read a verdict, propose a trade, get confirmation, place it" loop hasn't been run for real
-yet. That's the first thing to try tomorrow morning, not something to assume works simply
-because each half (Trade Tribunal's own connector, the pre-existing Robinhood connector)
-independently does.
-
-**Two-repo note, unlike every other backend feature in this file:** `mcp-server.js` and
-`oauth-server.js` are new, `Tra`-only infrastructure files with no reason to mirror into
-this repo — they're MCP/OAuth transport plumbing, not gate/verdict business logic, and
-`trade-verdict`'s own `server.js` mirror convention has always been about keeping the two
-repos' *analysis* logic from drifting, not about mirroring every file in `Tra`. Deliberately
-not copied here.
-
-## Frontend: landscape Watchlist overflow list bled horizontally — a side effect of the PR #319 sticky fix (Sep 7, 2026, `trade-verdict` PR #331)
-
-Direct report, same day as the landscape ribbon-snap fix above: "the
-watchlist in landscape is falling outside right side, there's a
-horizontal scroll bar that doesn't work. keep the ticker rows short
-enough to keep inside the card frame, no horizontal scroll."
-
-**Root cause, traced directly to a side effect of PR #319's own sticky-row
-fix, not a new bug in this feature.** That fix had to set
-`overflow:visible` on `.card`/`.card-body-inner`/`.card-body-pad` while in
-landscape, so `position:sticky` on the Watchlist/Proxy/Glossary header
-rows would resolve their containing block against `.utility-pane` (the
-element that actually scrolls in the HUD) instead of one of those three
-non-scrolling ancestors. That fix was correct and necessary — but it also
-silently removed the only thing that had ever been constraining the
-Watchlist overflow list's horizontal extent: `.card-body-pad`'s own
-`overflow:hidden`/`auto` had been keeping wide content clipped/scrolled
-inside the card by the CSS `overflow` computed-value rule (setting one
-axis forces the other to compute non-`visible` too) — with all three
-ancestors now `overflow:visible`, nothing downstream of `.utility-pane`
-itself was left clipping horizontally, and `.utility-pane` itself had
-only ever declared `overflow-y:auto`, never an explicit `overflow-x`.
-Compounding it: `.compact-row-top` (ticker symbol + price + %change on
-one line, in the overflow list's compact rows) had no `flex-wrap` and no
-`min-width:0` on its children, so a wide combination (a 5-digit price, a
-3-digit %, a normal-length symbol) pushed the row's real content past the
-card's right edge instead of wrapping or shrinking — that overflow had
-nowhere to go but sideways once the containing chain no longer clipped it,
-producing exactly the "falling outside right side" symptom with a
-non-functional scrollbar (nothing was actually meant to be pannable there).
-
-**Fix, two parts, both landing in all three tiers' `index.html`
-(`.card`/`.card-body-inner`/`.card-body-pad`/`.compact-row-top`/
-`.utility-pane` are all hand-copied inline `<style>` rules across
-Free/Starter/Pro, same convention as every other shared CSS constant in
-this app):**
-- `.utility-pane` (inside the `@media (orientation:landscape)` block)
-  gained an explicit `overflow-x:hidden` alongside its existing
-  `overflow-y:auto` — restoring a real horizontal backstop at the one
-  ancestor that's supposed to be the landscape HUD's actual scroll
-  boundary, without reopening PR #319's fix: `.utility-pane` was never
-  one of the three ancestors that fix had to loosen, so this doesn't
-  interfere with sticky-row resolution at all.
-- `.compact-row-top` gained `flex-wrap:wrap; row-gap:2px; min-width:0` —
-  **not landscape-scoped**, applies globally — so an unusually wide
-  symbol/price/%-change combination wraps onto a second line inside the
-  row instead of forcing the row wider than its container, in both
-  portrait and landscape. `min-width:0` is the real fix here on a flex
-  child that would otherwise refuse to shrink below its content's natural
-  width regardless of `flex-wrap` on the parent.
-
-**Verified via real headless Chromium with deliberately extreme mocked
-content** (a 5-digit price, a 3-digit percentage, and a long headline —
-not just the normal case, since the normal case had never actually
-triggered the bug) **at two landscape widths, not just the reported
-one:** the standard 844x390 landscape phone size, and a genuinely narrow
-568x320 to stress-test further. Confirmed zero horizontal overflow
-(`.utility-pane.scrollWidth === .utility-pane.clientWidth`) at both
-widths, confirmed the compact row's extreme content wraps onto a second
-line rather than pushing width, and re-ran the PR #319 sticky-header
-regression check (`.wl-overflow-hdr`'s `getBoundingClientRect().top`
-identical before/after scrolling the pane) to confirm the `overflow-x`
-addition didn't reopen that fix. `npm test` (72/72) and `node --check`
-clean — pure CSS change, no `.ts`/`.js` touched, no `esbuild` rebuild or
-`?v=` bump needed.
-
-## Backend: isMarketOpen() had zero US market holiday awareness (Sep 7, 2026, `Tra` PR #109 / `trade-verdict` PR #333)
-
-Direct report, same message as the landscape Watchlist overflow bug above:
-"today is Labor Day, the app doesn't recognize that its closed market
-holiday." Confirmed live, not just from reading the code, via the MCP
-connector's `get_market` tool — a real call to the deployed `/market`
-endpoint returned `marketOpen: true` on Labor Day (Sep 7, 2026).
-
-**Root cause.** `isMarketOpen()` (the function behind Gate 0's `marketOpen`
-flag, and every other consumer of the same boolean) only ever checked
-weekday (Sat/Sun) and time-of-day (9:30am-4:00pm ET) — zero concept of a
-US market holiday calendar. Every full-day NYSE/NASDAQ closure that falls
-on a weekday (all ten of them) read as a normal open trading day.
-
-**Fix, both repos, same function names/pattern per the two-repo rule
-(`Tra` is the real fix; `trade-verdict`'s `server.js` is the
-cosmetic/historical mirror, confirmed byte-identical via `diff` before
-committing):** added `MARKET_HOLIDAYS`, a hand-computed set of full-day
-closure dates (keyed by ET calendar date, `YYYY-MM-DD`) for 2026 and 2027,
-plus `MARKET_EARLY_CLOSE_DAYS` for the two 1:00pm-ET half-day closures
-(day after Thanksgiving, Christmas Eve) — both checked via a new
-`etDateStr()` helper against the same `et` Date `isMarketOpen()` already
-computes, so no new timezone-conversion code was introduced. No other
-call site needed touching — every consumer of `isMarketOpen()`'s boolean
-(Gate 0's flag, the market-cache warm pass, etc.) benefits automatically.
-
-**A real mistake caught before shipping, worth keeping as its own
-lesson.** The holiday dates weren't just hand-calculated from calendar
-rules and trusted — they were cross-checked via `WebSearch` against NYSE
-Group's own published 2025/2026/2027 holiday announcement first. Good
-thing: a hand calculation of 2027's Good Friday (working backward from a
-hand-derived Easter date) came out to March 26, but an initial search
-result's AI-generated summary claimed April 16 — a real, direct
-contradiction between two "sources." Rather than trust either blindly,
-searched specifically for Easter 2027's actual date (Farmers Almanac:
-March 28, 2027) and derived Good Friday from that (March 26) — which
-confirmed the hand calculation was right and the April 16 answer was a
-web-search-summary hallucination (the summary itself admitted "the search
-results don't provide the specific Good Friday date" in the same
-sentence it then invented one, a strong tell). Every other 2026/2027 date
-in the list was independently confirmed against real search results
-before being added (New Year's/MLK/Presidents Day/Memorial Day/
-Juneteenth/Independence Day/Labor Day/Thanksgiving/Christmas, plus both
-years' weekend-observed-date shifts). **Lesson: for anything with a
-real, checkable external ground truth, don't ship a hand calculation
-without cross-checking it — especially a date that depends on Easter,
-which has no simple closed-form formula and is exactly the kind of thing
-easy to get subtly wrong by hand.**
-
-**Verified via a 16-case standalone Node simulation** of the extracted
-logic (not reimplemented from scratch, the actual shipped code) — the
-real reported bug (Labor Day 2026, mid-day), regular weekday open/closed
-boundaries, a weekend day, Christmas and Good Friday for both 2026 and
-2027, both early-close days' exact 1:00pm boundary for both years, and a
-future year (2028) with no holiday data on file (confirms this fails
-safe to normal weekday/time-of-day behavior rather than throwing) — all
-16 pass. Also `node --check` clean, `npm test` (72/72, unaffected — this
-doesn't touch `gates-extended.ts`/`analyze-helpers.ts`) in both repos,
-and a real local boot test (`require('./server.js')` with dummy env
-vars) in `Tra` — clean start, zero crashes.
-
-**Not yet verified against a live deploy** — same standing posture as
-every backend change in this file. To confirm: check `marketOpen` via
-the MCP `get_market` tool (or a direct `/market` call) once `Tra`
-redeploys and confirm it now reads `false` today, and again on the next
-real holiday. **Needs a manual update for 2028+** — the holiday set only
-covers 2026/2027; re-derive and re-cross-check (per the lesson above,
-especially Good Friday) against NYSE's own published schedule
-(nyse.com/trade/hours-calendars) before extending it, rather than
-hand-calculating a third year cold.
-
-## Frontend: the Gate's OPEN/CLOSED label was never wired to the backend fix at all — a second, client-side isMarketClosed() (Sep 7, 2026, `trade-verdict` PR #335)
-
-Live report right after the `isMarketOpen()` backend fix above deployed
-and was confirmed live via the MCP `get_market` tool (`marketOpen: false`
-on Labor Day): "it still show open in the gate on this holiday." A real,
-distinct bug — not a propagation-delay or caching question — found by
-actually reading `renderGate()` instead of assuming the backend field
-was the only thing that mattered.
-
-**Root cause.** The Gate's OPEN/CLOSED text (and the market-color it's
-rendered in) is set from a completely separate, **client-side**
-`isMarketClosed()` — `const closed = isMarketClosed(); const marketLabel
-= closed ? 'CLOSED' : 'OPEN';` — never from `market.marketOpen`, the
-field the backend fix actually corrected. `isMarketClosed()` has the
-exact same shape bug the backend's `isMarketOpen()` had before its own
-fix (weekday + time-of-day only, zero holiday awareness) — and it's a
-completely independent function, so fixing the backend one changed
-nothing about what the label shows. Worse, per its own existing comment
-("market-closed always forces HOLD regardless of the real verdict"),
-this same function also gates a real verdict-correctness behavior, not
-just a label — on a holiday, a live analysis would have rendered an
-actual UP/DOWN call instead of being forced to HOLD, a more consequential
-bug than the label alone.
-
-**`isMarketClosed()` is deliberately tier-owned, not in
-`shared/rolodex.ts`** (per its own existing code comment: "Tier-owned...
-so this ships per tier deliberately") — so unlike every shared-module fix
-in this file, there was no single place to patch. The identical
-holiday-aware rewrite (same `MARKET_HOLIDAYS`/`MARKET_EARLY_CLOSE_DAYS`
-2026/2027 data as the backend fix, plus a matching `etDateStr()` helper)
-was hand-applied to every one of its independent copies: `app.ts`
-(Free, source) + `app.js` (its compiled bundle), `starter/app.ts` +
-`starter/app.js`, `pro/app.ts` + `pro/app.js`, `shark/index.html`'s
-still-monolithic inline script, and `preview/rolodex/app.js` — six
-separate copies, all now byte-for-byte identical in their new holiday
-logic even though each still lives in its own file, matching this
-function's existing deliberate-duplication convention rather than
-introducing a shared module for it.
-
-**Verified two ways beyond the standard checks** (both bundles rebuilt
-via `esbuild.config.mjs`, chunk-header grep confirming no
-duplicate-module regression at the established Free:7/Starter:8/Pro:10
-baseline, `tsc --noEmit` against each tier's own `app.ts` with the
-project's real compiler options showing zero new errors, `npm test`
-72/72 unaffected, and a 7-case standalone Node simulation of the
-extracted logic):
-1. **A real headless-Chromium end-to-end check, not just the isolated
-   logic.** Pinned the browser's clock to Labor Day 2026 noon ET via
-   Playwright's clock API, primed a fake Starter session, mocked
-   `/market`, and read the actual rendered `#gateMiniLabel` text —
-   `"CLOSED"`.
-2. **Confirmed the test itself actually discriminates, not just that it
-   passed once.** Stashed the fix, rebuilt the pre-fix bundle, and reran
-   the identical test against it: the same rendered label read
-   `"OPEN"`. Only then restored the fix and reconfirmed `"CLOSED"` —
-   proving the check would have caught the original bug, not just that
-   it doesn't complain about the fix.
-
-**Lesson, worth keeping distinct from the backend fix's own entry above:**
-confirming a backend field is correct (via a live MCP tool call, in this
-case) is not the same as confirming the UI that's supposed to consume it
-actually reads that field — always trace the actual render path
-(`grep`/read the rendering function) before declaring a user-visible bug
-fixed from a backend check alone, especially when, as here, a
-same-named/same-shaped client-side duplicate function turns out to be the
-real thing driving the screen.
-
-**Not yet verified against a live deploy** — same standing posture as
-every backend-paired frontend change in this file. To confirm: check the
-Gate's OPEN/CLOSED label on any tier during a real future holiday (or
-via a devtools clock override) and confirm it now reads CLOSED. **Needs
-the same manual update for 2028+ as the backend copy** — six files to
-touch instead of one, so don't forget any of them next time.
-
-## Backend/Frontend: Scorecard gets a profit-oriented expectancy metric, drops the per-branch breakdown (Sep 13, 2026, `Tra` PR #110 / `trade-verdict` PR #337)
-
-Preceded by a real live bug report on the Scorecard card that turned out
-to be an account mix-up, not a bug — the phone in question was signed
-into a second, genuinely-different account (`j_m_turner@outlook.com`, 15
-verdicts, 8 graded) instead of the real account with 225. Confirmed by
-querying `verdict_log` directly via the Supabase MCP connection rather
-than guessing from the UI symptom alone — `/scorecard`'s
-`.eq("user_email", email)` filter was working exactly as written the
-whole time.
-
-**The real, substantive follow-up, direct feedback once the account
-question was settled.** Three things, stated together: (1) the by-gate1-
-branch/pre-gate-state/gate0-read/gate2-corroboration breakdown (shipped
-Aug 26-28, 2026) is "unnecessary information to the user but decent for
-helping the app learn" — real calibration signal, not something an end
-user needs staring back at them on their own card; (2) directional
-accuracy alone is "showing a quarter of the story" — it weighs a
-correct-but-tiny move the same as a correct-and-large one and says
-nothing about what a wrong call actually cost; (3) the missing piece is
-whether the app can "point toward profit if the verdicts are followed in
-trade practice."
-
-**The data to answer (3) was already sitting in `verdict_log`, unused for
-this purpose.** Every graded row already carries `actual_return_pct` (the
-ticker's own real % move over the grading window, computed by
-`gradeDueRows()`) and `size_action` (the recommended `FULL`/`HALF`/
-`QUARTER`/`NONE` sizing). New `computeExpectancyStats(rows)`: filters to
-`UP`/`DOWN` verdicts with a real sizeable action, computes
-`direction × actual_return_pct × sizeMultiplier` per row (`FULL`=1,
-`HALF`=0.5, `QUARTER`=0.25) — the return a user would have realized
-sizing and holding exactly as recommended — and averages it, plus a win
-rate (share with a positive simulated return). FLAT verdicts and
-`NONE`-sized calls are excluded entirely, not counted as a $0 trade —
-both mean "the app told you to hold no position," which isn't a trade to
-grade the profitability of either way. Gated behind its own
-`SCORECARD_MIN_SIZED_GRADED = 5` floor (this slice is always a strict
-subset of the overall graded count), separate from the existing
-`SCORECARD_MIN_GRADED = 20` floor on the card as a whole.
-
-**Verified against this account's own real history before shipping, not
-a synthetic case** — pulled all 225 graded rows directly via Supabase:
-55.1% directional accuracy overall, but only 46 of those 225 ever
-recommended a real sized position. Of those 46: **+0.48% average
-simulated return per trade, 52.2% win rate.** A genuinely different, more
-complete number than the headline accuracy figure — exactly the gap the
-feedback identified. (All 44 DOWN verdicts in this account's history
-happened to carry `size_action: NONE` — the sizeable sample here is
-UP-only; not a bug, just this account's own real trigger mix so far.)
-
-**The per-branch breakdown removed from the response, not just hidden
-client-side** — `/scorecard`'s personal-scope select dropped `ticker,
-pre_gate_state, gate1_branch, gate0_read, gate2_corroboration_state`
-(none of which are needed once the breakdown itself is gone) in favor of
-`verdict, size_action, actual_return_pct`. The underlying `verdict_log`
-columns are completely untouched — the calibration question this
-breakdown existed to answer is still fully answerable via a direct query
-grouped by tier/branch/state across every user, exactly the technique
-used to confirm the new metric above, just not served as a live
-per-request feature nobody was asking to see on their own card.
-
-**Frontend (`starter/app.ts`/`pro/app.ts`, byte-identical apart from the
-pre-existing wording differences between the two tiers' help text):** the
-Scorecard card now renders "IF FOLLOWED AT RECOMMENDED SIZE" under the
-existing accuracy line — avg return per trade (green/red by sign, same
-convention as everywhere else in this app) and win rate, or an
-"Accumulating — N/5 sized verdicts so far" message below the floor. The
-`(?)` help text was also corrected to describe the real two-window
-grading (24h primary + ~5 trading days secondary) instead of the stale
-single "~3 trading days" wording left over from before the Sep 7, 2026
-two-window redesign — a pre-existing inaccuracy in text sitting directly
-next to what this pass was already editing.
-
-**A real, useful testing-methodology discovery made while verifying
-this, worth keeping alongside this file's other Playwright lessons.** A
-synthetic mouse click at a card-head's real screen coordinates
-(`page.mouse.click()`, the technique this file's own Sep 2, 2026 lesson
-already prescribes over a bare DOM `.click()`) silently did nothing —
-traced via monkey-patching `Event.prototype.stopPropagation` to log every
-call, which caught `shared/rolodex.ts`'s `initHelpBalloons()` tutorial-
-advance handler (`if (tutorialActive) { ...; e.stopPropagation(); ... }`)
-consuming the very first click on the page to advance/dismiss the
-first-run tutorial, before it ever reached the card's own accordion
-listener. Not a bug — this app genuinely auto-starts a first-run tutorial
-900ms after load unless `tv_tutorial_seen_<tier>` is already set in
-localStorage — but a real trap for any future test that primes a
-fake session without also marking the tutorial seen: the first
-interaction in the whole test silently goes to the tutorial instead of
-whatever it was meant to do, and everything after it works fine, making
-the failure look like a one-off flake rather than a systematic first-
-click issue. **Fix for future tests, not the app:** always set
-`localStorage.tv_tutorial_seen_<tier> = '1'` (matching real returning-user
-behavior) before driving any interaction in a fresh test session.
-
-**Verified end-to-end, both tiers, with the real numbers above:** real
-headless-Chromium pass (tutorial suppressed per the lesson just above)
-confirmed the card expands, a real fetch to `/scorecard` fires, and the
-rendered text reads exactly `VERDICT ACCURACY (225 graded)` /
-`Directional accuracy 55.1%` / `IF FOLLOWED AT RECOMMENDED SIZE` /
-`Avg return per trade +0.48%` / `Win rate 52.2%`, with zero leftover
-`BY GATE`/`BY PRE-GATE` breakdown headings anywhere in the DOM. `node
---check`/`npm test` (72/72) clean in both repos; `esbuild` rebuild +
-chunk-header grep confirmed no duplicate-module regression across all
-three bundles; `tsc --noEmit` against `starter/app.ts`/`pro/app.ts`
-directly showed zero new errors beyond the known `?v=N` baseline.
-
-**Not yet verified against a live deploy** — same standing posture as
-every backend change in this file. To confirm: open the Scorecard card
-on a real signed-in Starter/Pro account with 5+ sized graded verdicts and
-confirm the new "IF FOLLOWED AT RECOMMENDED SIZE" section renders real
-numbers instead of the accumulating message.
-
-## Backend: proxy-fit correlation check generalized beyond Taiwan/Korea semis, BDC/REIT sizing capped at the category level, regime data prewarmed (Sep 13, 2026, `Tra` PR #111 / `trade-verdict` PR #339)
-
-Direct continuation of the Scorecard/expectancy work above, prompted by a
-live "make recommendations for improving accuracy" ask, then a real
-data-driven investigation into the 61 UP verdicts that graded FALSE, then
-a direct correction on the fix that investigation was heading toward:
-**"how is this alone going to be fixed with a cap? there is supposed to be
-a dynamic algorithm designed especially for this purpose... something
-doesn't seem wired correctly maybe?"** — followed by an explicit design
-constraint once the real wiring gap was found: **"this fix should be
-pointing the problem not the symptoms (ticker specifics) and I want these
-symptoms to be drivers in the algorithm not a chased pipe dream."**
-
-**What the data actually showed, queried directly from `verdict_log` via
-the Supabase MCP connection, pooled across every user (360 graded
-verdicts) — not guessed at.** Overall directional accuracy 55.1%, but UP
-verdicts alone sat at 34.4% (n=61) against DOWN's 65.5% (n=29). Of the 40
-UP verdicts that graded FALSE, every single one had `pre_gate_state` and
-`gate0_read` both GREEN — meaning none of them ever tripped an override
-branch; every miss was a "clean" verdict riding whatever confidence the
-model self-assigned, with nothing server-side ever checking it against
-real price/proxy data. Four tickers (ALAB, ARCC, STWD, NU) accounted for
-41 of the 61 total UP calls at a combined 24.4% accuracy — the other
-tickers, as a group, sat at 55%. ALAB specifically: 0/8 real UP verdicts
-graded TRUE, avg return -5.14% on the misses.
-
-**The real wiring investigation, not another guess.** Read `classifyTicker()`/
-`PROXY_RULES` directly and pulled ALAB's real `proxy_regime_state` row from
-Supabase: `rolling_r: 0.49, baseline_r: 0.66, state: INTACT` — the Fixed-
-Proxy Regime Validation correlation check (Proposal 3, Aug 13, 2026) is
-genuinely running, not dead code. But `resolveProxyRegime()`'s call site
-in `refreshMarketEntry()` was gated to `isFixedTaiwanKorea` only — every
-other static category (Fintech/Crypto, BDC/REIT/Income, Biotech/Medical,
-Software/Cloud, Energy/Commodities, Defense/Aerospace) got a proxy
-assignment with **zero ongoing correlation-strength check, ever**. And
-even for the one category that WAS checked, "INTACT" only means the
-correlation hasn't degraded from its own historical baseline — never that
-the baseline was strong enough to trust in the first place. ALAB's
-0.49-0.66 rolling/baseline correlation to TSM leaves roughly half its real
-move proxy-unrelated, and nothing anywhere read that number as a fit
-problem — only the binary state label mattered.
-
-Also confirmed a real, distinct pattern in the same data: ARCC (a BDC)
-already resolves to the textbook-correct IWM+SPY proxy via a direct
-ticker-list match — the classification itself isn't wrong — yet sits at
-18.2% UP accuracy over 11 real verdicts. BDCs/REITs are rate/yield-driven,
-not catalyst-driven; they rarely produce a move large enough to clear even
-the MARGINAL classification band, no matter how correct their proxy
-assignment is. That's a property of the CATEGORY, not a wiring defect —
-confirmed by checking, not assumed.
-
-**What was deliberately NOT done, per the direct "point at the problem,
-not the symptom" instruction:** no `NU`-specific reclassification (its
-Fintech/Crypto → BTC+QQQ proxy assignment stays as-is; if that correlation
-is genuinely weak, the generalized check now catches it the same way it
-would for any other ticker, rather than adding another one-off exception
-to a list that already reads as ad hoc); no change to `resolveGate5`'s
-own AI/Semiconductor-only BROKEN-regime dynamic-resolution fallback (that
-stays scoped to the one category its paired forceDown-authority exemption
-was built around — widening it would be a real, separate behavior change
-nothing here asked for).
-
-**Three fixes shipped, all reusing existing mechanisms:**
-
-1. **`resolveProxyRegime()` generalized from "Taiwan/Korea semis only" to
-   every static `PROXY_RULES` category.** `regimeValidation()` itself was
-   always generic (any two close series) — it just never got called for
-   anything but the category it launched with. Now takes a `proxySymbol`
-   param (the classification's own first proxy symbol — a multi-symbol
-   proxy like "USO + GLD" correlates against its first symbol only, same
-   simplification `evaluateProxyStatus()` already makes averaging
-   multi-symbol % moves) instead of hardcoding `"TSM"`. `refreshMarketEntry()`
-   now calls it for any ticker with a static classification (`staticRule
-   !== DEFAULT_PROXY`), not just `isFixedTaiwanKorea`. `proxy_regime_state`
-   gained a `proxy_symbol` column (patch12, applied directly via Supabase
-   MCP) so a cached row's correlation can be checked against the proxy it
-   was actually computed for — a later reclassification can't silently
-   reuse a correlation computed against a now-wrong instrument. Existing
-   rows (proxy_symbol NULL) self-heal on next check, no backfill needed.
-2. **A new post-parse confidence-ceiling clamp, `ah.applyProxyFitCeiling()`**,
-   applied once in `/analyze` after every branch that can set confidence —
-   including a "clean," no-override verdict, which is exactly ALAB's real
-   failure shape. Below `PROXY_FIT_FLOOR` (0.5), a HIGH confidence downgrades
-   to MEDIUM regardless of which branch (or none) produced it; MEDIUM/LOW
-   are never touched — a real disagreement stays meaningful even against a
-   weak proxy, and this shouldn't make LOW more common than it already is.
-   Deliberately NOT threaded into `priceConfirmedConfidence()` itself —
-   that function only ever fires on specific override branches, so it
-   structurally can't reach a clean verdict's self-assigned confidence at
-   all, which is the actual gap that let ALAB's failures through invisibly.
-3. **`BDC/REIT/Income` gets a category-level `sizingOverride: "QUARTER"`**
-   directly on the `PROXY_RULES` entry — enforced by the exact same
-   `rule.sizingOverride === "QUARTER"` check Patch 2's fundamentals-
-   speculative tier already uses, zero new code path. Capped at
-   classification time, not learned per-ticker from a live track record
-   (the earlier, rejected design for this same problem) — a brand-new
-   BDC/REIT ticker is protected on day one, and any ticker that resolves
-   into this category via keyword match (not just the hand-listed ones)
-   gets it automatically.
-
-**A fourth piece, folded in mid-session on a direct follow-up question**
-("what if we had a separate node that helped fetch data quicker... and
-created correlation tables that feed this mechanism?"). Recommended
-against a real standalone service — the correlation check is already
-cheap and off the hot request path (weekly cache) — in favor of the much
-smaller version of the same idea: **`runRegimePrewarmSweep()`**, a daily
-in-process sweep (same `setInterval` pattern as the existing
-`runVerdictGradingSweep()` — no new deploy, no new cost) that walks every
-ticker `gx.PROXY_RULES` itself names and proactively warms its regime
-cache ahead of demand, so a ticker nobody's checked recently still has a
-fresh correlation number by the time a real request needs it. Reads the
-ticker list directly off the real classification data (`gx.PROXY_RULES`)
-rather than a second, hand-maintained copy that could drift out of sync.
-
-**`classifyTicker()`/`PROXY_RULES`/`DEFAULT_PROXY` moved from `server.js`
-into `gates-extended.ts`**, content unchanged, specifically so the prewarm
-sweep (and anything else that needs the real classification data) can
-require it directly instead of duplicating the ticker lists. Every
-existing call site in `server.js` keeps working unchanged via three local
-aliases (`const PROXY_RULES = gx.PROXY_RULES`, etc.) — no call site had to
-be touched.
-
-**Verified thoroughly, given this is Gate 5/confidence logic with a real
-incident history (the Aug 13, 2026 forceDown-unreachable bug lived in
-exactly this area):** `classifyTicker`/`PROXY_RULES` and the new
-`applyProxyFitCeiling()` both got real test coverage (13 new cases, 85/85
-passing total, up from 72) — including the exact real ALAB number
-(rolling_r 0.49 → MEDIUM), the exact floor boundary, a null-regime case,
-and confirmation that MEDIUM/LOW are never touched. A real local boot test
-of `Tra`'s actual `server.js` (dummy env vars, real `npm install`) starts
-clean and serves a request — confirmed via `curl`, not just "no crash in
-the log." `trade-verdict`'s mirror confirmed identical in every touched
-region before editing (only header-comment differences, per the
-established pattern) and passes `node --check` + the full test suite;
-this repo's own `server.js` couldn't be boot-tested directly (no
-`express` in this repo's `node_modules` — it's mirror-only, never the
-real deploy target, consistent with every other entry in this file).
-
-**Not yet verified against a live deploy** — same standing posture as
-every backend change in this file. To confirm: re-analyze ALAB after
-`Tra` redeploys and confirm confidence caps at MEDIUM even on an otherwise
-clean UP call; re-analyze ARCC/STWD and confirm sizing never exceeds
-QUARTER; check Render logs for `runRegimePrewarmSweep` firing on its daily
-interval and for real `proxy_symbol`-populated rows accumulating in
-`proxy_regime_state` across categories beyond AI/Semiconductor.
-
-## Backend/Frontend: Candidate Probation — a broken proxy's replacement has to earn trust, not inherit it (Sep 13, 2026)
-
-Direct follow-up, same session as the proxy-fit generalization above, to
-a question about whether that work actually replaces a broken proxy or
-just downgrades confidence around it. Answer at the time: AI/Semiconductor
-already gets a real replacement via the Dynamic Proxy Resolution
-Algorithm (Patch 2); every other category, once the regime check above
-was widened to run for them too, only ever got a confidence clamp — the
-algorithm never re-ran for them. Direct instruction, verbatim: **"I think
-its important that if a ticker breaks proxy there should be a 'search for
-new' placeholder that would need to earn sustainable correlation."**
-
-**What this needed was already half-built.** `resolveFixedProxyBreak()`
-(Patch 2, unmodified by this change) already runs the real search and
-returns a `tier` (`primary`/`secondary`/`fundamentals-confirmed`/
-`fundamentals-speculative`) the moment a category's regime is BROKEN. The
-gap was entirely on the trust side: a fresh `'primary'`-tier find was
-reported — and granted real forceDown authority — off one snapshot, with
-nothing checking whether that candidate's correlation actually held up
-over time. "Search for new" was already happening; "earn sustainable
-correlation" was the missing half.
-
-**A wrong assumption caught before it shaped the fix.** The obvious
-worry going in was that granting a fresh candidate forceDown authority
-this easily might be coupled to `FORCEDOWN_EXEMPT`/`TAIWAN_PROXY`/
-`GATE_5_KOREA` — the STATIC fixed-proxy registry gating which categories
-get forceDown authority at all. Reading `/analyze`'s real `gate5Auth`
-computation directly (not assumed from an earlier, wrong note already
-corrected once above) confirmed this is not the case: the dynamic-
-resolution path's authority is governed entirely by `rule.forceDownAuthority`,
-computed generically inside `buildDynamicProxyRule()` regardless of
-category, and is completely independent of that static registry. This
-meant probation could be built as a pure trust-gate on the dynamic path
-alone — no risk of it interacting with, or needing changes to, the
-static-category exemption list.
-
-**Implementation, reusing `proxy_resolution` rather than building new
-machinery** (`server.js`, both repos):
-- `PROXY_CANDIDATE_REQUIRED_CONFIRMS = 2` — the number of consecutive
-  checks a fresh `'primary'`-tier result must clear
-  `resolveFixedProxyBreak()`'s own primary correlation floor, with the
-  SAME symbol each time, before it's trusted as a promoted `"primary"`
-  proxy.
-- `GATE5_CANDIDATE_RECHECK_MAX_AGE_MS = 7 days` — a candidate still on
-  probation is re-checked weekly, not the `GATE5_RECOMPUTE_MAX_AGE_MS`
-  90-day quarterly cadence a promoted/trusted proxy settles into.
-  `getCachedProxyResolution()` picks the cadence per-row via
-  `proxyCandidatePromoted(data.candidate_confirms)`.
-- `proxy_resolution` gained `candidate_confirms integer not null default 0`
-  and `candidate_since timestamptz` (`supabase-ddl-patch13-proxy-candidate-
-  probation.sql`, applied directly via the Supabase MCP connection,
-  confirmed zero `anon`/`authenticated` grants on the standard
-  grants-check query per this file's established rule).
-- `saveProxyResolution()` now reads the prior row before upserting and
-  computes the streak: a fresh `'primary'` result with the SAME
-  `proxy_symbol` as last time increments the streak; a DIFFERENT symbol
-  (the candidate flipped) resets it to 1, not 0 — it's still a fresh,
-  first-ever confirm for that new symbol; and dropping below the primary
-  floor (regressing to `'secondary'` or worse) resets it to 0 outright,
-  never just pausing it — a later re-clear of the same symbol restarts
-  the streak from 1, it doesn't resume the old count. Returns
-  `{candidateConfirms, candidateSince}` so the caller can pass it straight
-  into `buildDynamicProxyRule()` without a second read.
-- `buildDynamicProxyRule(resolved, candidateConfirms)` gained a new first
-  branch: a `'primary'` result that hasn't cleared
-  `PROXY_CANDIDATE_REQUIRED_CONFIRMS` yet reports as a new tier,
-  `"candidate"` — `forceDownAuthority: false`, `sizingOverride: "QUARTER"`,
-  a rationale describing "N/2 consecutive confirms" and that it "trades
-  on Gate 0 + its own price-action gates alone until promoted." Only once
-  promoted does it fall through to the existing `'primary'`/`'secondary'`
-  branch and regain real forceDown authority.
-- Both `resolveGate5()` call sites (the cached-row path and the
-  freshly-computed path) now thread the streak through:
-  `buildDynamicProxyRule({...}, cached.candidate_confirms)` and
-  `buildDynamicProxyRule(resolved, saved?.candidateConfirms)`.
-
-**Frontend (Pro only — the only tier with a Proxy Resolution Explorer to
-show a tier badge in):** `pro/app.ts`'s two `tierColor` maps
-(`analystViewHTML`'s per-card badge, `renderProxyExplorer`'s list rows)
-gained `candidate: 'var(--purple)'` — distinct from `primary`'s green
-(trusted) and `secondary`'s amber (informational-only), since a
-candidate's correlation is objectively stronger than "secondary" tier,
-just not yet trusted with authority. `TIER_RANK` gained `candidate: 1`,
-shifting `secondary`/`fundamentals-confirmed`/`fundamentals-speculative`
-down one rank each, so the Explorer's tier-sort still orders candidates
-between trusted primaries and merely-informational secondaries.
-
-**Verified:** a 14-case throwaway simulation (extracted, not
-reimplemented — the real `saveProxyResolution`/`buildDynamicProxyRule`
-logic against a fake in-memory table) covering: a fresh candidate
-reporting as `"candidate"` with no forceDown authority and QUARTER
-sizing; promotion on the 2nd consecutive same-symbol confirm, regaining
-forceDown authority; staying promoted on continued confirmation; a
-different candidate symbol resetting the streak to 1 (not 2); a
-regression below the primary floor resetting the streak to 0, with a
-later re-clear restarting at 1 rather than resuming; and confirmation
-that `secondary`/`fundamentals-*` tiers are completely unaffected by any
-of this. `node --check` and the full test suite (85/85, up from 72) pass
-in both repos; `Tra`'s actual `server.js` boots cleanly with dummy env
-vars and serves a request. `trade-verdict`'s mirror confirmed
-byte-identical to `Tra`'s in every touched region (diffed directly, only
-header-comment wording differs, per this file's established mirror
-convention) before and after editing. Pro's bundle (`node
-esbuild.config.mjs`) rebuilds with only `pro/app.js` changing content —
-confirmed via `git diff --stat` and the usual chunk-header grep (10
-shared modules, no duplicate-module regression) — `pro/index.html`'s
-`?v=` bumped (59→60) accordingly. `starter/app.js`/`app.js` (Free)
-untouched, since neither has a Proxy Resolution Explorer to show a tier
-color in.
-
-**Not yet verified against a live deploy** — same standing posture as
-every backend change in this file. To confirm: force a regime-BROKEN
-recompute on a non-AI/Semiconductor ticker (e.g. via `pre_gate_hard_trigger`)
-and confirm the resolved proxy first reports as `"candidate"` tier
-(purple badge on Pro, no forceDown authority, QUARTER sizing) rather
-than immediately trusted, then re-check weekly and confirm it promotes
-to `"primary"` (green badge, forceDown authority restored) after the
-same symbol clears the floor a second consecutive time; check
-`proxy_resolution` for real `candidate_confirms`/`candidate_since` values
-accumulating.
-
-## Ops: Neo4j Aura Professional trial paused — migrated to a permanent Aura Free instance (Sep 14, 2026)
-
-While doing a live-verification pass on the Sep 13, 2026 proxy-fit fixes
-above (real Supabase queries, real Render logs, real MCP-connector calls
-against production — see the pattern established once the `Trade_Tribunal`
-MCP connector shipped Sep 7, 2026), found Tra's Neo4j sync had been
-silently failing since sometime between **Sep 7 17:56 UTC** (last known-
-good `Neo4j schema: ok`) and **Sep 13 21:07 UTC** (first confirmed
-`syncClassificationToGraph`/`syncCorrelationToGraph` failure on real
-traffic) — a ~6-day gap with no Tra deploy or restart in between, so
-nothing on Tra's own side had changed. Every failure logged the same
-symptom: `Could not perform discovery. No routing servers available`,
-with a completely empty routing table (`routers:[], readers:[], writers:[]`)
-— not an auth error, not a network-block error, the exact shape a driver
-sees when the database it's asking for simply isn't running.
-
-**A real correction made along the way, worth keeping as its own
-lesson.** First hypothesis (auto-paused for inactivity/cost-control) was
-floated without direct visibility into the Aura console — and got pushed
-back on directly ("I don't see anywhere that it's paused and you're
-connected to it so run a check"), which also surfaced a real
-misstatement on this session's part: there is **no Neo4j MCP connector in
-this environment at all** (confirmed via `ToolSearch`) — every prior and
-current observation of Neo4j's health has only ever come indirectly, via
-**Tra's own server logs on Render** showing *its* driver's connection
-attempts failing, never a direct connection from any Claude session to
-Neo4j itself. Once Mr. T checked the actual Aura console directly, the
-instance genuinely was showing **PAUSED**, with "2 days left" on the
-trial — confirming the original hypothesis was right in substance, but it
-should have been stated as unconfirmed until someone actually looked, not
-offered as a likely explanation on its own. Checking the real state
-directly is what resolved the ambiguity, not more reasoning about the
-routing-table symptom.
-
-**Why moving off the trial cost nothing in code.** `neo4j-graph.js`/
-`neo4j-seed.js` were audited directly (grep for `apoc.`, `gds.`, `USE `,
-`SHOW DATABASES`, `dbms.`, vector/fulltext indexes — zero matches) back
-when the "are you building inside Neo4j within the free tier features?"
-question first came up — confirmed the whole schema (plain uniqueness
-constraints, plain indexes, single default database via `driver.session()`
-with no `database` param) is Community/Free-tier-compatible. Migrating
-the paused **AuraDB Professional trial** (`Tra`, id `c5605db2`) to a
-permanent **AuraDB Free** instance was therefore a pure credential swap,
-zero code changes.
-
-**What actually shipped:**
-- Created a new AuraDB Free instance in the same Aura project. `NEO4J_URI`/
-  `NEO4J_USERNAME`/`NEO4J_PASSWORD` updated directly on Tra's Render
-  Environment tab (never pasted into chat — same standing credential rule
-  as every other integration in this file). The env-var save triggered an
-  automatic redeploy; confirmed via Render logs, `Neo4j schema: ok` at
-  **05:11:51 UTC** — the first successful Neo4j connection since Sep 7.
-- **Reseed, same one-off-cron-job technique as the original Sep 2, 2026
-  live seeding** (this sandbox has no way to hold real Neo4j credentials
-  or reach Aura directly, same as it never could): a temporary Render Cron
-  Job (`neo4j-reseed-once`, `node neo4j-seed.js`, scheduled for a literal
-  Feb 31 so it can never auto-fire — manual-trigger only), with the new
-  instance's three credentials added directly to *that job's own*
-  Environment tab (cron jobs don't inherit env vars from other services).
-  Triggered manually once; the run log confirmed schema ensured, all 12
-  companies and 10 relationships upserted (the TSMC semiconductor cluster
-  + the BlackBerry/automotive cluster from the Sep 1-2, 2026 saga), and
-  both round-trip verification blocks passing (**"OK — all 6 relationships
-  confirmed round-trip through Neo4j"** for TSM, **"OK — all 3
-  relationships confirmed round-trip through Neo4j"** for BB). Cron job
-  deleted manually afterward via the Render dashboard once it had served
-  its one purpose — same as last time, the Render MCP toolset has no
-  delete/destroy tool for any resource (confirmed again), only
-  create/list/get/metrics/env-update.
-
-**Left open, not urgent:** the old paused Professional trial instance
-(`c5605db2`) still exists in the Aura console and can be deleted whenever
-convenient — a paused instance isn't accruing further cost, so there's no
-rush, just a real cleanup item. This is a new instance from the one seeded
-Sep 2, 2026, so there is no data-migration concern — the new Free instance
-was reseeded from the same source (`neo4j-seed.js`) rather than copied
-from the old one.
-
-**Confirmed live, not just deployed:** this is the first time since the
-Sep 7-13 gap that a real classification/correlation sync should succeed
-on real traffic — watch Render logs for `syncClassificationToGraph`/
-`syncCorrelationToGraph` lines with no trailing error message (they only
-ever log on failure; a clean sync is silent) to confirm it's holding.
-
-## Backend: same-direction historical-accuracy confidence ceiling — pooled grading becomes an input to the verdict, not just a readout (Sep 14, 2026)
-
-Direct follow-up to a full live sweep confirming every Sep 13, 2026 fix
-(proxy-fit ceiling, BDC/REIT sizing cap, regime prewarm, Candidate
-Probation) was genuinely wired and running in production. That sweep's
-own honest conclusion named one real gap: `verdict_log`'s grading data
-feeds two real displays (the ticker card's TRACK RECORD row, the
-Scorecard's expectancy metric) but never the verdict pipeline itself —
-Candidate Probation and the proxy-fit ceiling are the only two mechanisms
-that self-correct from anything, and both are correlation-driven, not
-accuracy-driven. Direct instruction: close that gap — introduce pooled
-per-ticker accuracy as a real input to the verdict, not just a readout.
-
-**Scoped via `AskUserQuestion` before writing any code, given how
-consequential a verdict-logic change this is.** Confirmed: confidence-cap
-only, the same one-step `HIGH → MEDIUM` demotion shape as the Sep 13
-proxy-fit ceiling — explicitly **not** a sizing cap and **not**
-suppression to FLAT. A stronger intervention was considered and rejected
-specifically because of a "stopped clock" risk: forcing a ticker to FLAT
-whenever its own history looks bad would mean it could never ship a real
-verdict in that direction again to prove it's improved, since nothing
-would ever get graded going forward to correct the record.
-
-**A real design gap found before writing the mechanism, not assumed away.**
-`computeHistoricalReaction()` (Sep 1-2, 2026, feeds the two existing
-display consumers) pools **all** graded verdicts for a ticker regardless
-of direction — which is exactly why ALAB's real problem (0/8 UP verdicts
-graded TRUE) doesn't show up as alarming in a direction-agnostic average
-that also includes its DOWN/FLAT history. The new mechanism has to compare
-against the SAME direction as the verdict being shipped, or it can't
-actually catch the failure shape that motivated it in the first place.
-
-**Shipped (`Tra` + `trade-verdict`, same PR pattern, function names, and
-mirror discipline as every gate-logic change in this file):**
-- `computeDirectionalAccuracy(symbol, direction)` — a new function/cache,
-  deliberately kept separate from `computeHistoricalReaction()` rather than
-  modifying it in place, since two already-shipped display features depend
-  on that one staying direction-agnostic. Same shape, same
-  `SCORECARD_TICKER_MIN_GRADED` (5) floor, same fail-safe-to-stale-cache
-  posture — queries `verdict_log` scoped to `.eq("verdict", direction)`
-  in addition to the existing ticker filter.
-- `ah.applyHistoricalAccuracyCeiling(confidence, sameDirectionPct)`
-  (`analyze-helpers.ts`) — `HISTORICAL_ACCURACY_FLOOR_PCT = 40`, same
-  "reasonable-but-arbitrary, revisit once real data accumulates" posture
-  as `PROXY_FIT_FLOOR` and every other threshold in this file seeded from
-  judgment rather than a data fit. Only ever demotes a clean `HIGH`; never
-  touches `MEDIUM`/`LOW`, sizing, or the verdict direction — same one-
-  directional discipline as the proxy-fit ceiling right above it.
-- Wired into `/analyze` immediately after the proxy-fit ceiling call,
-  gated behind `parsed.confidence === "HIGH" && (parsed.verdict === "UP"
-  || parsed.verdict === "DOWN")` — the async Supabase query only fires
-  when the result could actually matter, so the common non-HIGH case
-  costs zero extra load.
-
-**Verified against real production data, not just simulation.** Pulled
-ALAB's actual UP-direction graded rows directly from Supabase (8 rows, all
-`FALSE`) and ran them through the real, extracted `tickerStatsWithFloor`/
-`computeAccuracyStats` logic (not reimplemented) end to end: computes
-`{directionalPct: 0, gradedCount: 8}`, and feeding that into the real
-`applyHistoricalAccuracyCeiling('HIGH', 0)` correctly returns `MEDIUM` —
-confirming this mechanism would catch ALAB's exact real failure shape the
-moment it self-assigns a clean HIGH again. Also: 13 new unit-test cases
-(both repos, 92/92 passing total, up from 85 — the real floor boundary,
-insufficient-data safety, and confirmation that MEDIUM/LOW/sizing/
-verdict-direction are never touched); `node --check` clean on both
-`server.js` and the compiled `analyze-helpers.js` in both repos; a real
-local boot of `Tra`'s actual `server.js` (dummy env vars) confirmed via a
-live `curl` — clean start, real HTTP response, zero crashes.
-`trade-verdict`'s mirror confirmed byte-identical to `Tra`'s in every
-touched region via direct diff before and after editing.
-
-**Not yet verified against a live deploy** — same standing posture as
-every backend change in this file. To confirm: watch for a ticker with 5+
-same-direction graded verdicts and a genuinely poor track record in that
-direction, and confirm a clean, otherwise-HIGH-confidence verdict in that
-same direction renders MEDIUM instead; check Render logs are silent (no
-`computeDirectionalAccuracy` errors) as real traffic exercises the new
-query path.
-
-## Backend: verdict_log gets a confidence column + same-day repeat-verdict dedup (Sep 14, 2026, `Tra` PR #114 / `trade-verdict` PR #343)
-
-Prompted by checking Render logs for `computeDirectionalAccuracy` errors
-right after the Sep 14 historical-accuracy ceiling shipped — that check
-surfaced a real gap: `verdict_log` had no `confidence` column at all, so
-neither confidence-ceiling mechanism (`applyProxyFitCeiling`, the
-same-direction `applyHistoricalAccuracyCeiling`) was observable after
-the fact. There was no way to confirm a real HIGH->MEDIUM demotion had
-actually fired in production, or hadn't, from this table alone.
-
-**Fix 1 — `confidence` column.** `supabase-ddl-patch14`: one nullable
-`confidence text` column, additive, no backfill (pre-existing rows'
-real confidence was never captured and can't be reconstructed).
-`logVerdict()`'s insert and its one call site now carry
-`confidence: parsed.confidence` — logged right before the row is
-written, after every ceiling that can demote confidence has already
-run, so this is the real, final value a verdict shipped at.
-
-**Fix 2 — same-day repeat-verdict dedup, a real gap found while
-investigating.** A direct follow-up question — how accurate is the
-Scorecard when a ticker gets analyzed several times in one morning with
-different answers each time — led to checking the actual grading code
-and the live data together. Confirmed two things:
-
-1. **"Unrealized" (ungraded) verdicts were already handled correctly.**
-   Every `/scorecard` query filters `.not("graded_at", "is", null)` — a
-   verdict that hasn't reached its 24h/5-trading-day grading window yet
-   was never counted in any accuracy stat. Not a gap.
-2. **Repeat same-day calls on one ticker were NOT deduplicated at
-   all — a real gap.** `analyzeOne()`/`analyzeAll()` fire a real
-   `/analyze` call every time with no cache check whatsoever — the
-   client's same-day verdict cache (`shared/analysis-cache.ts`) is only
-   ever consulted by the pill-tap navigation path, never by Analyze All
-   or the plain ANALYZE button. Confirmed live in real production data:
-   HOOD logged **DOWN (13:31), UP (13:56), FLAT (14:02), FLAT (14:18),
-   then UP (14:32)** — five different calls in about an hour, almost
-   certainly from Analyze All being re-run against the same ~14-ticker
-   watchlist every 15-25 minutes. Every one of those five became its
-   own independently-graded `verdict_log` row, and every Scorecard-
-   facing query counted all five equally — a ticker re-checked often
-   padded the graded pool proportionally more than one checked once,
-   even though "how often it got re-checked" has nothing to do with
-   call quality.
-
-**A related, separate asymmetry surfaced but NOT fixed this pass,
-flagged for a future decision if wanted:** `classifyVerdictReturn()`
-(which drives the headline `directionalPct` stat) grades purely off the
-verdict word vs. price outcome — it never checks `size_action`. A
-`NONE`-sized UP/DOWN call (one the app itself flagged as "don't act on
-this") still counts fully toward directional accuracy; only the
-separate `computeExpectancyStats` excludes `NONE`-sized and FLAT calls.
-So the headline "accuracy" number grades the AI's raw directional
-sentiment, while the profit-oriented number grades actual actionable
-calls — two different scopes, both surfaced as "accuracy" in different
-parts of the app. Left alone deliberately, since it's a real design
-question (should directional accuracy also require a real sizeable
-action?) rather than an obvious bug, and this pass was already scoped
-to the repeat-call dedup.
-
-**Fix, confirmed via `AskUserQuestion` before writing any code — only
-the LAST same-day call for a given ticker+user counts.** Three options
-were on the table (first call wins, last call wins, keep counting all
-of them) — last call wins was chosen, treating each same-day
-re-analysis as superseding the earlier read rather than the first
-glance being the "real" decision.
-
-`supabase-ddl-patch15`: nullable `superseded boolean not null default
-false`. New `supersedeSameDayVerdicts(ticker, userEmail)`, called at
-the top of `logVerdict()` before every insert — marks any existing,
-not-yet-superseded row for the same `(ticker, user_email)` issued on
-or after the current UTC calendar day's start as `superseded = true`.
-Rows are never deleted — the row and its eventual real grade stay in
-the table for audit/history, just excluded from aggregate stats going
-forward. Every Scorecard-facing query now adds `.eq("superseded",
-false)`: `computeHistoricalReaction` (the ticker card's TRACK RECORD
-row), `computeDirectionalAccuracy` (feeds the Sep 14 confidence ceiling
-**directly** — this bug was quietly skewing a live verdict-pipeline
-input, not just a display number), `fetchScorecardPool` (the pooled
-direction-breakdown/top-tickers stats), and both `/scorecard` queries
-(free-aggregate and personal).
-
-**Scoped to ticker+user_email+calendar-day (UTC); anonymous Free-tier
-rows are deliberately left unscoped.** A row with no `user_email` can't
-be attributed to a specific visitor — two anonymous `tier='free'` rows
-on the same ticker same day could be the same person re-checking, or
-two different people who happen to both check it, with no way to tell
-which. Same "can't attribute, don't guess" posture as every other
-anonymous-data limitation in this file. Grading itself
-(`gradeDueRows()`) is untouched — a superseded row's real price outcome
-is still legitimate, factual data; the exclusion only applies at the
-aggregate-stat read layer, not the write/grading layer.
-
-**Verified with a real simulation, not just reasoning about the SQL.**
-Since `execute_sql` (the available Supabase MCP tool) runs every query
-in a read-only transaction, there was no way to test-write against the
-real table and roll back — same limitation as every other Supabase-
-backed change in this file that needs behavioral verification. Built an
-11-assertion throwaway harness (fake in-memory Supabase client,
-`supersedeSameDayVerdicts`/`logVerdict` extracted verbatim) covering:
-the real HOOD-shaped 3-repeat case (only the last of 3 same-day calls
-stays live, all 3 rows still exist), a call from yesterday untouched by
-today's call, two different tickers for the same user staying
-independent, the same ticker for two different users staying
-independent, anonymous rows never getting superseded, and an
-already-graded earlier row correctly getting superseded with its real
-grade preserved (not wiped) — all 11 pass. `node --check` clean, real
-local boot of `Tra`'s `server.js` with dummy env vars (`HTTP 200`, zero
-crashes). `trade-verdict`'s mirror confirmed byte-identical in every
-touched region.
-
-**Not yet verified against a live deploy** — same standing posture as
-every backend change in this file. To confirm: after a same-day
-Analyze-All re-run on a real watchlist, check that only the most recent
-row per ticker has `superseded = false`; confirm `/scorecard` and the
-ticker-card TRACK RECORD numbers don't shift when a superseded row
-exists for that ticker.
-
-## Frontend: Verdict Scorecard + Track Record merged into one "Verdict Record" card, two flagged rows dropped (Sep 2026, `trade-verdict` PR #344, merged)
-
-Direct live feedback against a real Pro-tier screenshot: too much
-redundancy between the two accordion cards, `Strict accuracy` and
-`Win rate` specifically flagged (highlighted in the screenshot) for
-deletion. Scoped by mocking up three merge options in an Artifact
-sandbox first, per direct instruction, before touching real code —
-**Unified Stack** (pooled Scorecard stats stay the headline, personal
-log trims to its last 3 entries with a link/toggle for the rest, no
-tabs), **Toggle Tabs** (a real OVERALL/MY LOG switch), and **Compact
-Ledger** (most aggressive cut, full log behind a closed-by-default
-disclosure). Picked **Unified Stack** — this card lives on a
-watchlist page meant for a quick scan, and a tab switch or a
-closed-by-default log both add a decision/tap in front of the one
-thing this card is supposed to build trust in.
-
-**Deleted from the Scorecard half, both tiers, per the flagged
-screenshot:** `Strict accuracy` (sat at a confusing 0%, no signal
-Directional accuracy didn't already give more plainly) and `Win rate`
-(the same 46 sized trades as `Avg return per trade`, just a second
-percentage of the identical slice). Pure frontend change —
-`/scorecard`'s response still carries `strictPct`/`winRatePct` on the
-wire, just unread by either tier's `renderScorecardCard()` now; no
-backend PR needed.
-
-**The two cards became one, `data-card="scorecard"`/`id="card-scorecard"`
-kept as the merge target** (least churn — the help-balloon key, the
-tutorial-step anchor, and every generic accordion/dock/height-cap
-mechanism in `shared/rolodex.ts` key off this id). Retitled "Verdict
-Record" on both tiers. On **Pro**, the old separate `card-track`
-card is gone — its real content now renders as a "YOUR LOG" section
-directly beneath `#scorecard-body` in the same card body, separated
-by a repurposed `.track-clear-row` (now a divider row: label on the
-left, Clear All on the right, instead of just a right-aligned button).
-
-**`renderTrackRecord()` (`shared/track-record.ts`) rewritten to match
-the approved distillation**, not just trimmed in place: the hit-rate
-number, the UP/DOWN/HOLD tally, and the personal Top Tickers list are
-gone — all three re-sliced data the pooled Scorecard stats sitting
-right above them (or each other) already covered. What's left is the
-one thing the pooled side can't show: **streak** (unchanged logic,
-same em-dash-below-a-real-streak convention as before) with a 5-dot
-sparkline (`.trend-pip`, repurposed from the old 20-pip "LAST N" bar),
-then the **3 most recent trades** unconditionally, with anything
-beyond that (up to the same 8-total cap `renderTrackRecord()` always
-used) tucked behind a **"VIEW FULL LOG (N)" toggle** — reused the
-exact `.expand-btn`/`.analyst-arrow` visual language Analyst View
-already established for this same "tap to reveal more" pattern,
-rather than inventing a new disclosure widget. `renderGateAttribution()`/
-`renderTickerAccuracy()` (pro/app.ts's "ACCURACY BY TRIGGER"/"ACCURACY
-BY TICKER" breakdowns) removed outright, not hidden — both operated on
-DOM containers (`#track-gate-breakdown`/`#track-ticker-breakdown`)
-that no longer exist. `classifyTrigger()`/`TRIGGER_LABELS` themselves
-are untouched — Analyst View still uses them; only the two aggregate
-views built on top of `getAccuracyLog()` are gone. The now-pointless
-`refreshTrackRecordCard()` wrapper (which called `renderTrackRecord()`
-plus the two removed functions) was deleted too — its 3 call sites now
-call `renderTrackRecord()` directly (or, for the Clear All handler,
-nothing extra at all — `clearLog()` already re-renders internally).
-
-**Starter gets a blurred teaser for "YOUR LOG" instead of real
-content**, per direct instruction — Starter has never had manual
-logging (`tierConfig.tracker:false`, no `track-record-sync` import at
-all). This replaces a standalone `.track-teaser` promo box that used
-to sit after the Glossary card, unrelated to either accordion card —
-removed outright, folded into the merged card instead. New
-`.record-log-blur`/`.record-log-upsell` mirror Free's existing Sector
-Pulse teaser technique (`index.html`'s `.pulse-blur`/`.pulse-upsell` —
-`filter:blur(4px)` on static example content, a centered upsell CTA
-on top) rather than inventing a new pattern, styled as an absolutely-
-positioned overlay (not the original's negative-margin trick, which
-depends on guessing the blurred content's exact height) so it stays
-correctly centered regardless of how tall the fake example content is.
-The fake content reuses the real `.track-log-item`/`.tli-*`/
-`.record-streak-row` classes (newly added to `starter/index.html`,
-which never needed them before) so the blur genuinely previews the
-real Pro feature's shape, not an approximation. CTA links to the same
-Pro-upgrade Stripe link Starter's per-ticker-card "UPGRADE → Pro to
-log results" link already uses.
-
-**Verified via real headless Chromium, both tiers, 27 checks** (mocked
-`/scorecard`/`/market`, a primed `tv_accuracy_log` on Pro): confirmed
-the card title reads "Verdict Record" on both; confirmed `Strict
-accuracy`/`Win rate`/`ACCURACY BY TRIGGER`/`ACCURACY BY TICKER` are
-absent from the rendered DOM on both tiers; confirmed UP vs DOWN and
-the pooled Top Tickers section still render; confirmed exactly 3 trade
-rows show by default on Pro with a real "VIEW FULL LOG (5)" toggle
-that reveals all 5 on click; confirmed Clear All still empties the log
-(real `confirm()` dialog handled, not skipped); confirmed Starter's
-old standalone `.track-teaser` box is gone from the DOM; confirmed the
-blur filter is genuinely applied (`getComputedStyle`, not just present
-in the CSS source) and the upsell CTA links to the correct Stripe URL.
-Zero console/page errors on either tier. `node --check` clean on both
-bundles and both compiled `shared/*.js` siblings; `npx tsc --noEmit`
-against `pro/app.ts`/`starter/app.ts` directly (project's real
-compiler options) and `npm run typecheck` both show the same known
-7-error `?v=N`-import-resolution baseline, zero new errors; `npm test`
-(92/92) unaffected — this doesn't touch `gates-extended.ts`/
-`analyze-helpers.ts`. `esbuild` rebuild + chunk-header grep confirmed
-no duplicate-module regression (Free:7/Starter:8/Pro:10 shared modules,
-unchanged). `?v=` bumped on `pro/index.html` (60→61) and
-`starter/index.html` (113→114) since each tier's bundled `app.js`
-content changed; `app.js` (Free) untouched — Free never had either
-card. `shared/track-record-sync.ts`'s own `./track-record.js?v=17→18`
-import bumped per the standard rule, even though Pro's bundler
-(`normalizeSharedImports`) resolves it to the `.ts` sibling regardless
-of the query string.
-
-**Not yet verified against a live deploy** — same standing posture as
-every frontend change in this file; `tra-zacg.onrender.com` is
-unreachable from this sandbox. To confirm: open a real Pro account's
-merged card and check the streak/recent-trades/view-full-log toggle
-against real `tv_accuracy_log` data; open a real Starter account's
-card and confirm the blurred teaser renders correctly on an actual
-device (the absolute-position overlay technique here is new to this
-codebase, unlike the negative-margin trick it's modeled on).
-
-**Follow-up, same day (`trade-verdict` PR #345, merged): the live build
-had drifted from the approved sandbox mockup — a real gap between what
-was designed and what shipped, not a live bug.** Reported directly
-against a real Pro-tier screenshot ("this doesn't look like the
-rendering we agreed to") next to the original approved Artifact mockup.
-Comparing the two side by side confirmed the complaint: the merge PR
-above implemented the right CONTENT (which fields to drop, what to
-keep) but never actually ported the mockup's own visual shape — it fell
-back to this file's existing generic `.trigger-row`/`.track-log-title`
-row styling instead. Concretely, the mockup's compact two-tile pooled
-header, "Pooled · N graded" badge, colored pill-badge verdicts,
-abbreviated dates, inline flame-streak, and plain "Clear"/"View full
-log →" links never made it into the actual build.
-
-**Rebuilt `renderScorecardCard()` (`pro/app.ts`/`starter/app.ts`) and
-`renderTrackRecord()` (`shared/track-record.ts`) to match the mockup for
-real, superseding the shapes described earlier in this section:**
-- Pooled stats now render as two `.sc-tile` stat boxes (Directional
-  accuracy / Avg return per trade) under a `.sc-pooled-badge` reading
-  "Pooled · N graded" — not the stacked full-width label/value rows the
-  first build used. The "IF FOLLOWED AT RECOMMENDED SIZE" and "UP vs
-  DOWN ACCURACY" section headers are gone too — the mockup never had
-  them, the tiles/rows speak for themselves. "TOP TICKERS (POOLED)"
-  replaces "TOP 5 TICKERS (ALL USERS)".
-- The streak (`renderTrackRecord()`) no longer renders as its own
-  labeled `.record-streak-row` inside the log body — it's injected into
-  a new `#trackStreakInline` span that lives in the static "YOUR LOG"
-  divider row itself, right next to the label, as a 🔥 + count + 5 small
-  `.track-streak-pip` squares (replacing the old 8×16px `.trend-pip`
-  bars, which are gone). `renderTrackRecord()` now updates two DOM
-  targets, not one — guarded independently, since `#trackStreakInline`
-  doesn't exist on any page this function might run against without it.
-- Each log row now shows the verdict as a colored `.tli-pill` (dim
-  background + full-color text, the same `--green-dim`/`--red-dim`/
-  `--amber-dim` tokens already used everywhere else in this app) plus a
-  plain `.tli-check` (✓/✗) instead of the old "✓ RIGHT"/"✗ WRONG" text,
-  and an abbreviated month/day `.tli-date` (`"Aug 28"`) instead of a
-  full `session + time + "ET"` timestamp. `.tli-verdict`/`.tli-result`/
-  `.tli-time` are removed outright, not left as dead CSS.
-- "Clear" and "View full log (N) →" are now plain underlined links
-  (`.track-clear` restyled as a link, new `.view-full-log-link`) instead
-  of bordered buttons (`.track-clear`'s old border/background, and the
-  old `.expand-btn`/`.analyst-arrow` toggle borrowed from Analyst View).
-  The link's own label flips to "Hide full log ←" when expanded, same
-  toggle behavior as before, just a text-only affordance instead of a
-  separate arrow glyph.
-- Starter's blurred "YOUR LOG" teaser preview (`starter/index.html`'s
-  static fake content) was updated to the same pill/inline-streak shape
-  — the blur is supposed to preview the real Pro feature's actual look,
-  and it had drifted the same way the real Pro build had.
-
-**Verified via a 39-check headless-Chromium pass on both Pro and
-Starter** against the redesigned markup/CSS — pooled tiles/badge render
-with the right values, the dropped section headers are genuinely absent
-from the DOM, the streak renders inline with 5 pips and clears when the
-log empties, log rows render as pills with plain checkmarks and
-abbreviated dates (not "RIGHT"/"WRONG" or a full timestamp), Clear and
-View-full-log both compute to a transparent background (confirming
-they're genuinely links, not styled buttons), expanding reveals all 5
-rows and flips the link label, Starter's teaser uses the same pill/flame
-shape, zero console errors on either tier. One self-inflicted test bug
-caught and fixed before trusting the result: an early assertion counted
-`.tli-pill` anywhere in the DOM (5 — 3 visible + 2 already rendered but
-hidden behind the toggle) instead of scoping to `#track-body`'s direct
-`.track-log-item` children (3) — not an app bug, a test-selector
-mistake, fixed by scoping the query correctly. `npm test` (92/92,
-unaffected), `npx tsc --noEmit` against both tiers' `app.ts` directly
-(same known 7-error `?v=N` baseline, zero new errors), `esbuild` rebuild
-+ chunk-header grep (no duplicate-module regression, Free:7/Starter:8/
-Pro:10 unchanged). `shared/track-record.ts`'s content change cascaded
-one hop into `shared/track-record-sync.ts`'s own relative import
-(`?v=18→19`, both the `.ts` source and its compiled `.js` sibling, per
-this file's own `.ts`-source-must-carry-the-bump-too rule) — though
-since Pro's bundler resolves shared imports to their `.ts` sibling
-regardless of query string, this bump is for source-of-truth
-consistency, not something the live bundle actually depends on.
-`pro/index.html` (61→62) and `starter/index.html` (114→115) `?v=`
-bumped since each tier's own bundled `app.js` content changed.
-
-**Lesson worth keeping, since this cost a full extra round-trip:**
-approving a design in a sandbox mockup and then building "the same
-thing" for real are two different steps, and the second one needs to be
-checked against the first, not just against the written spec of what
-content to keep/drop. A mockup conveys visual shape (tile layout, pill
-badges, inline placement, link-vs-button styling) that a text summary
-of "what changed" can silently drop even when every content decision
-in that summary was implemented correctly — confirmed here by directly
-diffing a fresh screenshot of the live build against the original
-approved mockup image side by side, not by re-reading the PR's own
-description of itself.
-
-**Not yet verified against a live deploy** — same standing posture as
-every frontend change in this file. To confirm: open a real Pro
-account's card and check the tile/pill/streak rendering against real
-`/scorecard` and `tv_accuracy_log` data; open a real Starter account's
-card on an actual device and confirm the redesigned teaser still reads
-correctly through the blur.
-
-## Ops: Play Console edge-to-edge warnings — the fix has shipped since Sep 3-4, 2026; a signed build with it has been sitting ready the whole time (Sep 15, 2026)
-
-A full repo sweep was prompted by Mr. T's screenshot of Google Play
-Console's pre-launch report still showing two unresolved "For your next
-release" warnings ("Edge-to-edge may not display for all users," "uses
-deprecated APIs or parameters for edge-to-edge") on the app's second
-closed test — with testers actively using it and approval on the line.
-**This section had never existed until now**, even though the actual
-code fix long predates it (`trade-verdict` PR #283 / build-android.yml
-runs #7-13, Sep 3-4, 2026) — a real documentation gap this sweep closes.
-
-**The fix itself, already in `android/app/build.gradle` and
-`android/twa-manifest.json` on `main`:** `com.google.androidbrowserhelper`
-bumped 2.6.2 → 2.7.3 (2.7.0-alpha03 is the release that fixed this exact
-SDK 35 edge-to-edge warning for Bubblewrap-generated TWAs,
-`GoogleChromeLabs/bubblewrap#967`), `minSdkVersion` 21 → 23 (a required
-follow-up — 2.7.3 itself refuses to build under 21), and the app's
-orientation lock removed everywhere it was declared
-(`twa-manifest.json`, `build.gradle`, root `manifest.json`,
-`LauncherActivity.java`'s `setRequestedOrientation`) — Play's own
-"remove resizability and orientation restrictions" warning, and the
-real cause of a live "not rotating" report at the time (an
-Activity-level lock CSS/JS can never override). `versionCode`/
-`versionName` were also bumped 1 → 2 so a rebuilt APK installs as a
-real update, not an ambiguous same-version reinstall.
-
-**Confirmed, not assumed, that a signed build containing this fix
-already exists and has existed since Sep 4, 2026 — this was the whole
-point of this sweep's investigation.** `.github/workflows/build-android.yml`
-(workflow id `332215098`, `workflow_dispatch`-only, confirmed via a
-correctly-scoped `list_workflow_runs` query — an earlier query in this
-same session had accidentally pointed at the wrong workflow, "pages
-build and deployment," and needed to be redone against the real numeric
-id) shows **run #13 (`33829198696`, Sep 4 2026 02:21-02:23 UTC) completed
-successfully**, built from commit `18e793b` on
-`claude/android-rotation-rebuild` — a lineage that already carries the
-full edge-to-edge fix above. That run's own job publishes the signed
-`.apk`/`.aab` to a scratch branch (`store-assets/android-builds`, same
-raw.githubusercontent.com-URL technique this file's "Delivering files to
-Mr. T" section already documents, since Actions' own signed artifact
-URLs are blocked by this sandbox's egress policy) — confirmed directly
-by fetching that branch: its HEAD commit ("Publish Android build v2
-(18e793b...)", timestamped 2026-09-04 02:23:17 UTC) matches run #13
-exactly, and it contains both `android-builds/trade-tribunal-latest.aab`
-and `android-builds/trade-tribunal-latest.apk`.
-
-**Correction: the "never uploaded" conclusion below was wrong — this
-session had no way to see Play Console at all, and shouldn't have
-guessed as confidently as it did.** The paragraph originally here
-concluded the signed `.aab` had never been uploaded as a new release,
-reasoning only from GitHub Actions/repo state — which says nothing
-about what Mr. T actually did in Play Console, a system this session
-has zero visibility into (no connector, no API access). Directly asked
-"are you positive I didn't upload that bundle?", and a real Play
-Console App Bundle Explorer screenshot settled it: **"App bundle:
-2 (2)"** (versionCode 2, matching the Sep 4 bump), **"API levels
-23+"** (the exact `minSdkVersion` bump made for the androidbrowserhelper
-2.7.3 fix), target SDK 36, and **"3 releases"** already using this
-exact bundle. That's the precise fingerprint of the fixed build —
-it has already been uploaded and released multiple times.
-
-**So the real, still-open question is why Play's pre-launch report
-keeps showing the edge-to-edge warnings against a build that should
-have cleared them** — not "was it uploaded." Possibilities, none
-confirmed from here: the pre-launch report is a stale/cached scan from
-before this exact bundle went out and hasn't been re-run since; the
-report is being read against an older release/track than the one
-holding versionCode 2; or the androidbrowserhelper 2.7.3 + orientation-
-unlock fix genuinely doesn't fully satisfy whatever Play's automated
-scanner checks, despite matching the documented cause
-(`GoogleChromeLabs/bubblewrap#967`) exactly. **This needs a human check
-of the actual Play Console pre-launch report page** — specifically,
-confirm which app bundle version/release the report was last run
-against, and whether re-running it (or waiting for the next scheduled
-scan) against the current "2 (2)" release clears the warnings. If it
-doesn't, that's real evidence the code fix needs a second look, not
-just a re-upload.
-
-**Answered the same day: real root cause, confirmed directly against
-the fixed release, not stale-scan/wrong-release.** Mr. T pulled up the
-pre-launch report's own expandable detail view for "Your app uses
-deprecated APIs or parameters for edge-to-edge" and screenshotted it.
-It's explicitly scoped to **Release name: 2 (2)** — the exact
-versionCode-2 build confirmed live above, not an older/cached scan —
-and names `android.view.Window.setStatusBarColor`/
-`setNavigationBarColor` as "starting in"
-**`androidx.core.view.WindowCompat.enableEdgeToEdge`**, the very
-AndroidX function `androidbrowserhelper` 2.7.3's `EdgeToEdgeController`
-calls to implement the fix.
-
-This directly confirms — via Play's own live scan of the fixed release,
-not inference — the risk flagged as unverified during the original
-research pass: a third-party developer's own dex/bytecode analysis
-(`Timehue/ShinobiX` PR #173, cited above) claimed `WindowCompat.
-enableEdgeToEdge()` itself still calls the deprecated setters
-internally, with no SDK guard. That claim couldn't be checked against
-AndroidX's real source from this sandbox (`cs.android.com` is
-egress-blocked) — Google's own report just verified it directly, on
-this app's actual shipped build.
-
-**What this settles: the warning is not fixable from anything in this
-repo.** No file here — `LauncherActivity.java`, `AndroidManifest.xml`,
-`build.gradle`, `colors.xml` — calls either deprecated setter directly;
-the call chain bottoms out one dependency layer down, inside
-`androidx.core` itself, which `androidbrowserhelper` depends on to do
-the "correct" edge-to-edge thing. The only real fixes from here are
-external and out of this project's control: `androidbrowserhelper`
-shipping a version that stops routing through `WindowCompat.
-enableEdgeToEdge()` in favor of its own guarded implementation, or a
-future `androidx.core` release patching that function's internals.
-Bumping our own dependency version further won't help unless one of
-those upstream fixes actually exists in the version bumped to — check
-`GoogleChrome/android-browser-helper` release notes for that
-specifically before trying another version bump.
-
-**Confirmed non-blocking, not confirmed harmless — a real, important
-distinction.** Checked directly: nothing in Play Console's UI marks
-this "must fix" — it's still filed under "For your next release," the
-same non-blocking severity tier Google uses for advisory findings, and
-this exact release has already gone out across 3 real releases with
-the warning present the whole time. This matches the pattern
-independently found in `flutter/flutter` issue #183372 (a Flutter app
-doing everything right still got this same warning traced to a
-framework-internal call, closed as a known duplicate) — a known,
-apparently-accepted-by-Google class of one-layer-removed warning that
-doesn't block shipping. **Treat this as closed/documented, not as an
-open action item** — there's nothing further to chase in this repo
-unless `androidbrowserhelper`'s own release notes announce a real fix
-for it later.
-
-**What this sweep can still say with confidence:** the code fix itself
-(androidbrowserhelper 2.7.3, minSdk 23, orientation unlock) is correct
-per Google's own documented cause for this warning, is on `main`, is
-CI-verified via a successful `build-android.yml` run, and — now
-confirmed — is the exact bundle already live in Play Console across 3
-releases. The one remaining warning traces to a real, external,
-non-blocking cause inside AndroidX itself, confirmed directly against
-this app's own shipped release, not left as an open question.
-
-**Rest of this sweep, run the same day:** `npm test` (92/92), `npx tsc
--p tsconfig.json` (same known 7-error `?v=N`-import-resolution baseline,
-zero new), and a full `node esbuild.config.mjs` rebuild of all three
-bundles (Free/Starter/Pro chunk-header grep confirmed at their
-established 7/8/10 shared-module counts, zero `git status` diff against
-what was already committed) all came back clean — the repo's own
-build/test state matches what's actually deployed, nothing stale or
-drifted. A live check via the `Trade_Tribunal` MCP connector's
-`get_market` tool returned real, current production data (correct
-`marketOpen:false` outside trading hours, a real Gate 0 YELLOW read, a
-real generated Sector Pulse narrative) — the first time this file has a
-directly-confirmed-live (not "unverified from sandbox") market-data
-round trip on record. A Supabase Security Advisor scan came back with
-zero new findings — only the one already-documented, deliberately-
-deferred WARN (`auth_leaked_password_protection`, blocked by the
-project's Free plan; see the Aug 26, 2026 entry above) is present, and
-every previously-fixed grants/RLS/search_path issue remains fixed.
-
-## Frontend: landscape HUD — a nowrap headline could blow a row past the pane's own bounds (Sep 15, 2026, `trade-verdict`)
-
-Direct live report, real screenshot: a Watchlist overflow row's headline
-("Trump Calls Jensen Huang Live On-Stage at the All-In Summit: 'Robots
-Will Not Be Taking Over,'") ran past the visible right edge of the
-device with no ellipsis, and the top Gate/pill marquees looked cut off
-at both ends too (that second half is normal marquee mid-scroll
-behavior, not a bug — flagged and ruled out before touching anything).
-
-**Root cause: a CSS Grid automatic-minimum-size interaction, not a
-missing wrap/ellipsis rule — those were already correctly in place.**
-`.card-body{display:grid}` makes `.card-body-inner` a grid item. Per
-spec, a grid item's default `min-width` is `auto` (content-based) ONLY
-when its own `overflow` is `visible`; the portrait rule's
-`overflow:hidden` on this same element quietly resets that automatic
-minimum to `0`. The landscape override (`.utility-pane .card[data-card]
-.card-body-inner{overflow:visible;}`, added for the Sep 6, 2026
-`position:sticky`-containing-block fix documented above) restores
-`overflow:visible` for a completely unrelated reason — and as a side
-effect, un-does that free reset too. With the automatic minimum back to
-`auto`, the grid item's minimum width becomes its content's min-content
-size, which for a `white-space:nowrap` descendant (`.compact-news`,
-shared verbatim by Pro's Watchlist-overflow rows AND the Agitator
-Gauge's RELATED rows on all three tiers) is the full unbroken headline
-width. The whole row balloons past `.utility-pane`'s own bounds and
-only gets stopped where `.utility-pane`'s own `overflow-x:hidden`
-finally catches it (the Sep 7, 2026 fix) — a hard, ellipsis-less
-cutoff, since `.compact-news` itself never got squeezed down to a width
-where its own `text-overflow:ellipsis` would ever trigger.
-
-**A real false start caught before shipping, worth keeping as a
-lesson.** First attempt at verifying this used the exact real headline
-text from the report at a standard 844×390 landscape viewport — and
-found NO measurable overflow in either the buggy or fixed state, which
-would have meant either the theory was wrong or the fix was a no-op.
-Rather than trust that single (nearly-negative) result, built an
-isolated minimal repro of just the CSS structure in question and forced
-a synthetic string long enough to unambiguously exceed the pane's
-width — which cleanly reproduced the bug (`.utility-pane.scrollWidth`
-742px→1296px) and confirmed the fix (back to 742px). Re-ran the exact
-same forcing technique against the real, unmodified app afterward and
-got the same result (742px→1213px→742px) — the original real-headline
-test simply happened to land just under the threshold at this specific
-viewport/font combination in headless Chromium; the real device in the
-report evidently renders it wider (a different actual landscape width,
-or the real "Martian Mono" web font vs. this sandbox's generic
-monospace fallback). **Don't trust a single non-reproducing test as
-proof a theory is wrong — force the input further before concluding
-that, especially when the mechanism itself is independently sound.**
-
-**Fix: one declaration, `min-width:0` on the same landscape
-`.card-body-inner` override that restores `overflow:visible`** — this
-overrides the automatic minimum regardless of the overflow value, so
-the grid item shrinks correctly again and `.compact-news`'s own
-`text-overflow:ellipsis` finally has a bounded box to clip against.
-Applied identically to all three tiers' hand-copied CSS (`index.html`,
-`starter/index.html`, `pro/index.html`), same convention as every other
-shared landscape-HUD rule in this file.
-
-**Checked that this wasn't hiding elsewhere, not assumed from the fix's
-generality.** The selector this lands on
-(`.utility-pane .card[data-card] .card-body-inner`) matches every card
-in the landscape HUD, not just Watchlist's — confirmed directly by
-reading `getComputedStyle(...).minWidth` on every card's
-`.card-body-inner` post-fix: all 9 cards on Pro (dial, pulse, agitator,
-import, watchlist, proxy, heatmap, scorecard, glossary), all 6 on
-Starter, all 4 on Free report `0px`. Also grepped every tier for any
-other `white-space:nowrap` + `overflow:hidden` ("ellipsis pattern")
-element living inside a card body — `.compact-news` (Watchlist overflow
-rows, Agitator RELATED rows) is the only one; `.card-label`/`.card-sub`
-live in `.card-head`, which is `display:none` in landscape and never
-at risk; `.brand`/`.credits-chip`/`.gate-marquee`/`.rolo-divider` all
-live outside any card body entirely. Re-confirmed the Agitator card's
-own RELATED row specifically (not just Watchlist) resolves cleanly
-post-fix via a real headless-Chromium check with a synthetic
-oversized related-company headline. **Nothing else needs this same
-fix** — one declaration, on one shared ancestor, covers every card on
-every tier by construction, not by luck.
-
-`npm test` (92/92) unaffected — pure CSS change, no `.ts`/`.js`
-touched, no `esbuild` rebuild or `?v=` bump needed.
-
-**Not yet verified against a live deploy** — same standing posture as
-every frontend change in this file; the specific font-rendering
-difference that made the real device (but not this sandbox's headless
-Chromium) trip the threshold on the original real-world headline is
-itself unconfirmed. To confirm: open the real Watchlist overflow list
-in landscape on a real device with a genuinely long headline in it and
-confirm it now truncates with "..." instead of bleeding past the frame.
-
-## Frontend: "N / N" pill-position hint replaced with a plain divider line (Sep 15, 2026)
-
-Direct report against a real Pro-tier screenshot: the `#roloHint` "15 / 15"
-text sitting between the active ticker card and the cards below it was
-redundant — real leftover from the pre-Aug-15, 2026 swipe/paging design
-(the active pill in `#roloIndex`'s ribbon already shows the same position
-info via its `.active` highlight; card switching has been pill-tap-only
-since Aug 16, 2026, so `.rolo-nav`'s original "which position am I on"
-purpose no longer applies). Asked for it to become a plain division line
-instead.
-
-**Removed cleanly, not just hidden.** `shared/rolodex.ts`'s
-`positionRoloStack()` no longer writes into `els.roloHint` — the field was
-dropped from `RolodexEls` entirely, not left as dead state. All three
-tiers' `app.ts` dropped their `roloHint: document.getElementById(...)`
-line, and the `<span class="nav-hint" id="roloHint">— / —</span>` markup
-was removed from `.rolo-nav` in all three tiers' `index.html` (byte-
-identical across Free/Starter/Pro before editing, confirmed via grep).
-`.rolo-nav`'s CSS switched from a flex text-centering rule to a plain
-1px `var(--border-3)` line with side margins — the same divider color
-already used for every other faint-line-needs-real-contrast fix in this
-file (Sep 6, 2026, "landscape HUD polish... white dividers").
-
-**Verified via real headless Chromium** (mocked backend, Pro tier):
-`.rolo-nav` renders with zero text content, a real `1px` height, and the
-`--border-3` background color; confirmed `#roloHint`/`.nav-hint` no longer
-exist anywhere in the DOM. `npm test` (92/92) unaffected; `tsc` against
-`tsconfig.json` and each tier's own `app.ts` directly (project's real
-compiler options) show zero new errors beyond the known `?v=N` baseline;
-`esbuild` rebuild + chunk-header grep confirmed no duplicate-module
-regression (Free:7/Starter:8/Pro:10 shared modules, unchanged). `?v=`
-bumped on all three tiers' `<script>` tags (`index.html` 96→97,
-`starter/index.html` 115→116, `pro/index.html` 62→63) since each tier's
-bundled `app.js` content changed.
-
-## Frontend: reported "cutoff text" below the active ticker card — investigated, not yet confirmed (Sep 15, 2026)
-
-Same screenshot as above also showed a faint line of illegible marks
-between the (now-removed) "15/15" hint and the Watchlist card header —
-reported as "cutoff text," asked whether it's inside the card or bleeding
-through from behind it.
-
-**Ruled out:** `#landscapeHud` (the ribbon+pane HUD) sits in the DOM right
-after `.rolo-wrap`/before the Watchlist card and does contain a plain
-"Tap a card on the left to view it." placeholder — but it's `display:none`
-outside `@media (orientation:landscape)`, confirmed by reading the actual
-rule (not assumed), so it can't be rendering anything in a portrait
-screenshot.
-
-**Likely candidate, not confirmed:** the Rolodex's own intentional
-stacked-card effect — `positionRoloStack()` renders the 1-2 cards on
-either side of the active one with `translateY(±14/28px)`, reduced
-opacity (0.55/0.35), and `brightness(.7)`, a deliberate "peek of the next
-card" illusion. `.rolo-stage` has `overflow:hidden`, so this sliver should
-stay clipped within the stage's own box — but it's the one mechanism in
-this area that produces genuinely faded, partial text by design, and
-worth checking against before assuming a real bug. Not independently
-confirmed against the actual reported pixel position (the screenshot's
-resolution wasn't enough to read the region conclusively) — flagged for a
-follow-up check now that the "15/15" hint directly above it is gone,
-since that changes the exact boundary at that spot.
-
-## Backend/Frontend: anonymous per-device visit counting shipped — and real evidence for the recurring "grants come back" mystery (Sep 17, 2026, `Tra` PR #115 / `trade-verdict` PR #346)
-
-Prompted by checking Supabase directly for "how many unique visits" —
-the only existing signal (`credits`' own `ip:<address>` keys) turned out
-to badly overcount real people: 35 of 192 "unique" anonymous IPs
-(~18%) fell inside T-Mobile's `172.56.0.0/13` CGNAT block, which
-reassigns one phone a new public IP every time it hops a cell tower.
-Direct instruction, with a hard constraint: know how many different
-phones actually access the app, without phishing or asking anyone for
-anything.
-
-**What shipped.** `shared/device-id.ts` generates a random
-`crypto.randomUUID()` once and keeps it in `localStorage` — an
-app-generated identifier for a browser storage slot, not anything
-requested from or identifying the visitor. `platform` (`web` vs. the
-Android TWA) is read from `document.referrer`, which Chrome itself sets
-to `android-app://<package>` on the one navigation that launches a page
-inside an installed Trusted Web Activity — a passive signal the browser
-already exposes, not a fingerprint. Pinged fire-and-forget from `boot()`
-on all three built tiers through each tier's existing `authH()`/
-`addSecret()` config, same auth path every other backend call already
-uses. New `POST /device-ping` (`Tra`, mirrored here) upserts by
-`device_id` into a new `device_visits` table
-(`supabase-ddl-patch16-device-visits.sql`) — a returning device updates
-one row (`last_seen_at`/`visit_count`) rather than minting a new
-"visitor"; `first_seen_at`/`first_tier` are excluded from the update
-payload so they're never overwritten. No IP, user-agent, or email is
-accepted or stored anywhere in this table. Verified via real
-headless-Chromium checks (exactly one ping per boot, correct body,
-correct auth header per tier) and by simulating the upsert directly
-against the live table before merging. Both PRs merged the same day.
-
-**The real finding, prompted by a direct follow-up question ("do we
-have to leave the table exposed? we've realized that it causes a
-security exposure in the past").** The table needs to be reachable via
-Supabase's Data API for `Tra`'s `supabase-js` client to read/write it at
-all — that part isn't optional under the current architecture. The
-open manual step from both PRs was adding `device_visits` to Project
-Settings → Data API → Exposed tables. That was done, then — completely
-unprompted, just checking the state honestly rather than assuming the
-earlier revoke still held — a fresh `information_schema.role_table_grants`
-query on `device_visits` came back with full `anon`/`authenticated`
-SELECT/INSERT/UPDATE/DELETE, live, on the public anon key, sitting right
-there in every tier's page source.
-
-**This is the same regression class documented above (Aug 4, Aug 13,
-Aug 26) — but this time there's an actual, direct trigger to point at,
-not just a guess.** The Aug 13 entry above flagged this exact
-question and left it explicitly unconfirmed: "a dashboard action or a
-script re-granting broadly" vs. "the Aug 4 fix never actually held
-long-term" — flagged to Mr. T as an open question, not guessed at,
-because nobody had a clean before/after to compare. This time there is
-one: `device_visits`' grants were confirmed clean (zero rows) right
-before the Data API exposure toggle was flipped, and confirmed reopened
-(all four privileges, both roles) immediately after, with nothing else
-touching this table or this project in between. That's about as close
-to a controlled repro as this mystery has ever gotten — strong evidence
-that **exposing a table via Data API → Exposed tables on this project
-re-grants `anon`/`authenticated` default privileges as a side effect**,
-independent of whatever RLS/revoke state it had going in.
-
-**Re-closed immediately**, then swept every service-role table in the
-project in one query (not just `device_visits` — the Aug 13 lesson was
-specifically not to scope narrowly after a surprise like this):
-`credits`, `accuracy_log`, `proxy_resolution`, `pre_gate_triggers`,
-`watchlists`, `proxy_regime_state`, `pre_gate_solvency_state`,
-`verdict_log`, `corroboration_log`, `news_cache`, `mcp_oauth_state`,
-`device_visits` — zero `anon`/`authenticated` grants across all twelve,
-confirmed via the standard query. Only `device_visits` was affected;
-whatever this project's history has going on didn't touch anything
-that wasn't just freshly exposed.
-
-**Updated standing rule, superseding the informal "periodically
-re-check" advice from Aug 13 with something concrete to act on:**
-exposing or re-exposing ANY table via Data API → Exposed tables is now
-its own trigger for the grants check, same tier as running a DDL
-patch — not a background "eventually get around to it" task.
-Immediately after toggling a table's Data API exposure (new table or
-existing), re-run:
+  undirected `CORRELATES_WITH` (`MERGE (a)-[r]-(b)`).
+- `getComparableTickers(ticker)` — `*1..2` traversal over both edge types.
+- Both upserts lazily create a stand-in `Company` node (`company_id = ticker`)
+  that a later `upsertCompany()` fills in.
+
+`server.js`, fire-and-forget and fail-safe:
+- `resolveGate5`'s static branch → `syncClassificationToGraph(...)`, deduped
+  per process with a `Set`.
+- `resolveGate5`'s dynamic branch and `resolveProxyRegime` →
+  `syncCorrelationToGraph(...)`, not deduped (already rare).
+- `fetchGraphPeers()` merges `kg.getComparableTickers()` behind curated
+  `RELATED_TO` peers.
+
+The schema uses only Community/Free-tier features (no APOC/GDS/multi-db).
+
+## Frontend/Backend: Verdict Scorecard rework — pooled TRACK RECORD on the ticker card (Sep 2, 2026, same `Tra` #89 / `trade-verdict` #277)
+
+Mr. T: per-ticker rows don't belong in the Scorecard; show pooled accuracy for
+that one ticker on its own card, on every tier.
+
+- `/scorecard`'s whole per-ticker block (personal/pool/graph-peers) was
+  deleted from the backend and from `renderScorecardCard()` on Pro and
+  Starter.
+- `computeHistoricalReaction(symbol)` now returns
+  `{ directionalPct, gradedCount }` (Agitator reads `.directionalPct`). It is
+  relayed through `refreshMarketEntry`/`symbolMarketCache`/`/ticker/:symbol`,
+  with a 1h `historicalReactionCache`. No sign-in or tier gate.
+- New `TRACK RECORD 65% (12 graded)` row at the bottom of `gateListHTML()`
+  after CONFIDENCE, all three tiers, omitted below 5 graded. First
+  track-record signal on Free.
+- Card subtitles shortened after pixel measurement (help-button addition had
+  shrunk the space): "Coherence per ticker," "Sectors + your watchlist,"
+  "Log & track accuracy," "Auto-graded accuracy."
+- `gate0Status` still defaults to GREEN for enforcement, but the logged
+  `gate0_read` now uses `gate0Reported` (raw client value, or `"UNKNOWN"`), so
+  real calm and missing data are distinguishable.
+
+**Playwright lesson:** `page.route()` matches LIFO. Register a broad
+catch-all first and specific routes after, or the catch-all swallows
+everything. Use `page.mouse.click()` at real coordinates for pill taps.
+
+## Agitator Gauge — commodity/spot-price path and the standing "every path" rule (Sep 5, 2026, `Tra` #93-#101 / `trade-verdict` #290-#305)
+
+**Standing rule, permanent — do not make Mr. T re-state it.** Every query
+typed into the Agitator, with no exceptions for query type, must produce:
+1. at least one real, cited news article;
+2. 2-3 related recommendations;
+3. a composite signal score (Pro/Shark also see the full per-factor SIGNALS
+   breakdown).
+
+This applies uniformly to all three result shapes: **Path A** (resolved
+company/ticker), **Path B** (no-company topical fallback), and **Path C**
+(commodity/currency spot code). None is a lesser case. A change that leaves
+any path without all three is a regression, not a design choice. Mirror fixes
+across all three paths.
+
+Current commodity path:
+- `resolveCommodityCode()`/`COMMODITY_ALIASES` match the **entire** trimmed,
+  lowercased query (`xau`/`gold`, `xag`/`silver`, plus oil, natural gas,
+  copper, platinum, palladium). Never a substring, so "gas prices surge" still
+  goes through normal resolution.
+- **Gold:** real spot from goldprice.dev via `fetchCommodityPrice()`, env var
+  `GOLDPRICE_API_KEY` (`Authorization: Bearer`). The docs' "no key needed"
+  claim was false (403). Real response shape is
+  `{"symbols":[{"symbol":"XAU","price":"4429.83",...}]}` with **string**
+  values; read `data.symbols[0].price` (fallback bid/ask average),
+  `Number()`-coerced. Confirmed live.
+- **Silver:** goldprice.dev's free plan is XAU-only (paid Pro needed for
+  silver/copper; it has no platinum/palladium on any tier). Mr. T chose a
+  different free source: `fetchSilverSpotFallback()` via keyless
+  gold-api.com. **Unverified against a live response** (sandbox blocked);
+  it logs the raw body on any shape mismatch. Check Render logs for
+  `fetchSilverSpotFallback resolved $X` or `unexpected response shape`.
+- **Oil, natural gas, copper, platinum, palladium:** proxy-only, no free real
+  spot vendor exists. Tradable ETF proxies via `fetchQuote()`: USO, UNG, CPER,
+  PPLT, PALL. Gold/silver fall back to GLD/SLV if spot fails.
+- `COMMODITY_RELATED_FALLBACK` (own proxy excluded): gold → GDX/NEM/SLV,
+  silver → SIL/PAAS/GLD, oil → XOM/CVX/OXY, natural gas → LNG/EQT/RRC,
+  copper → FCX/SCCO/COPX, platinum → SBSW/PLG/GLD, palladium → SBSW/PLG/SLV.
+- The commodity response reuses `computeTopicalFallback(commodityEntry.name, new Set())`
+  for a real article and companies, and passes through `composite` (all tiers)
+  and `factors` (Pro/Shark, `tierConfig.tracker`). Frontend reuses
+  `agitatorFactorRow()`/`relatedRowHTML()`/`addTickerBtnHTML()` and is fully
+  generic off the response fields.
+- **Gauge ticker slot:** shows the tradable proxy as a hyperlink on the
+  commodity path. On Path B it shows the first validated company's ticker
+  whenever `topical.companies` is non-empty, `---` only when nothing tradable
+  correlates. Mr. T: "any tradable correlation should be in the spot." The
+  "not a company, so no Gate breakdown..." disclaimer clause was removed.
+
+**Lesson:** a `return null` on a shape mismatch with no log cost two full
+"check the logs" rounds. Always log the raw truncated body on a mismatch.
+Also: a proxy substituting for the real answer isn't the same as pursuing the
+real answer; Mr. T rejected the GLD/SLV stand-in.
+
+**Not verified live:** the news/recommendations/score extension on the
+commodity path. Confirm by typing "xau," "oil," or "copper" on a live Pro
+account.
+
+## Frontend: sticky controls rows in utility cards (Sep 5, 2026, `trade-verdict` #307, #309)
+
+- `.ctx-hint` ("Sorted by % change") had no CSS rule at all. It is now 13px,
+  matching that card's own `.card-sub` and `.sort-btn`. **Lesson:** measure
+  the surrounding elements in that specific card before applying the generic
+  11px secondary-text rule.
+- Controls rows are `position:sticky; top:0; background:var(--surface)`:
+  Watchlist `.wl-overflow-hdr`, Pro's Proxy Explorer `.proxy-sort-row`, and
+  Glossary `.glossary-search-wrap` (all tiers). Use `--surface` (the card's
+  background), not `--bg` (page background) — `--bg` painted a black band.
+  Use `padding-bottom`, not `margin-bottom`, so the painted background covers
+  the gap. Heat Map and Track Record need no sticky row.
+- The Watchlist card has no search feature; a ticker filter would be a new
+  request.
+
+## Frontend: landscape HUD and wide-screen scaling (Sep 5-7, 2026, `trade-verdict` #311-#321, #331)
+
+The landscape HUD is the ribbon + pane layout in `shared/rolodex.ts`. Current
+behavior and the lessons behind it:
+
+- **Independent scrolling (#311).** `sizeLandscapeHud()` computes available
+  height (same `dockOffsetFor()` math as portrait) and sets a real `height` on
+  `.landscape-hud` itself (not `max-height`, not on the pane). Both children
+  are `overflow-y:auto`. Called from `activateLandscape()`, the resize
+  listener, and `snapLandscapeHudUnderDock()`. `deactivateLandscape()` resets
+  it. `LANDSCAPE_HUD_BOTTOM_MARGIN = 4`. Lesson: capping one flex child
+  doesn't bound the container; the ancestor chain must be height-constrained.
+- **Stale portrait caps (#313).** `recapExpandedCards()` returns immediately
+  while `isLandscapeMode()`. `activateLandscape()` clears any inline
+  `max-height` on a card's `.card-body-pad` when moving it into the pane.
+- **Rotate from an open portrait card (#319).** `activateLandscape()` falls
+  back to whichever card has `.expanded` when `lsActiveCard` is unset.
+- **Ribbon taps (#313, #317, #319).** `selectLandscapeCard()` calls
+  `btn.scrollIntoView({behavior:'smooth', block:'start'})` so the tapped
+  item moves to the top and reveals what follows, and resets
+  `lsEls.pane.scrollTop = 0`.
+- **Sticky rows in landscape (#319).** `.card`, `.card-body-inner`, and
+  `.card-body-pad` each have their own `overflow` in portrait. Any non-
+  `visible` ancestor becomes a sticky containing block, so in landscape all
+  three are set to `overflow:visible` (safe: radius reset, no accordion trick,
+  no JS cap there). Control rows are padded tighter in landscape. Lesson:
+  walk the real computed ancestor chain; it took three tries to find all three.
+- **Horizontal bleed (#331).** Making those ancestors
+  `overflow:visible` removed horizontal clipping. Fixes: `.utility-pane` has
+  `overflow-x:hidden` in landscape; `.compact-row-top` has
+  `flex-wrap:wrap; row-gap:2px; min-width:0` globally, so wide content wraps
+  inside the row.
+- **Dividers (#317).** New `--border-3` token (32% white) on the ribbon/pane
+  border, ribbon buttons, Proxy Explorer items, Glossary terms/categories,
+  Agitator SIGNALS rows, and Track Record log rows.
+- **Wide-screen zoom (#315).** Mr. T wanted a real uniform zoom, not a
+  reflow. `updateResponsiveScale()` (`APP_SCALE_REFERENCE_WIDTH = 960`)
+  applies `transform:scale()` to `.app-shell` in landscape wider than 960px
+  and sets its height to `viewport height / scale`, so it fills both
+  dimensions. A no-op in portrait or ≤960px. It runs first in the resize
+  listener and before activate/deactivate on orientation change.
+  `currentAppScale()` mirrors its condition; every `getBoundingClientRect()`
+  height combined with virtual-unit values (`dockOffsetFor`,
+  `listHeadHeight`, `currentGateFullHeight`, `capCardBodyHeight`,
+  `capRoloCardHeight`, `forceGateDockedSync`, `recapExpandedCards`) is divided
+  by it.
+- **Snap under the dock (#321).** `scrollIntoView()` miscomputes under an
+  ancestor `transform:scale()`. `scrollToUnderDock(el, dockOffset)` computes
+  the virtual position and calls `scroller.scrollTo()` directly; used by
+  `snapLandscapeHudUnderDock()` and `scrollToActiveCard()`.
+  `snapFirstCardUnderGateDock()` (portrait Sector-Pulse soft-snap) now returns
+  early in landscape; it had been moving `scrollTop` ~200ms after every
+  landscape snap. Lesson: when a fix only shrinks a gap, measure the actual
+  inputs in effect; a second mechanism may be interfering.
+
+**Release lesson (#315):** after restarting a branch from `origin/main`,
+check the rebuilt bundle's diff shape against `origin/main` before
+committing. A stale source copy can compile and pass every check while
+silently reverting merged work.
+
+**Testing lesson (#319):** before interacting in a headless check, confirm the
+element's real rect is inside the viewport.
+
+**Not verified on a real tablet/Chromebook** — check touch targets at real
+finger scale.
+
+## Backend: MCP-over-HTTP server + OAuth connector (Sep 7, 2026, `Tra` #103-#108)
+
+All Claude-driven surfaces (this sandbox, Cowork) are blocked from reaching
+`tradetribunal.app`/`tra-zacg.onrender.com`, but MCP connectors route around
+that block. So `Tra` now hosts its own MCP server.
+
+- **`mcp-server.js`** — Streamable HTTP MCP (`@modelcontextprotocol/sdk`) on
+  Tra's Express app. Tools: `get_market`, `get_ticker`, `check_agitator`
+  (free, read-only, internal loopback to real endpoints), and `analyze`
+  (spends credits). `/mcp` is behind the normal auth middleware.
+  `mountMcpAt()` mounts it at both `/mcp` and `/mcp2`.
+- **`analyze` credentials:** env var `MCP_AGENT_KEY` resolves to a fixed pro
+  tier (auth PATH 1.5) with its own credits key `mcp:agent` (never `PRO_KEY`,
+  never a customer's balance). Provisioned with `tier: pro`,
+  `purchased_credits: 100`. The request body is built server-side from
+  `/market` + `/ticker/:symbol`, mirroring `starter/app.ts`'s `analyzeOne()`.
+- **`oauth-server.js`** — single-owner OAuth 2.1 shim: RFC 8414/9728 metadata
+  (including `/.well-known/oauth-protected-resource/mcp2`), RFC 7591 dynamic
+  registration, authorization code + mandatory PKCE. `/authorize` requires
+  typing the real `MCP_AGENT_KEY` into a form before issuing a code; `/token`
+  then mints a revocable access token accepted as `Authorization: Bearer`.
+  Logs every branch of `/register`/`/authorize`/`/token`.
+- `callerCredentialFrom()` forwards the Bearer header to tools' inner calls
+  (#107; tools 401'd before).
+- **Durable state (#108):** `public.mcp_oauth_state`, one row per
+  `(store, key)` across the four Maps. Write-through (memory first, then
+  Supabase); `hydrateAll()` at boot reloads non-expired rows. RLS disabled +
+  revoked, grants verified. Falls back to memory-only without Supabase.
+- Why `/mcp2`: an old connector entry at `/mcp` had the literal string
+  `MCP_AGENT_KEY` stuck as its client_id and couldn't be edited or deleted,
+  and claude.ai allows one connector per URL.
+- Confirmed live: a real `get_market` call from chat returned production data.
+- `mcp-server.js`/`oauth-server.js` are `Tra`-only transport plumbing and are
+  deliberately not mirrored here.
+
+**Standing trading-safety rule (agreed via `AskUserQuestion` before
+building): propose only.** Claude reads a Trade Tribunal verdict via the
+`analyze` tool and may propose a specific trade (ticker, direction, size) for
+Robinhood, but will never call Robinhood's `place_equity_order`/
+`place_option_order`/etc. off that verdict without the user explicitly
+confirming that exact trade first. No autonomous execution, no pre-set
+risk-budget autonomy tier — full manual confirmation on every single trade.
+This is a behavioral commitment, not enforced in code.
+
+**How a future session uses it:**
+1. The `Trade Tribunal` connector lives at account level (claude.ai →
+   Settings → Connectors), URL `https://tra-zacg.onrender.com/mcp2`,
+   "Requires sign-in" on. Any new chat in the account sees
+   `mcp__Trade_Tribunal__get_market`/`get_ticker`/`check_agitator`/`analyze`.
+2. Call `analyze(ticker)`, cross-check with the Robinhood connector's quotes/
+   portfolio/positions, **propose** a trade, and wait for explicit
+   confirmation before any order tool.
+3. Not yet tested from inside a Cowork session specifically (inferred to work).
+4. Re-authorization (after the 30-day access / 180-day refresh token
+   lifetimes, or if `MCP_AGENT_KEY` is rotated): enter the current
+   `MCP_AGENT_KEY` on the `/authorize` form. A deploy no longer forces this.
+   If a stuck connector's cached key never matches, regenerate
+   `MCP_AGENT_KEY` and re-enter it fresh.
+
+**Open:** the full "verdict → propose → confirm → place" loop hasn't been run
+for real. Mr. T planned a market-open "opening drive" check; nothing was
+scheduled.
+
+## Backend + Frontend: US market holiday awareness (Sep 7, 2026, `Tra` #109 / `trade-verdict` #333, #335)
+
+`isMarketOpen()` (backend) and the client-side `isMarketClosed()` both only
+checked weekday and time of day. Confirmed live: `marketOpen: true` on Labor
+Day 2026.
+
+- **Backend (`server.js`, both repos):** `MARKET_HOLIDAYS` (full-day
+  closures, `YYYY-MM-DD` ET) and `MARKET_EARLY_CLOSE_DAYS` (1:00pm ET: day
+  after Thanksgiving, Christmas Eve) for 2026 and 2027, checked via
+  `etDateStr()`. A year with no data falls back to weekday/time rules.
+- **Frontend:** the Gate's OPEN/CLOSED label and the market-closed → force
+  HOLD behavior use the client `isMarketClosed()`, never
+  `market.marketOpen`. It's deliberately tier-owned, so the same holiday data
+  is copied into six places: `app.ts` + `app.js` (Free), `starter/app.ts` +
+  `starter/app.js`, `pro/app.ts` + `pro/app.js`, `shark/index.html` (inline),
+  and `preview/rolodex/app.js`.
+
+**Needs a manual update for 2028+ in the backend `server.js` (both repos) AND
+every client `isMarketClosed()` copy listed above.** Re-derive from NYSE's
+published schedule (nyse.com/trade/hours-calendars) and cross-check,
+especially Good Friday (depends on Easter). A web-search summary once
+hallucinated 2027's Good Friday as April 16; the real date is March 26, 2027.
+
+Lessons: a hand calculation with a checkable ground truth must be
+cross-checked. Confirming a backend field is correct isn't confirming the UI
+reads it — trace the actual render path. A discriminating test (run against
+the pre-fix bundle, see it fail) beats a test that only passes once.
+
+**Not verified live** on a real holiday; check the Gate label on the next one
+(or with a devtools clock override).
+
+## Backend: proxy-fit correlation check for every static category, BDC/REIT sizing cap, regime prewarm (Sep 13, 2026, `Tra` #111 / `trade-verdict` #339)
+
+Data behind it (pooled `verdict_log`, 360 graded): UP calls were 34.4% right (n=61) vs DOWN 65.5%. All 40 failed UP calls were "clean" (Pre-Gate and Gate 0 GREEN), riding the model's own confidence with no server check. ALAB, ARCC, STWD, NU made up 41 of 61 UP calls at 24.4%; ALAB was 0/8.
+
+Root cause: `resolveProxyRegime()` only ran for Taiwan/Korea semis (`isFixedTaiwanKorea`). Every other static category got a proxy with no correlation check ever. And "INTACT" only means "not worse than its own baseline", never "strong enough to trust" (ALAB: rolling_r 0.49, baseline 0.66 vs TSM). ARCC's proxy (IWM+SPY) was correct; BDCs/REITs just rarely move enough. That's a category trait, not a wiring bug.
+
+Mr. T's constraint: fix the mechanism, not the tickers ("point at the problem, not the symptoms"). So no NU-specific reclassification, and `resolveGate5`'s BROKEN-regime dynamic fallback stays AI/Semiconductor-only.
+
+Shipped:
+1. `resolveProxyRegime()` now runs for any ticker with a static classification (`staticRule !== DEFAULT_PROXY`). It takes a `proxySymbol` (the rule's first proxy symbol; multi-symbol proxies like "USO + GLD" use the first only). `proxy_regime_state` gained `proxy_symbol` (patch12), so a reclassified ticker can't reuse a correlation computed against the old proxy. NULL rows self-heal on next check.
+2. `ah.applyProxyFitCeiling()` runs once in `/analyze` after every confidence-setting branch, including clean verdicts. Below `PROXY_FIT_FLOOR` (0.5), HIGH → MEDIUM. MEDIUM/LOW are never touched. It's deliberately not inside `priceConfirmedConfidence()`, which only runs on override branches and can't reach clean verdicts.
+3. `BDC/REIT/Income` gets `sizingOverride: "QUARTER"` on its `PROXY_RULES` entry (same check Patch 2's fundamentals-speculative tier uses). It applies at classification time, so new and keyword-matched tickers are covered on day one.
+4. `runRegimePrewarmSweep()`: a daily in-process `setInterval` that warms the regime cache for every ticker named in `gx.PROXY_RULES`. A standalone service was considered and rejected (the check is already cheap and weekly-cached).
+5. `classifyTicker()`/`PROXY_RULES`/`DEFAULT_PROXY` moved from `server.js` into `gates-extended.ts` unchanged, so the sweep can read the real list. `server.js` keeps local aliases (`const PROXY_RULES = gx.PROXY_RULES`, etc.).
+
+Tests: 13 new cases (incl. the real ALAB 0.49 → MEDIUM and the floor boundary).
+**Not verified live.** To confirm: ALAB caps at MEDIUM on a clean UP; ARCC/STWD never exceed QUARTER; Render logs show `runRegimePrewarmSweep` daily; `proxy_regime_state` fills with `proxy_symbol` rows beyond AI/Semiconductor.
+
+## Backend/Frontend: Candidate Probation for replacement proxies (Sep 13, 2026)
+
+Mr. T: when a proxy breaks, the replacement is a "search for new" placeholder that must earn sustainable correlation. `resolveFixedProxyBreak()` (Patch 2, unchanged) already finds a replacement. The gap was that a fresh `'primary'` find got forceDown authority off one snapshot.
+
+Checked first: dynamic-path forceDown authority comes only from `rule.forceDownAuthority` in `buildDynamicProxyRule()`. It is independent of the static `FORCEDOWN_EXEMPT`/`TAIWAN_PROXY`/`GATE_5_KOREA` registry, so probation only touches the dynamic path.
+
+Implementation (`server.js`, both repos; reuses `proxy_resolution`):
+- `PROXY_CANDIDATE_REQUIRED_CONFIRMS = 2`: consecutive checks the same symbol must clear the primary floor before promotion.
+- `GATE5_CANDIDATE_RECHECK_MAX_AGE_MS = 7 days` while on probation, vs `GATE5_RECOMPUTE_MAX_AGE_MS` (90 days) once promoted. `getCachedProxyResolution()` picks via `proxyCandidatePromoted(data.candidate_confirms)`.
+- `proxy_resolution` gained `candidate_confirms integer not null default 0` and `candidate_since timestamptz` (`supabase-ddl-patch13-proxy-candidate-probation.sql`; grants checked clean).
+- `saveProxyResolution()` reads the prior row and sets the streak: same symbol at `'primary'` → +1; a different symbol → 1; below the primary floor → 0 (a later re-clear restarts at 1). It returns `{candidateConfirms, candidateSince}`.
+- `buildDynamicProxyRule(resolved, candidateConfirms)`: an unpromoted `'primary'` reports tier `"candidate"`, with `forceDownAuthority: false` and `sizingOverride: "QUARTER"`. Both `resolveGate5()` call sites pass the streak.
+- Pro frontend: `tierColor` maps get `candidate: 'var(--purple)'`; `TIER_RANK` puts candidate at 1, between primary and secondary.
+
+**Not verified live.** To confirm: force a regime-BROKEN recompute on a non-AI/Semi ticker. It should show as `"candidate"` (purple, no forceDown, QUARTER), then promote to `"primary"` after a second same-symbol weekly confirm.
+
+## Ops: Neo4j moved from a paused Aura Professional trial to Aura Free (Sep 14, 2026)
+
+Tra's Neo4j sync failed silently from roughly Sep 7 to Sep 13 (`Could not perform discovery. No routing servers available`, empty routing table). The trial instance (`c5605db2`) had been paused.
+
+Lesson: **there is no Neo4j MCP connector in this environment.** All Neo4j health info comes indirectly from Tra's Render logs. Say a cause is unconfirmed until someone checks the Aura console.
+
+The schema is Free-tier compatible (no APOC/GDS/multi-db/vector indexes; audited), so the move was a credential swap with zero code changes:
+- New AuraDB Free instance; `NEO4J_URI`/`NEO4J_USERNAME`/`NEO4J_PASSWORD` set by Mr. T on Tra's Render Environment tab (never in chat). `Neo4j schema: ok` confirmed in logs.
+- Reseeded with the one-off Render Cron Job technique: `node neo4j-seed.js`, scheduled Feb 31 so it never auto-fires, its own env vars (cron jobs don't inherit them). Triggered once: 12 companies, 10 relationships, both round-trip checks OK. The cron job was deleted by hand — the Render MCP has no delete tool.
+
+Open, not urgent: delete the old paused instance `c5605db2` in the Aura console. To confirm health: `syncClassificationToGraph`/`syncCorrelationToGraph` only log on failure, so silence is good.
+
+## Backend: same-direction historical-accuracy confidence ceiling (Sep 14, 2026)
+
+Pooled grading now feeds the verdict, not just displays. Scoped with Mr. T: confidence cap only, one step HIGH → MEDIUM. **Not** a sizing cap and **not** forced FLAT — forcing FLAT is a "stopped clock": a ticker could never produce new graded calls to prove it improved.
+
+`computeHistoricalReaction()` pools all directions, which hides ALAB's 0/8 UP record. So:
+- `computeDirectionalAccuracy(symbol, direction)`: a separate function/cache (the original stays direction-agnostic for the two displays that use it). Same `SCORECARD_TICKER_MIN_GRADED` (5) floor, filters `.eq("verdict", direction)`.
+- `ah.applyHistoricalAccuracyCeiling(confidence, sameDirectionPct)`, `HISTORICAL_ACCURACY_FLOOR_PCT = 40` (judgment, revisit with data). Demotes HIGH only; never MEDIUM/LOW, sizing, or direction.
+- Wired in `/analyze` right after the proxy-fit ceiling, only when `confidence === "HIGH"` and verdict is UP/DOWN (so the query only runs when it matters).
+
+Checked against ALAB's real 8 UP rows → `{directionalPct: 0}` → MEDIUM. **Not verified live.**
+
+## Backend: `verdict_log` — confidence column, same-day dedup, dial (Sep 14-30, 2026; `Tra` #114 / `trade-verdict` #343 and later)
+
+Current columns worth knowing (besides grading columns, see the Scorecard section):
+- `confidence` (patch14): the final value after every ceiling. Pre-existing rows are null.
+- `superseded boolean not null default false` (patch15). `supersedeSameDayVerdicts(ticker, userEmail)` runs at the top of `logVerdict()` and marks earlier same-UTC-day rows for the same `(ticker, user_email)` as superseded. **Last call of the day wins** (Mr. T's choice). Rows are never deleted and still get graded; every accuracy reader filters `.eq("superseded", false)` — TRACK RECORD, `computeDirectionalAccuracy` (a real verdict-pipeline input), `fetchScorecardPool`, `/scorecard`. Anonymous rows (no email) are never superseded, since they can't be attributed. Reason: Analyze All re-runs gave HOOD 5 different calls in an hour, each counted equally.
+- `dial_position`: always `effectiveDialPosition` now. Free (no dial) logs `NEUTRAL` (CRF Default), not null — Free has always run CRF Default rules. 290 old null rows were backfilled (Sep 30). Logged in the Rogue Actions Log as a miss in the Sep 29 grading change.
+
+Known asymmetry, not fixed (a design question): directional accuracy grades UP/DOWN calls even when `size_action` is `NONE`.
+
+## Backend/Frontend: Scorecard grading — final rules (Sep 13-30, 2026; `Tra` #110, #128, #129 / `trade-verdict` #337, #368, #370)
+
+How grading works now:
+- **Market hours only.** `logVerdict()` stamps `issued_market_open` via `isMarketOpenAt()` (holiday- and early-close-aware). Off-hours verdicts (shown as HOLD in the UI) are never graded into any stat. Reason: pre-market UP calls were 1/15, weekend UP 0/10. Logged in the Rogue Actions Log.
+- **Day and Long windows, every call graded both ways** (`GRADE_WINDOWS`, patch25 here / patch23 Tra): Day = same session's close, target +4%. Long = close 5 sessions later, target +16%, FLAT band ×√5. `backfillDayLongFields()`; `gradeWindowRows("day"|"long")`.
+- **Horizon grading still runs** (patch23/patch21; `grade_horizon`, `horizon_sessions`, `horizon_target_date`, `horizon_due_at`, `actual_return_pct_horizon`, `graded_at_horizon`). Horizon = close of the Nth session per dial (`HORIZON_SESSIONS_BY_DIAL`: Aggressive 0, Light Aggressive / CRF Default / Free 1, Light Passive 2, Passive 5 — my calibration, not a spec). It feeds the confidence ceiling and the ticker-card TRACK RECORD. Grades against Alpaca daily-bar closes (IEX, raw); ungradeable rows (no entry price, crypto) close out with no grade 3 days after due.
+- **UP/DOWN rule (`gradeDirectionalCall()`):** closing in the call's direction by any amount = TRUE; against = FALSE; against after touching the dial's target in the window = MARGINAL. The stop never decides the grade (Mr. T's correction to an earlier first-touch rule). Weights: TRUE 1, MARGINAL 0.5, FALSE 0.
+- Trade path is still recorded: `path_outcome` (TARGET/STOP/NEITHER) and `path_return_pct` from 15-min bars (`TRADE_PATH_BY_DIAL`: Aggressive +4/−1, Light Aggressive +4/−3, CRF Default +6/−3, Light Passive +10/−5, Passive +16/−8; both in one bar = stop; a gap fills at the open).
+- **FLAT rule (`classifyFlatReturn`):** band = ½ of `fetchNormalDailyMovePct()` (mean |daily move| over the prior 20 sessions, split-adjusted; stored `flat_band_pct`). TRUE within ½, MARGINAL within 1×, else FALSE; any move under 0.1% is TRUE; fixed band if no history. Caveat: a 5-session horizon FLAT is judged against a one-day band — strict; revisit if it looks harsh.
+- **FLAT is separate.** `computeAccuracyStats()` headline (`directionalPct`, `gradedCount`) is UP/DOWN only; `flatPct`/`flatGradedCount` alongside (needs 5+). TRACK RECORD and Top Tickers are UP/DOWN only too.
+- **`/scorecard` is pooled for every tier** (the old mix of personal headline + pooled rows under a "Pooled" badge was misleading). Day/Long tiles need 20 graded UP/DOWN calls; the day-vs-long UP/DOWN/FLAT rows and top tickers need 5. Grades are frozen once recorded. Avg return/expectancy is removed from the card (the Sep 13 `computeExpectancyStats` "if followed at recommended size" metric and its per-branch-breakdown removal are superseded). `strictPct` is always null.
+- **Pro only (`proof`, sent only when `tierConfig.tracker`):** each tile shows a ±95% margin and "Always-UP X%" (share of the same graded calls whose window closed up). "beats it" (green) / "trails it" (red) if the gap exceeds the margin, else "not proven yet" (amber). The margin ignores same-day clustering, so it's optimistic.
+- **Sweep (`runVerdictGradingSweep()`, every 30 min, plus once 60s after boot):** `gradeUntilCaughtUp()` repeats each window's grader (150 rows/batch) until a batch grades nothing, capped at `GRADING_MAX_BATCHES_PER_SWEEP` (10). `clearAccuracyCaches()` resets `scorecardPoolCache`, `historicalReactionCache`, `directionalAccuracyCache` when anything grades. `verdictGradingSweepRunning` prevents overlap. Alpaca calls still use `alpacaGet()`.
+
+History: all horizon grades were cleared and re-graded after the Sep 29 deploy. Old baseline for comparison: 55.1% directional, +0.48% avg return per sized trade (Sep 13).
+
+**Not verified live:** check Render logs for one `Verdict grading sweep:` line clearing the backlog, and for `fetchSessionBars`/`fetchNormalDailyMovePct` errors. Long grades lag 5 trading days by design.
+
+## Frontend: "Verdict Record" card (Scorecard + Track Record merged) (Sep 2026, `trade-verdict` #344, #345)
+
+Mr. T picked "Unified Stack" from three sandbox mockups (pooled stats on top, personal log below, no tabs).
+- One card, kept as `data-card="scorecard"`/`id="card-scorecard"` (help balloon, tutorial anchor and `shared/rolodex.ts` mechanics key off it). Titled "Verdict Record". Pro's separate `card-track` is gone.
+- Pooled half: `.sc-tile` stat boxes under a `.sc-pooled-badge` ("Pooled · N graded"), "TOP TICKERS (POOLED)". `Strict accuracy` and `Win rate` removed (flagged by Mr. T). Tiles are now Day/Long per the grading section above.
+- "YOUR LOG" (Pro, `renderTrackRecord()` in `shared/track-record.ts`): streak as 🔥 + count + 5 `.track-streak-pip` squares injected into `#trackStreakInline` in the divider row; the 3 latest trades as `.tli-pill` verdict + `.tli-check` (✓/✗) + short `.tli-date`; the rest (up to 8) behind a "View full log (N) →" text link (`.view-full-log-link`); "Clear" is a plain link. Removed: hit rate, UP/DOWN/HOLD tally, personal top tickers, `renderGateAttribution()`/`renderTickerAccuracy()`, `refreshTrackRecordCard()`. `classifyTrigger()`/`TRIGGER_LABELS` stay (Analyst View).
+- Starter: a blurred "YOUR LOG" teaser (`.record-log-blur`/`.record-log-upsell`, absolutely positioned overlay) with fake content using the real Pro classes, linking to the Pro Stripe link. Replaces the old standalone `.track-teaser`.
+
+Lesson: building "the same thing" as an approved mockup needs checking against the mockup image, not just the written content spec — #344 got the content right but not the visual shape, costing a round trip.
+
+**Not verified live** against real `/scorecard`/`tv_accuracy_log` data or on a real device.
+
+## Android: Play Console edge-to-edge/orientation warnings (fixed Sep 3-4, 2026, `trade-verdict` #283, #285, #286; logged Sep 15-17)
+
+What Google flagged: "Edge-to-edge may not display for all users", "uses deprecated APIs or parameters for edge-to-edge", and "Remove resizability and orientation restrictions".
+
+Fix (live as versionCode 2, "2 (2)", across 3 releases, confirmed by Mr. T's App Bundle Explorer screenshot):
+- `com.google.androidbrowserhelper` 2.6.2 → 2.7.3 (2.7.0-alpha03 added TWA edge-to-edge support; `GoogleChromeLabs/bubblewrap#967`).
+- `minSdkVersion` 21 → 23, required by 2.7.3 (pinning older undoes the fix; `tools:overrideLibrary` risks runtime failures). Drops Android 5.0-5.1.
+- Orientation unlocked everywhere (`twa-manifest.json`, `build.gradle`, root `manifest.json`, `LauncherActivity.java` → `SCREEN_ORIENTATION_UNSPECIFIED`). An Activity-level lock can't be overridden from CSS/JS, so the APK had to be rebuilt; `versionCode`/`versionName` 1 → 2.
+- `.github/workflows/build-android.yml` fixes: pipe `"n"` to Bubblewrap's "regenerate twa-manifest.json?" prompt (yes would revert the library version); `git reset --hard`/`git clean -fd` before the publish branch switch. Signed builds publish to the `store-assets/android-builds` branch (raw.githubusercontent.com URLs). Workflow id `332215098`.
+
+**Final conclusion on the remaining warning: non-blocking, not fixable in this repo.** Play's pre-launch report on release 2 (2) traces `setStatusBarColor`/`setNavigationBarColor` to `androidx.core.view.WindowCompat.enableEdgeToEdge` — inside AndroidX, called by androidbrowserhelper's `EdgeToEdgeController`. Nothing in this repo calls them. It's filed under "For your next release" (advisory) and has shipped 3 releases. Only an upstream androidbrowserhelper or androidx.core release can fix it — check `GoogleChrome/android-browser-helper` release notes before another version bump. Treat as closed.
+
+Lesson: this sandbox has no Play Console visibility. Don't conclude what Mr. T did or didn't upload from GitHub state; ask.
+
+For relaying to Google: upgraded androidbrowserhelper to 2.7.3 and removed the portrait lock, raising minSdk to 23 as a consequence; released as versionCode 2.
+
+## Frontend: landscape HUD fixes (Sep 15, 2026)
+
+- **Nowrap headline overflow.** Landscape sets `.utility-pane .card[data-card] .card-body-inner{overflow:visible}` (needed for the Sep 6 sticky fix). As a grid item with `overflow:visible`, its automatic `min-width` becomes content-sized, so a `white-space:nowrap` `.compact-news` row (Watchlist overflow, Agitator RELATED) widens past the pane with no ellipsis. Fix: add `min-width:0` to that same rule, in all three tiers' CSS. Covers every HUD card by construction. Lesson: one non-reproducing test isn't proof a theory is wrong — force a longer input first. Not verified on a real device.
+- **`#roloHint` "N / N" removed.** Redundant since pill-tap-only switching. `roloHint` dropped from `RolodexEls` and all tiers; `.rolo-nav` is now a plain 1px `var(--border-3)` divider.
+- **Open:** a reported faint "cutoff text" line between the ticker card and the Watchlist card. `#landscapeHud` is ruled out (hidden in portrait). Likely the Rolodex's intentional stacked-card peek (`positionRoloStack()`, translateY ±14/28px, low opacity), but unconfirmed — re-check now that the hint is gone.
+
+## Supabase: toggling Data API exposure re-grants anon/authenticated — updated grants rule (Sep 17, 2026)
+
+First caught trigger for the recurring "grants come back" problem (Aug 4/13/26): `device_visits` grants were zero just before adding it to Project Settings → Data API → Exposed tables, and full `anon`/`authenticated` SELECT/INSERT/UPDATE/DELETE immediately after. Re-revoked; all 12 service-role tables then checked clean.
+
+**Rule:** exposing or re-exposing ANY table via Data API → Exposed tables is a trigger for the grants check, same as running a DDL patch. Right after, run:
 ```sql
 select grantee, table_name, privilege_type
 from information_schema.role_table_grants
 where table_schema = 'public' and table_name = '<table>'
   and grantee in ('anon','authenticated');
 ```
-and revoke again if anything comes back. This still isn't a fully
-proven root cause — one repro on one table is evidence, not certainty,
-and the Aug 4/13 incidents predate this observation and could still
-have a different or additional cause — but it's the first actual
-trigger anyone has caught in the act, and it's cheap enough to guard
-against unconditionally rather than keep treating every recurrence as
-a fresh mystery.
+and `revoke all on public.<table> from anon, authenticated;` if anything comes back. Also re-check after schema changes to a service-role table.
 
-**Not yet done, a real follow-up:** confirm this reproduces on a
-second table (the next time any table's Data API exposure is toggled
-for any reason) before calling the root cause fully confirmed rather
-than "one strong data point."
+Root cause is one strong data point, not proven. Open: confirm it on a second table the next time exposure is toggled.
 
-## Android app: Play Console edge-to-edge/orientation warnings — fixed, merged, live (Sep 3-4, 2026, `trade-verdict` PRs #283, #285, #286; retroactively logged Sep 17, 2026)
+## Backend/Frontend: `device_visits` — anonymous per-device visit counting (Sep 17-23, 2026; `Tra` #115 / `trade-verdict` #346, then patches through patch21)
 
-**Never logged here at the time it happened** — a real documentation gap
-this file's own record of every other change doesn't have. Android-side
-work (the Bubblewrap-generated `android/` project, its own CI workflow)
-has apparently been landing without a CLAUDE.md entry; logged retroactively
-now, from real git/CI history, at the user's request so it can be relayed
-to Google directly.
+Why: `credits`' `ip:<address>` keys overcount people (about 18% of anonymous IPs were in T-Mobile's `172.56.0.0/13` CGNAT block). Constraint from Mr. T: count phones without asking anyone for anything.
 
-**What Google flagged** (Play Console → Test and release → "For your next
-release," screenshotted against the live app, `app.tradetribunal.twa`):
-1. "Edge-to-edge may not display for all users" — from Android 15, apps
-   targeting SDK 35 display edge-to-edge by default; an app that doesn't
-   handle insets can render content under/behind the system status and
-   navigation bars.
-2. "Your app uses deprecated APIs or parameters for edge-to-edge."
-3. (Same screenshot round, a sibling flag on the same release) "Remove
-   resizability and orientation restrictions... to support large screen
-   devices."
+How it works:
+- `shared/device-id.ts`: a random `crypto.randomUUID()` kept in localStorage. `platform` (`web`/`twa`) from `document.referrer` (`android-app://<package>` on a TWA launch). No IP, user-agent or fingerprinting; email only from the account the user signed into.
+- `POST /device-ping` (behind normal auth middleware, so `req.userEmail` is set for signed-in pings). `pingDeviceVisit()` uses each tier's `authH()`/`addSecret()`.
+- **Final schema:** primary key `(device_id, user_email)`. Anonymous pings write `user_email = ''` (not NULL — NULLs are distinct in a PK and would add a row per ping). A device used by 2+ accounts gets one row per account. `first_seen_at`/`first_tier` are never overwritten. `first_seen_pt`/`last_seen_pt` are plain-text Pacific Time strings (`ptTimestampStr()`, `America/Los_Angeles`, e.g. `"2026-09-22 18:47:18 PT"`) next to the real UTC `timestamptz` columns (Supabase always shows those in UTC).
+- **When pings fire:** Free from `boot()` (its `sbSession` is set synchronously). Starter/Pro only at the end of `checkAuth()` and after a successful `handleLogin()` — before that fix, their top-level ping ran while `sbSession` was null and got 401'd (they have no tier secret), so they likely recorded no rows from Sep 17 to Sep 22. No anonymous ping on Starter/Pro.
 
-**Root cause, confirmed by reading the actual generated project, not
-guessed:** all three trace to two things in the Bubblewrap-generated TWA
-wrapper — `LauncherActivity.java` hard-locking orientation to portrait
-(`SCREEN_ORIENTATION_USER_PORTRAIT`), and the `com.google.androidbrowserhelper`
-library version (2.6.2) predating its own upstream fix for this exact SDK
-35 edge-to-edge warning.
+Reversals worth knowing:
+- A separate `device_accounts` table (Sep 22) was dropped on Sep 23. Mr. T: "I specifically asked you to change the timestamps and the user email correlation in the device visit table. NO OTHER TABLE WAS MENTIONED." Change the table that was asked about.
+- Display columns were first built in ET; Mr. T had asked for **PT**. ET is right for market logic (`etWeekday()`), not for this admin table. Don't default to the app's own convention when the request says otherwise.
 
-**What actually shipped, in three PRs:**
-1. **`trade-verdict` PR #283.** Unlocked orientation everywhere it was
-   declared (`android/twa-manifest.json`, `android/app/build.gradle`, root
-   `manifest.json`, the Android-bundled manifest mirror) to `"any"`/
-   `SCREEN_ORIENTATION_UNSPECIFIED` — directly answers flag #3, and the
-   old pre-Oreo code path already proved `UNSPECIFIED` doesn't reintroduce
-   the transparent-background splash crash its own comment used to warn
-   about. Bumped `com.google.androidbrowserhelper` 2.6.2 → **2.7.3** —
-   2.7.0-alpha03 is the specific upstream release that fixed this exact
-   SDK 35 edge-to-edge warning for Bubblewrap-generated TWAs
-   (`GoogleChromeLabs/bubblewrap#967`); 2.7.3 is the current stable release
-   past that fix — directly answers flags #1 and #2.
-2. **`trade-verdict` PR #285.** The 2.7.3 bump forced a real, unrelated
-   Gradle failure: `androidbrowserhelper` 2.7.3 itself requires
-   `minSdkVersion 23`, one higher than this app's existing 21. Raising
-   `minSdkVersion` (vs. Gradle's other two suggested escapes — pinning an
-   older compatible library version, which would undo the edge-to-edge fix
-   entirely, or `tools:overrideLibrary`, which Gradle's own docs warn "may
-   lead to runtime failures") was the only option that keeps the actual
-   fix intact. Real, disclosed cost: drops support for Android 5.0-5.1
-   (API 21-22) devices — judged negligible for this app's real install base.
-3. **`trade-verdict` PR #286.** Bumped the app's own `versionCode`/
-   `versionName` 1 → 2, since Android enforces the orientation lock at the
-   OS/Activity level — the previously-built/installed APK (versionCode 1)
-   would keep running the old portrait-locked Activity no matter what the
-   web bundle did, regardless of source changes already merged. Also fixed
-   the CI pipeline itself (`.github/workflows/build-android.yml`) through
-   three real, sequential build failures before it produced a clean
-   artifact: Bubblewrap's own interactive "regenerate twa-manifest.json?"
-   prompt blocking non-TTY CI outright (fixed by piping `"n"`, declining —
-   accepting would have silently reverted the hand-edited
-   `androidbrowserhelper` version back to Bubblewrap's own default); the
-   `minSdkVersion` failure from PR #285 (fixed there, confirmed live here);
-   and a `bubblewrap build`-generated uncommitted change to
-   `shortcuts.xml` colliding with the workflow's own branch-switch publish
-   step (fixed with a `git reset --hard`/`git clean -fd` immediately before
-   switching, safe since both build outputs were already copied out first).
+**Not verified live:** check a real shared device for one row per account with PT strings, and Starter/Pro row counts rising.
 
-**Verified as a real, successful CI build, not just a source-level fix.**
-The workflow's final run succeeded end-to-end and published a real signed
-`.apk`/`.aab` to a scratch branch in the repo (`android-builds/`,
-`raw.githubusercontent.com`-servable — the same "route around the sandbox
-network limitation instead of fighting it" pattern this file's own Google
-Play launch section already used for file handoffs, applied here to
-Actions-artifact signed-URL downloads instead).
+## Process: Rogue Actions Log in Notion (Sep 23, 2026)
 
-**Confirmed by Mr. T (Sep 2026): the built `.aab` has been uploaded to Play
-Console as a real release and is live/in use.** Not independently verified
-from this session — no Android SDK/emulator/Play Console access exists in
-any sandbox this project has used. Whether Google's own re-scan has
-actually cleared these three specific flags on the new release isn't
-separately confirmed either way; that's the one thing left to check on the
-Play Console side, not a code-level open item.
+CLAUDE.md's record of self-caused mistakes is not complete — it only holds what a session chose to write up (the ET-vs-PT mistake above wasn't logged until asked). A separate **Rogue Actions Log** database exists in Notion (not under the Build Log page), tracking every confirmed case where a session acted against an explicit instruction, shipped a wrong assumption as verified, or made an unrequested unilateral decision. **Any session that catches itself doing this, or is told it did, adds a row there** — not just a CLAUDE.md paragraph. Ask Mr. T for the link if needed.
 
-**For relaying to Google directly, the concise version:** upgraded
-`com.google.androidbrowserhelper` to 2.7.3 (the release that added edge-to-
-edge support for Trusted Web Activities) and removed the app's portrait
-orientation lock, raising `minSdkVersion` to 23 as a required consequence
-of the library upgrade; released as versionCode 2, currently live on Play
-Console.
+## Backend/Frontend: Free-tier push notifications and the daily-notifications plan (Sep 17-22, 2026; `trade-verdict` #350, #351)
 
-## Backend/Frontend: anonymous per-device push notifications — Free tier (Sep 2026, `Tra` PR / `trade-verdict` PR, mirrored per the two-repo rule)
+Why: Play closed testing needs testers re-opening the app over 14 days. Mr. T first wanted a login wall to enable push; rejected because Free is declared to Google Play as needing no account, and push is keyed to a device anyway.
 
-Direct ask, prompted by the "More testing required" Play Console rejection
-(closed-testing production access needs 12 testers genuinely re-opening
-the app across 14 consecutive days, not just opted in — see the research
-done the same session): "get people to remember to use the app." First
-framed as "make everyone log in so I can push a notification" — corrected
-before writing any code, via `AskUserQuestion`: a login wall isn't needed
-for this at all, and would actively work against the stated goal.
+Backend (`push-notifications.js`, both repos; `Tra` deploys):
+- `web-push`, VAPID-signed. `GET /push/vapid-public-key`, `POST /push/subscribe` (upsert by `device_id`), `POST /push/unsubscribe`, `sendPushToAllSubscribers()` (404/410 deletes the row; other failures are skipped).
+- `push_subscriptions` table (patch17 here): `device_id`/`endpoint`/`p256dh`/`auth`/`tier`/`disabled`, no email. RLS disabled + revoked, grants checked clean.
+- Sends once a day after the 9:30am ET market-open cache warm. Body = first sentence of the Sector Pulse (`pulsePushBody(cache)`, ellipsis at 140 chars), falling back to `gateNote` if the pulse isn't ready. Best-effort; can't break the cache warm.
+- **VAPID keys were set by Mr. T in Tra's Render Environment tab, never printed in a session.** Lesson: generating a secret is fine; routing it through your own output or tool-call arguments is not, even toward a trusted service. Hand it to Mr. T as a file.
 
-**Why no login.** Free tier's whole product story — and what's already
-declared to Google Play — is "no account required for any functionality"
-(this file's own Google Play launch section: *"Sign-in details: 'No.'
-Free tier requires no account for any of its functionality."*). Adding a
-signup wall now would mean re-declaring that to Google mid-review, on the
-exact app already flagged for scrutiny, and would add real friction at
-the one moment (a 14-day closed-testing window) that most needs zero
-friction to get testers reopening the app daily. Web Push doesn't need an
-account either way — a subscription is keyed to a device, not a person.
+Frontend (Free only — the only tier with a service worker; `shared/push.ts` is tier-agnostic):
+- `shouldOfferPush()`/`enablePush()`/`resyncPushIfGranted()`. **No banner.** Mr. T wanted "opt-out, not opt-in", but browsers always need the native permission dialog, and iOS only allows it from a real user gesture. So `requestPushOfferOnFirstGesture()` asks on the first pill tap (`onActivate`) or ANALYZE tap. One-time: a no-op once `Notification.permission` isn't `'default'`. `resyncPushIfGranted()` silently re-posts on every boot. Trade-off: less context for the OS dialog may lower the grant rate; revisit only with data.
+- `sw.js` `push`/`notificationclick`: renders `{title, body, url}`, generic message on a bad payload, focuses an open tab if there is one.
+- No new Android bundle needed: the Play app already has TWA notification delegation.
 
-**Shipped, riding the existing anonymous device_id (Sep 17, 2026,
-`device_visits`) instead of any login:**
-- `push-notifications.js` (new, both repos, `Tra`'s the real deploy
-  target) — `web-push`-backed, VAPID-signed. `GET /push/vapid-public-key`,
-  `POST /push/subscribe` (upserts by `device_id`), `POST /push/unsubscribe`,
-  and `sendPushToAllSubscribers()` — a 404/410 from the push service means
-  the browser itself dropped the subscription, so that row is deleted
-  rather than retried forever; any other single-subscription failure is
-  logged and skipped, never blocking the rest of the batch.
-- New `push_subscriptions` table (`supabase-ddl-patch17-push-subscriptions.sql`,
-  applied directly via Supabase MCP) — `device_id`/`endpoint`/`p256dh`/
-  `auth`/`tier`/`disabled`, no email, no phone number, nothing requested
-  from the visitor beyond the browser's own native permission prompt. Same
-  two-step RLS-disable + explicit-revoke pattern every service-role table
-  in this project uses, confirmed via the standard grants-check query
-  (zero `anon`/`authenticated` rows) — and, per the Sep 17, 2026
-  `device_visits` incident, re-confirmed clean specifically because that
-  incident showed exposing a table via Data API can silently re-grant
-  `anon`/`authenticated` privileges as a side effect.
-- **Sends real content, not a bare "come back" ping** — hooked directly
-  into the existing 9:30am ET market-open cache-warm `setInterval`
-  (Aug 5, 2026), firing right after `warmTrackedMarketCache()` populates
-  `marketCache`, so the notification body is that morning's actual Gate
-  status/note, never stale relative to what opening the app right now
-  would show. Best-effort: a push failure can never affect the cache warm
-  it rides alongside.
-- `shared/push.ts` (new, Free tier only for now — the only tier with a
-  registered Service Worker; written tier-agnostically so Starter/Pro can
-  adopt it later the same way) — `shouldOfferPush()`/`dismissPushOffer()`/
-  `enablePush()`/`resyncPushIfGranted()`. The offer is a one-time,
-  dismissible banner (plain block in normal page flow, deliberately kept
-  out of this app's dock/sticky/Rolodex plumbing — see this file's own
-  repeated lessons about that machinery being fragile — since it only
-  ever needs to show once at the top of the page). Never re-offered once
-  `Notification.permission` is no longer `'default'` (a real grant/deny)
-  or the visitor has dismissed it once. `resyncPushIfGranted()` runs on
-  every boot and silently re-posts an already-granted visitor's current
-  subscription — covers a dropped/stale server-side row (a redeploy, a
-  cleared table) without ever asking the visitor for anything again.
-- `sw.js` gained `push`/`notificationclick` listeners — renders from the
-  plain JSON payload the backend sends (`{title, body, url}`), fails safe
-  to a generic message on a malformed/missing payload rather than
-  throwing or showing nothing; `notificationclick` focuses an already-open
-  tab when one exists instead of always opening a new one (the realistic
-  shape of a real re-open during a testing window).
+Sign-up nudge and ANALYZE spotlight (Free):
+- Nudge on **every** app open for visitors without a valid `tv_session` (Mr. T rejected a 7-day cadence). Copy: free to sign up, no notification pitch. Same SIGN UP/SIGN IN destination as the header (a Starter signup with no purchase is a real free account). Floating modal on a translucent `backdrop-filter:blur(6px)`, tap outside or "Not now" to dismiss. `#comeback-screen` (out of credits) stays a full blocker on purpose.
+- After dismissal: spotlight on the active card's ANALYZE button (4 clickable dark strips, not a `pointer-events:none` box shadow) with "tap to ANALYZE - Could be your next favorite company!". Targeting: anonymous every time; first-ever sign-in on the device once (`tv_free_seen_signed_in`); returning signed-in users never. `nudgeOrSpotlight()` is the shared entry point (after the tutorial, or 3s after load).
+- Caching checked: `index.html` has the no-cache meta tag, and `sw.js` is network-first for everything (`SHELL_CACHE` only stores navigations as an offline fallback; `app.js` is never cached), so it adds no staleness beyond the `?v=` rule.
 
-**A real TypeScript/lib.dom strictness mismatch caught and fixed before
-shipping**, not a runtime bug: `PushSubscriptionOptionsInit.applicationServerKey`
-wants a `BufferSource` backed by exactly `ArrayBuffer`, while `Uint8Array`'s
-own generic type covers `ArrayBufferLike` (which also includes
-`SharedArrayBuffer`) — a real strictness mismatch in newer `lib.dom.d.ts`,
-not a genuine runtime concern for a freshly-allocated array. Fixed with a
-narrow, explained cast at the one call site.
+Open items:
+- **Phase 3 — personalized daily push for signed-in Starter/Pro/Shark users from their synced watchlist: NOT STARTED.** Needs a service worker on Starter/Pro, a `user_email` column on `push_subscriptions`, and a throttled daily send job picking 1-3 notable movers/Gate 5 flags per user.
+- **Idea, not decided:** both onboarding mechanisms (tutorial, spotlight) fire once and go quiet. Suggested: a persistent subtle glow on ANALYZE until the visitor's first analysis. No direction confirmed.
+- **Not verified live:** the sandbox can't reach the push service. Check Render logs for `push-notifications:` warnings (missing VAPID vars) or `Market-open push: sent N`, and test the permission dialog on a real device.
 
-**A credential-handling near-miss worth keeping as its own lesson.**
-Generated a real VAPID key pair locally (`web-push generateVAPIDKeys()`,
-pure offline crypto). The sandbox's own auto-mode classifier blocked a
-`Bash` command that would have printed the private key back into this
-session's own output ("Credential Materialization") — correctly, per
-this project's own long-standing "never pasted into chat" rule for
-secrets. Since setting it via the Render MCP tool would have required the
-same value to appear in a tool-call argument either way, there was no
-path that both kept the key out of this session's context AND set it
-programmatically. Resolved by writing the key straight from one file to
-another (never printed to stdout) and handing the resulting `.txt` to Mr.
-T via `SendUserFile`, for him to paste directly into Tra's Render
-Environment tab himself — the same "human enters the real secret
-manually" posture this file has used for every other credential in this
-project's history (the Android keystore, `MCP_AGENT_KEY`, the Neo4j Aura
-credentials). **Lesson: when a task needs a freshly-generated secret set
-somewhere, generating it is fine — routing it through your own visible
-output or tool-call arguments to get it there is the part to avoid, even
-when the destination is a trusted first-party service.**
+## Auth: sign-in lasts 24h (Sep 28, 2026)
 
-**Testing found two real, separate false leads before landing on the
-actual cause — both worth keeping since they'll recur on the next
-push-notification or Service-Worker test in this app:**
-1. `page.route()` (registered on the `Page`) does not reliably see
-   requests a Service Worker itself proxies in this sandbox — the exact
-   same gotcha this file's own testing notes already document for
-   Free tier's `sw.js`, but this is the first time it was hit on a route
-   that mattered for the test's own assertions rather than an unrelated
-   escaping request. Fixed by registering mocks on the `BrowserContext`
-   (`context.route()`) instead of the `Page`, which does correctly see
-   SW-proxied requests here.
-2. A `wireMocks()` helper that called `context.route(...)` without
-   `await`ing it produced a real, confusing race — some requests during
-   page load got mocked, others silently reached the real (egress-
-   blocked) network, and which ones failed depending on timing. Not an
-   app bug; a missing `await` in the test harness itself. **Always await
-   route registration before navigating** — an unresolved
-   `context.route()`/`page.route()` promise is not guaranteed to have
-   fully registered before the next line runs.
-3. **Confirmed as a genuine, un-mockable sandbox limitation, not a bug of
-   either kind:** `PushManager.subscribe()` itself is a browser-internal
-   call to a real push service (Google's FCM, in Chrome) — it never goes
-   through `fetch()`, so nothing at the `page.route()`/`context.route()`
-   layer can intercept it. Confirmed directly via an isolated diagnostic:
-   it throws `AbortError: "Registration failed - permission denied"` in
-   this sandbox regardless of key validity, matching the
-   `connect_rejected` entries for `android.clients.google.com` in the
-   agent-proxy's own connection log — the same class of "can't verify
-   against live X from this sandbox" limitation this file has documented
-   for Alpaca/Finnhub/SEC/Marketaux/goldprice.dev. Worked around for
-   testing purposes by stubbing just that one call
-   (`reg.pushManager.subscribe`/`getSubscription`) via
-   `page.addInitScript()`, which let every OTHER real code path —
-   `enablePush()`'s vapid-key fetch, the resulting `/push/subscribe`
-   POST body shape, banner state, `resyncPushIfGranted()`'s re-post on
-   boot — get verified end-to-end for real.
-4. **The first-run-tutorial-swallows-the-first-click gotcha this file
-   already documents (Sep 13, 2026) recurred here too**, on a plain
-   dismiss-button click this time rather than an accordion card —
-   `window.onPushDismissClick()` worked perfectly when called directly
-   via `page.evaluate()`, but a real `page.click('.push-banner-dismiss')`
-   silently did nothing, because the tutorial's own delegated
-   click-advance handler consumed it first. Fixed the same documented
-   way: `localStorage.setItem('tv_tutorial_seen_free', '1')` via
-   `page.addInitScript()` before navigating, in every test scenario.
+The client used to treat Supabase's ~1h access-token expiry as "signed out".
+- `/auth/login` also returns `refreshToken`. `POST /auth/refresh` (pre-auth allowlisted) runs on the throwaway `authClient()`, never the shared admin client.
+- Bundler-only `shared/session.ts` owns `getStoredSession`/`storeSession`/`isSessionValid` for Free/Starter/Pro. It stamps `loginAt`; a session is valid for `SESSION_MAX_AGE_MS` (24h, Mr. T: "login once per day").
+- `ensureFreshSession()` runs before API calls on load (Starter/Pro `checkAuth()`, Free `boot()`); `startSessionKeepAlive()` re-checks every 4 min and on `visibilitychange`. A 401 from refresh signs out; a network error keeps the session while its token works. Legacy sessions keep the 1h rule once. Shark untouched.
 
-**Verified end-to-end with all of the above accounted for:** a 21-check
-real headless-Chromium suite covering three scenarios — a fresh visitor
-enabling notifications (banner shows, permission requested, the real
-VAPID key is fetched through the SW-proxied network path, the subscribe
-POST carries a real device UUID and the subscription's endpoint/keys,
-banner hides after), a fresh visitor dismissing instead (banner hides
-immediately, zero push calls fire, the dismissal persists across a
-reload, the banner never reappears), and a returning visitor who already
-granted permission on a prior visit (banner never shows again,
-`resyncPushIfGranted()` silently re-posts the existing subscription on
-every boot) — all 21 pass, zero page errors. A separate 10-case isolated
-harness (mocked `self`/`caches`, no browser needed) confirmed `sw.js`'s
-`push` handler renders the server's real title/body/url and fails safe
-to a generic message on a malformed or missing payload, and
-`notificationclick` correctly focuses an existing open tab or opens a
-new one at the carried URL, falling back to `/` when none is carried.
-`node --check` clean on both `push-notifications.js` copies and `sw.js`;
-`npx tsc --noEmit -p tsconfig.json` back to the known 7-error `?v=N`
-baseline (zero new); `npm test` (92/92) unaffected — this doesn't touch
-`gates-extended.ts`/`analyze-helpers.ts`; `node esbuild.config.mjs`
-rebuilt cleanly with `shared/push.ts` appearing as its own chunk in
-`app.js` only (8→9 shared modules) and zero change to `starter/app.js`/
-`pro/app.js`'s own chunk counts (9/11, unchanged) — confirming correct,
-Free-tier-only scoping with no duplicate-module regression. `index.html`'s
-`<script src="./app.js?v=N">` bumped (98→99) since `app.js`'s bundled
-content changed; no shared-module cascade needed beyond that one file,
-since `push.ts` has no other importer yet.
+**Not verified against live Supabase** — confirm a real sign-in survives past 1h.
 
-**Not yet verified against a live deploy or a real push service round
-trip** — same standing posture as every backend-dependent feature in
-this file, compounded here by the sandbox's own inability to reach
-Google's push infrastructure at all (see the testing notes above). To
-confirm once `Tra` redeploys with the VAPID env vars set: open the Free
-tier PWA on a real device, tap Enable on the banner, confirm a real OS
-notification prompt appears and a subsequent `/push/subscribe` call
-succeeds; the next morning's 9:30am ET market-open warm should then
-deliver a real push notification carrying that day's actual Gate status.
-Check Render logs for `push-notifications:` warnings (means the VAPID
-env vars never got set) or `Market-open push: sent N` lines (confirms
-it's actually firing).
+## Backend: ANALYZE cost and failure handling (Sep 28, 2026; `Tra` #124, #125 / `trade-verdict` #363, #364, plus output trim)
 
-**Explicitly not done in this pass, deliberate scope:** Starter/Pro
-adoption (`shared/push.ts` is written to support it, but neither tier
-registers a Service Worker today — that's its own decision, not implied
-by this one); any server-side segmentation of who gets pushed (every
-active subscription gets the same daily market-open content regardless
-of tier or watchlist — a real future refinement, not built here); a
-second, different notification trigger beyond the daily market-open one
-(e.g. a real Gate flip mid-session, an Agitator-detected event) — the
-market-open hook was chosen specifically because it's the one moment
-this app already has a natural "here's today's real content" answer
-ready, with zero new fetch cost.
+**Failed ANALYZE refunds the credit.** `/analyze` deducts before the model call. New `refund_user_credit` RPC (`supabase-ddl-patch22-refund-credit.sql`) exactly reverses one `deduct_user_credit` (a whole credit comes back as a purchased credit); EXECUTE revoked from anon/authenticated since it creates credits. `credits.refundCredit()` runs once on all three no-verdict exits (non-ok model response, parse/enforce failure, thrown error/timeout). Users see "Analysis is temporarily unavailable. You weren't charged a credit — please try again later." (`code: AI_UNAVAILABLE`/`AI_BAD_RESPONSE`); the raw error goes to Render logs only. Confirmed live. A one-time +2 purchased credits went to three accounts hit before the fix.
 
-## Frontend: push-notification offer redesigned — opt-out, not a confusing opt-in banner (Sep 21, 2026)
+**Spend limit vs claude.ai usage — keep this straight.** The Sep 27-28 outage was the API org's monthly spend limit ("your *specified* API usage limits … regain access on <1st of month>"). Fix it in **console.anthropic.com → Settings → Limits**. claude.ai → Settings → Usage (extra usage) funds Mr. T's own app use and does nothing for Tra's `ANTHROPIC_API_KEY`. No redeploy needed after raising it.
 
-Direct live feedback against a real screenshot of the launch above: the
-banner's own copy ("Get notified when the Gate flips") was confusing —
-"Gate" is this app's own internal metaphor, meaningless to a first-time
-visitor — and, more substantively, the whole shape was wrong: **"it
-needs to be opt-out option, not opt-in. I need people to use the app,
-not passively ask them to let me notify them."**
+**Cost levers (approved by Mr. T):**
+- `/analyze` sends `SYSTEM_PROMPT` as a `cache_control: ephemeral` system block (`CLAUDE_MODEL_ANALYZE`). **Never interpolate per-request data into SYSTEM_PROMPT — it silently kills the cache.** All per-ticker data goes in the user message.
+- `generatePulse()` reuses its last result when its input text is byte-identical.
+- Agitator scoring, topical fallback and Sector Pulse use `CLAUDE_MODEL_LIGHT`. Their prompts are under the light model's caching minimum, so only `/analyze` caches.
+- `logClaudeUsage()` writes `[CLAUDE USAGE] <label> in= out= cache_read= cache_write=`. Measured live: the rules block is 4,556 tokens; ~15% off total `/analyze` cost at low traffic (output dominates; cold writes cost 1.25×). Savings grow with traffic.
+- **Output trim:** the model now outputs only `g2_catalyst` and `g3_openbar` in `gates`, as minified single-line JSON. `/analyze` rebuilds `parsed.gates` in canonical order (pre_gate, sector, g1, g2, g3, g4, g5) with the server's own values, so the response shape is unchanged; a missing `gates` object no longer throws. Estimated 35-40% fewer output tokens (was ~630-710 `out=`).
 
-**The real platform constraint, worth stating plainly before the fix:**
-no browser lets a site subscribe a visitor to push silently. Notification
-permission always needs the browser's own native "Allow/Block" dialog —
-there is no way to make this happen with literally zero visitor action,
-on any platform. Safari/iOS (this app's real PWA/TWA install target) is
-stricter still: that dialog only fires when `Notification.requestPermission()`
-is called synchronously from inside a real user gesture — never from a
-bare page-load timer. So "opt-out" here can't mean "silently on by
-default"; it means the smallest version of "ask" that's technically
-possible: don't make it a separate decision the visitor has to notice
-and act on, make it a side effect of the thing they were already doing.
+Open: compare `out=` before/after and spot-check that verdicts look the same. A newer model was considered for `/analyze` and deferred (it rejects `temperature`; needs a before/after check). Shortening gate notes further is a quality trade-off for Mr. T to decide.
 
-**Fix: removed the banner entirely — the request now fires automatically
-on the visitor's first real tap, not a dedicated click.** `shared/push.ts`
-is unchanged (still `shouldOfferPush()`/`enablePush()`/
-`resyncPushIfGranted()`); what changed is `app.ts`'s own wiring:
-- `maybeShowPushBanner()`/`onPushEnableClick()`/`onPushDismissClick()`
-  and their `window.fn=` bridges are gone. `#pushBanner` and its
-  `.push-banner*` CSS removed from `index.html` outright, not just hidden.
-- New `requestPushOfferOnFirstGesture()` — a thin, in-flight-guarded
-  wrapper around `enablePush()`, gated by the same `shouldOfferPush()`
-  check the banner used to gate its own visibility on (so it's still a
-  genuine one-time ask: a no-op the instant `Notification.permission` is
-  no longer `'default'`, whether granted, denied, or already requested
-  this session). Called from two real user-gesture entry points:
-  `rolodex.initRolodex()`'s `onActivate` callback (fires on every pill
-  tap — the single most universal first interaction on this page, since
-  tapping a pill already auto-runs that ticker's analysis) and the
-  manual `[data-analyze]` button's own click handler (covers a re-tap on
-  an already-analyzed card, which never reaches `onActivate`'s
-  auto-analyze branch).
-- Nothing left to be confusing about — the visitor now sees only the
-  browser's own trusted, standard "tradetribunal.app wants to send you
-  notifications" dialog, not any copy this app wrote.
+## Frontend: Google Play rating prompt — all tiers, Play app only (Oct 14, 2026)
 
-**A real, disclosed trade-off, not hidden:** removing the explanatory
-banner text means a visitor now sees the OS permission dialog with less
-context for why it's appearing, which could plausibly lower the
-grant-vs-block rate for visitors who think about it before answering —
-but that's the direct, requested trade for making the ask automatic
-instead of an extra decision. Worth revisiting only if real Play Store
-engagement data ends up suggesting the block rate is the actual
-bottleneck, not guessed at now.
+Mr. T asked for a 1-5 star prompt that sends happy users to Play. Not built that way: **showing stars and sending only happy users to Play is review gating, banned by Play policy** (and Play advises not to ask "do you like it" first) — risky on an app under review. Closed-testing testers can't post public reviews anyway. Chosen: no stars, everyone goes to Play, after the 3rd analysis.
 
-**Verified via headless Chromium, 14 checks across 3 scenarios** — a
-technique note first: `context.grantPermissions()` (Playwright's own
-mock-permission API) reflects a granted permission in
-`Notification.permission` the instant it's called, before the app ever
-calls `requestPermission()` itself — using it to simulate "the OS dialog
-resolves to Allow" pre-empties the very `shouldOfferPush()` check this
-fix depends on, since permission would already read non-`'default'`
-before the tap. Verified instead by stubbing `Notification.requestPermission`
-directly (tracking a call counter, resolving `'granted'`) so the test
-proves the app's own code triggers the real permission call, off a real
-gesture, with permission still genuinely `'default'` beforehand — not
-just that some pre-granted state happens to already look right. Confirmed:
-(1) a fresh visitor sees no `#pushBanner` anywhere in the DOM and zero
-`requestPermission()`/vapid/subscribe calls from a plain page load with
-no tap; (2) tapping the first ticker pill is what calls
-`requestPermission()` (exactly once, proven via the stub's counter) and
-drives the full real flow through to a `/push/subscribe` POST carrying a
-real device UUID — all in the same gesture, no separate banner click;
-(3) a returning visitor who already granted permission in a prior
-session gets `resyncPushIfGranted()`'s existing silent re-post on boot,
-and a further pill tap fires no new `requestPermission()`/vapid calls (the
-`shouldOfferPush()` gate correctly no-ops once permission is already
-decided). Zero page errors across all three. `npx tsc --noEmit` back to
-the known 7-error `?v=N`-import-resolution baseline, zero new errors;
-`npm test` (92/92) unaffected — this doesn't touch `gates-extended.ts`/
-`analyze-helpers.ts`; `node esbuild.config.mjs` rebuilt `app.js` clean,
-chunk-header grep confirmed the same 9 shared-module count as before (no
-duplicate-module regression), `starter/app.js`/`pro/app.js` unaffected
-(neither imports `shared/push.ts` — this feature is still Free-tier-only,
-per the original launch's own explicit scope). `index.html`'s
-`<script src="./app.js?v=100">` bumped since `app.js`'s content changed.
+`shared/rate-prompt.ts` (bundler-only) owns it. All three tiers call `initRatePrompt()` and `onAnalysisSucceeded()`; each `index.html` has `#rate-prompt`.
+- Counts successes in `tv_rate_analyses`; shows 2s after the last success (so Analyze All shows it once).
+- "Rate on Google Play" opens an `intent://` URL for `com.android.vending` (web fallback) and stops for good; "Later"/tap-outside snoozes 7 days; "Don't ask again" stops.
+- Only in the Play app: `isPlayApp()` = `android-app://` referrer this session, `tv_device_platform === 'twa'`, or `tv_twa_session`. Free's `notePlayAppLaunch()` sets `tv_twa_session` in sessionStorage before redirecting a paid session to `/starter/`/`/pro/`, because the referrer only exists on the first page.
+- Won't open during the tutorial (`rolodex.isTutorialActive()`) or while the nudge, spotlight, out-of-credits screen or settings modal is up; retries after the next analysis.
+- Preview in a normal browser with `?ratepreview`, then run 3 analyses.
 
-**Not yet verified against a live deploy** — same standing posture as
-the original launch above; the backend half (VAPID env vars, the
-`/push/subscribe` round trip, the 9:30am ET market-open send) is
-unaffected by this change and carries the same open verification item it
-already had. To confirm this specific fix live: open the Free tier PWA
-on a real device with notification permission not yet decided, tap any
-ticker pill, and confirm the native OS permission dialog appears
-immediately — no banner, no separate Enable tap.
+**Not verified on a real device** — confirm "Rate" opens the Play listing from the installed app.
 
-## Backend: device_visits now correlates to a signed-in account (Sep 22, 2026, `Tra` patch17 / `trade-verdict` patch18)
+## Testing gotchas (Sep-Oct 2026)
 
-Direct follow-up to the Sep 17, 2026 device-visit-counting entry above:
-"the device visit table needs to be able to correlate to users with an
-account. right now I can't tell who is who if they sign-in." Real gap —
-`device_visits` had `device_id`/`platform`/`first_tier`/timestamps/
-`visit_count`, nothing identifying which account (if any) a device
-belonged to.
-
-**Backend-only fix — no frontend change was needed at all.** The
-signed-in user's email was already reaching `/device-ping` the whole
-time, just never captured: `pingDeviceVisit()` (`shared/device-id.ts`)
-sends its ping through `config.authH()`, the exact same header helper
-every other backend call already uses — carrying the real Supabase
-session token when signed in. `/device-ping` sits behind the same global
-`app.use` auth middleware every other route goes through (it's not on
-the small allowlist of pre-auth routes), so `req.userEmail` was already
-being resolved and available inside the handler on every signed-in ping
-— it just wasn't being written anywhere.
-
-**Shipped:** one nullable `user_email text` column
-(`supabase-ddl-patch17-device-visits-user-email.sql` in `Tra`, mirrored
-as `patch18` in `trade-verdict` since that repo's own patch17 slot was
-already taken by the push-notifications table — same "no Tra-side
-`.sql` file is required, only Supabase MCP + the mirror's own numbering"
-posture already established for `mcp_oauth_state`). Applied directly via
-the Supabase MCP connection; grants re-checked immediately after per this
-file's own standing rule (a plain `ADD COLUMN` isn't a Data API exposure
-toggle, so no reset was expected, and none occurred — zero
-`anon`/`authenticated` rows, confirmed).
-
-`/device-ping`'s upsert (both repos) gained `user_email: req.userEmail ||
-undefined` — `undefined` fields are dropped from the JSON body entirely
-before it reaches Supabase, so an anonymous ping (tier-secret auth, no
-session) never sends the column at all and never clears a device's
-already-known email back to null. This is the identical pattern
-`first_tier: existing ? undefined : ...` already used one line above it
-in the same upsert — not a new mechanism. A later signed-in ping from a
-different account on the same device (a shared browser, for instance)
-does overwrite it — the field tracks the *last known* signed-in account
-for that device, not a first-seen snapshot.
-
-**No fingerprinting, no new client-side collection — the "no phishing,
-nothing requested from the user" constraint this table shipped under
-(Sep 17, 2026) still holds.** This only captures the account the user
-explicitly signed into, using auth data the request was already
-carrying for an unrelated reason (every backend call authenticates the
-same way). Nothing new is asked of, or read from, the visitor.
-
-**Verified:** confirmed via a standalone Node check that the upsert
-payload genuinely omits `user_email` (not `null`) on an anonymous ping
-and includes it on a signed-in one — the exact mechanism the whole fix
-depends on. `node --check` clean on both `server.js` files. A real local
-boot of `Tra`'s actual `server.js` (dummy env vars, a real generated
-VAPID keypair so the push-notifications module load doesn't crash
-first) starts cleanly and reaches the real code path: `/device-ping`
-with no auth returns 401 (middleware working), with tier-secret auth it
-resolves `req.userTier` and attempts a real Supabase upsert (network
-failure against the dummy URL, as expected — confirms the handler
-executes through to the write, not that the write itself succeeded).
-`npm test` (92/92) unaffected — this doesn't touch `gates-extended.ts`/
-`analyze-helpers.ts`.
-
-**Not yet verified against a live deploy** — same standing posture as
-every backend change in this file. To confirm: sign in on a real device,
-let a `/device-ping` fire (every tier's `boot()` already calls it), and
-check the corresponding `device_visits` row for a real, non-null
-`user_email`; confirm a later anonymous ping (e.g. after signing out)
-leaves that same row's `user_email` untouched rather than clearing it.
-
-## Daily-notifications plan — status and consolidated log (Sep 21-22, 2026)
-
-Original scope, agreed via `AskUserQuestion` before any of this was built:
-signed-in Starter/Pro/Shark users get personalized daily push content off
-their own watchlist; anonymous Free users get a generic market-wide push
-to drive re-engagement; Android push delivery only, no email pipeline;
-and a sign-up nudge to convert some of that anonymous traffic into real
-accounts. Confirmed via direct manifest/build-file inspection before any
-of this started that **none of it needs a new Android app bundle** — the
-already-shipped, versionCode-2 Play Store app already has TWA
-notification delegation fully enabled (`POST_NOTIFICATIONS` permission,
-`DelegationService`, `enableNotifications:true`); everything that
-controls push content/timing/personalization lives in the website/
-backend, which deploy independently of the Play Store.
-
-**Phase 1 — SHIPPED (`trade-verdict` PR #350, part of the same PR as
-below).** The existing anonymous market-open push (see the per-device
-push-notifications section above) only ever used the flat, mechanical
-`gateNote` line ("SPY +0.4% QQQ +0.3%"). New `pulsePushBody(cache)`
-prefers the real, already-generated Sector Pulse narrative's first
-sentence instead — ellipsis-truncated if that sentence alone still
-exceeds 140 chars, falling back to the original `gateNote` behavior
-whenever the pulse hasn't landed yet (an async race: `generatePulse()`
-populates `marketCache.pulse` independently of the cache-warm's own
-timing). Zero new fetches/cost — reuses data `warmTrackedMarketCache()`
-already computes for Starter/Pro's real Sector Pulse card. Verified via
-a 9-case standalone simulation of the extracted function (real 2-sentence
-pulse takes only the first sentence, over-length first sentence
-truncates with a real prefix + ellipsis, null/whitespace-only pulse falls
-back to `gateNote` exactly as before, `gateNote`-only path still
-truncates at its original 110 chars).
-
-**Phase 2 — SHIPPED (`trade-verdict` PR #350, then #351).** A sign-up/
-sign-in nudge for anonymous Free visitors, plus a follow-on "how to use
-this" callout — two real feedback rounds, both direct:
-
-1. **The nudge itself.** Shown to any visitor with no valid `tv_session`
-   on **every** app open — not once, not on a re-show cadence (a 7-day
-   cadence was proposed and explicitly rejected: *"I like the reoccurring
-   nudge every time it's opened"*). Copy deliberately carries **no
-   notification pitch at all** (*"remove the pitch about notifications
-   but keep that it's fee [free] to sign up"*) — just the free-to-
-   sign-up framing, doubling as a sign-in prompt for a visitor who
-   already has an account via the same single SIGN UP / SIGN IN
-   destination the header's own button already uses (confirmed by
-   reading the code, not assumed: that link routes to Starter's real
-   auth screen, and a Starter signup with no Stripe purchase attached
-   lands as a genuine, real, no-cost `tier:'free'` account — "free to
-   sign up" is factually true, not just marketing copy).
-2. **The post-dismiss ANALYZE spotlight.** Dismissing the nudge (or, for
-   a visitor already signed in with no nudge to dismiss, the same
-   trigger point directly) scroll-snaps to the active ticker card and
-   frames its real ANALYZE button with a fade-everything-else spotlight
-   (4 real, independently-clickable dark strips framing the button's own
-   live rect — not a `pointer-events:none` box-shadow trick, which could
-   never also catch a tap-the-dark-area-to-dismiss click) plus a callout:
-   *"tap to ANALYZE - Could be your next favorite company!"* Falls back
-   to sitting above the button with a down-arrow when there isn't enough
-   horizontal room, rather than clipping off-screen.
-3. **Targeting, per direct correction** ("this would only happen on
-   anonymous and new sign-ins only"): an anonymous visitor gets the
-   spotlight every time (same cadence as the nudge); a visitor signed in
-   for the very first time ever on this device (a fresh signup, or a
-   first sign-in to an existing account) gets it exactly once, captured
-   via a `tv_free_seen_signed_in` flag read *before* it's set on that
-   same load; a returning already-signed-in visitor gets neither.
-4. **A real gap caught by headless-Chromium testing, not simulation.**
-   The spotlight was originally only reachable via the nudge's own
-   dismiss handler — so a freshly-signed-in visitor, who never sees the
-   nudge at all, had nothing to trigger it. Fixed with a shared
-   `nudgeOrSpotlight()` entry point both trigger moments (tutorial
-   completion, the 3s post-load timer) call: shows the nudge for an
-   anonymous visitor, or goes straight to the spotlight when already
-   signed in and eligible. Caught specifically because the test drove
-   all four real targeting states end-to-end rather than asserting each
-   function in isolation.
-5. **Redesigned the same day, direct feedback:** *"I was thinking of a
-   window that popped up and blurred everything else. The whole screen
-   seems invasive and not appealing."* The nudge's original full-bleed
-   opaque treatment (matching `#comeback-screen`'s own real "out of
-   credits" blocker) was replaced with a genuine floating modal: a
-   translucent `backdrop-filter:blur(6px)` overlay the app content stays
-   visible/legible through, with the copy in its own bordered/shadowed
-   surface card. `#comeback-screen` itself is deliberately untouched —
-   that one is a real blocker (use is actually halted until credits
-   refresh), a different situation from a skippable suggestion, and the
-   distinction is the point. Added tap-outside-the-card-to-dismiss (a
-   plain absolutely-positioned element behind the card) as the standard
-   modal affordance, alongside — not instead of — the existing "Not now"
-   link.
-
-Verified together: 16 real headless-Chromium checks across the four
-targeting states plus the working "hole" (the real button stays
-clickable through the spotlight), then 12 more for the modal redesign
-specifically (translucent+blurred backdrop, the card's own real
-background/radius/shadow/border, tap-outside dismisses, tap-*inside*
-does not, spotlight still chains correctly afterward). `npm test`
-92/92 throughout, `tsc` back to the known 7-error `?v=N` baseline each
-time, `esbuild` chunk-header grep confirmed no duplicate-module
-regression. Both PRs merged same-day; GitHub Actions' own "pages build
-and deployment" run for each merge commit confirmed `completed`/
-`success` before either was reported live.
-
-**A real, separate caching question raised and resolved, worth recording
-since it's exactly the failure mode this file's own cache-busting rule
-warns about.** Asked directly to make sure the spotlight "doesn't fall
-behind user cache." Checked, rather than assumed: `index.html` already
-carries the `Cache-Control: no-cache,no-store,must-revalidate` meta tag;
-`app.js?v=N` was correctly bumped on every touched commit (101, then
-102); and `sw.js`'s fetch handler is genuinely network-first for every
-request type, including `app.js` itself (never cached at all — the
-service worker's own `SHELL_CACHE` only ever stores navigation responses
-as an offline fallback, always superseded by a fresh network fetch when
-one succeeds), so it introduces no additional staleness risk on top of
-the existing `?v=` convention. Resolved live — the user confirmed the
-spotlight was working after this was checked.
-
-### Phases NOT complete — read this before assuming this thread is done
-
-- **Phase 3 — personalized daily push for signed-in Starter/Pro/Shark
-  users, based on their own synced watchlist. NOT STARTED.** This is the
-  one piece of the original three-way scope (generic-push-for-anonymous /
-  personalized-push-for-signed-in / sign-up-nudge) that hasn't been
-  touched at all. Needs, at minimum: giving Starter/Pro their own minimal
-  Service Worker (neither registers one today — `shared/push.ts` is
-  currently Free-tier-only, though written tier-agnostically so this
-  should extend cleanly), a `user_email` column on `push_subscriptions`
-  (currently keyed only by anonymous `device_id`), and a batched/
-  throttle-respecting daily send job with real per-subscriber content
-  prioritization (top 1-3 notable movers or Gate 5 flags off that
-  user's actual watchlist, not the generic market-wide content the
-  anonymous push sends).
-- **"Not convinced all users know how to use the app" — raised, not yet
-  acted on.** Separate from the two shipped onboarding mechanisms (the
-  once-ever 8-step tutorial, and the spotlight above), a live concern:
-  both currently fire once and then go quiet, so a visitor who skips or
-  gets distracted mid-tap has no further reminder. Recommended, not yet
-  built or confirmed: a persistent low-key visual cue (e.g. a subtle
-  pulsing glow) directly on the ANALYZE button that stays until a
-  visitor has analyzed at least one ticker ever, as a less-invasive
-  alternative/complement to repeating the full-screen spotlight every
-  open. No direction has been confirmed yet — this is an open thread,
-  not a decided next step.
-- **Not yet verified against a live deploy, either phase above** — same
-  standing sandbox limitation as every push/backend integration in this
-  file (`tra-zacg.onrender.com` unreachable from here). Spot-check a
-  real device once Phase 3 lands, same as the open items already listed
-  for Phase 1/2's own backend half above.
-
-## Frontend: `/device-ping` never actually authenticated on Starter/Pro — the Sep 22 user_email column had nothing real to capture (Sep 22, 2026, `trade-verdict`)
-
-Direct follow-up to the same-day `device_visits.user_email` backend fix:
-"I don't see my personal account emails listed on the device visit
-table... do a deep dive." Correct call — the backend half (capturing
-`req.userEmail` on `/device-ping`) was genuinely right, but the frontend
-on Starter and Pro never sent a request the backend could attribute to
-anyone, real bug, not a propagation delay.
-
-**Two real, compounding bugs, both only on Starter/Pro — Free was never
-affected.** Free's `sbSession` is a module-level `var` initialized
-synchronously from `localStorage` at parse time (`var sbSession: any =
-isSessionValid(getStoredSession()) ? getStoredSession() : null;`), so by
-the time `boot()` calls `pingDeviceVisit()` it already reflects any real
-signed-in session. Starter and Pro are structured completely differently:
-`var sbSession: any = null;` with the real value only ever assigned
-inside `checkAuth()`, an **async** function — and `pingDeviceVisit()` was
-called at plain module top level, several hundred lines **before**
-`checkAuth()` was even invoked (`starter/app.ts` line 1809 vs. `checkAuth()`'s
-call at line 1853; same shape in `pro/app.ts`, lines 2327/2362). So
-`authH()`/`addSecret()` always read `sbSession` while it was still `null`
-at ping time, regardless of whether the visitor was actually signed in.
-
-**This wasn't just "anonymous instead of attributed" — it likely meant
-zero rows at all from these two tiers.** Unlike Free, Starter/Pro embed
-no client-visible fallback tier secret (confirmed via grep — no
-`APP_SECRET`/`STARTER_KEY`/`PRO_KEY` literal anywhere in either file, by
-design: these tiers are 100% sign-in-gated, there's no legitimate
-anonymous access to hand a public secret to). So a `sbSession`-less ping
-went out with `authH()` returning only `{'Content-Type':
-'application/json'}` — no `x-app-secret`, no `x-supabase-token` — and
-`addSecret()` returning the bare URL with no `supabase_token` query
-param either. Tra's global auth middleware 401s any request with neither
-credential present, before the handler that writes `device_visits` ever
-runs. In effect, every Starter/Pro page load has likely been failing to
-record a `device_visits` row at all since the feature shipped Sep 17,
-2026 — not silently mis-attributing to `null`, just never landing.
-
-**Fix, both files, no backend change needed:** removed the top-level
-`pingDeviceVisit()` call; added it in two places instead, both guaranteed
-to run only once `sbSession` genuinely holds a real token:
-1. **Inside `checkAuth()`**, as the last line, right after
-   `checkTierAccess(stored); bindAuthEvents();` — reached only when the
-   function's own early return (`if (!stored || !isSessionValid(stored))`)
-   didn't fire, so `sbSession` is guaranteed set by this point. Covers
-   the common case: a returning visitor whose browser already has a
-   valid `tv_session`.
-2. **Inside `handleLogin()`**, right after `checkTierAccess(session)` on
-   a successful login — covers a visitor typing credentials and signing
-   in fresh within the same page load, which never goes through
-   `checkAuth()` at all.
-
-No anonymous fallback ping was added for the "no stored session" case
-(the auth-screen bounce) — there's no tier secret to send and, per the
-sign-in-gated nature of these two tiers, no legitimate anonymous visit to
-attribute a row to; verified this produces zero requests and zero errors,
-not a silent failed attempt.
-
-**Verified via real headless Chromium, not just re-reading the diff:**
-primed a fake-but-valid `tv_session` in `localStorage` before navigation
-on both tiers (mocked `/auth/me`/`/market`/`/watchlist`) and confirmed
-exactly one `/device-ping` request fires per tier, with a real
-`supabase_token=FAKE_TOKEN_XYZ` present in the request URL's query
-string — the exact value the backend's auth middleware resolves
-`req.userEmail` from. Separately confirmed the no-session case: loading
-either tier with no stored session at all fires zero `/device-ping`
-requests and zero page errors. `node --check`/`npm test` (92/92)
-unaffected — pure frontend, doesn't touch `gates-extended.ts`/
-`analyze-helpers.ts`; `node esbuild.config.mjs` rebuilt `starter/app.js`/
-`pro/app.js` cleanly (Free's `app.js` correctly untouched, since Free was
-never part of this bug); chunk-header grep confirmed no duplicate-module
-regression. **A real near-miss caught before committing:** the branch
-had to restart from `origin/main` mid-fix (a prior PR on this same
-branch had already merged), and `main` had independently bumped these
-exact two `?v=` numbers in the meantime for unrelated content (`a9d8b49`,
-a sign-up/sign-in screen change) — reusing that same number for this
-fix's different bytes would have meant a browser that already cached
-that URL never saw this fix, the exact failure mode the cache-busting
-rule exists to prevent. Caught by diffing against `origin/main` before
-committing, not assumed clean just because the local edit "looked like"
-a normal increment. `?v=` bumped on `starter/index.html` (118→119) and
-`pro/index.html` (65→66) — one past whatever `main` already held, not
-just one past this branch's own stale baseline — since each tier's own
-bundled `app.js` content
-changed; no shared module was touched, so no further cascade applies.
-
-**Not yet verified against a live deploy** — same standing posture as
-every frontend change in this file; `tra-zacg.onrender.com` is
-unreachable from this sandbox. To confirm: sign in on a real Starter or
-Pro device once this deploys and check the corresponding
-`device_visits` row for the account's real, non-null `user_email` — this
-is likely the first time these two tiers have ever produced a row in
-that table at all, so a jump in total row count (not just newly-filled
-emails) is the expected live signal, not just an email appearing on an
-already-existing row.
-
-## Backend: device_accounts — a shared/multi-account device no longer collapses to one user_email (Sep 22, 2026, `Tra` patch18 / `trade-verdict` patch19)
-
-Direct report the moment Starter/Pro's `/device-ping` fix above started
-producing real rows: "if a person has multiple accounts, there's a
-duplicate collapse that removes the other login's." Confirmed real by
-reading the actual code, not guessed: `device_visits` is one row per
-`device_id` with a single `user_email` column, upserted on every
-signed-in ping with `onConflict:"device_id"` and
-`user_email:req.userEmail||undefined`. A single column can only ever
-hold one email — so Account A signing into a device, then Account B
-signing into that same device later, silently overwrites A's
-association with zero way to see it ever existed. This isn't a bug in
-the Sep 22 fix; it's the same design `device_visits` had since it
-shipped Sep 17, 2026 (documented at the time as "the field tracks the
-*last known* signed-in account for that device, not a first-seen
-snapshot") — it just had nothing real to overwrite until Starter/Pro's
-own ping actually started authenticating.
-
-**Fix: a new, purely additive `device_accounts` table** — one row per
-`(device_id, user_email)` pair, never collapsed, with its own
-independent `first_seen_at`/`last_seen_at`/`visit_count`. Created and
-locked down directly via the Supabase MCP connection (project
-`oinomcikdyisrbfeeirp`), same two-step RLS-disable + explicit-revoke
-pattern every service-role table in this project uses, confirmed via the
-standard grants-check query (zero `anon`/`authenticated` rows). `/device-ping`
-(both repos) now upserts into this table alongside its existing
-`device_visits` write, whenever `req.userEmail` is present — best-effort,
-logs and falls through on failure rather than failing the whole ping,
-same posture as this app's other secondary analytics writes
-(`corroboration_log`). `device_visits.user_email` is completely
-untouched — it stays a convenient last-known-account pointer for a quick
-single-value lookup; `device_accounts` is the real record when a
-device's full account history actually matters.
-
-**Per the Sep 17, 2026 `device_visits` incident, flagged in the
-migration file itself rather than assumed clean:** whether
-`device_accounts` needs adding to Project Settings → Data API → Exposed
-tables is unconfirmed — watch Render logs for `device_accounts` upsert
-errors on `POST /device-ping` after deploy. If it does need exposing,
-immediately re-run the grants-check query afterward and revoke again if
-anything reopens, since that exact toggle has been directly observed on
-this project to silently re-grant `anon`/`authenticated` privileges as a
-side effect.
-
-**Verified:** `node --check` clean on both repos' `server.js`; a real
-local boot of `Tra`'s actual `server.js` (dummy env vars, a matching
-tier secret) reaches the real handler and the new `device_accounts`
-upsert block through to the expected network failure against the dummy
-Supabase URL — confirms the code path executes, not that the write
-itself succeeds. A 12-assertion standalone simulation of the extracted
-upsert logic (not reimplemented — the real onConflict/select/upsert
-shape) confirmed: two different accounts signing into the same device
-produce two independent, preserved `device_accounts` rows (not one
-overwritten row); a repeat visit from the same account increments that
-row's own `visit_count` in place rather than duplicating it; an
-anonymous ping never touches `device_accounts` at all; and
-`device_visits.user_email`'s existing last-known-account behavior is
-completely unchanged — it still reflects whichever account signed in
-most recently, exactly as before. `git diff origin/main --stat` reviewed
-in both repos after a required branch restart (this branch's own prior
-PR — the Starter/Pro auth-timing fix — had already merged) to confirm a
-clean, minimal diff with zero stale-branch drift.
-
-**Not yet verified against a live deploy** — same standing posture as
-every backend change in this file. To confirm: sign the same real device
-into two different accounts (or check an existing shared/family device)
-and confirm `device_accounts` shows a row for each account rather than
-only the most recently signed-in one.
-
-## Backend: device_accounts reversed — folded back into device_visits, plus real ET display columns (Sep 23, 2026, `Tra` patch19 / `trade-verdict` patch20)
-
-Direct correction, same day the entry above shipped, after live-checking it
-in Supabase and finding both complaints still real: "I don't see both of
-those emails at the same time, only the latest one that logged in" (a real
-screenshot confirmed he had `device_visits` open, not the new
-`device_accounts` table) and "the Supabase table is showing UTC." Then,
-mid-explanation of that split-table design: **"I specifically ask you to
-change the timestamps and the user email correlation in the device visit
-table. NO OTHER TABLE WAS MENTIONED."** — a direct rejection of the
-`device_accounts` design itself, not just a request to find the right tab.
-
-**Reversed the split.** `device_accounts` (patch18/`Tra`, patch19/
-`trade-verdict`) is dropped. `device_visits` is re-keyed from `device_id`
-alone to `(device_id, user_email)` — an anonymous ping now writes `''`
-(empty string) for `user_email`, never `NULL` (Postgres treats every `NULL`
-as distinct within a unique/PK constraint, which would insert a fresh
-"anonymous" row on every single anonymous ping instead of updating one
-running counter); a signed-in ping writes the real account email. A device
-used by 2+ accounts now gets one row per account, in the one table, never
-collapsing one login's history into another's — the actual fix, just
-relocated to where it was asked for.
-
-**Timestamps: plain Eastern-time text columns added directly to
-`device_visits`, not a view, not another table.** `first_seen_et`/
-`last_seen_et` are written by `/device-ping`'s own new `etTimestampStr()`
-helper (both repos' `server.js`, next to `etWeekday()`) alongside the real
-`timestamptz` columns. Said plainly, not oversold: the *underlying*
-`first_seen_at`/`last_seen_at` columns still store (and Supabase's table
-editor still displays) UTC — that's inherent to `timestamptz` and to how
-any client renders it, not something a schema change can alter. The two
-new text columns are the actual fix — a human-readable Eastern-time string
-sitting right in the same row, in the same table, so the table itself
-reads correctly without needing a second query or a Studio setting.
-
-**Migration order mattered and was caught by a real constraint violation,
-not assumed correct.** First attempt tried to migrate `device_accounts`'
-rows into `device_visits` before re-keying the primary key — failed with
-`duplicate key value violates unique constraint "device_visits_pkey"` on
-the one real multi-account device, since the old `device_id`-only PK was
-still active at that point and rejected the second row. Fixed by
-reordering: normalize `user_email` to non-null first, drop the old PK and
-add the new composite `(device_id, user_email)` PK, *then* migrate in any
-`device_accounts` row not already represented under that same pair (a
-`device_accounts` row that already matched `device_visits`' existing
-last-known-account row was a pure duplicate of already-collapsed history
-and was correctly skipped, not double-inserted), then backfill the ET text
-columns for every row, then drop `device_accounts`.
-
-**Verified against the real, reported device, not a synthetic case.**
-Directly queried `device_visits` for `ed98d63f-...` (the actual shared
-device from the live report) after the migration: both
-`turneraroundauto@gmail.com` and `j_m_turner@outlook.com` now show as
-separate rows in `device_visits` itself, with real ET timestamps
-(`"2026-09-22 21:47:18 ET"`, not a `+00` offset). Confirmed `device_accounts`
-is genuinely gone (`to_regclass('public.device_accounts')` returns `null`,
-not just emptied). Re-ran the standard grants-check query immediately after,
-since this migration alters `device_visits` itself: zero `anon`/
-`authenticated` rows, unchanged — the Sep 17, 2026 incident's lesson
-(re-check grants after touching a table's schema) applied here too, even
-though this wasn't a Data-API-exposure toggle.
-
-`node --check` clean on both `server.js` files; `device_accounts` confirmed
-fully absent from both (`grep` returns zero matches) — no dead references,
-no half-migrated code path left behind.
-
-**Not yet verified against a live deploy** — same standing posture as every
-backend change in this file. To confirm: check a real `device_visits` row
-for a device with 2+ signed-in accounts and confirm both show as separate
-rows with real ET-formatted `first_seen_et`/`last_seen_et` values.
-
-## Backend: device_visits' display timestamps corrected from ET to PT (Sep 23, 2026, `Tra` patch20 / `trade-verdict` patch21)
-
-**A real, direct example of the app defaulting to its own convention
-instead of what was actually asked.** The entry immediately above says
-"real ET timestamps" as if that were the fix — it wasn't. The user's
-original ask, reread carefully after the fact, was for Pacific Time; the
-session that built the ET columns substituted this app's own pervasive
-Eastern-Time convention (correct for every trading-hours/gate-logic use
-in this file, e.g. `etWeekday()`) without noticing that this particular
-table has nothing to do with market hours — it's a plain admin/analytics
-table for Mr. T's own reading, and defaulting it to ET was never asked
-for. Called out directly, twice, in the same thread: **"I specifically
-asked for PACIFIC TIME! IN THIS THREAD... this is exactly what I'm
-talking about!"**
-
-**Fix:** `first_seen_et`/`last_seen_et` renamed to `first_seen_pt`/
-`last_seen_pt`; `etTimestampStr()` renamed to `ptTimestampStr()`, same
-shape, `America/Los_Angeles` instead of `America/New_York`, `"PT"`
-suffix instead of `"ET"`. Applied live via Supabase MCP (rename +
-recompute from the real, untouched UTC `timestamptz` columns) and in
-both repos' `/device-ping`. **Verified against a real row, not just a
-green migration result:** `first_seen_at = 2026-09-23 01:47:18+00`
-correctly reads `first_seen_pt = "2026-09-22 18:47:18 PT"` (UTC-7,
-correct for PDT in September). Standard grants-check re-run clean.
-`npm test` unaffected in both repos (92/92).
-
-**The real lesson, worth keeping independent of the timestamp fix
-itself.** Asked directly afterward: "is it safe to assume you have NOT
-logged instances that you caused a bug or an irrational decision that
-was against what was asked?" — No. This file logs a lot of self-caused
-mistakes (see the many "direct correction"/"corrected directly" entries
-throughout), but that record is **not complete or audited** — it only
-contains what a given session remembered and chose to write up
-afterward. This exact mistake is the proof: it happened, got fixed, and
-was never logged here until being asked about directly. A session that
-quietly self-corrects, or is mid-fix when it ends, can and does skip
-writing it up.
-
-**Fix for the gap, not just this one instance:** a separate, standing
-**Rogue Actions Log** now exists in Notion — a structured database
-(not nested inside the Build Log's own page tree, so it stays a plainly
-separate, always-checkable record) tracking every confirmed instance,
-past/present/future, where an AI session did something against an
-explicit instruction, shipped a wrong assumption as if verified, or made
-a unilateral decision nobody asked for. Backfilled with the clearest
-instances mined from this file's own history at creation time (Sep 23,
-2026) — not exhaustive; CLAUDE.md itself is the primary source for
-anything missed. **Any future session that catches itself doing this —
-or is told directly that it did — should add a row there, not just a
-CLAUDE.md paragraph.** Ask Mr. T for the link if it's not already in
-hand; it was not made a child of the Build Log page specifically so it
-can't get lost in that page's own size the way this exact mistake did.
-
-## Auth: sign-in now lasts 24h, not 1h (Sep 28, 2026, `Tra` + `trade-verdict`)
-
-Live complaint: users had to log in constantly. Root cause: the client
-stored only Supabase's access token (~1h lifetime) and `isSessionValid()`
-treated its `expiresAt` as "signed out" — so every signed-in user got
-bounced to the login screen once an hour, on every tier.
-
-**Fix.** `/auth/login` now also returns Supabase's `refreshToken`; new
-`POST /auth/refresh` (auth-middleware allowlisted, runs on the throwaway
-`authClient()`, never the shared admin client — Aug 4, 2026 lesson) trades
-it for a fresh access token. New bundler-only `shared/session.ts` owns
-`getStoredSession`/`storeSession`/`isSessionValid` for Free/Starter/Pro
-(the three hand-copied versions were removed), stamps `loginAt` on sign-in,
-and treats a session as valid for `SESSION_MAX_AGE_MS` (24h, per direct
-instruction "login once per day") regardless of the access token's own
-expiry. `ensureFreshSession()` renews the token before any API call on
-load (Starter/Pro `checkAuth()`, Free `boot()`), and
-`startSessionKeepAlive()` re-checks every 4 min and on
-`visibilitychange` (phone waking), so a long-open page never goes stale.
-A 401 from `/auth/refresh` signs out; a network error keeps the session
-while its token still works. Legacy sessions (no refresh token) keep the
-old 1h rule once, then the next sign-in gets the 24h behavior. Shark
-(shelved) untouched.
-
-Verified: headless Chromium (Starter/Pro/Free) — expired access token
-within 24h silently refreshes and loads the app with zero requests sent on
-the old token; >24h and legacy-expired sessions show the login screen with
-no refresh attempted. Local boot of `Tra`'s `server.js` confirmed
-`/auth/refresh` is reachable pre-auth. **Not verified against live
-Supabase** — confirm a real sign-in survives past the 1h mark.
-
-## Backend: failed ANALYZE no longer charges a credit + friendly error (Sep 28, 2026, `Tra` + `trade-verdict`)
-
-Live report: every card showed a raw "Anthropic error 400". Cause (reproduced via the
-`Trade_Tribunal` MCP `analyze` tool, not guessed): the Anthropic account behind Tra hit its
-**monthly API usage cap** ("You have reached your specified API usage limits... regain access
-on 2026-10-01"). Account-level, not a code bug; Agitator scoring had been 400ing the same way
-since Sep 27 20:49 UTC. Fix for the cap itself is Anthropic Console → Settings → Limits (Mr. T).
-
-Found while checking: `/analyze` deducts before the Anthropic call and never refunded, so every
-failed ANALYZE (outage, cap, timeout, unparseable response) still cost the user. Fixed:
-- New `refund_user_credit` RPC (`supabase-ddl-patch22-refund-credit.sql`, applied via Supabase
-  MCP) exactly reverses one `deduct_user_credit`: rolls `pending_analyses` back, and a whole
-  credit crossed comes back as a *purchased* credit (never expires). EXECUTE revoked from
-  anon/authenticated since it can create credits. Verified via a rolled-back SQL round trip.
-- `credits.refundCredit()`; `/analyze` tracks `charged` and refunds once on all three
-  no-verdict exits (non-ok Anthropic, parse/enforce failure, thrown error/timeout).
-- Users now see "Analysis is temporarily unavailable. You weren't charged a credit — please try
-  again later." (`code: AI_UNAVAILABLE`/`AI_BAD_RESPONSE`); raw Anthropic body goes to Render logs
-  only. No frontend change needed — every tier already renders `errData.error`.
-Verified by booting real `server.js` locally with Anthropic stubbed to the exact production 400:
-4 failures left the balance unchanged; 3 successes still charged 1 credit. Not verified against
-a live deploy. Scope: `/analyze` only — Agitator/Pulse are free and unaffected by this.
-
-## Backend: stretching the Anthropic budget — prompt caching, Haiku for side jobs, Pulse dedupe (Sep 28, 2026, `Tra` + `trade-verdict`)
-
-Follow-up to the usage-cap outage above, all four levers approved by Mr. T:
-1. **/analyze prompt caching.** `SYSTEM_PROMPT` (~4k tokens, byte-identical every call — all
-   per-ticker data is in the user message) is now sent as a `cache_control: ephemeral` system
-   block. Repeats within ~5 min read it at ~10% of input price (~40% off a warm ANALYZE).
-   **Never interpolate per-request data into SYSTEM_PROMPT** — it silently kills the cache.
-   Stays on Sonnet 4.6 (`CLAUDE_MODEL_ANALYZE`).
-2. **Sector Pulse dedupe.** `generatePulse()` reuses its last result when the market-%-change
-   input text is byte-identical (nights/weekends it was re-buying the same summary every 4 min).
-3. **Agitator scoring + topical fallback → Haiku 4.5** (`CLAUDE_MODEL_LIGHT`, 1/3 Sonnet price).
-   Topical extraction still passes through `classifyEntityMatch()`. Both prompts are below
-   Haiku's 4096-token caching minimum, so no caching there.
-4. **Sector Pulse → Haiku 4.5.**
-New `logClaudeUsage()` writes `[CLAUDE USAGE] <label> in= out= cache_read= cache_write=` per call —
-grep Render logs to confirm `cache_read>0` on warm `/analyze` and to check spend against the bill.
-Savings are estimates from token counts, not yet measured. Sonnet 5 ($2/$10) considered for
-/analyze and deferred: it rejects `temperature`, needs a before/after check first.
-Verified via local boot with Anthropic stubbed (Pulse: 4 identical refreshes → 1 call on Haiku;
-/analyze sends the cached block on Sonnet). Agitator paths need live Finnhub, verified by code only.
-
-### Sep 28, 2026 follow-up: shipped, live-confirmed, and what was measured
-
-**PRs:** credit refund + friendly error = `Tra` #124 / `trade-verdict` #363; caching/Haiku/Pulse
-dedupe = `Tra` #125 / `trade-verdict` #364. All four merged; Render deployed both `Tra` merges.
-
-**Refund confirmed live** in Render logs (e.g. `/analyze BB: refunded credit (anthropic 400)`,
-`/analyze STWD: refunded credit ...`) — every capped call after deploy cost nobody a credit.
-
-**One-time manual refund for the pre-fix leak** (credits lost Sep 27-28 before #124 shipped):
-+2 *purchased* credits each to the three real affected accounts, found via `credits.updated_at` +
-`verdict_log` (Render request logs aren't available): `ip:69.7.52.80`, `sub:the360doctor@gmail.com`,
-`ip:166.198.252.92` (the last one had also been auto-refunded, so it came out slightly ahead —
-accepted, not clawed back). `turneraroundauto@gmail.com` and `mcp:agent` deliberately skipped.
-
-**The cap fix — a real point of confusion worth keeping.** Mr. T first raised "usage" in
-**claude.ai → Settings → Usage (extra usage)**, which funds his own Claude app/Claude Code use and
-does **nothing** for Tra's `ANTHROPIC_API_KEY`. The error kept firing until he raised the
-**monthly spend limit in console.anthropic.com → Settings → Limits** (the org that owns the key).
-Tell-tale: the API error says "your *specified* API usage limits … regain access on <1st of
-month>" — that's the Console spend limit, not a subscription. A Claude.ai subscription cannot pay
-for API calls. Once raised, a live MCP `analyze MU` succeeded immediately, no redeploy needed.
-
-**Caching measured live, not estimated** (`[CLAUDE USAGE]` lines, first ~4h after the limit was
-raised): the rules block is 4,556 tokens. 11 analyses: 6 `cache_write=4556` (first call after >5
-quiet min) and 5 `cache_read=4556` (a follow-up inside 5 min — MU→MU, XRP→NBIS→AXON, MU→IREN,
-TSLA→BTC). Net ≈ 25% off the rules portion and ≈ 15% off total /analyze cost (~$0.022 vs
-~$0.026) — lower than the ~40% estimate above because output (~650 tokens at Sonnet's output
-price) dominates each call and can't be cached, and low traffic means many cold writes (which
-cost 1.25×). Savings grow with Analyze All / concurrent users; on very quiet days caching can
-cost slightly more than no caching. Pulse dedupe confirmed: 6 paid Pulse calls in ~4h instead of
-one every 4 min, each ~300 tokens on Haiku. Only `/analyze` uses `cache_control` — the other
-three prompts are far under Haiku's caching minimum, so it would do nothing there.
-
-**Next lever, not done (needs Mr. T's call — quality trade-off):** shorten ANALYZE's output
-(tighter gate notes), since output is now the biggest cost per analysis.
-
-## Backend: ANALYZE output trimmed — model writes only Gates 2/3, as single-line JSON (Sep 28, 2026, `Tra` + `trade-verdict`)
-
-Follow-up to the caching work above, approved by Mr. T. With caching in, the written verdict
-(output, ~650 tokens at Sonnet's output price) became the biggest cost per analysis — and about a
-third of it was pure copying: the model re-typed Pre-Gate, Gate 0, Gate 1, Gate 4 and Gate 5
-(all server-computed, handed to it as "USE EXACTLY THIS"), and `/analyze` then threw that copy away
-and overwrote it with the server's own values.
-
-**Change:** the model now outputs only `g2_catalyst` and `g3_openbar` in `gates` (the two gates it
-genuinely judges). It still receives all five server gates in its input and still uses them for
-congruency — only the re-typing is gone. Right after `JSON.parse`, `/analyze` rebuilds `parsed.gates`
-in the original canonical order (pre_gate, sector, g1, g2, g3, g4, g5) and fills the five server
-gates exactly as before, so the response every tier receives is unchanged in shape. Also a guard:
-a missing `gates` object no longer throws.
-
-**Compact JSON:** the output spec now asks for minified single-line JSON instead of the indented,
-multi-line layout the old example showed (which the model mimicked). Whitespace/newlines are real
-output tokens; after `JSON.parse` the two are byte-for-byte the same object, so nothing downstream
-can tell the difference.
-
-Estimated ~35-40% fewer output tokens per analysis (~$0.0035-0.004 saved each). Verify live by
-comparing `out=` on `[CLAUDE USAGE] analyze` lines before/after (was ~630-710). SYSTEM_PROMPT
-changed, so the cache rewrites once on the first analysis after deploy. Verified by booting real
-`server.js` locally with Anthropic stubbed to return only Gates 2/3: response carried all 7 gates in
-order with server statuses; `npm test` 92/92. **Watch after deploy:** a handful of real verdicts, to
-confirm UP/DOWN/FLAT calls look the same as before the format change.
-
-## Backend: Scorecard grades each verdict on its own dial horizon, market hours only (Sep 29, 2026, `Tra` + `trade-verdict`)
-
-Mr. T questioned the Scorecard's accuracy. A `verdict_log` breakdown by issue window and grading window
-showed two real problems:
-- **Off-hours verdicts were graded like live calls.** Pre-market, after-close, weekend and holiday
-  verdicts were logged and graded even though the frontend already forces them to display HOLD
-  (`isMarketClosed()`). They were built on inputs that don't exist yet off-hours. Pre-market UP calls
-  were right 1 in 15 times at 24h; weekend UP calls 0 in 10. Logged in the Notion Rogue Actions Log
-  at Mr. T's request.
-- **One fixed window for everyone.** UP calls scored 27% at 24h but 71% at 5 days (n=35); FLAT scored
-  64% at 24h but 32% at 5 days. The grading window, not the call, decided the score.
-
-**Fix (`supabase-ddl-patch23` here / `patch21` in Tra, applied via Supabase MCP, grants re-checked
-clean):** new `verdict_log` columns `issued_market_open`, `horizon_sessions`, `horizon_target_date`,
-`horizon_due_at`, `grade_horizon`, `actual_return_pct_horizon`, `graded_at_horizon`.
-- `logVerdict()` stamps `issued_market_open` via the new `isMarketOpenAt()`, which is holiday- and
-  early-close-aware. Off-hours rows get no horizon and are never graded into any stat.
-- Horizon = the close of the Nth session after issue, set by the Aggression Dial's own recheck cadence
-  (`HORIZON_SESSIONS_BY_DIAL`):
-  - Aggressive: 0, the same session.
-  - Light Aggressive, CRF Default, and Free (no dial): 1.
-  - Light Passive: 2.
-  - Passive: 5.
-
-  These mappings are my calibration from the dial text, not a spec.
-- `gradeHorizonRows()` grades against that session's Alpaca daily-bar close (IEX feed, raw prices).
-  Rows it can't grade (no entry price, or no bar for the ticker, e.g. crypto) are closed out with no
-  grade 3 days after they fall due, instead of retrying forever.
-- `backfillHorizonFields()` stamps pre-existing rows using the same helpers. A sweep also runs 60s after
-  boot, so the backfill starts right away.
-- Every accuracy reader now selects `grade:grade_horizon` (and the horizon return) and filters on
-  `issued_market_open = true`. That covers the Scorecard (Free and personal), the pooled UP/DOWN split
-  and top tickers, the ticker card's TRACK RECORD, and the historical-accuracy confidence ceiling.
-- The 24h/5-day grades still run, for the record only. `strictPct` is now always null (no UI used it).
-- Starter/Pro Scorecard help text explains the horizon and the off-hours rule. `?v=` bumped:
-  Starter 121, Pro 68.
-
-**Verified:**
-- A simulation of the real `isMarketOpenAt`/`horizonTargetFor` covered: Friday→Monday, the Labor Day
-  skip, the DST change, the Nov 27 early close, 9am/4:30pm/weekend/holiday.
-- A fake-DB run of the backfill and grader covered: not-yet-due, off-hours excluded, crypto closed out,
-  DOWN −5% graded TRUE.
-- Real `server.js` boots. `npm test` passes 92/92.
-
-**Not yet verified:** a live deploy, and the backfill filling in real rows. Expect the Scorecard to
-show "accumulating" or a smaller graded count until the backfill finishes.
-
-**Planned next, not yet built:** grade the trade path (did the price hit the dial's own target or stop
-first) instead of just the endpoint, and size the FLAT band to each ticker's normal daily move.
-
-## Backend: Scorecard grades the trade path, sizes FLAT to each ticker, shows FLAT separately (Sep 29, 2026, `Tra` + `trade-verdict`)
-
-Follow-up to the horizon-grading entry above. Mr. T picked all three options via `AskUserQuestion`:
-- **UP/DOWN = trade path.** `gradeHorizonRows()` walks regular-session 15-min Alpaca bars (IEX, raw) from
-  `issued_at` to the horizon close and asks which came first: the dial's target or its stop
-  (`TRADE_PATH_BY_DIAL`: Aggressive +4/−1, Light Aggressive +4/−3, CRF Default +6/−3, Light Passive +10/−5,
-  Passive +16/−8 — target = 2× stop where the dial only lists a stop). Both in one bar = stop (conservative).
-  A bar opening past a level fills at its open. Neither hit = graded on the close with the old rule.
-  New columns `path_outcome` (TARGET/STOP/NEITHER), `path_return_pct` (signed in the verdict's favor).
-  Expectancy ("avg return / trade") now uses `path_return_pct`.
-- **FLAT = ½ a normal day.** `fetchNormalDailyMovePct()` = mean |daily % move| over the 20 sessions
-  before issue (split-adjusted). TRUE within ½ of it, MARGINAL within 1×, else FALSE; falls back to the
-  old fixed band with no history. Stored as `flat_band_pct`. Applied literally to every horizon — note a
-  Passive (5-session) FLAT is judged against a one-day band, which is strict; revisit if FLAT scores look
-  harsh on Passive.
-- **FLAT shown separately.** `computeAccuracyStats()` headline (`directionalPct`, `gradedCount`) is UP/DOWN
-  only; `flatPct`/`flatGradedCount` returned alongside (flatPct needs 5+). Every accuracy reader now
-  selects `verdict`. This also makes the ticker card's TRACK RECORD and the Top Tickers list UP/DOWN-only.
-  Starter/Pro Scorecard gets a "FLAT calls (separate)" row; help text rewritten.
-Migration: `supabase-ddl-patch24` here / `patch22` in Tra (applied via MCP, grants re-checked clean).
-Already horizon-graded rows are reset after Tra deploys so they re-grade under the new rules.
-Verified: 15-case simulation of `walkTradePath`/`classifyFlatReturn`/`computeAccuracyStats`, real
-`server.js` boot, `npm test` 92/92, tsc baseline unchanged, bundle chunk counts unchanged.
-Not verified: live Alpaca 15-min bars and real re-graded numbers — check Render logs for
-`fetchSessionBars`/`fetchNormalDailyMovePct` errors and `verdict_log.path_outcome` filling in.
-
-**Correction, same day (Mr. T): the stop no longer decides the grade.** The first-touch rule above let
-an Aggressive UP call that hit +4% and then closed red count as fully right, and let a small wrong-way
-close escape as long as it didn't reach the stop. New rule (`gradeDirectionalCall()`): closing in the
-call's direction by any amount = TRUE; closing against it = FALSE; closing against it after reaching the
-dial's target at any point in the window = MARGINAL. The stop only feeds `path_return_pct` (avg return
-per trade). `computeAccuracyStats()` now weights TRUE 1 / MARGINAL 0.5 / FALSE 0 for UP/DOWN and FLAT
-alike (MARGINAL used to count as fully right). FLAT: any move under 0.1% is always TRUE. Verified by a
-12-case simulation of the extracted functions; `npm test` 92/92.
-
-**Shipped Sep 29, 2026 (`Tra` #128 / `trade-verdict` #368, both merged; Render live 04:22 UTC).** Right
-after deploy, every horizon grade was cleared (300 rows: `graded_at_horizon`, `grade_horizon`,
-`actual_return_pct_horizon`, `path_outcome`, `path_return_pct`, `flat_band_pct` set null — nothing
-deleted) so all past verdicts re-grade under the new rules. The first post-deploy sweep graded 150 with
-no Alpaca errors; 476 more were due and queued. `gradeHorizonRows()` takes `HORIZON_GRADING_BATCH_SIZE`
-(150) per 30-min sweep, so a full re-grade takes ~1.5-2h — the Scorecard shows a smaller, shifting count
-until it finishes. Off-hours verdicts (220 of 854 at the time) stay excluded by design. Old baseline for
-comparison: 55.1% directional, +0.48% avg return per sized trade (Sep 13, 2026).
-
-## Backend/Frontend: Scorecard becomes Day trade + Long, fully pooled; Pro gets a margin and an always-UP baseline (Sep 30, 2026, `Tra` #129 / `trade-verdict` #370)
-
-Mr. T asked why larger samples looked less accurate. Cause: the Scorecard
-headline was the viewer's own calls (118, 52.5%), but the rows below it
-were pooled across all users, all under a "Pooled" badge. Grades are
-recorded once and frozen, never re-scored. He asked to swap direction/
-avg-return for "day trade and long position accuracy" (confirmed via
-AskUserQuestion: grade every call both ways; remove avg return).
-
-- New `verdict_log` columns (`supabase-ddl-patch25` here / `patch23` in
-  Tra, grants re-checked clean). `GRADE_WINDOWS`:
-  - Day = the same session's close, target +4%.
-  - Long = the close 5 sessions later, target +16%, FLAT band ×√5.
-  - Both reuse `gradeDirectionalCall`/`classifyFlatReturn`.
-  - `backfillDayLongFields()` stamps past market-open rows.
-  - `gradeWindowRows("day"|"long")` runs in the 30-min sweep, 150 rows per
-    window per sweep.
-- `/scorecard` is pooled for every tier:
-  - Day/Long tiles need 20 graded UP/DOWN calls.
-  - The UP/DOWN/FLAT rows are split day vs long, with top tickers below.
-    Rows and tickers need 5.
-  - Avg return/expectancy is removed from the card.
-- Horizon grading (`grade_horizon`) is unchanged. It still feeds the
-  confidence ceiling and the ticker-card TRACK RECORD.
-- **Pro only (server sends `proof` only when `tierConfig.tracker`):** each
-  tile shows a ±95% margin of error, plus "Always-UP X%". That's the share
-  of the same graded calls whose window closed up.
-  - "beats it" (green): the tile beats Always-UP by more than the margin.
-  - "trails it" (red): the reverse.
-  - "not proven yet" (amber): anything in between.
-  - The margin ignores day-to-day clustering (calls on one market day move
-    together), so it's optimistic.
-- `?v=`: Starter 123, Pro 71.
-- Verified:
-  - Headless Chromium on both tiers: Starter shows no proof line even when
-    the mock includes one.
-  - A `tileProof` simulation.
-  - `npm test` 92/92.
-- **Not verified live.** After deploy, the Day/Long tiles read
-  "accumulating" until the backfill and graders catch up. Long grades lag 5
-  trading days by design.
-
-## Backend: Free (no dial) verdicts log as CRF Default, not null (Sep 30, 2026)
-
-Direct correction from Mr. T: "the no dial calls should have been part of the
-original grading change." Free has no Aggression Dial, but it has always run
-under CRF Default rules (`effectiveDialPosition` falls back to NEUTRAL). Yet
-`logVerdict` wrote `dial_position: null` for any tier without a dial. That
-made "no dial" look like a separate population in accuracy breakdowns, when
-it was the same rules as CRF Default. `/analyze` now always logs
-`effectiveDialPosition`, both repos. The 290 existing null rows were
-backfilled to NEUTRAL via Supabase MCP. Grades are unchanged: horizon and
-trade-path grading already mapped null to NEUTRAL, and Day/Long grading
-doesn't use the dial. Logged in the Rogue Actions Log as a miss in the Sep 29
-grading change.
-
-## Backend: grading sweep catches up in one pass; accuracy caches clear on new grades (Sep 30, 2026, `Tra` + `trade-verdict`)
-
-After the Day/Long launch the Scorecard sat at "0/20 graded" for a while. Two causes:
-- Each 30-min sweep graded only one batch of 150 rows per window (horizon, day, long).
-  A backlog of ~500 took hours.
-- `fetchScorecardPool()` cached its first (empty) read for 30 min. The historical and
-  directional accuracy caches do the same for up to an hour.
-
-Fix, in `runVerdictGradingSweep()`:
-- `gradeUntilCaughtUp()` repeats a window's grader until a batch grades nothing. That means
-  it's caught up, or only rows whose bars fetch keeps failing are left; those retry next sweep.
-  It's capped at `GRADING_MAX_BATCHES_PER_SWEEP` (10 batches, 1,500 rows) per window per
-  sweep, so a stuck row can't loop forever. Alpaca calls still go through `alpacaGet()`'s throttle.
-- `clearAccuracyCaches()` resets `scorecardPoolCache`, `historicalReactionCache`, and
-  `directionalAccuracyCache` whenever a sweep grades any horizon, day, or long rows.
-- A `verdictGradingSweepRunning` guard stops a long catch-up sweep from overlapping the next
-  timer tick.
-
-Verified:
-- A simulation: a 476-row backlog graded in 5 batches; a stuck queue stopped after 1 batch;
-  a never-empty queue capped at 10.
-- `node --check`; `npm test` 92/92.
-- A local boot of Tra's `server.js`.
-
-Not yet verified live: check Render logs for one `Verdict grading sweep:` line clearing the
-backlog in a single sweep.
-
-## Frontend: Google Play rating prompt — Free tier, Play app only (Oct 14, 2026)
-
-Mr. T asked for a "do you like the app? 1-5 stars → send to Play" prompt. Flagged before
-building: showing stars and sending only happy users to Play is **review gating**, banned by
-Play's ratings policy (and Play's in-app review guidelines say not to ask "do you like it"
-first) — risky on an app already under review. Also: closed-testing testers can't post public
-reviews at all, only private feedback. Chosen via `AskUserQuestion`: no stars, everyone → Play,
-after the 3rd analysis.
-
-`shared/rate-prompt.ts` (bundler-only, Free only — the TWA wraps Free): counts successful
-analyses in `tv_rate_analyses`; shows `#rate-prompt` (a floating card on the same blurred
-backdrop as the sign-in nudge) 1.5s after the 3rd one. "Rate on Google Play" opens an Android
-`intent://` URL for `com.android.vending` (falls back to the web listing) and stops it for good;
-"Later"/tap-outside snoozes 7 days; "Don't ask again" stops it. Only shown inside the Play app:
-`isPlayApp()` = `android-app://` referrer this session, or `tv_device_platform === 'twa'`.
-**Preview in a normal browser with `?ratepreview`** (then run 3 analyses).
-
-Two real collisions found in headless testing and fixed: the first-run tutorial swallows clicks
-while active, so the prompt won't open during it (`rolodex.isTutorialActive()`); and the sign-in
-nudge (3s after load) won't open on top of an already-open rating prompt. The prompt also skips
-while the nudge, ANALYZE spotlight, or out-of-credits screen is up and retries after the next
-analysis. Test note: the tutorial's "seen" key is now `tv_tutorial_seen_free_v2` — set it, not
-just the old key, or a test's clicks get swallowed.
-
-Verified via headless Chromium: web never shows it; Play app shows after 3 analyses; Rate/Later/
-Never set the right state and Later/Never stay hidden across reloads; below 3 analyses it stays
-hidden; it never stacks over the nudge. `index.html` `?v=` 105→106. **Not verified on a real
-device** — confirm on the Play-installed app that "Rate" opens the Play Store listing.
-
-**Follow-up, same day: extended to Starter and Pro.** Mr. T, signed in to Pro, saw no prompt after
-analyzing 15 tickers. Cause: the Play app launches the root (Free) page, and Free redirects a signed-in
-paid session to `/starter/` or `/pro/` before its own code runs. The `android-app://` referrer only
-exists on that first page, so after the redirect nothing knew it was the Play app, and Starter/Pro had
-no prompt anyway. Fix:
-- `notePlayAppLaunch()` runs at the top of Free's `app.ts`, before the redirect, and stores
-  `tv_twa_session` in sessionStorage. It's the same tab and origin, so `/starter/` and `/pro/` can read it.
-- `shared/rate-prompt.ts` now owns the whole feature (show, busy checks, button wiring). All three tiers
-  call `initRatePrompt()` once and `onAnalysisSucceeded()` after each successful `/analyze`. Starter/Pro
-  `index.html` carry the same `#rate-prompt` markup.
-- Showing is debounced to 2s after the LAST success, so Analyze All (15 at once on Pro) shows it once,
-  after the batch, not mid-batch. The settings modal joins the blocking-overlay list.
-Test note: headless Chromium drops an `android-app://` referrer from `goto({referer})`, so fake it with
-an init script that overrides `document.referrer` on the root page only.
-Verified: Play launch → redirect to Pro → Analyze All 15 shows it exactly once after the batch; Pro on the
-web never shows it; Starter via `?ratepreview` shows it and "Don't ask again" sticks; Free still works.
-`?v=`: Free 107, Starter 124, Pro 72.
+- **First-run tutorial swallows the first click.** It auto-starts ~900ms after load and its handler calls `stopPropagation()`. Before driving any interaction, set the tier's seen key in an init script — on Free it is now `tv_tutorial_seen_free_v2` (also set the old `tv_tutorial_seen_<tier>`).
+- **Service Worker requests:** on Free, register mocks with `context.route()`, not `page.route()` — page routes don't reliably see SW-proxied requests. **Always `await` route registration before navigating.**
+- `PushManager.subscribe()` can't be mocked at the network layer and fails in the sandbox (FCM is blocked). Stub `reg.pushManager.subscribe`/`getSubscription` via `addInitScript()`.
+- `context.grantPermissions()` makes `Notification.permission` read granted immediately, which breaks tests of "ask on first gesture". Stub `Notification.requestPermission` instead.
+- Headless Chromium drops an `android-app://` referrer from `goto({referer})`. Fake it with an init script overriding `document.referrer` on the root page only.
+- `execute_sql` via Supabase MCP is read-only; test write logic with an in-memory fake client.
+- After restarting a branch from `origin/main`, re-check `?v=` numbers against `main` — reusing a number `main` already used for other bytes defeats cache-busting. A `.ts` source with a `?v=` import must carry the bump too.
 
 ## Oct 19, 2026 — Gate 3 3-bar window (Pro), every gate logged, Pulse moved into the Gate, one Gate 0 rule set
 
@@ -11974,7 +2093,7 @@ Mr. T saw the Pulse and Gate contradict each other minutes apart. Causes and fix
   T's call. Fix: `ah.computeGate0(data)` (tested) is the only Gate 0 rule set; both paths call it.
 - **The Pulse rewrote itself constantly.** Input is each move rounded to 1 decimal
   (`ah.buildPulseInput`/`pulsePct`); while the market is closed the BTC line is left out (24/7 trading
-  forced a new Haiku call every 4 min all night). Chosen over a hard freeze, which would let pre/post-
+  forced a new Pulse model call every 4 min all night). Chosen over a hard freeze, which would let pre/post-
   market grid numbers drift away from a frozen Pulse. Identical concurrent requests share one call.
 - **The Pulse lagged the grid by one refresh.** `/market` and the warm wait up to 8s
   (`pulseForSnapshot`) for the Pulse built from the same numbers; on timeout they send the old one and
@@ -11985,3 +2104,22 @@ Mr. T saw the Pulse and Gate contradict each other minutes apart. Causes and fix
 Verified: 107/107 tests; Tra booted with Finnhub/Anthropic stubbed (warm says YELLOW for the Sep 14
 numbers, first `/market` carries the matching Pulse, repeat refresh makes no new model call). Not
 verified live: the new Pulse wording on real data.
+
+### Gate inputs logged, unread Gate 3 is null, same-session FLAT band shrinks (`Tra` #135 / mirror on `trade-verdict` #382)
+- **`verdict_log.gates.inputs`** (`ah.gateInputsForLog`, tested; no migration, it's a new key in the
+  jsonb): Gate 1 branch/`change14`/`change60`; Gate 2 type, corroboration count, proxy name/symbols/
+  tier/r; Gate 3 bars (window bars on Pro, the opening bar elsewhere) and `read`; Gate 4 range
+  position, price, 52W hi/lo; Gate 5 ticker/proxy % moves, regime state, rolling r, coherence case;
+  `red_count`; `override` (which branch set the verdict: `pre_gate_candidate`, `gate0_red`,
+  `gate1_forcedown`, `gate5_coherence_down`/`_flat`, `gate5_forcedown`, `gate5_g2_down`,
+  `gate5_flat`, `congruency_flat`, `earnings_block`). Rows before this have no inputs (no backfill).
+- **Gate 3 with no bar data is "not read":** logs `g3: null` + note "not read: no bar data", and no
+  longer counts as YELLOW in the three-YELLOW corroboration check (a small verdict change).
+- **Same-session FLAT band** (Day window and 0-session horizon) scales by √(share of the session
+  left at issue), 15-min floor, early closes handled (`ah.sameSessionFlatScale`). Multi-session
+  windows unchanged. Applies to rows graded after deploy; already-graded rows keep their grade.
+- **Gate 4 is already range-position based** (since Aug 22, `evaluateGate4`): below 30% Phase 1, 30-70%
+  Phase 2, above 70% Phase 3. The proposed "stretched above the 50-day average bumps a phase"
+  modifier is NOT built — no validated cutoff, and the 50-day average isn't sent to `/analyze` yet.
+- Weekend rows (e.g. NU DOWN on Sun Oct 18) store the raw model verdict but have
+  `issued_market_open = false`, so they're never graded; the card shows HOLD client-side.
