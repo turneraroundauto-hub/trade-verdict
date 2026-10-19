@@ -3260,6 +3260,9 @@ async function logVerdict(fields) {
       // fact -- there was no way to see a HIGH->MEDIUM demotion actually
       // happened, or confirm one hadn't, from this table alone.
       confidence:                fields.confidence || null,
+      // Oct 19, 2026 (Tra patch25 / mirror patch28): every gate's color + the
+      // G3 note, shaped by ah.gatesForLog(). Column must exist before deploy.
+      gates:                     fields.gates || null,
       grading_window_days:       1, // informational only as of Sep 7, 2026
       grade_due_at:              dueAtPrimary.toISOString(),
       grade_due_at_secondary:    dueAtSecondary.toISOString(),
@@ -5802,6 +5805,7 @@ Return only single-line minified JSON.
         gate2CorroborationState: `${contextCorroboration.corroborated ? "GATE2-CORROBORATED" : "UNCORROBORATED"} (${contextCorroboration.matchCount}/2)`,
         dialPosition: effectiveDialPosition, // Free (no dial) logs as NEUTRAL = CRF Default, the same rules it runs under
         confidence: parsed.confidence,
+        gates: ah.gatesForLog(parsed.gates),
         userEmail: req.userEmail, tier: req.userTier,
       });
       res.json(result);
