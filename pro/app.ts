@@ -2296,7 +2296,7 @@ interface TutorialStep {
 // settle before measuring the anchor's real position -- matches this
 // module's own .32s/.28s card transition timings elsewhere in the file;
 // there's no promise/callback from expandCard() itself to await instead.
-const TUTORIAL_STEP_SETTLE_MS = 450;
+const TUTORIAL_STEP_SETTLE_MS = 250;
 
 function tutorialCard(id: string): HTMLElement {
   return document.getElementById(id) as HTMLElement;
@@ -2304,17 +2304,24 @@ function tutorialCard(id: string): HTMLElement {
 function tutorialExpand(id: string): void {
   const card = tutorialCard(id);
   if (!card) return;
+  rolodex.resetSwipeDemoCard();
+  // One card open at a time: close the previous step's card first.
+  rolodex.collapseUtilityCards(card);
   if (!card.classList.contains('expanded')) expandCard(card);
-  // Landscape mode positions a utility card via its own ribbon+pane
-  // selection (selectLandscapeCard) -- a completely separate mechanism
-  // from expandCard()'s portrait-only snapCardUnderDock(), which it
-  // deliberately skips while landscape is active (see expandCard()'s own
-  // comment). Without this, the tutorial's balloon anchor sits inside a
-  // card that's still display:none (never made .landscape-active, never
-  // selected in the ribbon) -- confirmed real (Sep 7, 2026 report): the
-  // tutorial "doesn't track well through the app in landscape, mainly
-  // doesn't activate snap-to-HUD from the ribbon menu."
+  else if (!rolodex.isLandscapeMode()) rolodex.snapCardUnderDock(card);
   if (rolodex.isLandscapeMode()) rolodex.selectLandscapeCard(card);
+}
+// Gate and Pulse steps: everything closed, page at the top.
+function tutorialTop(): void {
+  rolodex.resetSwipeDemoCard();
+  rolodex.collapseUtilityCards();
+  rolodex.jumpToTop();
+}
+// Ticker-card steps: utility cards closed, active card under the pill ribbon.
+function tutorialTickerCard(): void {
+  rolodex.resetSwipeDemoCard();
+  rolodex.collapseUtilityCards();
+  rolodex.scrollToActiveCard();
 }
 function tutorialActiveCardEl(): HTMLElement | null {
   const cards = Array.from(roloStage.querySelectorAll<HTMLElement>('.rolo-card'));
@@ -2343,11 +2350,35 @@ function tutorialGlossaryAnchor(): HTMLElement | null {
 
 const TUTORIAL_STEPS: TutorialStep[] = [
   {
-    // The centerpiece -- no accordion, anchors straight to the new pills
-    // help button next to "Tap Pills to Analyze."
+    // Starts at the very top with every card closed (see startTutorial()).
+    html: HELP_CONTENT.gate,
+    getAnchor: () => document.querySelector<HTMLElement>('[data-help="gate"]'),
+    before: () => tutorialTop(),
+  },
+  {
+    html: HELP_CONTENT.pulse,
+    getAnchor: () => document.querySelector<HTMLElement>('[data-help="pulse"]'),
+    before: () => tutorialTop(),
+  },
+  {
+    html: 'Set your Aggression Dial before you analyze. It decides how big a position your verdicts can suggest.',
+    getAnchor: () => tutorialAnchor('dial', 'dial'),
+    before: () => tutorialExpand('card-dial'),
+  },
+  {
+    html: HELP_CONTENT.agitator,
+    getAnchor: () => tutorialAnchor('agitator', 'agitator'),
+    before: () => tutorialExpand('card-agitator'),
+  },
+  {
+    html: HELP_CONTENT.io,
+    getAnchor: () => tutorialAnchor('io', 'io'),
+    before: () => tutorialExpand('card-io'),
+  },
+  {
     html: HELP_CONTENT.pills,
     getAnchor: () => document.querySelector<HTMLElement>('[data-help="pills"]'),
-    before: () => rolodex.scrollToActiveCard(),
+    before: () => tutorialTickerCard(),
   },
   {
     html: 'This is <b>swipe-to-delete</b> — swipe any card left anytime to remove that ticker from your watchlist.',
@@ -2364,32 +2395,7 @@ const TUTORIAL_STEPS: TutorialStep[] = [
     // the balloon falls back to the card itself before the first ANALYZE.
     html: 'After you ANALYZE, every card gets a <b><a class="help-glossary-link" href="#" data-term="day / long call">DAY / LONG</a></b> switch. <b>LONG</b> is the call for the next 5 trading days. <b>DAY</b> is the call for today only, read from the last three 15-minute price bars. Before the third bar closes, DAY glows while it waits and flashes when it’s ready — no extra credit. After the market closes, DAY is greyed out.',
     getAnchor: () => tutorialActiveCardEl()?.querySelector<HTMLElement>('[data-tutorial="daylong"]') || tutorialActiveCardEl(),
-    before: () => { rolodex.resetSwipeDemoCard(); rolodex.scrollToActiveCard(); },
-  },
-  {
-    html: HELP_CONTENT.gate,
-    getAnchor: () => document.querySelector<HTMLElement>('[data-help="gate"]'),
-    before: () => { rolodex.resetSwipeDemoCard(); rolodex.jumpToTop(); },
-  },
-  {
-    html: 'Set your Aggression Dial before you analyze. It decides how big a position your verdicts can suggest.',
-    getAnchor: () => tutorialAnchor('dial', 'dial'),
-    before: () => tutorialExpand('card-dial'),
-  },
-  {
-    html: HELP_CONTENT.pulse,
-    getAnchor: () => document.querySelector<HTMLElement>('[data-help="pulse"]'),
-    before: () => rolodex.jumpToTop(),
-  },
-  {
-    html: HELP_CONTENT.agitator,
-    getAnchor: () => tutorialAnchor('agitator', 'agitator'),
-    before: () => tutorialExpand('card-agitator'),
-  },
-  {
-    html: HELP_CONTENT.io,
-    getAnchor: () => tutorialAnchor('io', 'io'),
-    before: () => tutorialExpand('card-io'),
+    before: () => tutorialTickerCard(),
   },
   {
     html: HELP_CONTENT.watchlist,
@@ -2420,11 +2426,16 @@ const TUTORIAL_STEPS: TutorialStep[] = [
 
 async function runTutorialStep(index: number): Promise<void> {
   if (index >= TUTORIAL_STEPS.length) { rolodex.endTutorial(); return; }
+  rolodex.setTutorialBusy(true);
   const step = TUTORIAL_STEPS[index];
   if (step.before) await step.before();
+  // Measure only after the page has stopped moving -- a fixed delay was
+  // too short on a real phone and left balloons where the card used to be.
   await new Promise((r) => setTimeout(r, TUTORIAL_STEP_SETTLE_MS));
+  await rolodex.waitForScrollSettle();
   const anchor = step.getAnchor();
-  if (!anchor) { runTutorialStep(index + 1); return; } // robustness: skip a step whose anchor isn't on screen for some reason
+  if (!anchor || anchor.getBoundingClientRect().height === 0) { runTutorialStep(index + 1); return; } // skip a step whose anchor isn't on screen
+  await rolodex.revealForTutorial(anchor);
   rolodex.openTutorialBalloon(
     anchor,
     step.html,
@@ -2432,9 +2443,11 @@ async function runTutorialStep(index: number): Promise<void> {
     () => { rolodex.resetSwipeDemoCard(); },
   );
 }
-
-function startTutorial(): void {
+async function startTutorial(): Promise<void> {
   localStorage.setItem('tv_tutorial_seen_pro', '1');
+  // From the Glossary button or the first run alike: close everything,
+  // go to the top, then start at the Gate.
+  await rolodex.resetForTutorial();
   runTutorialStep(0);
 }
 (window as any).startTutorial = startTutorial;
