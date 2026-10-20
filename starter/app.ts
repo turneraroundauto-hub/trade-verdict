@@ -454,7 +454,7 @@ function renderRoloCard(sym: string): void {
   card.innerHTML = roloCardHTML(sym, state);
   card.classList.remove('verdict-up', 'verdict-down');
   const btn = card.querySelector('[data-analyze]');
-  if (btn) btn.addEventListener('click', () => { vibrateTap(); analyzeOne(sym); });
+  if (btn) btn.addEventListener('click', () => { vibrateTap(); snapOnAnalyze.add(sym); analyzeOne(sym); });
   const resetEl = card.querySelector('[data-reset]');
   if (resetEl) resetEl.addEventListener('click', () => resetTicker(sym));
   if (state.result && !isMarketClosed()) {
@@ -745,11 +745,24 @@ function wireDialDrag(): void {
   });
 }
 // ── ANALYZE — real, credit-consuming /analyze call ────────────────────
+// Snap the verdict card under the pill ribbon when ANALYZE is tapped and
+// again when the verdict lands (Oct 20, 2026 -- the card used to stay
+// wherever the page happened to be). Only for a tap on this card (the
+// ANALYZE button, a pill tap, the earnings opt-in); Analyze All doesn't add
+// its tickers here, or the page would jump once per ticker. The second snap
+// is skipped if the user has since moved to another card.
+const snapOnAnalyze = new Set<string>();
+function snapIfActive(sym: string): void {
+  if (watchlist[rolodex.getRoloCurrent()] === sym) rolodex.scrollToActiveCard();
+}
+
 async function analyzeOne(sym: string, holdThroughEarnings?: boolean): Promise<void> {
   const state = tickerState.get(sym);
   if (!state || state.analyzing) return;
   state.analyzing = true; state.error = null;
+  const snap = snapOnAnalyze.delete(sym);
   renderRoloCard(sym);
+  if (snap) snapIfActive(sym);
 
   const td = state.td || await fetchTickerData(sym);
   state.td = td;
@@ -811,9 +824,11 @@ async function analyzeOne(sym: string, holdThroughEarnings?: boolean): Promise<v
     renderRoloCard(sym); renderPill(sym);
     fetchCreditStatus();
     onAnalysisSucceeded();
+    if (snap) snapIfActive(sym);
   } catch (e: any) {
     state.analyzing = false; state.error = e.message;
     renderRoloCard(sym); renderPill(sym);
+    if (snap) snapIfActive(sym);
   }
 }
 
@@ -824,6 +839,7 @@ async function analyzeOne(sym: string, holdThroughEarnings?: boolean): Promise<v
 function retryWithEarningsHoldThrough(sym: string): void {
   const state = tickerState.get(sym);
   if (state) state.result = null;
+  snapOnAnalyze.add(sym);
   analyzeOne(sym, true);
 }
 
@@ -1565,7 +1581,7 @@ const HELP_CONTENT: Record<string, string> = {
   gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against — feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read — tap the docked bar to jump back to top. Pre/post-market prices are IEX-only and may vary from the full consolidated tape; built for regular-session (9:30am–4pm ET) analysis.',
   pulse: 'A quick, AI-written summary of today’s market mood and which <a class="help-glossary-link" href="#" data-term="sector rotation">sectors</a> are leading or lagging. For your information only — it never changes a gate or a verdict.',
   io: 'Type or paste <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names — one per line, or separated by commas. All caps (AAPL) adds a ticker directly; type it any other way (Tesla) and it resolves to the right symbol. Analyze All runs your full watchlist, up to 7 credits.',
-  scorecard: 'Pooled across every user and tier, so every number here describes the same set of calls. Each verdict is graded twice. Day trade: did it close in the call\'s direction at that same session\'s close? Long: did it close in the call\'s direction 5 trading days later? Closing against the call by any amount is wrong. If the stock reached +4% (day) or +16% (long) in the call\'s direction along the way but still closed against it, it counts as half right. FLAT calls are right when the stock stayed within half its normal move for that window (or moved under 0.1%), half right within one normal move. The two tiles count UP and DOWN calls only; the rows below split UP, DOWN and FLAT. Verdicts pulled pre-market, after close, on weekends or holidays aren\'t counted — they aren\'t tradable when issued. Each tile stays hidden until 20 calls are graded; each row and ticker needs 5. "Your Log" — your own manually-logged ✓/✗ record — is a Pro feature.',
+  scorecard: 'How often UP and DOWN calls were right, across every user.<br>• <b>Day</b> = right by that day’s close. <b>Long</b> = right 5 trading days later.<br>• Only calls made while the market is open count.<br>• Half credit if it hit its target but closed the wrong way.<br>• <b>Your Log</b>, your own ✓/✗ record, is a Pro feature.',
   agitator: 'Check out a new stock idea or a rumor before it earns a spot on your watchlist — always free. Type a ticker, a company name, or paste a headline, and get one LOW/MEDIUM/HIGH read built from 6 real signals, plus a few related companies worth a look.',
   'agitator-score': 'One overall number, 0-10, averaging the 6 signals below it — a quick read on how big a deal this news might be for the stock, not a precise measurement.',
   'agitator-surprise': 'How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.',
@@ -1810,7 +1826,7 @@ rolodex.initRolodex({
   getWatchlist: () => watchlist,
   onActivate: (sym) => {
     const state = tickerState.get(sym);
-    if (state && !state.result && !state.analyzing) analyzeOne(sym);
+    if (state && !state.result && !state.analyzing) { snapOnAnalyze.add(sym); analyzeOne(sym); }
   },
   onDeleteConfirmed: deleteActiveTicker,
   // Landscape-only: collapse the header once the Gate docks, to reclaim

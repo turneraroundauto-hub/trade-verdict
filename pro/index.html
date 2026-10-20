@@ -456,10 +456,18 @@
   @keyframes gateReadPulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(74,168,255,.6)}50%{opacity:.45;box-shadow:0 0 0 4px rgba(74,168,255,0)}}
   .gate-mark{ width:10px; flex:none; font-size:13px; font-weight:700; line-height:1.5; text-align:center; }
   .gate-clear .gate-mark{ line-height:1; }
-  .day-long-bar{ display:flex; gap:6px; margin-top:8px; }
-  .view-btn{ font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.06em; padding:3px 10px; border-radius:4px; border:1px solid var(--border-3); background:transparent; color:var(--ink-dim); cursor:pointer; }
-  .view-btn.active{ color:var(--bg); background:var(--blue); border-color:var(--blue); }
-  .view-btn:disabled{ opacity:.35; cursor:default; }
+  /* DAY/LONG switch (Oct 20, 2026): full width, raised, ~2mm taller than
+     the old 3px-padded chips, so it reads as a control at a glance. */
+  .day-long-bar{ display:flex; gap:6px; margin-top:10px; }
+  .view-btn{ flex:1; font-family:var(--mono); font-size:12px; font-weight:700; letter-spacing:.08em; padding:6px 10px; border-radius:6px; border:1px solid var(--border-3); background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(255,255,255,.01)); color:var(--ink); cursor:pointer; box-shadow:0 2px 0 rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.10); transition:transform .08s, box-shadow .08s; }
+  .view-btn:active:not(:disabled){ transform:translateY(1px); box-shadow:0 1px 0 rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.10); }
+  .view-btn.active{ color:var(--bg); background:linear-gradient(180deg,#ffd06b,var(--amber)); border-color:var(--amber); box-shadow:0 2px 0 rgba(0,0,0,.55), 0 0 10px rgba(255,182,45,.35), inset 0 1px 0 rgba(255,255,255,.35); }
+  .view-btn:disabled{ opacity:.35; cursor:default; box-shadow:none; background:transparent; color:var(--ink-dim); }
+  .view-btn.view-forming{ animation:viewBreathe 1.8s ease-in-out infinite; }
+  .view-btn.view-forming:disabled{ opacity:.7; }
+  @keyframes viewBreathe{0%,100%{border-color:var(--border-3)}50%{border-color:var(--amber);box-shadow:0 0 8px rgba(255,182,45,.35)}}
+  .view-btn.view-flash{ animation:viewFlash .9s ease-in-out 3; }
+  @keyframes viewFlash{0%,100%{filter:none}50%{filter:brightness(1.6);box-shadow:0 0 16px rgba(255,182,45,.8)}}
   .day-note{ font-size:11px; color:var(--ink-dim); margin-top:4px; line-height:1.45; }
   .conf-row{ display:flex; align-items:center; margin-top:2px; gap:6px; }
   .conf-lbl{ font-size:13px; color:var(--ink-dim); letter-spacing:.05em; }
@@ -1022,6 +1030,6 @@
 </div>
 </div><!-- /app-root -->
 
-<script type="module" src="./app.js?v=74"></script>
+<script type="module" src="./app.js?v=75"></script>
 </body>
 </html>

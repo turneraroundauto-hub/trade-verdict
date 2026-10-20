@@ -2401,6 +2401,7 @@ function renderRoloCard(sym) {
   const btn = card.querySelector("[data-analyze]");
   if (btn) btn.addEventListener("click", () => {
     vibrateTap();
+    snapOnAnalyze.add(sym);
     analyzeOne(sym);
   });
   const resetEl = card.querySelector("[data-reset]");
@@ -2653,12 +2654,18 @@ function wireDialDrag() {
     onDown(e);
   });
 }
+var snapOnAnalyze = /* @__PURE__ */ new Set();
+function snapIfActive(sym) {
+  if (watchlist[getRoloCurrent()] === sym) scrollToActiveCard();
+}
 async function analyzeOne(sym, holdThroughEarnings) {
   const state = tickerState.get(sym);
   if (!state || state.analyzing) return;
   state.analyzing = true;
   state.error = null;
+  const snap = snapOnAnalyze.delete(sym);
   renderRoloCard(sym);
+  if (snap) snapIfActive(sym);
   const td = state.td || await fetchTickerData(sym);
   state.td = td;
   if (td) renderRoloCard(sym);
@@ -2722,16 +2729,19 @@ async function analyzeOne(sym, holdThroughEarnings) {
     renderPill(sym);
     fetchCreditStatus();
     onAnalysisSucceeded();
+    if (snap) snapIfActive(sym);
   } catch (e) {
     state.analyzing = false;
     state.error = e.message;
     renderRoloCard(sym);
     renderPill(sym);
+    if (snap) snapIfActive(sym);
   }
 }
 function retryWithEarningsHoldThrough(sym) {
   const state = tickerState.get(sym);
   if (state) state.result = null;
+  snapOnAnalyze.add(sym);
   analyzeOne(sym, true);
 }
 function analyzeAll() {
@@ -3235,7 +3245,7 @@ var HELP_CONTENT = {
   gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against \u2014 feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read \u2014 tap the docked bar to jump back to top. Pre/post-market prices are IEX-only and may vary from the full consolidated tape; built for regular-session (9:30am\u20134pm ET) analysis.',
   pulse: 'A quick, AI-written summary of today\u2019s market mood and which <a class="help-glossary-link" href="#" data-term="sector rotation">sectors</a> are leading or lagging. For your information only \u2014 it never changes a gate or a verdict.',
   io: 'Type or paste <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names \u2014 one per line, or separated by commas. All caps (AAPL) adds a ticker directly; type it any other way (Tesla) and it resolves to the right symbol. Analyze All runs your full watchlist, up to 7 credits.',
-  scorecard: `Pooled across every user and tier, so every number here describes the same set of calls. Each verdict is graded twice. Day trade: did it close in the call's direction at that same session's close? Long: did it close in the call's direction 5 trading days later? Closing against the call by any amount is wrong. If the stock reached +4% (day) or +16% (long) in the call's direction along the way but still closed against it, it counts as half right. FLAT calls are right when the stock stayed within half its normal move for that window (or moved under 0.1%), half right within one normal move. The two tiles count UP and DOWN calls only; the rows below split UP, DOWN and FLAT. Verdicts pulled pre-market, after close, on weekends or holidays aren't counted \u2014 they aren't tradable when issued. Each tile stays hidden until 20 calls are graded; each row and ticker needs 5. "Your Log" \u2014 your own manually-logged \u2713/\u2717 record \u2014 is a Pro feature.`,
+  scorecard: "How often UP and DOWN calls were right, across every user.<br>\u2022 <b>Day</b> = right by that day\u2019s close. <b>Long</b> = right 5 trading days later.<br>\u2022 Only calls made while the market is open count.<br>\u2022 Half credit if it hit its target but closed the wrong way.<br>\u2022 <b>Your Log</b>, your own \u2713/\u2717 record, is a Pro feature.",
   agitator: "Check out a new stock idea or a rumor before it earns a spot on your watchlist \u2014 always free. Type a ticker, a company name, or paste a headline, and get one LOW/MEDIUM/HIGH read built from 6 real signals, plus a few related companies worth a look.",
   "agitator-score": "One overall number, 0-10, averaging the 6 signals below it \u2014 a quick read on how big a deal this news might be for the stock, not a precise measurement.",
   "agitator-surprise": "How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.",
@@ -3464,7 +3474,10 @@ initRolodex({
   getWatchlist: () => watchlist,
   onActivate: (sym) => {
     const state = tickerState.get(sym);
-    if (state && !state.result && !state.analyzing) analyzeOne(sym);
+    if (state && !state.result && !state.analyzing) {
+      snapOnAnalyze.add(sym);
+      analyzeOne(sym);
+    }
   },
   onDeleteConfirmed: deleteActiveTicker,
   // Landscape-only: collapse the header once the Gate docks, to reclaim

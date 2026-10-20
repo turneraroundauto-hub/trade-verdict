@@ -2289,6 +2289,7 @@ function renderRoloCard(sym) {
   if (btn) btn.addEventListener("click", () => {
     vibrateTap();
     requestPushOfferOnFirstGesture();
+    snapOnAnalyze.add(sym);
     analyzeOne(sym);
   });
   const resetEl = card.querySelector("[data-reset]");
@@ -2469,12 +2470,18 @@ scroller.addEventListener("pointerdown", onScrollerPointerDown);
 scroller.addEventListener("pointermove", onScrollerPointerMove, { passive: false });
 scroller.addEventListener("pointerup", onScrollerPointerUp);
 scroller.addEventListener("pointercancel", onScrollerPointerUp);
+var snapOnAnalyze = /* @__PURE__ */ new Set();
+function snapIfActive(sym) {
+  if (watchlist[getRoloCurrent()] === sym) scrollToActiveCard();
+}
 async function analyzeOne(sym) {
   const state = tickerState.get(sym);
   if (!state || state.analyzing) return;
   state.analyzing = true;
   state.error = null;
+  const snap = snapOnAnalyze.delete(sym);
   renderRoloCard(sym);
+  if (snap) snapIfActive(sym);
   const td = state.td || await fetchTickerData(sym);
   state.td = td;
   if (td) renderRoloCard(sym);
@@ -2536,11 +2543,13 @@ async function analyzeOne(sym) {
     renderPill(sym);
     fetchCreditStatus();
     onAnalysisSucceeded();
+    if (snap) snapIfActive(sym);
   } catch (e) {
     state.analyzing = false;
     state.error = e.message;
     renderRoloCard(sym);
     renderPill(sym);
+    if (snap) snapIfActive(sym);
   }
 }
 function analyzeAll() {
@@ -3237,7 +3246,10 @@ async function boot() {
     onActivate: (sym) => {
       requestPushOfferOnFirstGesture();
       const state = tickerState.get(sym);
-      if (state && !state.result && !state.analyzing) analyzeOne(sym);
+      if (state && !state.result && !state.analyzing) {
+        snapOnAnalyze.add(sym);
+        analyzeOne(sym);
+      }
     },
     onDeleteConfirmed: deleteActiveTicker,
     // Landscape-only: collapse the header once the Gate docks, to reclaim

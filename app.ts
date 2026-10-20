@@ -574,7 +574,7 @@ function renderRoloCard(sym: string): void {
   card.innerHTML = roloCardHTML(sym, state);
   card.classList.remove('verdict-up', 'verdict-down');
   const btn = card.querySelector('[data-analyze]');
-  if (btn) btn.addEventListener('click', () => { vibrateTap(); requestPushOfferOnFirstGesture(); analyzeOne(sym); });
+  if (btn) btn.addEventListener('click', () => { vibrateTap(); requestPushOfferOnFirstGesture(); snapOnAnalyze.add(sym); analyzeOne(sym); });
   const resetEl = card.querySelector('[data-reset]');
   if (resetEl) resetEl.addEventListener('click', () => resetTicker(sym));
   if (state.result && !isMarketClosed()) {
@@ -766,11 +766,24 @@ scroller.addEventListener('pointerup', onScrollerPointerUp);
 scroller.addEventListener('pointercancel', onScrollerPointerUp);
 
 // ── ANALYZE — real, credit-consuming /analyze call ────────────────────
+// Snap the verdict card under the pill ribbon when ANALYZE is tapped and
+// again when the verdict lands (Oct 20, 2026 -- the card used to stay
+// wherever the page happened to be). Only for a tap on this card (the
+// ANALYZE button, a pill tap, the earnings opt-in); Analyze All doesn't add
+// its tickers here, or the page would jump once per ticker. The second snap
+// is skipped if the user has since moved to another card.
+const snapOnAnalyze = new Set<string>();
+function snapIfActive(sym: string): void {
+  if (watchlist[rolodex.getRoloCurrent()] === sym) rolodex.scrollToActiveCard();
+}
+
 async function analyzeOne(sym: string): Promise<void> {
   const state = tickerState.get(sym);
   if (!state || state.analyzing) return;
   state.analyzing = true; state.error = null;
+  const snap = snapOnAnalyze.delete(sym);
   renderRoloCard(sym);
+  if (snap) snapIfActive(sym);
 
   const td = state.td || await fetchTickerData(sym);
   state.td = td;
@@ -830,9 +843,11 @@ async function analyzeOne(sym: string): Promise<void> {
     renderRoloCard(sym); renderPill(sym);
     fetchCreditStatus();
     onAnalysisSucceeded();
+    if (snap) snapIfActive(sym);
   } catch (e: any) {
     state.analyzing = false; state.error = e.message;
     renderRoloCard(sym); renderPill(sym);
+    if (snap) snapIfActive(sym);
   }
 }
 
@@ -1815,7 +1830,7 @@ async function boot(): Promise<void> {
     onActivate: (sym) => {
       requestPushOfferOnFirstGesture();
       const state = tickerState.get(sym);
-      if (state && !state.result && !state.analyzing) analyzeOne(sym);
+      if (state && !state.result && !state.analyzing) { snapOnAnalyze.add(sym); analyzeOne(sym); }
     },
     onDeleteConfirmed: deleteActiveTicker,
     // Landscape-only: collapse the header once the Gate docks, to reclaim

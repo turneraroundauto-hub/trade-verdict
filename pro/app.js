@@ -6711,7 +6711,7 @@ function dayWindow(result) {
 }
 function activeView(state) {
   const w = dayWindow(state.result);
-  if (!w || !w.day) return "long";
+  if (!w || !w.day || isMarketClosed()) return "long";
   return state.view || "day";
 }
 function viewResult(state) {
@@ -6774,12 +6774,15 @@ function dayLongBarHTML(sym, state) {
   const w = dayWindow(state.result);
   if (!w) return "";
   const view = activeView(state);
+  const closed = isMarketClosed();
   let status = "";
-  if (w.day) status = (view === "day" ? w.day.note + " " : "") + (w.asOf ? "Bars as of " + fmtClock(w.asOf) + "." : "");
+  if (closed) status = "Market closed. DAY comes back at the next open; this is the Long call.";
+  else if (w.day) status = (view === "day" ? w.day.note + " " : "") + (w.asOf ? "Bars as of " + fmtClock(w.asOf) + "." : "");
   else if (w.state === "FORMING") status = `Day read at ${fmtClock(w.readyAt)} (${w.barsDone}/${w.barsNeeded} bars). It will show here on its own, no extra credit.`;
   else status = w.gate3 && w.gate3.note || "Long verdict only.";
-  const btn = (v, label, enabled) => `<button type="button" class="view-btn${view === v ? " active" : ""}" data-view="${v}" ${enabled ? "" : "disabled"}>${label}</button>`;
-  return `<div class="day-long-bar">${btn("day", "DAY", !!w.day)}${btn("long", "LONG", true)}</div><div class="day-note">${status}</div>`;
+  const dayExtra = closed ? "" : state.dayFlashUntil && state.dayFlashUntil > Date.now() ? " view-flash" : !w.day && w.state === "FORMING" ? " view-forming" : "";
+  const btn = (v, label, enabled, extra) => `<button type="button" class="view-btn${view === v ? " active" : ""}${extra}" data-view="${v}" ${enabled ? "" : "disabled"}>${label}</button>`;
+  return `<div class="day-long-bar" data-tutorial="daylong">${btn("day", "DAY", !!w.day && !closed, dayExtra)}${btn("long", "LONG", true, "")}</div><div class="day-note">${status}</div>`;
 }
 function gateListHTML(sym, result, historicalReaction) {
   const stp = tickerState.get(sym);
@@ -6859,6 +6862,7 @@ function wireCardButtons(card, sym) {
   const btn = card.querySelector("[data-analyze]");
   if (btn) btn.addEventListener("click", () => {
     vibrateTap();
+    snapOnAnalyze.add(sym);
     analyzeOne(sym);
   });
   card.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => {
@@ -7172,6 +7176,10 @@ function wireDialDrag() {
     onDown(e);
   });
 }
+var snapOnAnalyze = /* @__PURE__ */ new Set();
+function snapIfActive(sym) {
+  if (cardWindow()[getRoloCurrent()] === sym) scrollToActiveCard();
+}
 async function analyzeOne(sym, holdThroughEarnings) {
   const state = tickerState.get(sym);
   if (!state || state.analyzing) return;
@@ -7185,7 +7193,9 @@ async function analyzeOne(sym, holdThroughEarnings) {
     state.dayTimer = null;
   }
   watchDayReads(sbSession && sbSession.token, onDayPush);
+  const snap = snapOnAnalyze.delete(sym);
   renderRoloCard(sym);
+  if (snap) snapIfActive(sym);
   const td = state.td || await fetchTickerData(sym);
   state.td = td;
   if (td) renderRoloCard(sym);
@@ -7253,12 +7263,14 @@ async function analyzeOne(sym, holdThroughEarnings) {
     renderPill(sym);
     fetchCreditStatus();
     onAnalysisSucceeded();
+    if (snap) snapIfActive(sym);
     scheduleDayCheck(sym);
   } catch (e) {
     state.analyzing = false;
     state.error = e.message;
     renderRoloCard(sym);
     renderPill(sym);
+    if (snap) snapIfActive(sym);
   }
 }
 async function readAnalyzeStream(res, sym, state) {
@@ -7295,6 +7307,7 @@ function applyDayWindow(sym, win) {
   if (!st || !st.result || !win) return;
   st.result = Object.assign({}, st.result, { window: win });
   st.view = "day";
+  if (win.day) st.dayFlashUntil = Date.now() + 2700;
   if (st.dayTimer) {
     clearTimeout(st.dayTimer);
     st.dayTimer = null;
@@ -7339,6 +7352,7 @@ async function checkDayRead(sym, attempt) {
 function retryWithEarningsHoldThrough(sym) {
   const state = tickerState.get(sym);
   if (state) state.result = null;
+  snapOnAnalyze.add(sym);
   analyzeOne(sym, true);
 }
 function analyzeAll() {
@@ -8148,7 +8162,7 @@ var HELP_CONTENT = {
   watchlist: 'Every <a class="help-glossary-link" href="#" data-term="ticker">ticker</a> beyond your top 15 cards lives here. Tap + on any row to move it up into your main list.',
   proxy: 'Shows which sector or stock each ticker is compared against for <a class="help-glossary-link" href="#" data-term="gate 5">Gate 5</a>, and whether they\u2019re still moving together right now.',
   heatmap: "A color-coded snapshot of major sectors and every ticker in your watchlist, sorted by today\u2019s % change.",
-  scorecard: `Pooled across every user and tier, so every number here describes the same set of calls. Each verdict is graded twice. Day trade: did it close in the call's direction at that same session's close? Long: did it close in the call's direction 5 trading days later? Closing against the call by any amount is wrong. If the stock reached +4% (day) or +16% (long) in the call's direction along the way but still closed against it, it counts as half right. FLAT calls are right when the stock stayed within half its normal move for that window (or moved under 0.1%), half right within one normal move. The two tiles count UP and DOWN calls only; the rows below split UP, DOWN and FLAT. Verdicts pulled pre-market, after close, on weekends or holidays aren't counted \u2014 they aren't tradable when issued. Each tile stays hidden until 20 calls are graded; each row and ticker needs 5. Under each tile: the \xB1 range is the margin of error (the true rate is likely within it), and Always-UP is what calling UP on every one of those same calls would have scored. "Beats it" only shows when the gap is bigger than the range. "Your Log" below is your own record \u2014 tap \u2713 RIGHT or \u2717 WRONG after a session closes to build it.`,
+  scorecard: "How often UP and DOWN calls were right, across every user.<br>\u2022 <b>Day</b> = right by that day\u2019s close. <b>Long</b> = right 5 trading days later.<br>\u2022 Only calls made while the market is open count.<br>\u2022 Half credit if it hit its target but closed the wrong way.<br>\u2022 <b>\xB1</b> is the margin of error. <b>Always-UP</b> is what calling UP every time would score; \u201Cbeats it\u201D means the calls did better.<br>\u2022 <b>Your Log</b> is your own \u2713/\u2717 record.",
   agitator: "Check out a new stock idea or a rumor before it earns a spot on your watchlist \u2014 always free. Type a ticker, a company name, or paste a headline, and get one LOW/MEDIUM/HIGH read built from 6 real signals, plus a few related companies worth a look.",
   "agitator-score": "One overall score, 0\u201310, averaging the 6 signals below \u2014 a fast read on how big a deal this news might be, not an exact measurement.",
   "agitator-surprise": "How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.",
@@ -8201,6 +8215,16 @@ var TUTORIAL_STEPS = [
     before: () => {
       resetSwipeDemoCard();
       return simulateSwipeDemo("right");
+    }
+  },
+  {
+    // DAY/LONG switch (Oct 20, 2026). It only exists on an analyzed card, so
+    // the balloon falls back to the card itself before the first ANALYZE.
+    html: "After you ANALYZE, every card gets a <b>DAY / LONG</b> switch. <b>LONG</b> is the call for the next 5 trading days. <b>DAY</b> is the call for today only, read from the last three 15-minute price bars. Before the third bar closes, DAY glows while it waits and flashes when it\u2019s ready \u2014 no extra credit. After the market closes, DAY is greyed out.",
+    getAnchor: () => tutorialActiveCardEl()?.querySelector('[data-tutorial="daylong"]') || tutorialActiveCardEl(),
+    before: () => {
+      resetSwipeDemoCard();
+      scrollToActiveCard();
     }
   },
   {
@@ -8401,7 +8425,10 @@ initRolodex({
   getWatchlist: cardWindow,
   onActivate: (sym) => {
     const state = tickerState.get(sym);
-    if (state && !state.result && !state.analyzing) analyzeOne(sym);
+    if (state && !state.result && !state.analyzing) {
+      snapOnAnalyze.add(sym);
+      analyzeOne(sym);
+    }
   },
   onDeleteConfirmed: deleteActiveTicker,
   // Landscape-only: collapse the header once the Gate docks, to reclaim

@@ -342,7 +342,7 @@ const roloStage = document.getElementById('roloStage') as HTMLElement;
 const roloIndex = document.getElementById('roloIndex') as HTMLElement;
 const scroller = document.getElementById('scroller') as HTMLElement;
 
-interface TickerState { td: TickerData | null; result: AnalyzeResponse | null; analyzing: boolean; error: string | null; progress?: any; view?: 'day' | 'long'; hold?: boolean; dayTimer?: any; }
+interface TickerState { td: TickerData | null; result: AnalyzeResponse | null; analyzing: boolean; error: string | null; progress?: any; view?: 'day' | 'long'; hold?: boolean; dayTimer?: any; dayFlashUntil?: number; }
 const tickerState = new Map<string, TickerState>();
 
 const TYPE_COLOR: Record<string, string> = { CANARY: 'var(--amber)', SENTIMENT: 'var(--blue)', FLOW: 'var(--green)' };
@@ -474,7 +474,9 @@ function analystViewHTML(sym: string, result: AnalyzeResponse | null, td: Ticker
 function dayWindow(result: any): any { return (result && result.window) || null; }
 function activeView(state: TickerState): 'day' | 'long' {
   const w = dayWindow(state.result);
-  if (!w || !w.day) return 'long';
+  // After hours there's no day trade to take, so DAY is greyed out and the
+  // card shows the Long call (Oct 20, 2026).
+  if (!w || !w.day || isMarketClosed()) return 'long';
   return state.view || 'day';
 }
 // The verdict the card shows: the Day call when that view is on.
@@ -541,13 +543,17 @@ function dayLongBarHTML(sym: string, state: TickerState): string {
   const w = dayWindow(state.result);
   if (!w) return '';
   const view = activeView(state);
+  const closed = isMarketClosed();
   let status = '';
-  if (w.day) status = (view === 'day' ? w.day.note + ' ' : '') + (w.asOf ? 'Bars as of ' + fmtClock(w.asOf) + '.' : '');
+  if (closed) status = 'Market closed. DAY comes back at the next open; this is the Long call.';
+  else if (w.day) status = (view === 'day' ? w.day.note + ' ' : '') + (w.asOf ? 'Bars as of ' + fmtClock(w.asOf) + '.' : '');
   else if (w.state === 'FORMING') status = `Day read at ${fmtClock(w.readyAt)} (${w.barsDone}/${w.barsNeeded} bars). It will show here on its own, no extra credit.`;
   else status = (w.gate3 && w.gate3.note) || 'Long verdict only.';
-  const btn = (v: string, label: string, enabled: boolean) =>
-    `<button type="button" class="view-btn${view === v ? ' active' : ''}" data-view="${v}" ${enabled ? '' : 'disabled'}>${label}</button>`;
-  return `<div class="day-long-bar">${btn('day', 'DAY', !!w.day)}${btn('long', 'LONG', true)}</div><div class="day-note">${status}</div>`;
+  // DAY breathes while its read is still forming, and flashes when it lands.
+  const dayExtra = closed ? '' : (state.dayFlashUntil && state.dayFlashUntil > Date.now()) ? ' view-flash' : (!w.day && w.state === 'FORMING') ? ' view-forming' : '';
+  const btn = (v: string, label: string, enabled: boolean, extra: string) =>
+    `<button type="button" class="view-btn${view === v ? ' active' : ''}${extra}" data-view="${v}" ${enabled ? '' : 'disabled'}>${label}</button>`;
+  return `<div class="day-long-bar" data-tutorial="daylong">${btn('day', 'DAY', !!w.day && !closed, dayExtra)}${btn('long', 'LONG', true, '')}</div><div class="day-note">${status}</div>`;
 }
 
 // historicalReaction (Sep 2, 2026): pooled, cross-user directional
@@ -667,7 +673,7 @@ function roloCardHTML(sym: string, state: TickerState): string {
 
 function wireCardButtons(card: HTMLElement, sym: string): void {
   const btn = card.querySelector('[data-analyze]');
-  if (btn) btn.addEventListener('click', () => { vibrateTap(); analyzeOne(sym); });
+  if (btn) btn.addEventListener('click', () => { vibrateTap(); snapOnAnalyze.add(sym); analyzeOne(sym); });
   card.querySelectorAll<HTMLElement>('[data-view]').forEach((b) => b.addEventListener('click', () => {
     const st = tickerState.get(sym);
     if (!st || b.hasAttribute('disabled')) return;
@@ -1017,6 +1023,17 @@ function wireDialDrag(): void {
   });
 }
 // ── ANALYZE — real, credit-consuming /analyze call ────────────────────
+// Snap the verdict card under the pill ribbon when ANALYZE is tapped and
+// again when the verdict lands (Oct 20, 2026 -- the card used to stay
+// wherever the page happened to be). Only for a tap on this card (the
+// ANALYZE button, a pill tap, the earnings opt-in); Analyze All doesn't add
+// its tickers here, or the page would jump once per ticker. The second snap
+// is skipped if the user has since moved to another card.
+const snapOnAnalyze = new Set<string>();
+function snapIfActive(sym: string): void {
+  if (cardWindow()[rolodex.getRoloCurrent()] === sym) rolodex.scrollToActiveCard();
+}
+
 async function analyzeOne(sym: string, holdThroughEarnings?: boolean): Promise<void> {
   const state = tickerState.get(sym);
   if (!state || state.analyzing) return;
@@ -1024,7 +1041,9 @@ async function analyzeOne(sym: string, holdThroughEarnings?: boolean): Promise<v
   state.hold = !!holdThroughEarnings;
   if (state.dayTimer) { clearTimeout(state.dayTimer); state.dayTimer = null; }
   watchDayReads(sbSession && sbSession.token, onDayPush);
+  const snap = snapOnAnalyze.delete(sym);
   renderRoloCard(sym);
+  if (snap) snapIfActive(sym);
 
   const td = state.td || await fetchTickerData(sym);
   state.td = td;
@@ -1089,10 +1108,12 @@ async function analyzeOne(sym: string, holdThroughEarnings?: boolean): Promise<v
     renderRoloCard(sym); renderPill(sym);
     fetchCreditStatus();
     onAnalysisSucceeded();
+    if (snap) snapIfActive(sym);
     scheduleDayCheck(sym);
   } catch (e: any) {
     state.analyzing = false; state.error = e.message;
     renderRoloCard(sym); renderPill(sym);
+    if (snap) snapIfActive(sym);
   }
 }
 
@@ -1129,6 +1150,7 @@ function applyDayWindow(sym: string, win: any): void {
   if (!st || !st.result || !win) return;
   st.result = Object.assign({}, st.result, { window: win }) as AnalyzeResponse;
   st.view = 'day';
+  if (win.day) st.dayFlashUntil = Date.now() + 2700;
   if (st.dayTimer) { clearTimeout(st.dayTimer); st.dayTimer = null; }
   cacheVerdict(sym, st.result);
   lastAnalysis[sym] = st.result;
@@ -1170,6 +1192,7 @@ async function checkDayRead(sym: string, attempt: number): Promise<void> {
 function retryWithEarningsHoldThrough(sym: string): void {
   const state = tickerState.get(sym);
   if (state) state.result = null;
+  snapOnAnalyze.add(sym);
   analyzeOne(sym, true);
 }
 
@@ -2224,7 +2247,7 @@ const HELP_CONTENT: Record<string, string> = {
   watchlist: 'Every <a class="help-glossary-link" href="#" data-term="ticker">ticker</a> beyond your top 15 cards lives here. Tap + on any row to move it up into your main list.',
   proxy: 'Shows which sector or stock each ticker is compared against for <a class="help-glossary-link" href="#" data-term="gate 5">Gate 5</a>, and whether they’re still moving together right now.',
   heatmap: 'A color-coded snapshot of major sectors and every ticker in your watchlist, sorted by today’s % change.',
-  scorecard: 'Pooled across every user and tier, so every number here describes the same set of calls. Each verdict is graded twice. Day trade: did it close in the call\'s direction at that same session\'s close? Long: did it close in the call\'s direction 5 trading days later? Closing against the call by any amount is wrong. If the stock reached +4% (day) or +16% (long) in the call\'s direction along the way but still closed against it, it counts as half right. FLAT calls are right when the stock stayed within half its normal move for that window (or moved under 0.1%), half right within one normal move. The two tiles count UP and DOWN calls only; the rows below split UP, DOWN and FLAT. Verdicts pulled pre-market, after close, on weekends or holidays aren\'t counted — they aren\'t tradable when issued. Each tile stays hidden until 20 calls are graded; each row and ticker needs 5. Under each tile: the \u00b1 range is the margin of error (the true rate is likely within it), and Always-UP is what calling UP on every one of those same calls would have scored. "Beats it" only shows when the gap is bigger than the range. "Your Log" below is your own record — tap ✓ RIGHT or ✗ WRONG after a session closes to build it.',
+  scorecard: 'How often UP and DOWN calls were right, across every user.<br>• <b>Day</b> = right by that day’s close. <b>Long</b> = right 5 trading days later.<br>• Only calls made while the market is open count.<br>• Half credit if it hit its target but closed the wrong way.<br>• <b>±</b> is the margin of error. <b>Always-UP</b> is what calling UP every time would score; “beats it” means the calls did better.<br>• <b>Your Log</b> is your own ✓/✗ record.',
   agitator: 'Check out a new stock idea or a rumor before it earns a spot on your watchlist — always free. Type a ticker, a company name, or paste a headline, and get one LOW/MEDIUM/HIGH read built from 6 real signals, plus a few related companies worth a look.',
   'agitator-score': 'One overall score, 0–10, averaging the 6 signals below — a fast read on how big a deal this news might be, not an exact measurement.',
   'agitator-surprise': 'How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.',
@@ -2326,6 +2349,13 @@ const TUTORIAL_STEPS: TutorialStep[] = [
     html: 'Swipe right to jump to the <b>next ticker</b> in your watchlist and analyze it automatically.',
     getAnchor: () => tutorialActiveCardEl(),
     before: () => { rolodex.resetSwipeDemoCard(); return rolodex.simulateSwipeDemo('right'); },
+  },
+  {
+    // DAY/LONG switch (Oct 20, 2026). It only exists on an analyzed card, so
+    // the balloon falls back to the card itself before the first ANALYZE.
+    html: 'After you ANALYZE, every card gets a <b>DAY / LONG</b> switch. <b>LONG</b> is the call for the next 5 trading days. <b>DAY</b> is the call for today only, read from the last three 15-minute price bars. Before the third bar closes, DAY glows while it waits and flashes when it’s ready — no extra credit. After the market closes, DAY is greyed out.',
+    getAnchor: () => tutorialActiveCardEl()?.querySelector<HTMLElement>('[data-tutorial="daylong"]') || tutorialActiveCardEl(),
+    before: () => { rolodex.resetSwipeDemoCard(); rolodex.scrollToActiveCard(); },
   },
   {
     html: HELP_CONTENT.gate,
@@ -2514,7 +2544,7 @@ rolodex.initRolodex({
   getWatchlist: cardWindow,
   onActivate: (sym) => {
     const state = tickerState.get(sym);
-    if (state && !state.result && !state.analyzing) analyzeOne(sym);
+    if (state && !state.result && !state.analyzing) { snapOnAnalyze.add(sym); analyzeOne(sym); }
   },
   onDeleteConfirmed: deleteActiveTicker,
   // Landscape-only: collapse the header once the Gate docks, to reclaim
