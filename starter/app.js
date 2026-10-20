@@ -1715,6 +1715,8 @@ function openHelpBalloon(btn, key) {
   const el = ensureHelpEl();
   el.classList.remove("open");
   el.innerHTML = html;
+  el.style.maxHeight = "";
+  el.style.overflowY = "";
   positionHelpBalloon(btn, el);
   requestAnimationFrame(() => el.classList.add("open"));
   helpOpenKey = key;
@@ -1728,6 +1730,7 @@ function openHelpBalloon(btn, key) {
   helpTimer = setTimeout(closeHelpBalloon, duration);
 }
 var tutorialActive = false;
+var tutorialBusy = false;
 var tutorialAdvanceCb = null;
 var tutorialExitCb = null;
 function isTutorialActive() {
@@ -1744,13 +1747,110 @@ function openTutorialBalloon(anchor, html, onAdvance, onExit) {
   const el = ensureHelpEl();
   el.classList.remove("open");
   el.innerHTML = html;
-  positionHelpBalloon(anchor, el);
+  tutorialBusy = false;
+  positionTutorialBalloon(anchor, el);
   requestAnimationFrame(() => el.classList.add("open"));
   helpOpenKey = "__tutorial__";
   helpOpenedAt = Date.now();
 }
+function waitForScrollSettle(maxMs = 1800, quietMs = 160) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    let last = els.scroller.scrollTop, stillSince = Date.now();
+    const tick = () => {
+      const now = Date.now(), cur = els.scroller.scrollTop;
+      if (Math.abs(cur - last) > 0.5) {
+        last = cur;
+        stillSince = now;
+      }
+      if (now - stillSince >= quietMs || now - start >= maxMs) {
+        resolve();
+        return;
+      }
+      setTimeout(tick, 40);
+    };
+    setTimeout(tick, 40);
+  });
+}
+function collapseUtilityCards(keep) {
+  document.querySelectorAll(".card.expanded[data-card]").forEach((card) => {
+    if (card === keep) return;
+    const body = card.querySelector(".card-body");
+    if (body) body.style.transition = "none";
+    card.classList.remove("expanded");
+    const head = card.querySelector(".card-head");
+    if (head) head.setAttribute("aria-expanded", "false");
+    if (body) {
+      void body.offsetHeight;
+      body.style.transition = "";
+    }
+  });
+}
+async function resetForTutorial() {
+  tutorialBusy = true;
+  closeHelpBalloon();
+  collapseUtilityCards();
+  els.scroller.scrollTo({ top: 0, behavior: "auto" });
+  updateGateDockState();
+  sizeGateSpacer();
+  await waitForScrollSettle();
+}
+function setTutorialBusy(busy) {
+  tutorialBusy = busy;
+}
+function tutorialSafeTop(anchor) {
+  const scTop = els.scroller.getBoundingClientRect().top;
+  let top = Math.max(0, scTop);
+  const bars = [els.gateCard, els.listHead, els.roloIndex];
+  for (const bar of bars) {
+    if (!bar || bar.contains(anchor)) continue;
+    const r = bar.getBoundingClientRect();
+    if (r.height === 0) continue;
+    if (getComputedStyle(bar).position === "sticky" && r.top <= top + 2) top = Math.max(top, r.bottom);
+  }
+  return top;
+}
+async function revealForTutorial(anchor) {
+  const r = anchor.getBoundingClientRect();
+  const safeTop = tutorialSafeTop(anchor), safeBottom = window.innerHeight - 10;
+  if (r.top >= safeTop && r.bottom <= safeBottom) return;
+  if (r.height === 0) return;
+  const delta = r.top < safeTop ? r.top - safeTop - 8 : Math.min(r.bottom - safeBottom + 8, r.top - safeTop - 8);
+  els.scroller.scrollBy({ top: delta / currentAppScale(), behavior: "smooth" });
+  await waitForScrollSettle();
+}
+var TUTORIAL_MIN_GAP = 120;
+function positionTutorialBalloon(anchor, el) {
+  const margin = 10;
+  el.style.maxHeight = "";
+  el.style.overflowY = "";
+  const r = anchor.getBoundingClientRect();
+  const safeTop = tutorialSafeTop(anchor) + 6, safeBottom = window.innerHeight - margin;
+  const w = el.offsetWidth, h = el.offsetHeight;
+  const below = safeBottom - (r.bottom + 8), above = r.top - 8 - safeTop;
+  let top;
+  if (h <= below) top = r.bottom + 8;
+  else if (h <= above) top = r.top - 8 - h;
+  else if (Math.max(below, above) >= TUTORIAL_MIN_GAP) {
+    const useBelow = below >= above;
+    el.style.maxHeight = Math.floor(useBelow ? below : above) + "px";
+    el.style.overflowY = "auto";
+    top = useBelow ? r.bottom + 8 : safeTop;
+  } else {
+    const room = safeBottom - safeTop;
+    if (h > room) {
+      el.style.maxHeight = room + "px";
+      el.style.overflowY = "auto";
+    }
+    top = safeBottom - Math.min(h, room);
+  }
+  const left = Math.min(Math.max(r.left, margin), window.innerWidth - margin - w);
+  el.style.left = left + "px";
+  el.style.top = Math.max(safeTop, top) + "px";
+}
 function endTutorial() {
   tutorialActive = false;
+  tutorialBusy = false;
   tutorialAdvanceCb = null;
   tutorialExitCb = null;
   closeHelpBalloon();
@@ -1758,6 +1858,11 @@ function endTutorial() {
 function initHelpBalloons(content, onGlossaryJump) {
   helpContent = content;
   document.addEventListener("click", (e) => {
+    if (tutorialBusy) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (tutorialActive) {
       e.preventDefault();
       e.stopPropagation();
@@ -1765,6 +1870,7 @@ function initHelpBalloons(content, onGlossaryJump) {
       tutorialActive = false;
       tutorialAdvanceCb = null;
       tutorialExitCb = null;
+      tutorialBusy = true;
       closeHelpBalloon();
       if (advance) advance();
       return;
@@ -1793,6 +1899,7 @@ function initHelpBalloons(content, onGlossaryJump) {
       tutorialActive = false;
       tutorialAdvanceCb = null;
       tutorialExitCb = null;
+      tutorialBusy = false;
       closeHelpBalloon();
       if (exit) exit();
       return;
@@ -3268,15 +3375,28 @@ var HELP_CONTENT = {
   "agitator-past": "How often this app\u2019s past calls on this stock turned out right. Shows n/a until there are enough graded calls.",
   dial: 'How actively you plan to trade. Starter has three settings: Light Aggressive, CRF Default and Light Passive. CRF Default is the standard setting every tier uses. No setting ever makes a position bigger than the gates earned. An upcoming earnings report blocks new entries unless you choose to hold through it. Timing and <a class="help-glossary-link" href="#" data-term="stop loss">stop</a> ideas are guidance only; the app doesn\u2019t place orders or send reminders.'
 };
-var TUTORIAL_STEP_SETTLE_MS = 450;
+var TUTORIAL_STEP_SETTLE_MS = 250;
 function tutorialCard(id) {
   return document.getElementById(id);
 }
 function tutorialExpand(id) {
   const card = tutorialCard(id);
   if (!card) return;
+  resetSwipeDemoCard();
+  collapseUtilityCards(card);
   if (!card.classList.contains("expanded")) expandCard(card);
+  else if (!isLandscapeMode()) snapCardUnderDock(card);
   if (isLandscapeMode()) selectLandscapeCard(card);
+}
+function tutorialTop() {
+  resetSwipeDemoCard();
+  collapseUtilityCards();
+  jumpToTop();
+}
+function tutorialTickerCard() {
+  resetSwipeDemoCard();
+  collapseUtilityCards();
+  scrollToActiveCard();
 }
 function tutorialActiveCardEl() {
   const cards = Array.from(roloStage.querySelectorAll(".rolo-card"));
@@ -3292,9 +3412,35 @@ function tutorialGlossaryAnchor() {
 }
 var TUTORIAL_STEPS = [
   {
+    // Starts at the very top with every card closed (see startTutorial()).
+    html: HELP_CONTENT.gate,
+    getAnchor: () => document.querySelector('[data-help="gate"]'),
+    before: () => tutorialTop()
+  },
+  {
+    html: HELP_CONTENT.pulse,
+    getAnchor: () => document.querySelector('[data-help="pulse"]'),
+    before: () => tutorialTop()
+  },
+  {
+    html: "Set your Aggression Dial before you analyze. It decides how big a position your verdicts can suggest.",
+    getAnchor: () => tutorialAnchor("dial", "dial"),
+    before: () => tutorialExpand("card-dial")
+  },
+  {
+    html: HELP_CONTENT.agitator,
+    getAnchor: () => tutorialAnchor("agitator", "agitator"),
+    before: () => tutorialExpand("card-agitator")
+  },
+  {
+    html: HELP_CONTENT.io,
+    getAnchor: () => tutorialAnchor("io", "io"),
+    before: () => tutorialExpand("card-io")
+  },
+  {
     html: HELP_CONTENT.pills,
     getAnchor: () => document.querySelector('[data-help="pills"]'),
-    before: () => scrollToActiveCard()
+    before: () => tutorialTickerCard()
   },
   {
     html: "This is <b>swipe-to-delete</b> \u2014 swipe any card left anytime to remove that ticker from your watchlist.",
@@ -3308,34 +3454,6 @@ var TUTORIAL_STEPS = [
       resetSwipeDemoCard();
       return simulateSwipeDemo("right");
     }
-  },
-  {
-    html: HELP_CONTENT.gate,
-    getAnchor: () => document.querySelector('[data-help="gate"]'),
-    before: () => {
-      resetSwipeDemoCard();
-      jumpToTop();
-    }
-  },
-  {
-    html: "Set your Aggression Dial before you analyze. It decides how big a position your verdicts can suggest.",
-    getAnchor: () => tutorialAnchor("dial", "dial"),
-    before: () => tutorialExpand("card-dial")
-  },
-  {
-    html: HELP_CONTENT.pulse,
-    getAnchor: () => document.querySelector('[data-help="pulse"]'),
-    before: () => jumpToTop()
-  },
-  {
-    html: HELP_CONTENT.agitator,
-    getAnchor: () => tutorialAnchor("agitator", "agitator"),
-    before: () => tutorialExpand("card-agitator")
-  },
-  {
-    html: HELP_CONTENT.io,
-    getAnchor: () => tutorialAnchor("io", "io"),
-    before: () => tutorialExpand("card-io")
   },
   {
     html: HELP_CONTENT.scorecard,
@@ -3353,14 +3471,17 @@ async function runTutorialStep(index) {
     endTutorial();
     return;
   }
+  setTutorialBusy(true);
   const step = TUTORIAL_STEPS[index];
   if (step.before) await step.before();
   await new Promise((r) => setTimeout(r, TUTORIAL_STEP_SETTLE_MS));
+  await waitForScrollSettle();
   const anchor = step.getAnchor();
-  if (!anchor) {
+  if (!anchor || anchor.getBoundingClientRect().height === 0) {
     runTutorialStep(index + 1);
     return;
   }
+  await revealForTutorial(anchor);
   openTutorialBalloon(
     anchor,
     step.html,
@@ -3372,8 +3493,9 @@ async function runTutorialStep(index) {
     }
   );
 }
-function startTutorial() {
+async function startTutorial() {
   localStorage.setItem("tv_tutorial_seen_starter", "1");
+  await resetForTutorial();
   runTutorialStep(0);
 }
 window.startTutorial = startTutorial;

@@ -1174,6 +1174,7 @@ function openHelpBalloon(btn: HTMLElement, key: string): void {
   const el = ensureHelpEl();
   el.classList.remove('open');
   el.innerHTML = html;
+  el.style.maxHeight = ''; el.style.overflowY = '';
   positionHelpBalloon(btn, el);
   requestAnimationFrame(() => el.classList.add('open'));
   helpOpenKey = key;
@@ -1200,6 +1201,10 @@ function openHelpBalloon(btn: HTMLElement, key: string): void {
 // only owns the sticky/advance-on-tap MECHANIC, same "mechanics here,
 // content/sequencing in the tier" split as everything else here.
 let tutorialActive = false;
+// True while the tour is moving between steps (cards collapsing/opening,
+// the page scrolling) and no balloon is up yet. Taps are swallowed then,
+// so a tap meant to advance can't land on a card underneath.
+let tutorialBusy = false;
 let tutorialAdvanceCb: (() => void) | null = null;
 let tutorialExitCb: (() => void) | null = null;
 
@@ -1215,14 +1220,124 @@ export function openTutorialBalloon(anchor: HTMLElement, html: string, onAdvance
   const el = ensureHelpEl();
   el.classList.remove('open');
   el.innerHTML = html;
-  positionHelpBalloon(anchor, el);
+  tutorialBusy = false;
+  positionTutorialBalloon(anchor, el);
   requestAnimationFrame(() => el.classList.add('open'));
   helpOpenKey = '__tutorial__';
   helpOpenedAt = Date.now();
 }
 
+// ── Tutorial staging (Oct 20, 2026) ─────────────────────────────────────
+// Mr. T: started from the Glossary, the tour left earlier cards open,
+// didn't move to the right card, and dropped balloons half off-screen.
+// The tour now resets to the top with every card closed, keeps one card
+// open at a time, waits for the page to actually stop scrolling before
+// measuring, and places each balloon inside the visible area.
+
+// Resolves once the scroller's position has held still for `quietMs`
+// (or after `maxMs`, so a stuck page can't hang the tour).
+export function waitForScrollSettle(maxMs = 1800, quietMs = 160): Promise<void> {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    let last = els.scroller.scrollTop, stillSince = Date.now();
+    const tick = () => {
+      const now = Date.now(), cur = els.scroller.scrollTop;
+      if (Math.abs(cur - last) > 0.5) { last = cur; stillSince = now; }
+      if (now - stillSince >= quietMs || now - start >= maxMs) { resolve(); return; }
+      setTimeout(tick, 40);
+    };
+    setTimeout(tick, 40);
+  });
+}
+
+// Closes every open accordion card except `keep`, with the collapse
+// animation turned off for this one change -- an animated collapse above
+// the next step's card would keep moving the page while it snaps.
+export function collapseUtilityCards(keep?: HTMLElement | null): void {
+  document.querySelectorAll<HTMLElement>('.card.expanded[data-card]').forEach((card) => {
+    if (card === keep) return;
+    const body = card.querySelector<HTMLElement>('.card-body');
+    if (body) body.style.transition = 'none';
+    card.classList.remove('expanded');
+    const head = card.querySelector('.card-head'); if (head) head.setAttribute('aria-expanded', 'false');
+    if (body) { void body.offsetHeight; body.style.transition = ''; }
+  });
+}
+
+// Start of every tour: no balloon, every card closed, page at the very top.
+export async function resetForTutorial(): Promise<void> {
+  tutorialBusy = true;
+  closeHelpBalloon();
+  collapseUtilityCards();
+  els.scroller.scrollTo({ top: 0, behavior: 'auto' });
+  updateGateDockState();
+  sizeGateSpacer();
+  await waitForScrollSettle();
+}
+export function setTutorialBusy(busy: boolean): void { tutorialBusy = busy; }
+
+// Top edge of what the user can actually see: below the docked Gate bar,
+// the sticky "Tap pills" row and the pill ribbon when they're stuck to the
+// top -- unless the anchor itself lives inside one of those bars.
+function tutorialSafeTop(anchor: HTMLElement): number {
+  const scTop = els.scroller.getBoundingClientRect().top;
+  let top = Math.max(0, scTop);
+  const bars: HTMLElement[] = [els.gateCard, els.listHead, els.roloIndex];
+  for (const bar of bars) {
+    if (!bar || bar.contains(anchor)) continue;
+    const r = bar.getBoundingClientRect();
+    if (r.height === 0) continue;
+    // A bar only covers content while it's stuck near the top.
+    if (getComputedStyle(bar).position === 'sticky' && r.top <= top + 2) top = Math.max(top, r.bottom);
+  }
+  return top;
+}
+
+// Scrolls the anchor into the visible area if any part of it is hidden,
+// then waits for the scroll to finish.
+export async function revealForTutorial(anchor: HTMLElement): Promise<void> {
+  const r = anchor.getBoundingClientRect();
+  const safeTop = tutorialSafeTop(anchor), safeBottom = window.innerHeight - 10;
+  if (r.top >= safeTop && r.bottom <= safeBottom) return;
+  if (r.height === 0) return;
+  const delta = r.top < safeTop ? r.top - safeTop - 8 : Math.min(r.bottom - safeBottom + 8, r.top - safeTop - 8);
+  els.scroller.scrollBy({ top: delta / currentAppScale(), behavior: 'smooth' });
+  await waitForScrollSettle();
+}
+
+// Below the anchor if it fits, else above, else in the larger gap with the
+// balloon capped to that gap and scrolling inside. Never off-screen, and
+// never over the anchor unless the anchor fills the screen.
+const TUTORIAL_MIN_GAP = 120;
+function positionTutorialBalloon(anchor: HTMLElement, el: HTMLElement): void {
+  const margin = 10;
+  el.style.maxHeight = ''; el.style.overflowY = '';
+  const r = anchor.getBoundingClientRect();
+  const safeTop = tutorialSafeTop(anchor) + 6, safeBottom = window.innerHeight - margin;
+  const w = el.offsetWidth, h = el.offsetHeight;
+  const below = safeBottom - (r.bottom + 8), above = (r.top - 8) - safeTop;
+  let top: number;
+  if (h <= below) top = r.bottom + 8;
+  else if (h <= above) top = r.top - 8 - h;
+  else if (Math.max(below, above) >= TUTORIAL_MIN_GAP) {
+    const useBelow = below >= above;
+    el.style.maxHeight = Math.floor(useBelow ? below : above) + 'px'; el.style.overflowY = 'auto';
+    top = useBelow ? r.bottom + 8 : safeTop;
+  } else {
+    // A target taller than the screen (a whole ticker card): sit at the
+    // bottom of the visible area over its lower part.
+    const room = safeBottom - safeTop;
+    if (h > room) { el.style.maxHeight = room + 'px'; el.style.overflowY = 'auto'; }
+    top = safeBottom - Math.min(h, room);
+  }
+  const left = Math.min(Math.max(r.left, margin), window.innerWidth - margin - w);
+  el.style.left = left + 'px';
+  el.style.top = Math.max(safeTop, top) + 'px';
+}
+
 export function endTutorial(): void {
   tutorialActive = false;
+  tutorialBusy = false;
   tutorialAdvanceCb = null;
   tutorialExitCb = null;
   closeHelpBalloon();
@@ -1254,10 +1369,12 @@ export function initHelpBalloons(content: Record<string, string>, onGlossaryJump
     // balloon's own glossary links, if any, aren't wired as jump links --
     // tutorial copy is plain text) so a tap can't both advance the tour
     // AND fire some unrelated (?) button's normal open/close behavior.
+    if (tutorialBusy) { e.preventDefault(); e.stopPropagation(); return; }
     if (tutorialActive) {
       e.preventDefault(); e.stopPropagation();
       const advance = tutorialAdvanceCb;
       tutorialActive = false; tutorialAdvanceCb = null; tutorialExitCb = null;
+      tutorialBusy = true;
       closeHelpBalloon();
       if (advance) advance();
       return;
@@ -1284,7 +1401,7 @@ export function initHelpBalloons(content: Record<string, string>, onGlossaryJump
     // handler above.
     if (e.key === 'Escape' && tutorialActive) {
       const exit = tutorialExitCb;
-      tutorialActive = false; tutorialAdvanceCb = null; tutorialExitCb = null;
+      tutorialActive = false; tutorialAdvanceCb = null; tutorialExitCb = null; tutorialBusy = false;
       closeHelpBalloon();
       if (exit) exit();
       return;

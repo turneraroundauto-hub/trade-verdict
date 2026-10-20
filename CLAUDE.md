@@ -2163,3 +2163,22 @@ calibration — revisit if a label reads wrong on a real day.
   prefix, then a substring — a plain "proxy" link used to land on "Gate 5 — Dynamic Sector Proxy".
   The trading-terms "Long" entry (a long position) is deliberately not linked from the DAY/LONG copy.
 - Not verified on a real device.
+
+### Tutorial replays cleanly from the Glossary (Oct 20, 2026, all tiers)
+Mr. T: from ▶ Run Tutorial the balloons fell off screen and the page didn't move to the right card.
+Played headless, causes were: no reset (cards already open stayed open, every step opened another),
+an already-open card was never snapped to, and a fixed 450ms wait measured before the snap finished.
+- `shared/rolodex.ts`: `resetForTutorial()` (close balloon, collapse every card, instant scroll to
+  top), `collapseUtilityCards(keep)` (collapse with the transition off so the page doesn't move during
+  the next snap), `waitForScrollSettle()`, `revealForTutorial(anchor)`, and
+  `positionTutorialBalloon()` — below the target if it fits, else above, else the larger gap with a
+  capped, internally scrolling balloon; the "visible area" excludes the docked Gate, "Tap pills" row
+  and pill ribbon when they're stuck (`tutorialSafeTop()`). `tutorialBusy` swallows taps between steps.
+- Tiers: steps now run in page order, top to bottom (Gate → Pulse → [Dial] → Agitator → Import →
+  Pills → swipe left/right → [DAY/LONG] → [Watchlist → Proxy → Heat Map] → [Verdict Record] →
+  Glossary). `tutorialExpand()` keeps one card open and snaps even if it was already open.
+  `startTutorial()` awaits the reset for both the first run and the Glossary button.
+- Verified headless on all three tiers at 412×860 and 360×640, from the Glossary (with cards
+  pre-opened) and the first run: every balloon fully on screen, one card open per step. Test
+  harness note: Free's sign-in nudge covers the page for anonymous visitors — hide `#signin-nudge`
+  in tests. Not verified on a real device.
