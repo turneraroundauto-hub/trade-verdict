@@ -2137,3 +2137,29 @@ Gold is the only safe-haven proxy tracked (no bonds/utilities). The input gets a
 "Market leaning (use exactly): …" line; `PULSE_PROMPT` asks for sentence 1 = leaning + direction,
 sentence 2 = leaders/laggards with 2-3 exact numbers, no causes, no advice. Thresholds are my
 calibration — revisit if a label reads wrong on a real day.
+
+## Oct 20, 2026 — Pulse without numbers, ANALYZE snap, DAY/LONG switch, help + Glossary audit (`Tra` #137 / `trade-verdict` #384)
+
+- **Sector Pulse gets no numbers.** Mr. T: it "regurgitated" the grid above it. The model now gets only
+  `ah.buildPulseWords()` (leaning, direction, leading/lagging groups in words: big tech, chip stocks,
+  biotech, small companies, gold, oil; moves under ±0.3% left out). A reply containing any digit or `%` is
+  replaced by the rule-built `ah.pulseFallbackText()` (also used on an Anthropic error). BTC isn't a group,
+  so overnight crypto churn stays out. Not verified against live model wording — watch Render for
+  `Pulse: model reply had numbers`.
+- **Snap on ANALYZE (all tiers).** `analyzeOne()` never snapped; only pill taps did. A per-tier
+  `snapOnAnalyze` set marks taps (ANALYZE button, pill auto-analyze, earnings opt-in); the card snaps under
+  the pill ribbon on the tap and again when the verdict lands, only if that card is still active. Analyze
+  All doesn't add its tickers (the page would jump once per ticker).
+- **Pro DAY/LONG switch.** Full-width raised buttons, 28px (about 2mm taller; Mr. T: "2mm at most"),
+  amber when selected. DAY breathes while FORMING, flashes 3× when its read lands (`dayFlashUntil`), and
+  is greyed out after hours (`activeView()` returns `long` when `isMarketClosed()`). New tutorial step.
+- **Help (?) + tutorial audit.** Every balloon rewritten in plain English with Glossary links. Real errors
+  fixed: Free/Starter Import said Analyze All costs "up to 3 / 7 credits" (1 credit = 3 analyses, so 1 /
+  up to 3); Free Pulse described a preview that no longer exists; "all 6 gates" (it's 7 checks). Review page:
+  `https://claude.ai/artifact/TvEUseDJbCG77evCGfxuYp`.
+- **Glossary.** New CRF FRAMEWORK entries: Agitator Gauge, Credit, Sector Pulse (all tiers), Aggression
+  Dial (Starter/Pro), Day / Long Call (Pro). Pro's Gate 3 entry is now "Gate 3 — Recent Price Bars" (Free/
+  Starter keep "Opening Bar", still true there). `jumpToGlossaryTerm()` now prefers an exact name, then a
+  prefix, then a substring — a plain "proxy" link used to land on "Gate 5 — Dynamic Sector Proxy".
+  The trading-terms "Long" entry (a long position) is deliberately not linked from the DAY/LONG copy.
+- Not verified on a real device.

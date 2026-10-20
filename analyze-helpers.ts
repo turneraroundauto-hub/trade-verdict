@@ -2,8 +2,9 @@
 /**
  * analyze-helpers.js — pure, side-effect-free pieces of the /analyze
  * pipeline, extracted out of server.js's monolithic body (Aug 16, 2026,
- * Phase 4 of the TypeScript adoption plan — CLAUDE.md, "Engineering:
- * TypeScript adoption path").
+ * Phase 4 of the TypeScript adoption plan — mirrored from trade-verdict's
+ * CLAUDE.md, "Engineering: TypeScript adoption path" — this is the real
+ * backend, Tra, the actual deploy target for this change).
  *
  * Why this file exists: server.js has no module.exports at all (it's the
  * Express app entrypoint, and calls app.listen() at the bottom — requiring
@@ -13,11 +14,12 @@
  * bugs before (the Aug 13, 2026 Gate 5 forceDown-unreachable bug lived in
  * evaluateProxyStatus/normalizeMarketReading; the Aug 16, 2026 LOW-confidence
  * gap and the price-confirmed-confidence redefinition both lived in
- * priceConfirmedConfidence) — see CLAUDE.md for the full incident writeups.
- * Moving them here is a pure code-motion refactor: same names, same
- * bodies, same behavior, just requirable in isolation so Phase 4's real
- * test suite (tests/analyze-helpers.test.js) can exercise them directly
- * instead of only via a throwaway simulation script.
+ * priceConfirmedConfidence) — see trade-verdict's CLAUDE.md for the full
+ * incident writeups. Moving them here is a pure code-motion refactor: same
+ * names, same bodies, same behavior, just requirable in isolation so
+ * trade-verdict's Phase 4 test suite (tests/analyze-helpers.test.js,
+ * mirrored here too) can exercise them directly instead of only via a
+ * throwaway simulation script.
  *
  * Required via plain CommonJS `require("./analyze-helpers")` in
  * server.js, exactly like gates-extended.js — same CommonJS/ESM
@@ -26,8 +28,8 @@
  * makes tsc emit a trailing `export {}` that flips Node's module-type
  * auto-detection to ESM and silently discards `module.exports` at
  * runtime). Zero `import`/`export` statements in this file for that
- * reason. Compiled via tsconfig.build.json, same as every other Phase 2
- * conversion — tsc emits analyze-helpers.js in place.
+ * reason. Compiled via tsconfig.build.json, same as gates-extended.ts's
+ * own conversion — tsc emits analyze-helpers.js in place.
  */
 declare var module: { exports: any };
 
@@ -364,6 +366,76 @@ function computeMarketLeaning(d: any): { label: string; direction: string } {
   return { label: direction === "up" ? "Mild gains" : direction === "down" ? "Mild losses" : "Mixed", direction };
 }
 
+// Plain-word Pulse input (Oct 20, 2026). Mr. T: the Pulse kept repeating
+// the % numbers printed in the Gate grid right above it. The model now gets
+// no numbers at all -- only the leaning, the direction, and which groups are
+// leading or lagging, named in words -- so it can't echo them. Groups move
+// less than 0.3% either way are left out (noise at the 1-decimal level the
+// grid shows).
+const PULSE_GROUPS: Array<[string, string[]]> = [
+  ["big tech", ["qqq"]],
+  ["chip stocks", ["soxx", "nvda"]],
+  ["biotech", ["xbi", "ibb"]],
+  ["small companies", ["iwm"]],
+  ["gold", ["gld"]],
+  ["oil", ["uso"]],
+];
+function pulseGroups(d: any): { leading: string[]; lagging: string[] } {
+  const m = d || {};
+  const rows: Array<{ name: string; v: number }> = [];
+  for (const [name, keys] of PULSE_GROUPS) {
+    const vals = keys.map(k => r1(m[k])).filter((x): x is number => x != null);
+    if (vals.length) rows.push({ name, v: vals.reduce((a, b) => a + b, 0) / vals.length });
+  }
+  const leading = rows.filter(r => r.v >= 0.3).sort((a, b) => b.v - a.v).slice(0, 2).map(r => r.name);
+  const lagging = rows.filter(r => r.v <= -0.3).sort((a, b) => a.v - b.v).slice(0, 2).map(r => r.name);
+  return { leading, lagging };
+}
+const DIRECTION_WORDS: Record<string, string> = { up: "stocks are rising", down: "stocks are falling", flat: "stocks are roughly unchanged" };
+function buildPulseWords(d: any): string {
+  const lean = computeMarketLeaning(d);
+  const g = pulseGroups(d);
+  return [
+    `Market leaning: ${lean.label}`,
+    `Overall: ${DIRECTION_WORDS[lean.direction] || DIRECTION_WORDS.flat}`,
+    `Leading: ${g.leading.join(", ") || "nothing stands out"}`,
+    `Lagging: ${g.lagging.join(", ") || "nothing stands out"}`,
+  ].join("\n");
+}
+// What each leaning means to someone who doesn't trade for a living. Used by
+// the fallback sentence below and quoted in the Pulse prompt.
+const LEANING_MEANING: Record<string, string> = {
+  "Quiet": "a calm day with no real direction.",
+  "Risk-off, safety bid": "investors are pulling back from stocks and moving into safer places like gold.",
+  "Broad selloff": "most of the market is being sold at once, not just one corner of it.",
+  "Commodity-led": "raw materials like oil and gold are doing better than stocks.",
+  "Risk-on": "investors are willing to take chances, buying faster-growing stocks.",
+  "Rotation": "money is moving from some groups into others while the overall market goes nowhere.",
+  "Mild gains": "stocks are edging higher without much conviction.",
+  "Mild losses": "stocks are drifting lower without much conviction.",
+  "Mixed": "some groups are up and some are down, with no clear winner.",
+  "Unavailable": "market data is not available right now.",
+};
+function joinWords(a: string[]): string {
+  return a.length <= 1 ? (a[0] || "") : a.slice(0, -1).join(", ") + " and " + a[a.length - 1];
+}
+// Built only from fixed rules -- used whenever the model's text is missing
+// or contains a number.
+function pulseFallbackText(d: any): string {
+  const lean = computeMarketLeaning(d);
+  const g = pulseGroups(d);
+  const first = `${lean.label}: ${LEANING_MEANING[lean.label] || LEANING_MEANING.Mixed}`;
+  if (lean.label === "Unavailable") return first;
+  const verb = lean.direction === "down" ? "holding up" : "leading";
+  const lead = g.leading.length ? `${joinWords(g.leading)} ${g.leading.length > 1 ? "are" : "is"} ${verb}` : "";
+  const lag = g.lagging.length ? `${joinWords(g.lagging)} ${g.lagging.length > 1 ? "are" : "is"} lagging` : "";
+  const second = [lead, lag].filter(Boolean).join(", while ");
+  return second ? `${first} ${second.charAt(0).toUpperCase() + second.slice(1)}.` : first;
+}
+function pulseHasNumbers(text: string): boolean {
+  return /[0-9%]/.test(text || "");
+}
+
 module.exports = {
   parsePctString: parsePctString,
   CONFIDENCE_NEGLIGIBLE_MOVE_PCT: CONFIDENCE_NEGLIGIBLE_MOVE_PCT,
@@ -381,4 +453,9 @@ module.exports = {
   pulsePct: pulsePct,
   buildPulseInput: buildPulseInput,
   computeMarketLeaning: computeMarketLeaning,
+  pulseGroups: pulseGroups,
+  buildPulseWords: buildPulseWords,
+  pulseFallbackText: pulseFallbackText,
+  pulseHasNumbers: pulseHasNumbers,
+  LEANING_MEANING: LEANING_MEANING,
 };

@@ -2289,6 +2289,7 @@ function renderRoloCard(sym) {
   if (btn) btn.addEventListener("click", () => {
     vibrateTap();
     requestPushOfferOnFirstGesture();
+    snapOnAnalyze.add(sym);
     analyzeOne(sym);
   });
   const resetEl = card.querySelector("[data-reset]");
@@ -2469,12 +2470,18 @@ scroller.addEventListener("pointerdown", onScrollerPointerDown);
 scroller.addEventListener("pointermove", onScrollerPointerMove, { passive: false });
 scroller.addEventListener("pointerup", onScrollerPointerUp);
 scroller.addEventListener("pointercancel", onScrollerPointerUp);
+var snapOnAnalyze = /* @__PURE__ */ new Set();
+function snapIfActive(sym) {
+  if (watchlist[getRoloCurrent()] === sym) scrollToActiveCard();
+}
 async function analyzeOne(sym) {
   const state = tickerState.get(sym);
   if (!state || state.analyzing) return;
   state.analyzing = true;
   state.error = null;
+  const snap = snapOnAnalyze.delete(sym);
   renderRoloCard(sym);
+  if (snap) snapIfActive(sym);
   const td = state.td || await fetchTickerData(sym);
   state.td = td;
   if (td) renderRoloCard(sym);
@@ -2536,11 +2543,13 @@ async function analyzeOne(sym) {
     renderPill(sym);
     fetchCreditStatus();
     onAnalysisSucceeded();
+    if (snap) snapIfActive(sym);
   } catch (e) {
     state.analyzing = false;
     state.error = e.message;
     renderRoloCard(sym);
     renderPill(sym);
+    if (snap) snapIfActive(sym);
   }
 }
 function analyzeAll() {
@@ -2747,6 +2756,9 @@ function enforceMarketState() {
 var GLOSSARY = [
   { cat: "CRF FRAMEWORK", term: "CRF (Catalyst Response Framework)", def: "A step-by-step checklist this app runs on a stock before giving you a verdict. If enough of the checklist looks good, that\u2019s a thumbs up; if enough looks bad, that\u2019s a thumbs down.", ex: "Think of it like a pre-flight checklist for a trade \u2014 pilots don\u2019t take off until enough boxes are checked." },
   { cat: "CRF FRAMEWORK", term: "Confidence", def: "How strongly the verdict\u2019s own price action agrees with the trigger driving it. HIGH means both the ticker\u2019s own move and its sector proxy\u2019s move confirm the call. MEDIUM means the trigger is clean but there\u2019s no independent price data to confirm or deny it yet. LOW means real price action is actually moving against the call \u2014 and every LOW-confidence verdict always ships a real \u201CLOOK FOR\u201D note explaining what to watch for before acting.", ex: "A DOWN verdict where the stock itself is also selling off hard is HIGH confidence. The same DOWN verdict on a stock that\u2019s actually holding flat or ticking up is LOW \u2014 check the LOOK FOR note before acting." },
+  { cat: "CRF FRAMEWORK", term: "Agitator Gauge", def: "A free check you can run on any stock, company name or headline. It rates how much the news could move the stock as LOW, MEDIUM or HIGH, links the article it\u2019s based on, and suggests related companies.", ex: "Paste a rumor about a chip deal and see if it\u2019s a big deal before you add the stock." },
+  { cat: "CRF FRAMEWORK", term: "Credit", def: "What an analysis costs. Every 3 analyses use 1 credit, and an analysis that fails doesn\u2019t cost anything. Free gets 3 credits a week; Starter and Pro get a monthly amount.", ex: "Analyze All on 3 stocks uses 1 credit." },
+  { cat: "CRF FRAMEWORK", term: "Sector Pulse", def: "Two plain sentences in the Gate box about what the market is doing today and which groups are leading or lagging. It explains the mood; the numbers are in the grid above it. Free shows the first few words; Starter and Pro show it all.", ex: "\u201CRisk-on: investors are willing to take chances. Biotech and chip stocks are leading.\u201D" },
   { cat: "CRF FRAMEWORK", term: "Gate 0 \u2014 Sector Gate", def: "Checks how the overall stock market is doing today. If the whole market is having a bad day, that drags down the outlook for pretty much everything.", ex: "A rising tide lifts all boats \u2014 a sinking one drags them down too." },
   { cat: "CRF FRAMEWORK", term: "Gate 1 \u2014 Bidirectional Trend Structure", def: "Looks at whether the stock has already made a big move recently, up or down. A stock that\u2019s already run up a lot is riskier to chase, and one that\u2019s fallen too far too fast is a red flag too.", ex: "Like being wary of a stock that already \u201Cran\u201D \u2014 you don\u2019t want to be the last one to the party." },
   { cat: "CRF FRAMEWORK", term: "Gate 2 \u2014 Catalyst Congruence", def: "Checks whether recent news about the company actually supports the direction the app is leaning.", ex: "Makes sure the story and the numbers are telling the same story." },
@@ -2950,10 +2962,17 @@ function jumpToGlossaryTerm(key) {
   if (search) search.value = "";
   filterGlossary("");
   var k = key.toLowerCase();
-  var target = null;
-  document.querySelectorAll(".glossary-term").forEach(function(el) {
-    if (!target && el.dataset.term && el.dataset.term.indexOf(k) !== -1) target = el;
-  });
+  var terms = Array.from(document.querySelectorAll(".glossary-term"));
+  var termOf = function(el) {
+    return el.dataset.term || "";
+  };
+  var target = terms.find(function(el) {
+    return termOf(el) === k;
+  }) || terms.find(function(el) {
+    return termOf(el).indexOf(k) === 0;
+  }) || terms.find(function(el) {
+    return termOf(el).indexOf(k) !== -1;
+  }) || null;
   if (target) {
     var hit = target;
     hit.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -2986,19 +3005,19 @@ function filterGlossary(query) {
 }
 document.getElementById("glossary-search").addEventListener("input", (e) => filterGlossary(e.target.value));
 var HELP_CONTENT = {
-  pills: "Tap any pill above to open its ticker card, then hit ANALYZE to run it through all 6 gates and get a real UP/DOWN/FLAT verdict \u2014 this is the whole point of the app. Swipe a card left to remove it from your watchlist, or right to jump to the next ticker and analyze it automatically.",
-  gate: 'Live status for SPY/QQQ and the sector proxies every ticker is checked against \u2014 feeds <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> for each verdict. Every verdict also carries a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> read \u2014 tap the docked bar to jump back to top. Pre/post-market prices are IEX-only and may vary from the full consolidated tape; built for regular-session (9:30am\u20134pm ET) analysis.',
-  pulse: "A quick, AI-written summary of today\u2019s market mood and sector rotation \u2014 Starter and up unlock the real, per-session version here. For your information only, it never changes a gate or a verdict.",
-  io: 'Type or paste <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names \u2014 one per line, or separated by commas. All caps (AAPL) adds a ticker directly; type it any other way (Tesla) and it resolves to the right symbol. Analyze All runs your full watchlist, up to 3 credits.',
-  agitator: "Check out a new stock idea or a rumor before it earns a spot on your watchlist \u2014 always free. Type a ticker, a company name, or paste a headline, and get one LOW/MEDIUM/HIGH read built from 6 real signals, plus a few related companies worth a look.",
-  "agitator-score": "One overall number, 0-10, averaging the 6 signals below it \u2014 a quick read on how big a deal this news might be for the stock, not a precise measurement.",
+  pills: 'Tap a pill to open that stock\u2019s card, then tap ANALYZE. The app runs it through every <a class="help-glossary-link" href="#" data-term="crf">gate</a> and gives a <a class="help-glossary-link" href="#" data-term="verdict icons">verdict</a>: UP, DOWN or FLAT. Swipe a card left to remove it, or right to jump to the next stock and analyze it.',
+  gate: 'The overall market right now: SPY (the S&P 500), QQQ (the Nasdaq) and a few key sectors. This is <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> on every card, so a falling market makes UP calls harder to earn. Every verdict also shows a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> level. When this bar is docked at the top, tap it to jump back up. Before 9:30am and after 4pm ET, prices come from a smaller data feed (<a class="help-glossary-link" href="#" data-term="extended hours">extended hours</a>) and can be slightly off.',
+  pulse: "A plain-English read of what the market is doing today. Free shows the first few words; Starter and Pro show the whole read. It\u2019s for context only and never changes a gate or a verdict.",
+  io: 'Add stocks by <a class="help-glossary-link" href="#" data-term="ticker">ticker</a> or company name, one per line or separated by commas. A ticker in capitals (AAPL) is added as is; any other spelling (Tesla) is looked up by company name. Free holds 3 stocks. Analyze All runs all 3 for 1 <a class="help-glossary-link" href="#" data-term="credit">credit</a> (every 3 analyses = 1 credit).',
+  agitator: 'Check a stock, a company name or a headline before you add it. It\u2019s free and uses no <a class="help-glossary-link" href="#" data-term="credit">credit</a>. You get a LOW / MEDIUM / HIGH read on how much the news could move the stock, a linked article, and a few related companies you can add with +.',
+  "agitator-score": "The average of the 6 signals, from 0 to 10. Higher means the news is more likely to move the stock. A quick read, not an exact measurement.",
   "agitator-surprise": "How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.",
   "agitator-uncertainty": "How unclear it still is to everyone how big a deal this actually is. High means the market hasn\u2019t figured out how to react yet.",
   "agitator-freshness": "Is this brand-new information nobody has reacted to yet (high), or something already known and priced in days ago (low)?",
   "agitator-ripple": "How likely this is to also move other related stocks, the sector, or the broader market \u2014 not just this one company.",
   "agitator-swing": "How easily this stock\u2019s price can be pushed around. Smaller, thinly-traded stocks swing more on the same amount of buying or selling.",
-  "agitator-expected-move": "How much price movement the options market is already betting on for this stock, right now.",
-  "agitator-past": "How reliably this app\u2019s past verdicts on this ticker have graded out. Shows n/a until enough real graded history exists."
+  "agitator-expected-move": 'How big a move the options market is already betting on for this stock right now. See <a class="help-glossary-link" href="#" data-term="expected move">Expected Move</a>.',
+  "agitator-past": "How often this app\u2019s past calls on this stock turned out right. Shows n/a until there are enough graded calls."
 };
 var TUTORIAL_STEP_SETTLE_MS = 450;
 function tutorialCard(id) {
@@ -3237,7 +3256,10 @@ async function boot() {
     onActivate: (sym) => {
       requestPushOfferOnFirstGesture();
       const state = tickerState.get(sym);
-      if (state && !state.result && !state.analyzing) analyzeOne(sym);
+      if (state && !state.result && !state.analyzing) {
+        snapOnAnalyze.add(sym);
+        analyzeOne(sym);
+      }
     },
     onDeleteConfirmed: deleteActiveTicker,
     // Landscape-only: collapse the header once the Gate docks, to reclaim

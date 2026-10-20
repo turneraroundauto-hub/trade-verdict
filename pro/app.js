@@ -6711,7 +6711,7 @@ function dayWindow(result) {
 }
 function activeView(state) {
   const w = dayWindow(state.result);
-  if (!w || !w.day) return "long";
+  if (!w || !w.day || isMarketClosed()) return "long";
   return state.view || "day";
 }
 function viewResult(state) {
@@ -6774,12 +6774,15 @@ function dayLongBarHTML(sym, state) {
   const w = dayWindow(state.result);
   if (!w) return "";
   const view = activeView(state);
+  const closed = isMarketClosed();
   let status = "";
-  if (w.day) status = (view === "day" ? w.day.note + " " : "") + (w.asOf ? "Bars as of " + fmtClock(w.asOf) + "." : "");
+  if (closed) status = "Market closed. DAY comes back at the next open; this is the Long call.";
+  else if (w.day) status = (view === "day" ? w.day.note + " " : "") + (w.asOf ? "Bars as of " + fmtClock(w.asOf) + "." : "");
   else if (w.state === "FORMING") status = `Day read at ${fmtClock(w.readyAt)} (${w.barsDone}/${w.barsNeeded} bars). It will show here on its own, no extra credit.`;
   else status = w.gate3 && w.gate3.note || "Long verdict only.";
-  const btn = (v, label, enabled) => `<button type="button" class="view-btn${view === v ? " active" : ""}" data-view="${v}" ${enabled ? "" : "disabled"}>${label}</button>`;
-  return `<div class="day-long-bar">${btn("day", "DAY", !!w.day)}${btn("long", "LONG", true)}</div><div class="day-note">${status}</div>`;
+  const dayExtra = closed ? "" : state.dayFlashUntil && state.dayFlashUntil > Date.now() ? " view-flash" : !w.day && w.state === "FORMING" ? " view-forming" : "";
+  const btn = (v, label, enabled, extra) => `<button type="button" class="view-btn${view === v ? " active" : ""}${extra}" data-view="${v}" ${enabled ? "" : "disabled"}>${label}</button>`;
+  return `<div class="day-long-bar" data-tutorial="daylong">${btn("day", "DAY", !!w.day && !closed, dayExtra)}${btn("long", "LONG", true, "")}</div><div class="day-note">${status}</div>`;
 }
 function gateListHTML(sym, result, historicalReaction) {
   const stp = tickerState.get(sym);
@@ -6859,6 +6862,7 @@ function wireCardButtons(card, sym) {
   const btn = card.querySelector("[data-analyze]");
   if (btn) btn.addEventListener("click", () => {
     vibrateTap();
+    snapOnAnalyze.add(sym);
     analyzeOne(sym);
   });
   card.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => {
@@ -7172,6 +7176,10 @@ function wireDialDrag() {
     onDown(e);
   });
 }
+var snapOnAnalyze = /* @__PURE__ */ new Set();
+function snapIfActive(sym) {
+  if (cardWindow()[getRoloCurrent()] === sym) scrollToActiveCard();
+}
 async function analyzeOne(sym, holdThroughEarnings) {
   const state = tickerState.get(sym);
   if (!state || state.analyzing) return;
@@ -7185,7 +7193,9 @@ async function analyzeOne(sym, holdThroughEarnings) {
     state.dayTimer = null;
   }
   watchDayReads(sbSession && sbSession.token, onDayPush);
+  const snap = snapOnAnalyze.delete(sym);
   renderRoloCard(sym);
+  if (snap) snapIfActive(sym);
   const td = state.td || await fetchTickerData(sym);
   state.td = td;
   if (td) renderRoloCard(sym);
@@ -7253,12 +7263,14 @@ async function analyzeOne(sym, holdThroughEarnings) {
     renderPill(sym);
     fetchCreditStatus();
     onAnalysisSucceeded();
+    if (snap) snapIfActive(sym);
     scheduleDayCheck(sym);
   } catch (e) {
     state.analyzing = false;
     state.error = e.message;
     renderRoloCard(sym);
     renderPill(sym);
+    if (snap) snapIfActive(sym);
   }
 }
 async function readAnalyzeStream(res, sym, state) {
@@ -7295,6 +7307,7 @@ function applyDayWindow(sym, win) {
   if (!st || !st.result || !win) return;
   st.result = Object.assign({}, st.result, { window: win });
   st.view = "day";
+  if (win.day) st.dayFlashUntil = Date.now() + 2700;
   if (st.dayTimer) {
     clearTimeout(st.dayTimer);
     st.dayTimer = null;
@@ -7339,6 +7352,7 @@ async function checkDayRead(sym, attempt) {
 function retryWithEarningsHoldThrough(sym) {
   const state = tickerState.get(sym);
   if (state) state.result = null;
+  snapOnAnalyze.add(sym);
   analyzeOne(sym, true);
 }
 function analyzeAll() {
@@ -7892,10 +7906,15 @@ function enforceMarketState() {
 var GLOSSARY = [
   { cat: "CRF FRAMEWORK", term: "CRF (Catalyst Response Framework)", def: "A step-by-step checklist this app runs on a stock before giving you a verdict. If enough of the checklist looks good, that\u2019s a thumbs up; if enough looks bad, that\u2019s a thumbs down.", ex: "Think of it like a pre-flight checklist for a trade \u2014 pilots don\u2019t take off until enough boxes are checked." },
   { cat: "CRF FRAMEWORK", term: "Confidence", def: "How strongly the verdict\u2019s own price action agrees with the trigger driving it. HIGH means both the ticker\u2019s own move and its sector proxy\u2019s move confirm the call. MEDIUM means the trigger is clean but there\u2019s no independent price data to confirm or deny it yet. LOW means real price action is actually moving against the call \u2014 and every LOW-confidence verdict always ships a real \u201CLOOK FOR\u201D note explaining what to watch for before acting.", ex: "A DOWN verdict where the stock itself is also selling off hard is HIGH confidence. The same DOWN verdict on a stock that\u2019s actually holding flat or ticking up is LOW \u2014 check the LOOK FOR note before acting." },
+  { cat: "CRF FRAMEWORK", term: "Agitator Gauge", def: "A free check you can run on any stock, company name or headline. It rates how much the news could move the stock as LOW, MEDIUM or HIGH, links the article it\u2019s based on, and suggests related companies.", ex: "Paste a rumor about a chip deal and see if it\u2019s a big deal before you add the stock." },
+  { cat: "CRF FRAMEWORK", term: "Credit", def: "What an analysis costs. Every 3 analyses use 1 credit, and an analysis that fails doesn\u2019t cost anything. Free gets 3 credits a week; Starter and Pro get a monthly amount.", ex: "Analyze All on 3 stocks uses 1 credit." },
+  { cat: "CRF FRAMEWORK", term: "Sector Pulse", def: "Two plain sentences in the Gate box about what the market is doing today and which groups are leading or lagging. It explains the mood; the numbers are in the grid above it. Free shows the first few words; Starter and Pro show it all.", ex: "\u201CRisk-on: investors are willing to take chances. Biotech and chip stocks are leading.\u201D" },
+  { cat: "CRF FRAMEWORK", term: "Aggression Dial", def: "Sets how actively you plan to trade, from Aggressive to Passive. It can lower the position size a verdict suggests, but never raises it past what the gates earned.", ex: "Aggressive caps a position at Half size, even when the gates allow Full." },
+  { cat: "CRF FRAMEWORK", term: "Day / Long Call", def: "Every Pro verdict comes in two versions. LONG is the call for the next 5 trading days. DAY is the call for today only, checked against the last three 15-minute price bars; it\u2019s ready about 45 minutes after the open. After the close, only LONG applies.", ex: "LONG says UP, but this morning\u2019s bars keep falling, so DAY says FLAT for today." },
   { cat: "CRF FRAMEWORK", term: "Gate 0 \u2014 Sector Gate", def: "Checks how the overall stock market is doing today. If the whole market is having a bad day, that drags down the outlook for pretty much everything.", ex: "A rising tide lifts all boats \u2014 a sinking one drags them down too." },
   { cat: "CRF FRAMEWORK", term: "Gate 1 \u2014 Bidirectional Trend Structure", def: "Looks at whether the stock has already made a big move recently, up or down. A stock that\u2019s already run up a lot is riskier to chase, and one that\u2019s fallen too far too fast is a red flag too.", ex: "Like being wary of a stock that already \u201Cran\u201D \u2014 you don\u2019t want to be the last one to the party." },
   { cat: "CRF FRAMEWORK", term: "Gate 2 \u2014 Catalyst Congruence", def: "Checks whether recent news about the company actually supports the direction the app is leaning.", ex: "Makes sure the story and the numbers are telling the same story." },
-  { cat: "CRF FRAMEWORK", term: "Gate 3 \u2014 Opening Bar", def: "Watches how the stock trades in the first few minutes after the market opens, since that early action often hints at where the rest of the day is headed.", ex: "Like judging a race by how strong the runners look at the starting gun." },
+  { cat: "CRF FRAMEWORK", term: "Gate 3 \u2014 Recent Price Bars", def: "Watches how the stock is trading right now. On Pro it reads the last three completed 15-minute price bars to see whether buyers or sellers are in control, and uses them for the DAY call.", ex: "Three green bars in a row after a good headline: buyers are still pushing." },
   { cat: "CRF FRAMEWORK", term: "Gate 4 \u2014 Phase Identification", def: "Figures out whether a stock\u2019s big move is just getting started, already well underway, or has gone so far it might be due for a pullback.", ex: "Early innings vs. late innings of the same game." },
   { cat: "CRF FRAMEWORK", term: "Gate 5 \u2014 Dynamic Sector Proxy", def: "Compares the stock to other companies or funds in the same industry, to see if it\u2019s moving with its peers or acting strangely on its own.", ex: "Checking if one kid in class is sick, or if the whole class has the flu." },
   { cat: "CRF FRAMEWORK", term: "Pre-Gate \u2014 Thesis Integrity", def: "A quick background check on the company itself, looking for red flags like financial trouble, before the app even looks at the stock\u2019s price. A serious red flag here can override everything else.", ex: "Like checking a used car\u2019s title for a salvage flag before you even look under the hood." },
@@ -8105,10 +8124,17 @@ function jumpToGlossaryTerm(key) {
   if (search) search.value = "";
   filterGlossary("");
   var k = key.toLowerCase();
-  var target = null;
-  document.querySelectorAll(".glossary-term").forEach(function(el) {
-    if (!target && el.dataset.term && el.dataset.term.indexOf(k) !== -1) target = el;
-  });
+  var terms = Array.from(document.querySelectorAll(".glossary-term"));
+  var termOf = function(el) {
+    return el.dataset.term || "";
+  };
+  var target = terms.find(function(el) {
+    return termOf(el) === k;
+  }) || terms.find(function(el) {
+    return termOf(el).indexOf(k) === 0;
+  }) || terms.find(function(el) {
+    return termOf(el).indexOf(k) !== -1;
+  }) || null;
   if (target) {
     var hit = target;
     hit.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -8141,24 +8167,24 @@ function filterGlossary(query) {
 }
 document.getElementById("glossary-search").addEventListener("input", (e) => filterGlossary(e.target.value));
 var HELP_CONTENT = {
-  pills: "Tap any pill above to open its ticker card, then hit ANALYZE to run it through all 6 gates and get a real UP/DOWN/FLAT verdict \u2014 this is the whole point of the app. Swipe a card left to remove it from your watchlist, or right to jump to the next ticker and analyze it automatically.",
-  gate: 'Live market mood for SPY, QQQ, and other key indices \u2014 this becomes <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> on every ticker you analyze. Every verdict also shows a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> level. Tap this bar anytime to jump back to the top. Pre-market and after-hours prices come from a smaller data feed and can differ slightly from regular trading hours (9:30am\u20134pm ET).',
-  pulse: 'A quick, AI-written summary of today\u2019s market mood and which <a class="help-glossary-link" href="#" data-term="sector rotation">sectors</a> are leading or lagging. For your information only \u2014 it never changes a gate or a verdict.',
-  io: 'Type or paste <a class="help-glossary-link" href="#" data-term="ticker">tickers</a> or company names \u2014 one per line, or separated by commas. Pro has no limit. All caps (AAPL) adds a ticker directly; type it any other way (Tesla) and it resolves to the right symbol. Analyze All runs your top 15 cards, up to 5 credits.',
-  watchlist: 'Every <a class="help-glossary-link" href="#" data-term="ticker">ticker</a> beyond your top 15 cards lives here. Tap + on any row to move it up into your main list.',
-  proxy: 'Shows which sector or stock each ticker is compared against for <a class="help-glossary-link" href="#" data-term="gate 5">Gate 5</a>, and whether they\u2019re still moving together right now.',
+  pills: 'Tap a pill to open that stock\u2019s card, then tap ANALYZE. The app runs it through every <a class="help-glossary-link" href="#" data-term="crf">gate</a> and gives a <a class="help-glossary-link" href="#" data-term="verdict icons">verdict</a>: UP, DOWN or FLAT. Swipe a card left to remove it, or right to jump to the next stock and analyze it.',
+  gate: 'The overall market right now: SPY (the S&P 500), QQQ (the Nasdaq) and a few key sectors. This is <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> on every card, so a falling market makes UP calls harder to earn. Every verdict also shows a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> level. When this bar is docked at the top, tap it to jump back up. Before 9:30am and after 4pm ET, prices come from a smaller data feed (<a class="help-glossary-link" href="#" data-term="extended hours">extended hours</a>) and can be slightly off.',
+  pulse: 'A plain-English read of what the market is doing today and which <a class="help-glossary-link" href="#" data-term="sector rotation">sectors</a> are leading or lagging. The numbers are in the grid above, so the Pulse doesn\u2019t repeat them. It\u2019s for context only and never changes a gate or a verdict.',
+  io: 'Add stocks by <a class="help-glossary-link" href="#" data-term="ticker">ticker</a> or company name, one per line or separated by commas. A ticker in capitals (AAPL) is added as is; any other spelling (Tesla) is looked up by company name. Pro has no limit. Analyze All runs your top 15 cards for up to 5 <a class="help-glossary-link" href="#" data-term="credit">credits</a> (every 3 analyses = 1 credit).',
+  watchlist: "Every stock beyond your top 15 cards. Tap + on a row to move it up into your cards.",
+  proxy: 'Each stock is compared against a related stock or fund, its <a class="help-glossary-link" href="#" data-term="proxy">proxy</a>, for <a class="help-glossary-link" href="#" data-term="gate 5">Gate 5</a>. This shows which one and whether the two are still moving together. Purple means a new proxy that\u2019s still being tested.',
   heatmap: "A color-coded snapshot of major sectors and every ticker in your watchlist, sorted by today\u2019s % change.",
-  scorecard: `Pooled across every user and tier, so every number here describes the same set of calls. Each verdict is graded twice. Day trade: did it close in the call's direction at that same session's close? Long: did it close in the call's direction 5 trading days later? Closing against the call by any amount is wrong. If the stock reached +4% (day) or +16% (long) in the call's direction along the way but still closed against it, it counts as half right. FLAT calls are right when the stock stayed within half its normal move for that window (or moved under 0.1%), half right within one normal move. The two tiles count UP and DOWN calls only; the rows below split UP, DOWN and FLAT. Verdicts pulled pre-market, after close, on weekends or holidays aren't counted \u2014 they aren't tradable when issued. Each tile stays hidden until 20 calls are graded; each row and ticker needs 5. Under each tile: the \xB1 range is the margin of error (the true rate is likely within it), and Always-UP is what calling UP on every one of those same calls would have scored. "Beats it" only shows when the gap is bigger than the range. "Your Log" below is your own record \u2014 tap \u2713 RIGHT or \u2717 WRONG after a session closes to build it.`,
-  agitator: "Check out a new stock idea or a rumor before it earns a spot on your watchlist \u2014 always free. Type a ticker, a company name, or paste a headline, and get one LOW/MEDIUM/HIGH read built from 6 real signals, plus a few related companies worth a look.",
-  "agitator-score": "One overall score, 0\u201310, averaging the 6 signals below \u2014 a fast read on how big a deal this news might be, not an exact measurement.",
+  scorecard: "How often UP and DOWN calls were right, across every user.<br>\u2022 <b>Day</b> = right by that day\u2019s close. <b>Long</b> = right 5 trading days later.<br>\u2022 Only calls made while the market is open count.<br>\u2022 Half credit if it hit its target but closed the wrong way.<br>\u2022 <b>\xB1</b> is the margin of error. <b>Always-UP</b> is what calling UP every time would score; \u201Cbeats it\u201D means the calls did better.<br>\u2022 <b>Your Log</b> is your own \u2713/\u2717 record.",
+  agitator: 'Check a stock, a company name or a headline before you add it. It\u2019s free and uses no <a class="help-glossary-link" href="#" data-term="credit">credit</a>. You get a LOW / MEDIUM / HIGH read on how much the news could move the stock, a linked article, and a few related companies you can add with +.',
+  "agitator-score": "The average of the 6 signals, from 0 to 10. Higher means the news is more likely to move the stock. A quick read, not an exact measurement.",
   "agitator-surprise": "How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.",
   "agitator-uncertainty": "How unclear it still is to everyone how big a deal this actually is. High means the market hasn\u2019t figured out how to react yet.",
   "agitator-freshness": "Is this brand-new information nobody has reacted to yet (high), or something already known and priced in days ago (low)?",
   "agitator-ripple": "How likely this is to also move other related stocks, the sector, or the broader market \u2014 not just this one company.",
   "agitator-swing": "How easily this stock\u2019s price can be pushed around. Smaller, thinly-traded stocks swing more on the same amount of buying or selling.",
-  "agitator-expected-move": "How much price movement the options market is already betting on for this stock, right now.",
-  "agitator-past": "How reliably this app\u2019s past verdicts on this ticker have graded out. Shows n/a until enough real graded history exists.",
-  dial: "Sets how actively you plan to trade \u2014 from Aggressive (watching closely) to Passive (checking in occasionally). CRF Default behaves just like every other tier. Aggressive can allow up to HALF position size, never more than your gates actually earned. A real earnings report always blocks new entries first, unless you choose to hold through it. Everything else here \u2014 timing, entries, stops \u2014 is guidance only; this app doesn\u2019t place real orders or send reminders."
+  "agitator-expected-move": 'How big a move the options market is already betting on for this stock right now. See <a class="help-glossary-link" href="#" data-term="expected move">Expected Move</a>.',
+  "agitator-past": "How often this app\u2019s past calls on this stock turned out right. Shows n/a until there are enough graded calls.",
+  dial: 'How actively you plan to trade, from Aggressive (watching all day) to Passive (checking in now and then). CRF Default is the standard setting every tier uses. Aggressive caps a position at Half size, and no setting ever goes bigger than the gates earned. An upcoming earnings report blocks new entries unless you choose to hold through it. Timing and <a class="help-glossary-link" href="#" data-term="stop loss">stop</a> ideas are guidance only; the app doesn\u2019t place orders or send reminders.'
 };
 var TUTORIAL_STEP_SETTLE_MS = 450;
 function tutorialCard(id) {
@@ -8204,6 +8230,16 @@ var TUTORIAL_STEPS = [
     }
   },
   {
+    // DAY/LONG switch (Oct 20, 2026). It only exists on an analyzed card, so
+    // the balloon falls back to the card itself before the first ANALYZE.
+    html: 'After you ANALYZE, every card gets a <b><a class="help-glossary-link" href="#" data-term="day / long call">DAY / LONG</a></b> switch. <b>LONG</b> is the call for the next 5 trading days. <b>DAY</b> is the call for today only, read from the last three 15-minute price bars. Before the third bar closes, DAY glows while it waits and flashes when it\u2019s ready \u2014 no extra credit. After the market closes, DAY is greyed out.',
+    getAnchor: () => tutorialActiveCardEl()?.querySelector('[data-tutorial="daylong"]') || tutorialActiveCardEl(),
+    before: () => {
+      resetSwipeDemoCard();
+      scrollToActiveCard();
+    }
+  },
+  {
     html: HELP_CONTENT.gate,
     getAnchor: () => document.querySelector('[data-help="gate"]'),
     before: () => {
@@ -8212,7 +8248,7 @@ var TUTORIAL_STEPS = [
     }
   },
   {
-    html: "Set your Aggression Dial before you analyze \u2014 it shapes how big a position size your verdicts can suggest, from Aggressive to Passive.",
+    html: "Set your Aggression Dial before you analyze. It decides how big a position your verdicts can suggest.",
     getAnchor: () => tutorialAnchor("dial", "dial"),
     before: () => tutorialExpand("card-dial")
   },
@@ -8401,7 +8437,10 @@ initRolodex({
   getWatchlist: cardWindow,
   onActivate: (sym) => {
     const state = tickerState.get(sym);
-    if (state && !state.result && !state.analyzing) analyzeOne(sym);
+    if (state && !state.result && !state.analyzing) {
+      snapOnAnalyze.add(sym);
+      analyzeOne(sym);
+    }
   },
   onDeleteConfirmed: deleteActiveTicker,
   // Landscape-only: collapse the header once the Gate docks, to reclaim
