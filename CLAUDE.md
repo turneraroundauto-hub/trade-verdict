@@ -2223,3 +2223,23 @@ What shipped:
 - Verified end to end with a stubbed Tra + fake Supabase and pinned clock (forming → `/day` READY writes
   the row; ready-at-tap writes immediately; boot sweep backfills + grades; Scorecard shape). Not verified
   live: real Alpaca options fields/entitlement — check `[OPTIONS PROBE]` lines after the first market day.
+
+### IV/delta options lens on Gate 3 (Oct 27, 2026, Pro DAY call only)
+Built straight after the logging PR merged (Mr. T: "merge what you have so far, then build out the options").
+Approved design: dynamic bar schedule yes; delta against the bars steps down (not FLAT).
+- `gate3ScheduleFrom(probe)` (server.js): implied daily move ÷ normal daily move > 1.3 → **5-min bars**
+  (DAY read 6:45 AM PT), < 0.8 → **30-min bars** (8:00 AM PT), else 15-min (7:15 AM PT). Cutoff stays
+  12:30 ET. Yardstick = implied daily move × √(barMinutes/390). No usable options data = old 15-min read.
+  **Off switch:** Render env `GATE3_OPTIONS_LENS=off`.
+- `gate3-window.ts`: `candleKey`/`completedBars` take `barMinutes`; `classifySequence(bars, {yardstickPct,
+  lean, barMinutes})` — a bar counts only at ≥ `DAY_BAR_MIN_SHARE` (0.5) × yardstick, the 3-bar net must
+  clear 0.5 × yardstick × √3; a BULLISH/BEARISH delta lean against GREEN/RED → YELLOW (`leanApplied`), so
+  `refineDayVerdict` sizes DAY down a step. The LONG call is untouched.
+- `/analyze` now runs the options probe first, then fetches bars at the chosen size
+  (`fetchSessionBars(..., barMinutes)`); the schedule rides on the DAY job (`long.schedule`) so a late
+  read uses the same bars, and on the verdict cache (`barMinutes`). Logged: `gates.g3_bar_minutes`,
+  `gates.g3_lens`. Window block adds `barMinutes` and `lens`; the Pro card says which bars it reads and
+  the options lean. Pro tutorial/Glossary text updated.
+- Thresholds (1.3 / 0.8 / 0.5 / ±0.15 lean) are starting guesses — tune from the logged probe data and
+  DAY-call grades. Verified end to end with stubs (5-min schedule, small bars not counting, bearish lean
+  → DAY UP HALF, switch off → 15-min). Not verified against live Alpaca options data.
