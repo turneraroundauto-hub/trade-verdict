@@ -2138,142 +2138,68 @@ Gold is the only safe-haven proxy tracked (no bonds/utilities). The input gets a
 sentence 2 = leaders/laggards with 2-3 exact numbers, no causes, no advice. Thresholds are my
 calibration — revisit if a label reads wrong on a real day.
 
-## Oct 20, 2026 — Pulse without numbers, ANALYZE snap, DAY/LONG switch, help + Glossary audit (`Tra` #137 / `trade-verdict` #384)
+## Oct 20-27, 2026 — Pulse in words, snaps, DAY/LONG, help audit, tutorial replay, DAY call graded on its own, options lens, learning loop
 
-- **Sector Pulse gets no numbers.** Mr. T: it "regurgitated" the grid above it. The model now gets only
-  `ah.buildPulseWords()` (leaning, direction, leading/lagging groups in words: big tech, chip stocks,
-  biotech, small companies, gold, oil; moves under ±0.3% left out). A reply containing any digit or `%` is
-  replaced by the rule-built `ah.pulseFallbackText()` (also used on an Anthropic error). BTC isn't a group,
-  so overnight crypto churn stays out. Not verified against live model wording — watch Render for
-  `Pulse: model reply had numbers`.
-- **Snap on ANALYZE (all tiers).** `analyzeOne()` never snapped; only pill taps did. A per-tier
-  `snapOnAnalyze` set marks taps (ANALYZE button, pill auto-analyze, earnings opt-in); the card snaps under
-  the pill ribbon on the tap and again when the verdict lands, only if that card is still active. Analyze
-  All doesn't add its tickers (the page would jump once per ticker).
-- **Pro DAY/LONG switch.** Full-width raised buttons, 28px (about 2mm taller; Mr. T: "2mm at most"),
-  amber when selected. DAY breathes while FORMING, flashes 3× when its read lands (`dayFlashUntil`), and
-  is greyed out after hours (`activeView()` returns `long` when `isMarketClosed()`). New tutorial step.
-- **Help (?) + tutorial audit.** Every balloon rewritten in plain English with Glossary links. Real errors
-  fixed: Free/Starter Import said Analyze All costs "up to 3 / 7 credits" (1 credit = 3 analyses, so 1 /
-  up to 3); Free Pulse described a preview that no longer exists; "all 6 gates" (it's 7 checks). Review page:
-  `https://claude.ai/artifact/TvEUseDJbCG77evCGfxuYp`.
-- **Glossary.** New CRF FRAMEWORK entries: Agitator Gauge, Credit, Sector Pulse (all tiers), Aggression
-  Dial (Starter/Pro), Day / Long Call (Pro). Pro's Gate 3 entry is now "Gate 3 — Recent Price Bars" (Free/
-  Starter keep "Opening Bar", still true there). `jumpToGlossaryTerm()` now prefers an exact name, then a
-  prefix, then a substring — a plain "proxy" link used to land on "Gate 5 — Dynamic Sector Proxy".
-  The trading-terms "Long" entry (a long position) is deliberately not linked from the DAY/LONG copy.
-- Not verified on a real device.
+PRs: `Tra` #137-#140 / `trade-verdict` #384-#388. All merged; migrations patch26 + patch27 (Tra) /
+patch29 + patch30 (mirror) applied, grants verified clean. Nothing below verified on a real device or
+against live Alpaca options data yet.
 
-### Tutorial replays cleanly from the Glossary (Oct 20, 2026, all tiers)
-Mr. T: from ▶ Run Tutorial the balloons fell off screen and the page didn't move to the right card.
-Played headless, causes were: no reset (cards already open stayed open, every step opened another),
-an already-open card was never snapped to, and a fixed 450ms wait measured before the snap finished.
-- `shared/rolodex.ts`: `resetForTutorial()` (close balloon, collapse every card, instant scroll to
-  top), `collapseUtilityCards(keep)` (collapse with the transition off so the page doesn't move during
-  the next snap), `waitForScrollSettle()`, `revealForTutorial(anchor)`, and
-  `positionTutorialBalloon()` — below the target if it fits, else above, else the larger gap with a
-  capped, internally scrolling balloon; the "visible area" excludes the docked Gate, "Tap pills" row
-  and pill ribbon when they're stuck (`tutorialSafeTop()`). `tutorialBusy` swallows taps between steps.
-- Tiers: steps now run in page order, top to bottom (Gate → Pulse → [Dial] → Agitator → Import →
-  Pills → swipe left/right → [DAY/LONG] → [Watchlist → Proxy → Heat Map] → [Verdict Record] →
-  Glossary). `tutorialExpand()` keeps one card open and snaps even if it was already open.
-  `startTutorial()` awaits the reset for both the first run and the Glossary button.
-- Verified headless on all three tiers at 412×860 and 360×640, from the Glossary (with cards
-  pre-opened) and the first run: every balloon fully on screen, one card open per step. Test
-  harness note: Free's sign-in nudge covers the page for anonymous visitors — hide `#signin-nudge`
-  in tests. Not verified on a real device.
+**UI (Oct 20, all tiers unless noted)**
+- **Sector Pulse has no numbers** (Mr. T: it "regurgitated" the grid). The model gets only
+  `ah.buildPulseWords()` (leaning + leading/lagging groups in words; moves under ±0.3% dropped, BTC not a
+  group). Any digit/`%` in the reply, or an Anthropic error → rule-built `ah.pulseFallbackText()`. Watch
+  Render for `Pulse: model reply had numbers`.
+- **Snap on ANALYZE:** per-tier `snapOnAnalyze` set; the card snaps under the pill ribbon on the tap and
+  again when the verdict lands (only if still active). Analyze All doesn't snap.
+- **Pro DAY/LONG switch:** full-width raised buttons, 28px ("2mm at most"), amber when selected; DAY
+  breathes while FORMING, flashes 3× when its read lands, greyed out after hours (`activeView()`). Own
+  tutorial step.
+- **Help (?) / tutorial / Glossary audit:** plain English + Glossary links everywhere. Fixed wrong credit
+  math in Import help (1 credit = 3 analyses) and "6 gates" (it's 7 checks). New Glossary entries: Agitator
+  Gauge, Credit, Sector Pulse, Aggression Dial (Starter/Pro), Day / Long Call (Pro); Pro's Gate 3 entry is
+  "Recent Price Bars". `jumpToGlossaryTerm()` tries exact → prefix → substring.
+- **Tutorial replays cleanly** (from ▶ Run Tutorial or first run): `shared/rolodex.ts`
+  `resetForTutorial()` (collapse all, scroll to top), one card open per step, steps in page order,
+  `positionTutorialBalloon()` keeps every balloon on screen below the docked chrome (`tutorialSafeTop()`),
+  `tutorialBusy` swallows taps mid-step. Test note: hide Free's `#signin-nudge` in headless runs.
 
-## Oct 27, 2026 — DAY call logged and graded on its own + options probe for the IV/delta Gate 3 (`Tra` patch26 / mirror patch29)
+**DAY call logged and graded on its own (Oct 27).** Root cause of "Day and Long look the same": only the
+LONG call was ever logged; the Day tile graded LONG at the close.
+- `verdict_log` gained `day_verdict`/`day_sizing`/`day_issued_at`/`day_entry_price`/`grade_day_call`/
+  `return_day_call_pct`/`graded_at_day_call`; `day_refinement_jobs.verdict_log_id`. `logVerdict()` returns
+  the row id; `recordDayCall()` writes the DAY call when ready (at the tap or when bar 3 lands);
+  `gradeDayCallRows()` grades entry bar → same-session close. Backfill linked 31 old jobs (30 graded, 11
+  UP/DOWN at 81.8%, 4 differed from LONG).
+- `/scorecard`: `day` = DAY calls, `long` = LONG at 5 sessions, `longAtClose` = old Day number, Pro
+  `dayVsLong`. Tiles say "DAY calls" / "LONG calls (5 days)".
+- **Decision (Mr. T):** DAY stays Pro-only until the DAY tile is **65%+** (floor: 100 graded calls), then
+  roll to every tier.
 
-**Why.** A week after the Gate 3 window shipped, Mr. T saw the Day and Long tiles weren't separate. Root
-cause: only the LONG call was ever written to `verdict_log`; the DAY call lived on the card only. The Day
-tile graded the LONG call at the day's close. Data at the time: before Oct 20, Day-check 53.4% / Long
-45.7% (221 calls); since Oct 20, 39 Day-check grades (59%), no Long grades yet (5-session lag). 34 DAY
-reads existed (30 in `day_refinement_jobs`), only 4 differed from the Long call.
+**IV/delta options lens on Gate 3 (Pro DAY call only; off switch `GATE3_OPTIONS_LENS=off`).**
+- `probeOptionsForDay()`: Alpaca `/v1beta1/options/snapshots` (indicative, ~15 min delayed, ±15% strikes,
+  ≤45 DTE) + open interest from `/v2/options/contracts` (live then paper host). Logged to
+  `gates.inputs.options` and `[OPTIONS PROBE]`. Math in `analyze-helpers.ts` (`summarizeOptionsChain`, etc.).
+- Schedule (`gate3ScheduleFrom`): implied ÷ normal daily move > 1.3 → 5-min bars (read 6:45 AM PT), < 0.8 →
+  30-min (8:00 AM PT), else 15-min (7:15 AM PT). Cutoff 12:30 ET. A bar counts only at ≥ 0.5 × its IV
+  yardstick (`DAY_BAR_MIN_SHARE`); a delta lean (±0.15 band) against GREEN/RED → YELLOW → DAY sizes down a
+  step. LONG untouched. Logged `gates.g3_bar_minutes`, `g3_lens`, `g3_day_opts`. All thresholds are
+  starting guesses for the learning loop to test.
 
-**Decisions (Mr. T):** keep DAY calls separate (Pro Gate 3 only) and roll them to every tier once the Day
-tile is **65%+** (suggested floor: 100 graded DAY calls). Next step after this one: an **IV- and
-delta-aware Gate 3** — IV sets the per-bar yardstick ("a bar counts only if it moves ≥ ½ its normal
-size") and the bar schedule (implied ÷ normal daily move > 1.3 → three 5-min bars; < 0.8 → three 30-min
-bars; else 15-min), and a delta lean that disagrees with the bars steps GREEN/RED down to YELLOW. Alpaca's
-options feed is ~15 min delayed (confirmed by Mr. T). **Step one is logging only.**
+**Learning loop — Stage 1 + 2, record only (`learning.ts`, `tests/learning.test.js`).**
+- **Standing rule (Mr. T): nothing changes a live setting without his pre-approval.** Stage 3 (promotion)
+  is not built.
+- `maybeRunLearningJobs()`: once per ET day after 5pm (off switch `LEARNING_JOBS=off`), 90-day lookback.
+  `signal_stats` = hit rate + average move per input value, DAY and LONG separately. `tuning_runs` = past
+  DAY calls replayed exactly like live under 13 one-change candidates (bar schedule, bar share, lean band);
+  the `live` row reports replay faithfulness. A candidate is only *proposed* with ≥100 graded DAY calls, a
+  gain bigger than the ±95% margin, and better in both halves. `GET /learning` (Pro/Shark).
+- **Weekly readout:** scheduled task "Weekly learning readout", Saturdays 8:38 AM PT, printed in the chat
+  session — freshness, DAY/LONG accuracy vs the 65%/100-call goal, strongest/weakest signals, tuner
+  results (any guardrail-passing candidate shown as a proposal for approval), options data health.
+- **Confirmed live Oct 27 03:30 UTC** (first run, right after deploy): 85 `signal_stats` rows, 13
+  `tuning_runs` rows, live replay matched **28 of 28** logged DAY calls. ~30 graded DAY calls and options
+  data only from Oct 27 on → expect proposals in ~a month.
 
-What shipped:
-- `verdict_log` gains `day_verdict`, `day_sizing`, `day_issued_at` (the DAY read's bar time),
-  `day_entry_price` (close of that bar), `grade_day_call`, `return_day_call_pct`, `graded_at_day_call`;
-  `day_refinement_jobs` gains `verdict_log_id` (-1 = backfill found no row). Migration must run before
-  the Tra deploy.
-- `logVerdict()` now returns the row id and writes the DAY call when it's ready at the tap. A pending DAY
-  job is saved after the log row with its id; `resolveDayJob()` → `recordDayCall()` writes the DAY call
-  when the 3rd bar lands. `buildWindowBlock()` adds `dayEntryPrice`.
-- `gradeDayCallRows()` grades the DAY call from its own entry bar to the same session's close (same
-  target/MARGINAL/FLAT rules as the Day window). `backfillDayCallsFromJobs()` (one-time, idempotent)
-  attached last week's job reads to their rows (ticker + ET date + account + same Long verdict).
-- `/scorecard`: `day` = DAY calls only (`grade_day_call`), `long` = LONG calls at 5 sessions,
-  `longAtClose` = the LONG call at the day's close (the old Day number, its own line), Pro-only
-  `dayVsLong` ({calls, differed}). Breakdown DAY column and top tickers use DAY-call grades. Tiles relabeled
-  "DAY calls" / "LONG calls (5 days)" on Starter and Pro; help text updated.
-- **Options probe (logging only, Pro Gate 3 calls):** `probeOptionsForDay()` → `verdict_log.gates.inputs.options`
-  and a `[OPTIONS PROBE]` Render log line. Alpaca `/v1beta1/options/snapshots` (indicative, ±15% strikes,
-  ≤45 days) for IV/delta/contract volume and quote age; open interest from the trading API
-  `/v2/options/contracts` (tries live, then paper host; cached daily). Math in `analyze-helpers.ts`
-  (`summarizeOptionsChain`, `dayBarSchedule`, `barYardstickPct`, `deltaLeanLabel`, tested): headline IV =
-  nearest-the-money 5-45 DTE contract, implied daily move = IV/√252, delta lean = Σδ·weight / Σ|δ|·weight
-  (OI if available, else today's contract volume; ±0.15 = NEUTRAL). Capped at 3s; never changes a verdict.
-- Verified end to end with a stubbed Tra + fake Supabase and pinned clock (forming → `/day` READY writes
-  the row; ready-at-tap writes immediately; boot sweep backfills + grades; Scorecard shape). Not verified
-  live: real Alpaca options fields/entitlement — check `[OPTIONS PROBE]` lines after the first market day.
-
-### IV/delta options lens on Gate 3 (Oct 27, 2026, Pro DAY call only)
-Built straight after the logging PR merged (Mr. T: "merge what you have so far, then build out the options").
-Approved design: dynamic bar schedule yes; delta against the bars steps down (not FLAT).
-- `gate3ScheduleFrom(probe)` (server.js): implied daily move ÷ normal daily move > 1.3 → **5-min bars**
-  (DAY read 6:45 AM PT), < 0.8 → **30-min bars** (8:00 AM PT), else 15-min (7:15 AM PT). Cutoff stays
-  12:30 ET. Yardstick = implied daily move × √(barMinutes/390). No usable options data = old 15-min read.
-  **Off switch:** Render env `GATE3_OPTIONS_LENS=off`.
-- `gate3-window.ts`: `candleKey`/`completedBars` take `barMinutes`; `classifySequence(bars, {yardstickPct,
-  lean, barMinutes})` — a bar counts only at ≥ `DAY_BAR_MIN_SHARE` (0.5) × yardstick, the 3-bar net must
-  clear 0.5 × yardstick × √3; a BULLISH/BEARISH delta lean against GREEN/RED → YELLOW (`leanApplied`), so
-  `refineDayVerdict` sizes DAY down a step. The LONG call is untouched.
-- `/analyze` now runs the options probe first, then fetches bars at the chosen size
-  (`fetchSessionBars(..., barMinutes)`); the schedule rides on the DAY job (`long.schedule`) so a late
-  read uses the same bars, and on the verdict cache (`barMinutes`). Logged: `gates.g3_bar_minutes`,
-  `gates.g3_lens`. Window block adds `barMinutes` and `lens`; the Pro card says which bars it reads and
-  the options lean. Pro tutorial/Glossary text updated.
-- Thresholds (1.3 / 0.8 / 0.5 / ±0.15 lean) are starting guesses — tune from the logged probe data and
-  DAY-call grades. Verified end to end with stubs (5-min schedule, small bars not counting, bearish lean
-  → DAY UP HALF, switch off → 15-min). Not verified against live Alpaca options data.
-
-## Oct 27, 2026 — the app learns from its own tables: Stage 1 signal report + Stage 2 shadow tuner (record only)
-
-Mr. T: "the hope is for the app to use tables to learn to apply noncursory changes for better accuracy."
-**Standing rule (his words): build stages 1 and 2 "with pre-approval from me before anything changed."**
-Nothing in this code changes a live setting; every tuned value goes to Mr. T for approval first. Stage 3
-(promotion) is not built.
-
-- `learning.ts` (pure, CommonJS-safe, `tests/learning.test.js`):
-  - `computeSignalStats(rows)` → hit rate (MARGINAL = half) and average move in the call's direction per
-    input value, **DAY and LONG calls separately**, UP/DOWN calls only (FLAT on its own `direction` row).
-    Signals: direction, size, confidence, dial, tier, weekday, time of day ET, pre_gate, gate0, gate1_branch,
-    gate2_corroborated, g1-g5 colors, g3_bars, g3_bar_minutes, catalyst_type, proxy_tier, regime, override,
-    range_position band, options_lean, options_move_vs_normal, day_vs_long.
-  - `replayDayCall(input, params)` re-runs a DAY call exactly like live (read at the later of the tap and
-    the 3rd bar's close, last 3 completed bars, cutoff 12:30 ET, `classifySequence` + `refineDayVerdict`).
-    `TUNING_CANDIDATES` change one thing from live: bar schedule (always 5/15/30, ratio 1.2/0.9, 1.5/0.7),
-    bar share (0, 0.25, 0.75, 1.0), lean band (off, ±0.10, ±0.25).
-  - Guardrails before a candidate is even *proposed*: ≥100 graded UP/DOWN DAY calls
-    (`PROPOSAL_MIN_CALLS`), gain bigger than the ±95% margin, and better in both halves of the period.
-- `server.js`: `maybeRunLearningJobs()` runs once per ET day after 5pm (checked at the end of each
-  grading sweep; off switch `LEARNING_JOBS=off`). 90-day lookback. Writes `signal_stats` (replaced each
-  run) and `tuning_runs` (appended; the `live` row's note reports how many logged DAY calls the replay
-  reproduces — a faithfulness check). Shadow grading reuses `gradeDirectionalCall`/`classifyFlatReturn`;
-  bars at 5/15/30 min are refetched per ticker-day (cached per run, through `alpacaGet`).
-  `GET /learning` (Pro/Shark) returns signals with n ≥ 5 and the latest tuning run. Also logs
-  `gates.g3_day_opts {locked, fridaySkeptic}` so replays are exact from now on (older calls derive
-  locked from `gates.inputs.override` and treat any Friday as skeptic — an approximation).
-- Tables: `supabase-ddl-patch27-learning-tables.sql` (Tra) / patch30 (mirror). Column is `call_type`
-  (`call` is a SQL keyword). Service-role only: RLS disabled + revoke, run as a separate step.
-- Verified end to end with a stubbed Tra + fake Supabase: 59 signal rows, 13 candidate rows, live replay
-  matched 4 of 4 logged DAY calls, every candidate held back by the guardrails.
-- **Data reality (Oct 27):** ~30 graded DAY calls, options data only from Oct 27 on. Expect no proposals
-  for about a month; the signal report is useful sooner. Not verified live.
+**Open from this stretch:** confirm real Alpaca options fields/entitlement (`[OPTIONS PROBE]` lines — needs
+Mr. T to confirm which Render workspace Tra is in before logs can be read); OS push for a ready DAY read (Pro has no service worker); port the Gate 3 window to
+Starter → Free.
