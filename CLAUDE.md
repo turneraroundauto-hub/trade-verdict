@@ -2243,3 +2243,37 @@ Approved design: dynamic bar schedule yes; delta against the bars steps down (no
 - Thresholds (1.3 / 0.8 / 0.5 / ±0.15 lean) are starting guesses — tune from the logged probe data and
   DAY-call grades. Verified end to end with stubs (5-min schedule, small bars not counting, bearish lean
   → DAY UP HALF, switch off → 15-min). Not verified against live Alpaca options data.
+
+## Oct 27, 2026 — the app learns from its own tables: Stage 1 signal report + Stage 2 shadow tuner (record only)
+
+Mr. T: "the hope is for the app to use tables to learn to apply noncursory changes for better accuracy."
+**Standing rule (his words): build stages 1 and 2 "with pre-approval from me before anything changed."**
+Nothing in this code changes a live setting; every tuned value goes to Mr. T for approval first. Stage 3
+(promotion) is not built.
+
+- `learning.ts` (pure, CommonJS-safe, `tests/learning.test.js`):
+  - `computeSignalStats(rows)` → hit rate (MARGINAL = half) and average move in the call's direction per
+    input value, **DAY and LONG calls separately**, UP/DOWN calls only (FLAT on its own `direction` row).
+    Signals: direction, size, confidence, dial, tier, weekday, time of day ET, pre_gate, gate0, gate1_branch,
+    gate2_corroborated, g1-g5 colors, g3_bars, g3_bar_minutes, catalyst_type, proxy_tier, regime, override,
+    range_position band, options_lean, options_move_vs_normal, day_vs_long.
+  - `replayDayCall(input, params)` re-runs a DAY call exactly like live (read at the later of the tap and
+    the 3rd bar's close, last 3 completed bars, cutoff 12:30 ET, `classifySequence` + `refineDayVerdict`).
+    `TUNING_CANDIDATES` change one thing from live: bar schedule (always 5/15/30, ratio 1.2/0.9, 1.5/0.7),
+    bar share (0, 0.25, 0.75, 1.0), lean band (off, ±0.10, ±0.25).
+  - Guardrails before a candidate is even *proposed*: ≥100 graded UP/DOWN DAY calls
+    (`PROPOSAL_MIN_CALLS`), gain bigger than the ±95% margin, and better in both halves of the period.
+- `server.js`: `maybeRunLearningJobs()` runs once per ET day after 5pm (checked at the end of each
+  grading sweep; off switch `LEARNING_JOBS=off`). 90-day lookback. Writes `signal_stats` (replaced each
+  run) and `tuning_runs` (appended; the `live` row's note reports how many logged DAY calls the replay
+  reproduces — a faithfulness check). Shadow grading reuses `gradeDirectionalCall`/`classifyFlatReturn`;
+  bars at 5/15/30 min are refetched per ticker-day (cached per run, through `alpacaGet`).
+  `GET /learning` (Pro/Shark) returns signals with n ≥ 5 and the latest tuning run. Also logs
+  `gates.g3_day_opts {locked, fridaySkeptic}` so replays are exact from now on (older calls derive
+  locked from `gates.inputs.override` and treat any Friday as skeptic — an approximation).
+- Tables: `supabase-ddl-patch27-learning-tables.sql` (Tra) / patch30 (mirror). Column is `call_type`
+  (`call` is a SQL keyword). Service-role only: RLS disabled + revoke, run as a separate step.
+- Verified end to end with a stubbed Tra + fake Supabase: 59 signal rows, 13 candidate rows, live replay
+  matched 4 of 4 logged DAY calls, every candidate held back by the guardrails.
+- **Data reality (Oct 27):** ~30 graded DAY calls, options data only from Oct 27 on. Expect no proposals
+  for about a month; the signal report is useful sooner. Not verified live.
