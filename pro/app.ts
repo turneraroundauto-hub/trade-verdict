@@ -547,7 +547,12 @@ function dayLongBarHTML(sym: string, state: TickerState): string {
   let status = '';
   if (closed) status = 'Market closed. DAY comes back at the next open; this is the Long call.';
   else if (w.day) status = (view === 'day' ? w.day.note + ' ' : '') + (w.asOf ? 'Bars as of ' + fmtClock(w.asOf) + '.' : '');
-  else if (w.state === 'FORMING') status = `Day read at ${fmtClock(w.readyAt)} (${w.barsDone}/${w.barsNeeded} bars). It will show here on its own, no extra credit.`;
+  else if (w.state === 'FORMING') status = `Day read at ${fmtClock(w.readyAt)} (${w.barsDone}/${w.barsNeeded} ${w.barMinutes || 15}-min bars). It will show here on its own, no extra credit.`;
+  // Options lens (Oct 27, 2026): which bars it reads and the options lean.
+  if (!closed && w.lens) {
+    const why = (w.barMinutes || 15) < 15 ? 'options expect a bigger day than usual' : (w.barMinutes || 15) > 15 ? 'options expect a quieter day than usual' : 'a normal day';
+    status += ` Reading ${w.barMinutes}-min bars: ${why}.` + (w.lens.lean ? ` Options lean: ${w.lens.lean.toLowerCase()}.` : '');
+  }
   else status = (w.gate3 && w.gate3.note) || 'Long verdict only.';
   // DAY breathes while its read is still forming, and flashes when it lands.
   const dayExtra = closed ? '' : (state.dayFlashUntil && state.dayFlashUntil > Date.now()) ? ' view-flash' : (!w.day && w.state === 'FORMING') ? ' view-forming' : '';
@@ -1953,11 +1958,11 @@ var GLOSSARY: GlossaryTerm[] = [
   {cat:'CRF FRAMEWORK',term:'Credit',def:'What an analysis costs. Every 3 analyses use 1 credit, and an analysis that fails doesn’t cost anything. Free gets 3 credits a week; Starter and Pro get a monthly amount.',ex:'Analyze All on 3 stocks uses 1 credit.'},
   {cat:'CRF FRAMEWORK',term:'Sector Pulse',def:'Two plain sentences in the Gate box about what the market is doing today and which groups are leading or lagging. It explains the mood; the numbers are in the grid above it. Free shows the first few words; Starter and Pro show it all.',ex:'“Risk-on: investors are willing to take chances. Biotech and chip stocks are leading.”'},
   {cat:'CRF FRAMEWORK',term:'Aggression Dial',def:'Sets how actively you plan to trade, from Aggressive to Passive. It can lower the position size a verdict suggests, but never raises it past what the gates earned.',ex:'Aggressive caps a position at Half size, even when the gates allow Full.'},
-  {cat:'CRF FRAMEWORK',term:'Day / Long Call',def:'Every Pro verdict comes in two versions. LONG is the call for the next 5 trading days. DAY is the call for today only, checked against the last three 15-minute price bars; it’s ready about 45 minutes after the open. After the close, only LONG applies.',ex:'LONG says UP, but this morning’s bars keep falling, so DAY says FLAT for today.'},
+  {cat:'CRF FRAMEWORK',term:'Day / Long Call',def:'Every Pro verdict comes in two versions. LONG is the call for the next 5 trading days. DAY is the call for today only, checked against the last three price bars. The options market picks the bar size: 5-minute bars on days it expects a big move, 30-minute bars on quiet days, otherwise 15. A bar only counts if it moves enough for that stock, and if options traders lean the other way, DAY sizes down. After the close, only LONG applies.',ex:'LONG says UP, but this morning’s bars keep falling, so DAY says FLAT for today.'},
   {cat:'CRF FRAMEWORK',term:'Gate 0 — Sector Gate',def:'Checks how the overall stock market is doing today. If the whole market is having a bad day, that drags down the outlook for pretty much everything.',ex:'A rising tide lifts all boats — a sinking one drags them down too.'},
   {cat:'CRF FRAMEWORK',term:'Gate 1 — Bidirectional Trend Structure',def:'Looks at whether the stock has already made a big move recently, up or down. A stock that’s already run up a lot is riskier to chase, and one that’s fallen too far too fast is a red flag too.',ex:'Like being wary of a stock that already “ran” — you don’t want to be the last one to the party.'},
   {cat:'CRF FRAMEWORK',term:'Gate 2 — Catalyst Congruence',def:'Checks whether recent news about the company actually supports the direction the app is leaning.',ex:'Makes sure the story and the numbers are telling the same story.'},
-  {cat:'CRF FRAMEWORK',term:'Gate 3 — Recent Price Bars',def:'Watches how the stock is trading right now. On Pro it reads the last three completed 15-minute price bars to see whether buyers or sellers are in control, and uses them for the DAY call.',ex:'Three green bars in a row after a good headline: buyers are still pushing.'},
+  {cat:'CRF FRAMEWORK',term:'Gate 3 — Recent Price Bars',def:'Watches how the stock is trading right now. On Pro it reads the last three completed price bars (5, 15 or 30 minutes, picked from the options market) to see whether buyers or sellers are in control, and uses them for the DAY call. Small bars don’t count, and an options lean against the bars means not confirmed.',ex:'Three green bars in a row after a good headline: buyers are still pushing.'},
   {cat:'CRF FRAMEWORK',term:'Gate 4 — Phase Identification',def:'Figures out whether a stock’s big move is just getting started, already well underway, or has gone so far it might be due for a pullback.',ex:'Early innings vs. late innings of the same game.'},
   {cat:'CRF FRAMEWORK',term:'Gate 5 — Dynamic Sector Proxy',def:'Compares the stock to other companies or funds in the same industry, to see if it’s moving with its peers or acting strangely on its own.',ex:'Checking if one kid in class is sick, or if the whole class has the flu.'},
   {cat:'CRF FRAMEWORK',term:'Pre-Gate — Thesis Integrity',def:'A quick background check on the company itself, looking for red flags like financial trouble, before the app even looks at the stock’s price. A serious red flag here can override everything else.',ex:'Like checking a used car’s title for a salvage flag before you even look under the hood.'},
@@ -2400,7 +2405,7 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   {
     // DAY/LONG switch (Oct 20, 2026). It only exists on an analyzed card, so
     // the balloon falls back to the card itself before the first ANALYZE.
-    html: 'After you ANALYZE, every card gets a <b><a class="help-glossary-link" href="#" data-term="day / long call">DAY / LONG</a></b> switch. <b>LONG</b> is the call for the next 5 trading days. <b>DAY</b> is the call for today only, read from the last three 15-minute price bars. Before the third bar closes, DAY glows while it waits and flashes when it’s ready — no extra credit. After the market closes, DAY is greyed out.',
+    html: 'After you ANALYZE, every card gets a <b><a class="help-glossary-link" href="#" data-term="day / long call">DAY / LONG</a></b> switch. <b>LONG</b> is the call for the next 5 trading days. <b>DAY</b> is the call for today only, read from the last three price bars (5, 15 or 30 minutes, depending on how big a day the options market expects). Before the third bar closes, DAY glows while it waits and flashes when it’s ready — no extra credit. After the market closes, DAY is greyed out.',
     getAnchor: () => tutorialActiveCardEl()?.querySelector<HTMLElement>('[data-tutorial="daylong"]') || tutorialActiveCardEl(),
     before: () => tutorialTickerCard(),
   },
