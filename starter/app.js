@@ -2066,6 +2066,48 @@ function initRatePrompt() {
   on("rate-prompt-never", "never");
 }
 
+// shared/dial-audit.ts
+var DIAL_LOG_SETTLE_MS = 1500;
+var LOGGED_KEY = "tv_dial_logged";
+var cfg2 = null;
+var timer = null;
+var onLogged = null;
+function initDialAudit(config, afterLog) {
+  cfg2 = config;
+  onLogged = afterLog || null;
+}
+function readLogged() {
+  try {
+    return localStorage.getItem(LOGGED_KEY);
+  } catch (e) {
+    return null;
+  }
+}
+function noteDialPosition(pos) {
+  if (!cfg2) return;
+  if (timer) clearTimeout(timer);
+  timer = setTimeout(function fire() {
+    if (!cfg2) return;
+    if (cfg2.isDragging()) {
+      timer = setTimeout(fire, DIAL_LOG_SETTLE_MS);
+      return;
+    }
+    timer = null;
+    if (!cfg2.isSignedIn() || readLogged() === pos) return;
+    fetch(cfg2.addSecret(cfg2.API_URL + "/dial-change"), { method: "POST", headers: cfg2.authH(), body: JSON.stringify({ to: pos }) }).then(function(r) {
+      return r.ok ? r.json() : null;
+    }).then(function(d) {
+      if (!d) return;
+      try {
+        localStorage.setItem(LOGGED_KEY, pos);
+      } catch (e) {
+      }
+      if (d.logged && onLogged) onLogged();
+    }).catch(function() {
+    });
+  }, DIAL_LOG_SETTLE_MS);
+}
+
 // starter/app.ts
 var API_URL2 = "https://tra-zacg.onrender.com";
 var market = null;
@@ -2702,6 +2744,7 @@ function setDialPosition(pos) {
   if (DIAL_ORDER.indexOf(pos) === -1) return;
   localStorage.setItem("tv_dial_position", pos);
   renderDialCard();
+  noteDialPosition(pos);
 }
 function renderDialCard() {
   var pos = getDialPosition();
@@ -3513,6 +3556,17 @@ function initApp() {
   fetchMarket();
   sizeGateSpacer();
   renderRolodexFromWatchlist();
+  initDialAudit({
+    API_URL: API_URL2,
+    authH: authH2,
+    addSecret: addSecret2,
+    isSignedIn: function() {
+      return !!(sbSession && sbSession.token);
+    },
+    isDragging: function() {
+      return dialDragging;
+    }
+  });
   renderDialCard();
   setTimeout(fetchCreditStatus, 2e3);
   setTimeout(function() {

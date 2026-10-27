@@ -35,6 +35,7 @@ import { highlightContextMatches } from '../shared/context-highlight';
 import '../shared/settings-modal';
 import * as rolodex from '../shared/rolodex';
 import { initRatePrompt, onAnalysisSucceeded } from '../shared/rate-prompt';
+import { initDialAudit, noteDialPosition } from '../shared/dial-audit';
 import type { AnalyzeResponse, TickerData } from '../shared/types.js';
 
 const API_URL = 'https://tra-zacg.onrender.com';
@@ -666,6 +667,7 @@ function setDialPosition(pos: string): void {
   if (DIAL_ORDER.indexOf(pos) === -1) return;
   localStorage.setItem('tv_dial_position', pos);
   renderDialCard();
+  noteDialPosition(pos); // Proposal 7 audit trail: logged once the dial settles
 }
 // Real slider (Aug 26, 2026 rework; drag support added Aug 27, 2026 --
 // direct report: "the aggressive slider bar doesn't slide"). Tapping a
@@ -1763,6 +1765,9 @@ function initApp(): void {
   fetchMarket();
   rolodex.sizeGateSpacer();
   renderRolodexFromWatchlist();
+  initDialAudit({ API_URL: API_URL, authH: authH, addSecret: addSecret,
+    isSignedIn: function () { return !!(sbSession && sbSession.token); },
+    isDragging: function () { return dialDragging; } });
   renderDialCard();
   setTimeout(fetchCreditStatus, 2000);
   // New-user tutorial -- fires once per browser (a tier-scoped flag, so a

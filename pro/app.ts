@@ -63,6 +63,7 @@ import '../shared/settings-modal';
 import * as rolodex from '../shared/rolodex';
 import { initRatePrompt, onAnalysisSucceeded } from '../shared/rate-prompt';
 import { watchDayReads } from '../shared/day-realtime';
+import { initDialAudit, noteDialPosition, fetchDialAudit, type DialAudit } from '../shared/dial-audit';
 import type { AnalyzeResponse, TickerData } from '../shared/types.js';
 
 const API_URL = 'https://tra-zacg.onrender.com';
@@ -949,6 +950,36 @@ function setDialPosition(pos: string): void {
   if (!DIAL_POSITIONS[pos]) return;
   localStorage.setItem('tv_dial_position', pos);
   renderDialCard();
+  noteDialPosition(pos); // Proposal 7 audit trail: logged once the dial settles
+}
+// Proposal 7 audit trail (Oct 27, 2026): one plain line under the dial --
+// the last change, and how calls did since vs before it (dial-horizon
+// grade, stop-outs as the "losses" side). Observational only.
+var dialAuditData: DialAudit | null = null;
+function dialName(p: string | null): string { return p && DIAL_POSITIONS[p] ? DIAL_POSITIONS[p].label : 'unknown'; }
+function dialStatsText(st: { n: number; pct: number | null; stopPct: number | null }, min: number): string {
+  if (!st || !st.n) return 'no graded calls yet';
+  if (st.n < min || st.pct == null) return st.n + ' graded call' + (st.n === 1 ? '' : 's') + ' so far (a % shows at ' + min + ')';
+  return '<b style="color:var(--ink)">' + Math.round(st.pct) + '% right</b>' + (st.stopPct != null ? ', ' + Math.round(st.stopPct) + '% stopped out' : '') + ' (' + st.n + ' graded)';
+}
+function dialAuditLineHTML(): string {
+  var a = dialAuditData;
+  if (!a) return '';
+  if (!a.latest) return 'No dial changes recorded yet.';
+  var l = a.latest, min = a.minGraded || 5;
+  var when = '';
+  try { when = new Date(l.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: getTzIana() }); } catch (e) { }
+  var src = a.changes[0] && a.changes[0].source === 'rebuilt' ? 'by ' : 'on ';
+  return 'Last change: ' + dialName(l.from) + ' → ' + dialName(l.to) + (when ? ', ' + src + when : '') + '.'
+    + '<br>Since: ' + dialStatsText(l.after, min) + '.'
+    + (l.from ? '<br>Before, at ' + dialName(l.from) + ': ' + dialStatsText(l.before, min) + '.' : '');
+}
+function paintDialAuditLine(): void {
+  var el = document.getElementById('dial-audit-line');
+  if (el) { var h = dialAuditLineHTML(); el.innerHTML = h; el.style.display = h ? '' : 'none'; }
+}
+function refreshDialAudit(): void {
+  fetchDialAudit().then(function (a) { if (a) { dialAuditData = a; paintDialAuditLine(); } });
 }
 // Real slider (Aug 26, 2026 rework; drag support added Aug 27, 2026 --
 // direct report: "the aggressive slider bar doesn't slide"). Tapping a
@@ -979,7 +1010,9 @@ function renderDialCard(): void {
       + '<div class="trigger-row"><span class="trigger-lbl">Entry guidance</span><span class="trigger-sub">' + d.entries + '</span></div>'
       + '<div class="trigger-row"><span class="trigger-lbl">Stop guidance</span><span class="trigger-sub">' + d.stops + '</span></div>'
       + '<div class="trigger-row"><span class="trigger-lbl">Recheck interval</span><span class="trigger-sub">' + d.recheck + '</span></div>'
-      + '<div class="trigger-row"><span class="trigger-lbl">Position size</span><span class="trigger-sub">' + d.sizing + '</span></div>';
+      + '<div class="trigger-row"><span class="trigger-lbl">Position size</span><span class="trigger-sub">' + d.sizing + '</span></div>'
+      + '<div class="dial-audit-line" id="dial-audit-line"></div>';
+    paintDialAuditLine();
     wireDialDrag();
   }
 }
@@ -2278,7 +2311,7 @@ const HELP_CONTENT: Record<string, string> = {
   'agitator-swing': 'How easily this stock’s price can be pushed around. Smaller, thinly-traded stocks swing more on the same amount of buying or selling.',
   'agitator-expected-move': 'How big a move the options market is already betting on for this stock right now. See <a class="help-glossary-link" href="#" data-term="expected move">Expected Move</a>.',
   'agitator-past': 'How often this app’s past calls on this stock turned out right. Shows n/a until there are enough graded calls.',
-  dial: 'How actively you plan to trade, from Aggressive (watching all day) to Passive (checking in now and then). CRF Default is the standard setting every tier uses. Aggressive caps a position at Half size, and no setting ever goes bigger than the gates earned. An upcoming earnings report blocks new entries unless you choose to hold through it. Timing and <a class="help-glossary-link" href="#" data-term="stop loss">stop</a> ideas are guidance only; the app doesn’t place orders or send reminders.',
+  dial: 'How actively you plan to trade, from Aggressive (watching all day) to Passive (checking in now and then). CRF Default is the standard setting every tier uses. Aggressive caps a position at Half size, and no setting ever goes bigger than the gates earned. An upcoming earnings report blocks new entries unless you choose to hold through it. Timing and <a class="help-glossary-link" href="#" data-term="stop loss">stop</a> ideas are guidance only; the app doesn’t place orders or send reminders. The line at the bottom shows your last dial change and how your calls did since vs before it. It only watches; it never blocks a change.',
 };
 
 // ── New-user tutorial walkthrough (Sep 2026) ────────────────────────────
@@ -2477,7 +2510,11 @@ function initApp(): void {
   rolodex.sizeGateSpacer();
   renderRolodexFromWatchlist();
   renderTrackRecord();
+  initDialAudit({ API_URL: API_URL, authH: authH, addSecret: addSecret,
+    isSignedIn: function () { return !!(sbSession && sbSession.token); },
+    isDragging: function () { return dialDragging; } }, refreshDialAudit);
   renderDialCard();
+  refreshDialAudit();
   setTimeout(fetchCreditStatus, 2000);
   // New-user tutorial -- fires once per browser (a tier-scoped flag, so a
   // Starter user who upgrades to Pro still sees Pro's own walkthrough even

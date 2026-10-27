@@ -6376,6 +6376,57 @@ function watchDayReads(token, onDay) {
   }
 }
 
+// shared/dial-audit.ts
+var DIAL_LOG_SETTLE_MS = 1500;
+var LOGGED_KEY = "tv_dial_logged";
+var cfg3 = null;
+var timer = null;
+var onLogged = null;
+function initDialAudit(config, afterLog) {
+  cfg3 = config;
+  onLogged = afterLog || null;
+}
+function readLogged() {
+  try {
+    return localStorage.getItem(LOGGED_KEY);
+  } catch (e) {
+    return null;
+  }
+}
+function noteDialPosition(pos) {
+  if (!cfg3) return;
+  if (timer) clearTimeout(timer);
+  timer = setTimeout(function fire() {
+    if (!cfg3) return;
+    if (cfg3.isDragging()) {
+      timer = setTimeout(fire, DIAL_LOG_SETTLE_MS);
+      return;
+    }
+    timer = null;
+    if (!cfg3.isSignedIn() || readLogged() === pos) return;
+    fetch(cfg3.addSecret(cfg3.API_URL + "/dial-change"), { method: "POST", headers: cfg3.authH(), body: JSON.stringify({ to: pos }) }).then(function(r) {
+      return r.ok ? r.json() : null;
+    }).then(function(d) {
+      if (!d) return;
+      try {
+        localStorage.setItem(LOGGED_KEY, pos);
+      } catch (e) {
+      }
+      if (d.logged && onLogged) onLogged();
+    }).catch(function() {
+    });
+  }, DIAL_LOG_SETTLE_MS);
+}
+async function fetchDialAudit() {
+  if (!cfg3 || !cfg3.isSignedIn()) return null;
+  try {
+    const r = await fetch(cfg3.addSecret(cfg3.API_URL + "/dial-audit"), { headers: cfg3.authH() });
+    return r.ok ? await r.json() : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 // pro/app.ts
 var API_URL2 = "https://tra-zacg.onrender.com";
 var CARD_CAP = 15;
@@ -7227,6 +7278,45 @@ function setDialPosition(pos) {
   if (!DIAL_POSITIONS[pos]) return;
   localStorage.setItem("tv_dial_position", pos);
   renderDialCard();
+  noteDialPosition(pos);
+}
+var dialAuditData = null;
+function dialName(p) {
+  return p && DIAL_POSITIONS[p] ? DIAL_POSITIONS[p].label : "unknown";
+}
+function dialStatsText(st, min) {
+  if (!st || !st.n) return "no graded calls yet";
+  if (st.n < min || st.pct == null) return st.n + " graded call" + (st.n === 1 ? "" : "s") + " so far (a % shows at " + min + ")";
+  return '<b style="color:var(--ink)">' + Math.round(st.pct) + "% right</b>" + (st.stopPct != null ? ", " + Math.round(st.stopPct) + "% stopped out" : "") + " (" + st.n + " graded)";
+}
+function dialAuditLineHTML() {
+  var a = dialAuditData;
+  if (!a) return "";
+  if (!a.latest) return "No dial changes recorded yet.";
+  var l = a.latest, min = a.minGraded || 5;
+  var when = "";
+  try {
+    when = new Date(l.at).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: getTzIana() });
+  } catch (e) {
+  }
+  var src = a.changes[0] && a.changes[0].source === "rebuilt" ? "by " : "on ";
+  return "Last change: " + dialName(l.from) + " \u2192 " + dialName(l.to) + (when ? ", " + src + when : "") + ".<br>Since: " + dialStatsText(l.after, min) + "." + (l.from ? "<br>Before, at " + dialName(l.from) + ": " + dialStatsText(l.before, min) + "." : "");
+}
+function paintDialAuditLine() {
+  var el = document.getElementById("dial-audit-line");
+  if (el) {
+    var h = dialAuditLineHTML();
+    el.innerHTML = h;
+    el.style.display = h ? "" : "none";
+  }
+}
+function refreshDialAudit() {
+  fetchDialAudit().then(function(a) {
+    if (a) {
+      dialAuditData = a;
+      paintDialAuditLine();
+    }
+  });
 }
 function renderDialCard() {
   var pos = getDialPosition();
@@ -7244,7 +7334,8 @@ function renderDialCard() {
   }).join("");
   var el = document.getElementById("dial-body");
   if (el) {
-    el.innerHTML = '<div class="dial-track" id="dial-track"><div class="dial-thumb" id="dial-thumb" style="left:' + activePct + '%"></div>' + ticks + '</div><div class="dial-labels">' + labels + '</div><div class="track-log-title" style="margin-top:10px">' + d.label + '</div><div class="trigger-row"><span class="trigger-lbl">Monitoring cadence</span><span class="trigger-sub">' + d.cadence + '</span></div><div class="trigger-row"><span class="trigger-lbl">Entry guidance</span><span class="trigger-sub">' + d.entries + '</span></div><div class="trigger-row"><span class="trigger-lbl">Stop guidance</span><span class="trigger-sub">' + d.stops + '</span></div><div class="trigger-row"><span class="trigger-lbl">Recheck interval</span><span class="trigger-sub">' + d.recheck + '</span></div><div class="trigger-row"><span class="trigger-lbl">Position size</span><span class="trigger-sub">' + d.sizing + "</span></div>";
+    el.innerHTML = '<div class="dial-track" id="dial-track"><div class="dial-thumb" id="dial-thumb" style="left:' + activePct + '%"></div>' + ticks + '</div><div class="dial-labels">' + labels + '</div><div class="track-log-title" style="margin-top:10px">' + d.label + '</div><div class="trigger-row"><span class="trigger-lbl">Monitoring cadence</span><span class="trigger-sub">' + d.cadence + '</span></div><div class="trigger-row"><span class="trigger-lbl">Entry guidance</span><span class="trigger-sub">' + d.entries + '</span></div><div class="trigger-row"><span class="trigger-lbl">Stop guidance</span><span class="trigger-sub">' + d.stops + '</span></div><div class="trigger-row"><span class="trigger-lbl">Recheck interval</span><span class="trigger-sub">' + d.recheck + '</span></div><div class="trigger-row"><span class="trigger-lbl">Position size</span><span class="trigger-sub">' + d.sizing + '</span></div><div class="dial-audit-line" id="dial-audit-line"></div>';
+    paintDialAuditLine();
     wireDialDrag();
   }
 }
@@ -8298,7 +8389,7 @@ var HELP_CONTENT = {
   "agitator-swing": "How easily this stock\u2019s price can be pushed around. Smaller, thinly-traded stocks swing more on the same amount of buying or selling.",
   "agitator-expected-move": 'How big a move the options market is already betting on for this stock right now. See <a class="help-glossary-link" href="#" data-term="expected move">Expected Move</a>.',
   "agitator-past": "How often this app\u2019s past calls on this stock turned out right. Shows n/a until there are enough graded calls.",
-  dial: 'How actively you plan to trade, from Aggressive (watching all day) to Passive (checking in now and then). CRF Default is the standard setting every tier uses. Aggressive caps a position at Half size, and no setting ever goes bigger than the gates earned. An upcoming earnings report blocks new entries unless you choose to hold through it. Timing and <a class="help-glossary-link" href="#" data-term="stop loss">stop</a> ideas are guidance only; the app doesn\u2019t place orders or send reminders.'
+  dial: 'How actively you plan to trade, from Aggressive (watching all day) to Passive (checking in now and then). CRF Default is the standard setting every tier uses. Aggressive caps a position at Half size, and no setting ever goes bigger than the gates earned. An upcoming earnings report blocks new entries unless you choose to hold through it. Timing and <a class="help-glossary-link" href="#" data-term="stop loss">stop</a> ideas are guidance only; the app doesn\u2019t place orders or send reminders. The line at the bottom shows your last dial change and how your calls did since vs before it. It only watches; it never blocks a change.'
 };
 var TUTORIAL_STEP_SETTLE_MS = 250;
 function tutorialCard(id) {
@@ -8459,7 +8550,19 @@ function initApp() {
   sizeGateSpacer();
   renderRolodexFromWatchlist();
   renderTrackRecord();
+  initDialAudit({
+    API_URL: API_URL2,
+    authH: authH2,
+    addSecret: addSecret2,
+    isSignedIn: function() {
+      return !!(sbSession && sbSession.token);
+    },
+    isDragging: function() {
+      return dialDragging;
+    }
+  }, refreshDialAudit);
   renderDialCard();
+  refreshDialAudit();
   setTimeout(fetchCreditStatus, 2e3);
   setTimeout(function() {
     if (!localStorage.getItem("tv_tutorial_seen_pro")) startTutorial();
