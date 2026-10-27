@@ -2203,3 +2203,34 @@ LONG call was ever logged; the Day tile graded LONG at the close.
 **Open from this stretch:** confirm real Alpaca options fields/entitlement (`[OPTIONS PROBE]` lines — needs
 Mr. T to confirm which Render workspace Tra is in before logs can be read); OS push for a ready DAY read (Pro has no service worker); port the Gate 3 window to
 Starter → Free.
+
+## Oct 27, 2026 — Proposal 7 Gate-Override Audit Trail (dial changes) (`Tra` patch28 / mirror patch31)
+
+Unblocked since the dial shipped (Aug 26). Mr. T's choices: **app grades only** (no Robinhood join — Tra
+can't reach Robinhood, only chat can), and **Saturday readout + a line on Pro's dial card**.
+**Observational only:** nothing blocks a dial move or touches a verdict.
+- **`dial_changes` table** (service-role only, RLS off + revoke, sequence revoked): account, tier,
+  `from_position` → `to_position`, `direction` (`more_aggressive`/`more_passive`, from `learn.DIAL_ORDER`,
+  most aggressive first), `source` (`app` | `rebuilt`), `changed_at`, `changed_after` (rebuilt rows: last
+  evidence of the old position), `changed_pt`.
+- **`POST /dial-change`** (signed-in, `tierConfig.dial`, position must be in the tier's `DIAL_RANGES`):
+  the client sends only `{to}`; the server decides `from` (`lastKnownDialPosition()`: newest change or
+  newest verdict, whichever is later) and skips a no-op. **`GET /dial-audit`**: the account's last 10
+  changes + `learn.dialAuditSummary()` — for the latest change, dial-horizon accuracy (`grade_horizon`,
+  MARGINAL = half, UP/DOWN only) and stop-out rate (`path_outcome = STOP`) since, vs before at the old
+  position. 10-min per-account cache, cleared on a logged change.
+- **Gap-fill:** `learn.inferDialChanges()` rebuilds changes the app never logged (history back to Aug 26,
+  stale cached pages, failed calls) from each account's verdict sequence. Idempotent; an app log within
+  10 min of the matching verdict counts as the same move. Runs once 90s after boot, before every nightly
+  learning job, and before `/dial-audit`.
+- **Learning signal `dial_shift`:** each Starter/Pro call is tagged `more_aggressive` / `more_passive`
+  (account moved its dial within 7 days before the call) or `steady` (`learn.annotateDialShift()`).
+- **Frontend:** bundler-only `shared/dial-audit.ts` (no `?v=`). `setDialPosition()` calls
+  `noteDialPosition()`; it posts once the dial has been still 1.5s **and** the finger is up (a drag passes
+  every tick), and skips a position already logged from this device (`tv_dial_logged`). Starter logs only;
+  Pro also shows `#dial-audit-line` under the dial ("Last change … Since: X% right, Y% stopped out (N
+  graded). Before, at …"); a % shows only at 5+ graded calls. Dial `(?)` help text updated.
+- Verified: 140/140 tests; stubbed Tra + fake Supabase (history rebuilt as Aggressive Sep 2 → Light
+  Aggressive Sep 15; app log, no-op, bad position 400, no token 401; nightly run adds no duplicates);
+  headless Pro + Starter (one post per settle, none mid-drag, none on reload, audit line renders). Not
+  verified live. Starter `?v=130`, Pro `?v=80`.
