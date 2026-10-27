@@ -1519,7 +1519,14 @@ async function renderScorecardCard(): Promise<void> {
       + '</div>';
     var proof = data.proof || {};
     var html = '<div class="sc-head-row"><div class="track-log-title" style="margin:0">VERDICT ACCURACY</div><span class="sc-pooled-badge">Pooled &middot; all users</span></div>'
-      + '<div class="sc-tile-grid">' + tile('Day trade', data.day, proof.day) + tile('Long (5 days)', data.long, proof.long) + '</div>';
+      + '<div class="sc-tile-grid">' + tile('DAY calls', data.day, proof.day) + tile('LONG calls (5 days)', data.long, proof.long) + '</div>';
+    // Oct 27, 2026: the Day tile grades the DAY call itself (Pro, from the
+    // morning bars), not the LONG call checked at the day's close. That old
+    // number stays as its own line so nothing is lost.
+    var lac = data.longAtClose;
+    if (lac && lac.pct != null) html += '<div class="sc-tile-proof" style="margin-top:6px">LONG calls checked at that day&rsquo;s close: <span style="color:' + pctColor(lac.pct) + '">' + lac.pct + '%</span> (' + lac.gradedCount + ' graded)</div>';
+    var dvl = data.dayVsLong;
+    if (dvl && dvl.calls) html += '<div class="sc-tile-proof">DAY differed from LONG on ' + dvl.differed + ' of ' + dvl.calls + ' graded DAY calls.</div>';
     var cell = (w: any) => w && w.pct != null
       ? '<span class="sc-split-val" style="color:' + pctColor(w.pct) + '">' + w.pct + '%</span>'
       : '<span class="sc-split-val" style="color:var(--ink-dim)">—</span>';
@@ -2256,7 +2263,7 @@ const HELP_CONTENT: Record<string, string> = {
   watchlist: 'Every stock beyond your top 15 cards. Tap + on a row to move it up into your cards.',
   proxy: 'Each stock is compared against a related stock or fund, its <a class="help-glossary-link" href="#" data-term="proxy">proxy</a>, for <a class="help-glossary-link" href="#" data-term="gate 5">Gate 5</a>. This shows which one and whether the two are still moving together. Purple means a new proxy that’s still being tested.',
   heatmap: 'A color-coded snapshot of major sectors and every ticker in your watchlist, sorted by today’s % change.',
-  scorecard: 'How often UP and DOWN calls were right, across every user.<br>• <b>Day</b> = right by that day’s close. <b>Long</b> = right 5 trading days later.<br>• Only calls made while the market is open count.<br>• Half credit if it hit its target but closed the wrong way.<br>• <b>±</b> is the margin of error. <b>Always-UP</b> is what calling UP every time would score; “beats it” means the calls did better.<br>• <b>Your Log</b> is your own ✓/✗ record.',
+  scorecard: 'How often UP and DOWN calls were right, across every user.<br>• <b>DAY</b> = the <a class="help-glossary-link" href="#" data-term="day / long call">DAY call</a> from the morning price bars, right by that day’s close. <b>LONG</b> = the LONG call, right 5 trading days later.<br>• Only calls made while the market is open count.<br>• Half credit if it hit its target but closed the wrong way.<br>• <b>±</b> is the margin of error. <b>Always-UP</b> is what calling UP every time would score; “beats it” means the calls did better.<br>• <b>Your Log</b> is your own ✓/✗ record.',
   agitator: 'Check a stock, a company name or a headline before you add it. It’s free and uses no <a class="help-glossary-link" href="#" data-term="credit">credit</a>. You get a LOW / MEDIUM / HIGH read on how much the news could move the stock, a linked article, and a few related companies you can add with +.',
   'agitator-score': 'The average of the 6 signals, from 0 to 10. Higher means the news is more likely to move the stock. A quick read, not an exact measurement.',
   'agitator-surprise': 'How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.',
