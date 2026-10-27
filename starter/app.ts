@@ -1233,7 +1233,12 @@ async function renderScorecardCard(): Promise<void> {
         : '<div class="sc-tile-val" style="font-size:12px;color:var(--ink-dim)">' + (w ? w.gradedCount : 0) + '/20 graded</div>')
       + '</div>';
     var html = '<div class="sc-head-row"><div class="track-log-title" style="margin:0">VERDICT ACCURACY</div><span class="sc-pooled-badge">Pooled &middot; all users</span></div>'
-      + '<div class="sc-tile-grid">' + tile('Day trade', data.day) + tile('Long (5 days)', data.long) + '</div>';
+      + '<div class="sc-tile-grid">' + tile('DAY calls', data.day) + tile('LONG calls (5 days)', data.long) + '</div>';
+    // Oct 27, 2026: the Day tile grades the DAY call itself (Pro, from the
+    // morning bars), not the LONG call checked at the day's close. That old
+    // number stays as its own line so nothing is lost.
+    var lac = data.longAtClose;
+    if (lac && lac.pct != null) html += '<div class="sc-tile-proof" style="margin-top:6px">LONG calls checked at that day&rsquo;s close: <span style="color:' + pctColor(lac.pct) + '">' + lac.pct + '%</span> (' + lac.gradedCount + ' graded)</div>';
     var cell = (w: any) => w && w.pct != null
       ? '<span class="sc-split-val" style="color:' + pctColor(w.pct) + '">' + w.pct + '%</span>'
       : '<span class="sc-split-val" style="color:var(--ink-dim)">—</span>';
@@ -1589,7 +1594,7 @@ const HELP_CONTENT: Record<string, string> = {
   gate: 'The overall market right now: SPY (the S&P 500), QQQ (the Nasdaq) and a few key sectors. This is <a class="help-glossary-link" href="#" data-term="gate 0">Gate 0</a> on every card, so a falling market makes UP calls harder to earn. Every verdict also shows a <a class="help-glossary-link" href="#" data-term="confidence">Confidence</a> level. When this bar is docked at the top, tap it to jump back up. Before 9:30am and after 4pm ET, prices come from a smaller data feed (<a class="help-glossary-link" href="#" data-term="extended hours">extended hours</a>) and can be slightly off.',
   pulse: 'A plain-English read of what the market is doing today and which <a class="help-glossary-link" href="#" data-term="sector rotation">sectors</a> are leading or lagging. The numbers are in the grid above, so the Pulse doesn’t repeat them. It’s for context only and never changes a gate or a verdict.',
   io: 'Add stocks by <a class="help-glossary-link" href="#" data-term="ticker">ticker</a> or company name, one per line or separated by commas. A ticker in capitals (AAPL) is added as is; any other spelling (Tesla) is looked up by company name. Starter holds 7 stocks. Analyze All runs all of them for up to 3 <a class="help-glossary-link" href="#" data-term="credit">credits</a> (every 3 analyses = 1 credit).',
-  scorecard: 'How often UP and DOWN calls were right, across every user.<br>• <b>Day</b> = right by that day’s close. <b>Long</b> = right 5 trading days later.<br>• Only calls made while the market is open count.<br>• Half credit if it hit its target but closed the wrong way.<br>• <b>Your Log</b>, your own ✓/✗ record, is a Pro feature.',
+  scorecard: 'How often UP and DOWN calls were right, across every user.<br>• <b>DAY</b> = the DAY call from the morning price bars (Pro accounts for now), right by that day’s close. <b>LONG</b> = the LONG call, right 5 trading days later.<br>• Only calls made while the market is open count.<br>• Half credit if it hit its target but closed the wrong way.<br>• <b>Your Log</b>, your own ✓/✗ record, is a Pro feature.',
   agitator: 'Check a stock, a company name or a headline before you add it. It’s free and uses no <a class="help-glossary-link" href="#" data-term="credit">credit</a>. You get a LOW / MEDIUM / HIGH read on how much the news could move the stock, a linked article, and a few related companies you can add with +.',
   'agitator-score': 'The average of the 6 signals, from 0 to 10. Higher means the news is more likely to move the stock. A quick read, not an exact measurement.',
   'agitator-surprise': 'How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.',

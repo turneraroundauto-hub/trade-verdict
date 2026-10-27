@@ -2182,3 +2182,44 @@ an already-open card was never snapped to, and a fixed 450ms wait measured befor
   pre-opened) and the first run: every balloon fully on screen, one card open per step. Test
   harness note: Free's sign-in nudge covers the page for anonymous visitors — hide `#signin-nudge`
   in tests. Not verified on a real device.
+
+## Oct 27, 2026 — DAY call logged and graded on its own + options probe for the IV/delta Gate 3 (`Tra` patch26 / mirror patch29)
+
+**Why.** A week after the Gate 3 window shipped, Mr. T saw the Day and Long tiles weren't separate. Root
+cause: only the LONG call was ever written to `verdict_log`; the DAY call lived on the card only. The Day
+tile graded the LONG call at the day's close. Data at the time: before Oct 20, Day-check 53.4% / Long
+45.7% (221 calls); since Oct 20, 39 Day-check grades (59%), no Long grades yet (5-session lag). 34 DAY
+reads existed (30 in `day_refinement_jobs`), only 4 differed from the Long call.
+
+**Decisions (Mr. T):** keep DAY calls separate (Pro Gate 3 only) and roll them to every tier once the Day
+tile is **65%+** (suggested floor: 100 graded DAY calls). Next step after this one: an **IV- and
+delta-aware Gate 3** — IV sets the per-bar yardstick ("a bar counts only if it moves ≥ ½ its normal
+size") and the bar schedule (implied ÷ normal daily move > 1.3 → three 5-min bars; < 0.8 → three 30-min
+bars; else 15-min), and a delta lean that disagrees with the bars steps GREEN/RED down to YELLOW. Alpaca's
+options feed is ~15 min delayed (confirmed by Mr. T). **Step one is logging only.**
+
+What shipped:
+- `verdict_log` gains `day_verdict`, `day_sizing`, `day_issued_at` (the DAY read's bar time),
+  `day_entry_price` (close of that bar), `grade_day_call`, `return_day_call_pct`, `graded_at_day_call`;
+  `day_refinement_jobs` gains `verdict_log_id` (-1 = backfill found no row). Migration must run before
+  the Tra deploy.
+- `logVerdict()` now returns the row id and writes the DAY call when it's ready at the tap. A pending DAY
+  job is saved after the log row with its id; `resolveDayJob()` → `recordDayCall()` writes the DAY call
+  when the 3rd bar lands. `buildWindowBlock()` adds `dayEntryPrice`.
+- `gradeDayCallRows()` grades the DAY call from its own entry bar to the same session's close (same
+  target/MARGINAL/FLAT rules as the Day window). `backfillDayCallsFromJobs()` (one-time, idempotent)
+  attached last week's job reads to their rows (ticker + ET date + account + same Long verdict).
+- `/scorecard`: `day` = DAY calls only (`grade_day_call`), `long` = LONG calls at 5 sessions,
+  `longAtClose` = the LONG call at the day's close (the old Day number, its own line), Pro-only
+  `dayVsLong` ({calls, differed}). Breakdown DAY column and top tickers use DAY-call grades. Tiles relabeled
+  "DAY calls" / "LONG calls (5 days)" on Starter and Pro; help text updated.
+- **Options probe (logging only, Pro Gate 3 calls):** `probeOptionsForDay()` → `verdict_log.gates.inputs.options`
+  and a `[OPTIONS PROBE]` Render log line. Alpaca `/v1beta1/options/snapshots` (indicative, ±15% strikes,
+  ≤45 days) for IV/delta/contract volume and quote age; open interest from the trading API
+  `/v2/options/contracts` (tries live, then paper host; cached daily). Math in `analyze-helpers.ts`
+  (`summarizeOptionsChain`, `dayBarSchedule`, `barYardstickPct`, `deltaLeanLabel`, tested): headline IV =
+  nearest-the-money 5-45 DTE contract, implied daily move = IV/√252, delta lean = Σδ·weight / Σ|δ|·weight
+  (OI if available, else today's contract volume; ±0.15 = NEUTRAL). Capped at 3s; never changes a verdict.
+- Verified end to end with a stubbed Tra + fake Supabase and pinned clock (forming → `/day` READY writes
+  the row; ready-at-tap writes immediately; boot sweep backfills + grades; Scorecard shape). Not verified
+  live: real Alpaca options fields/entitlement — check `[OPTIONS PROBE]` lines after the first market day.
