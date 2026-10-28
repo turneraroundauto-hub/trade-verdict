@@ -2235,154 +2235,120 @@ can't reach Robinhood, only chat can), and **Saturday readout + a line on Pro's 
   headless Pro + Starter (one post per settle, none mid-drag, none on reload, audit line renders). Not
   verified live. Starter `?v=130`, Pro `?v=80`.
 
-### Oct 28, 2026 — DAY reads back to 15-min candles; Gate 2+3 DAY design runs in shadow (Mr. T)
-**Why:** the Oct 27 options lens went live without clear metrics (logged in the Rogue Actions Log): its
-5/15/30-min schedule put 12 of 16 Pro calls on 5-min bars (the ratio compares an implied standard
-deviation with an average absolute move, so ordinary days read ~1.25×), and IEX-only 5-min bars on
-thin stocks are near noise (SDGR Oct 27: 138-809 shares per bar vs thousands on the full tape). The DAY
-call was also "locked" whenever a hard override set LONG — my own Oct 19 choice, never put to him — so
-IMVT/IREN were forced DOWN by Gate 1's 14/60-session downtrend while both rallied 2%+.
-**Rule (his words): "educated decisions only"** — nothing new reaches a live call without metrics he's seen.
-- **Live now:** Render env `GATE3_OPTIONS_LENS=off` (set Oct 28) → every DAY read is three 15-min candles,
-  any move counts, no options lean. Options data still logs. `learn.LIVE_PARAMS` matches; the Oct 27
-  lens is the `OCT27_LENS_PARAMS` candidate. The live faithfulness check only counts calls with
-  `gates.g3_lens` null (made under the plain 15-min read).
-- **Shadow DAY design, `dayModel: 'g23'` (`learn.dayFromGates23`), his decisions:** Gates 2 (catalyst
-  color) and 3 (15-min bars) decide the DAY direction and **may point opposite to LONG**. Both agree →
-  that way (HALF); one says a direction, the other YELLOW → that way (QUARTER); they conflict → FLAT;
-  both YELLOW → FLAT unless it's a quiet day. **Every other gate is "a confidence story"** that only
-  weighs in on a **quiet day: options-expected move < 1.3× normal AND a neutral lean (±0.15)**
-  (`learn.isQuietDay`; same raw ratio, so its bias makes quiet days rare) — there LONG breaks a
-  YELLOW/YELLOW tie (QUARTER) and a disagreeing LONG steps size down. **The earnings block still blocks a
-  day trade** (direction kept, size NONE). Sizes are starting values; the tuner grades direction.
-- **Record-only tags** (nightly, `signal_stats` call_type `shadow_live` / `shadow_g23`):
-  `sub5_conviction` (how many 5-min bars inside each 15-min bar agree with it — his "5-min bars between
-  each 15-min give a more confident lean"), `thrust_candle` (heaviest-volume 5-min candle in the first 30
-  min vs the call — the SDGR 9:50 pattern), `expected_move` (quiet day / not quiet / no options data),
-  `g23_strength`.
-- Going live with g23 needs his approval after the Saturday readout shows the numbers (100 graded calls,
-  gain > margin, both halves). Tests 147/147; stubbed end-to-end run wrote every candidate and tag row.
+## Oct 28, 2026 — one session, condensed (`Tra` #142-148 / `trade-verdict` #391-398, all merged)
 
-## Oct 28, 2026 — Proposal 8 closed; Gate 4 50-day stretch is record-only
+**Standing rules from Mr. T this session:**
+- **"Educated decisions only."** Nothing new reaches a live call without metrics he has seen. New logic ships as shadow or record-only first, and the Saturday readout shows the numbers.
+- Tell the plan before changing anything. Merging is his call.
 
-### Proposal 8 (Native App-Feel Pass) — DONE, Phase 3 dropped
-Notion still called it "planned, not yet built" (logged Sep 6). It actually shipped Sep 7 inside
-`trade-verdict` #333 (bundled with the holiday-awareness PR — check `git log -S` rather than PR titles):
-- **Phase 1, live on Free/Starter/Pro.**
-  - Haptics: `vibrateTap()` (15ms) on taps and `vibrateResult()` (`[15,60,40]`) on results. Both are behind
-    `canVibrate()`, so they no-op on iOS.
-  - Loading placeholder: a `text-pulse` class pulses the placeholder values while a ticker's first fetch is in
-    flight. It is a deliberate text pulse, not a skeleton-shaped placeholder.
-- **Phase 2, live on all three tiers.** Pull-to-refresh is wired to the existing `fetchMarket()` /
-  `fetchTickerData(sym, true)` paths.
-- The code's "Proposal 8, Phase 3" comment is the new-user tutorial, which isn't in the Notion plan.
-- **Notion's Phase 3 (Supabase Realtime price push) is closed, not built** (Mr. T, Oct 28). It would only
-  deliver the existing 1-15 min cache refresh sooner; real speed needs a paid real-time data plan. Revisit
-  only if that's on the table. (Realtime *is* used for Pro's DAY read broadcast, #377 — unrelated.)
-- Haptics have never been confirmed on a real device.
+### DAY calls: 15-min candles live, Gate 2+3 design in shadow (#142/#391)
+- **Why it was reverted.** The Oct 27 options lens went live without metrics (logged in the Rogue Actions Log).
+  - Its 5/15/30-min schedule put 12 of 16 Pro calls on 5-min bars. The ratio compares an implied SD with a mean |move|, so ordinary days read ≈1.25×.
+  - IEX 5-min bars on thin stocks are noise.
+  - The DAY call was also "locked" to hard LONG overrides. That was my Oct 19 choice and never his, so IMVT and IREN were forced DOWN while rallying 2%+.
+- **Live.** Render `GATE3_OPTIONS_LENS=off`: every DAY read is three 15-min candles, any move counts. Options data still logs.
+  - The tuner baseline is `learn.LIVE_PARAMS` (15-min).
+  - The Oct 27 lens is kept as the candidate `OCT27_LENS_PARAMS`, plus a like-for-like (√(π/2)) variant.
+- **Shadow `dayModel:'g23'` (`learn.dayFromGates23`), his rules:**
+  - Gates 2 and 3 decide the DAY direction and can oppose LONG:
+    - both agree → HALF
+    - one says a direction, the other is YELLOW → QUARTER
+    - they conflict → FLAT
+  - The other gates are a "confidence story". They only act on a quiet day (expected move <1.3× normal and a neutral lean, `learn.isQuietDay`).
+  - The earnings block still sizes to NONE.
+- **Record-only tags** (`signal_stats` `shadow_live`/`shadow_g23`):
+  - `sub5_conviction`: 5-min bars inside each 15-min bar.
+  - `thrust_candle`: the heaviest opening 5-min candle (the SDGR pattern).
+  - `expected_move`.
+  - `g23_strength`.
+- **Going live** needs 100 graded DAY calls, a gain above the margin in both halves, and his OK.
+- **Scope:** all of this is Pro-only (`GATE3_WINDOW_TIERS=pro`).
 
-### Gate 4 "stretched above the 50-day average" — record only (`Tra` #143 / mirror)
-- **Backtest before building (educated decisions only).** Robinhood daily closes were joined to 217 graded
-  LONG UP/DOWN calls (Aug 26 - Oct 20). Only 10 were ≥10% above the 50-day while Gate 4 was GREEN/YELLOW,
-  the only case the modifier would act on. Those UP calls hit 44%, vs 46% for non-stretched YELLOW: no signal
-  and no cutoff to set.
-- **Side finding, not acted on.** DOWN calls with Gate 4 RED (>70% of the 52-week range) hit 80% (n=51) vs 17%
-  with Gate 4 YELLOW (n=54). The cases are clustered in a few tickers (ET heavy), so the learning loop should
-  confirm it.
-- **Shipped, no verdict change.**
-  - `ah.pctAboveSma(closes, price, 50)` (tested) logs `gates.inputs.g4.sma50` / `pct_above_50d` on every
-    `/analyze` call. The closes come from the server's own `symbolMarketCache` entry (no client relay, no `?v=`).
-  - Two learning signals: `vs_50d_avg` (<-10 / -10-0 / 0-10 / ≥10%) and `g4_stretched` (stretched vs not
-    stretched, GREEN/YELLOW only, `G4_STRETCH_PCT = 10`, a guess). Both show in the Saturday readout's signal
-    table.
-- Going live with a phase bump needs a real gap in `g4_stretched` and Mr. T's approval.
-- Rows before Oct 28 have no `pct_above_50d` (no backfill).
+### Proposal 8 closed; Gate 4 50-day is record-only (#143/#392)
+- **Proposal 8 actually shipped Sep 7** inside #333: haptics, a text pulse while loading, pull-to-refresh, and the tutorial. Notion said "not built" (check `git log -S`, not PR titles).
+  - Phase 3 (Realtime price push) is closed by Mr. T. It adds no real speed without a paid data plan.
+- **Gate 4 "stretched above the 50-day" backtest:** daily closes joined to 217 graded calls. Only 10 cases were stretched, hit rate 44% vs 46% → no signal.
+  - `ah.pctAboveSma` now logs `gates.inputs.g4.pct_above_50d`.
+  - Learning signals `vs_50d_avg` and `g4_stretched`.
+- **Side finding, unconfirmed:** DOWN calls with Gate 4 RED were right 80% of the time (n=51) vs 17% with YELLOW. Clustered in ET.
 
-### Oct 28, 2026 — live verification pass, five fixes (`Tra` #144 + confidence PR / `trade-verdict` #393 + mirror)
-**Confirmed live:**
-- The Pre-Gate exhibit filter fires. It excluded an EX-1.1 for ARCC, leaving 0 hits.
-- TWST is Pre-Gate GREEN. BALY is GREEN: the 45-day search window no longer reaches its August filings.
-- ALAB's UP calls have never been HIGH since Sep 14.
-- `/analyze` output is ~190-390 tokens, down from 630-710.
-- The silver spot price works.
+### Live verification pass → five fixes (#144-145 / #393-394)
+- **Confirmed live:**
+  - The Pre-Gate exhibit filter fires.
+  - TWST and BALY are GREEN. BALY's August filings are now outside the 45-day window.
+  - ALAB UP calls are never HIGH.
+  - Output trim: 190-390 tokens, down from 630-710.
+  - The silver spot price works.
+- **Fix 1 — cross-tab sign-outs (`shared/session.ts`).** Supabase rotates the refresh token on each use, and two pages raced; 5 of 51 refreshes failed. Fixed with a Web Lock (`tv_session_refresh`), re-reading the session inside it, and a 401 only signs out if no newer token was saved. A 2-page test fails on the old code.
+- **Fix 2 — best-fit regime proxy.** "USO + GLD" used only USO, so miners read BROKEN against oil. `ah.pickBestRegime` now keeps the highest rolling r. Multi-symbol rows from before Oct 28 are recomputed.
+- **Fix 3 — Agitator articles stay on topic.** The commodity path adds proxy/miner symbol news (`fetchSymbolNewsList`). `ah.rankTopicalArticles` sends only the articles that mention the topic, when any exist. "silver" used to cite a Waste Management story.
+- **Fix 4 — prompt-cache warm gate.** Analyze All paid 15 cache writes per batch. Now `ensureAnalyzeCacheWarm()` sends one 1-token warm-up and the others wait for it (max 8s). Logs show `analyze-warm`.
+- **Fix 5 — confidence v2, SHADOW.** Every FLAT was LOW (364/364), and LOW didn't predict misses.
+  - `ah.confidenceV2` is logged as `gates.inputs.confidence_v2`.
+    - UP/DOWN: price-confirmed, plus the existing ceilings.
+    - FLAT: both quiet → HIGH; both moving the same way → LOW.
+  - Learning signal `confidence_v2` (FLAT values reported as `FLAT <label>`).
+  - User-facing switch needs the numbers plus his OK.
 
-**Fixed:**
-1. **Cross-tab sign-outs (`shared/session.ts`).** Supabase rotates the refresh token on every use, so two open pages (tabs, or the TWA plus a browser) raced. The loser's `refresh_token_already_used` 401 cleared the shared `tv_session` and signed the user out everywhere: 5 of 51 refreshes in one day, per Supabase auth logs (`query_logs`, source `auth_logs`).
-   - The refresh now runs under a cross-tab Web Lock (`tv_session_refresh`) and re-reads the stored session inside it.
-   - A 401 signs out only if no other page has saved a newer token.
-   - Verified with a 2-page Node test; the old code fails it.
-2. **Best-fit proxy for the regime check.** `resolveProxyRegime` used only a rule's first symbol, so Commodities ("USO + GLD") put GLD/SLV/NEM/FCX/MP/UEC/CCJ against oil, and all read BROKEN. It now tries every listed symbol and keeps the highest rolling r (`ah.pickBestRegime`). Multi-symbol rows from before Oct 28 are recomputed once (`REGIME_BEST_FIT_SINCE_MS`).
-3. **Agitator articles stay on topic.**
-   - The commodity path adds Finnhub company news for the proxy ETF and two miners (`fetchSymbolNewsList`).
-   - `ah.rankTopicalArticles` sends only the articles that mention the topic's words when any exist; otherwise it sends the whole pool, so every query still gets a cited article.
-   - Logs a `computeTopicalFallback "q": pool N (marketaux X, symbol Y), Z mention the topic` line.
-   - Before this, "silver" cited a Waste Management earnings story.
-4. **Prompt-cache warm gate.** Analyze All batches were all `cache_write=4377 cache_read=0`: every concurrent call missed the cache. When the cache is cold, `ensureAnalyzeCacheWarm()` sends one 1-token request with the same system block, and the other calls wait for it (max 8s). In simulation that is 1 write + 15 reads instead of 15 writes. Look for `[CLAUDE USAGE] analyze-warm` in the logs.
-5. **Confidence v2, SHADOW ONLY** (Mr. T: "your rule everywhere, shadow first"; FLAT price-based).
-   - Why: every FLAT was LOW (364/364) under the model's rubric ("LOW: any YELLOW in critical gates"), and LOW didn't predict misses. DOWN-LOW was right 56% of the time at 5 sessions vs DOWN-MEDIUM 47%.
-   - `ah.confidenceV2` is logged as `gates.inputs.confidence_v2` on every call.
-     - UP/DOWN: `priceConfirmedConfidence`, then the proxy-fit and historical-accuracy ceilings.
-     - FLAT: stock and proxy both within ±1% → HIGH; both moving the same way beyond it → LOW; otherwise MEDIUM.
-   - Learning signal `confidence_v2`, compared against `confidence`. FLAT rows report as `FLAT <label>`.
-   - Switching what users see needs the readout to show v2 predicts better, plus Mr. T's approval.
-
-**Still open:**
-- Candidate proxy probation has never fired. No `proxy_resolution` writes since Aug 18.
-- Render request logs aren't available through the MCP; use Supabase auth logs for sign-in questions.
-
-### Oct 28, 2026 — why Candidate Probation never fired (`Tra` #146 / mirror)
-- **Root cause:** `service_role` had **no grants at all** on `proxy_resolution`. It was the only one of 19 public tables like that. The last successful write was Aug 18, so this probably came from an over-broad revoke around the Aug 13-18 grants work. Nothing surfaced it:
-  - supabase-js returns errors instead of throwing.
-  - `getCachedProxyResolution` treated "permission denied" as a cache miss.
-  - `saveProxyResolution` ignored the error from its upsert.
-- **What that broke:**
-  - Probation's 2-confirm streak never had a stored row to count against.
-  - Every lookup for an unclassified or BROKEN-proxy stock re-fetched 9 benchmark price histories from Alpaca.
-- **Also broken: the daily sweep almost never ran.** It ran only on a 24h `setInterval`, which every deploy resets, and Tra redeploys several times a day.
+### Candidate probation never fired → fixed (#146/#395)
+- **Cause:** `service_role` had **no grants on `proxy_resolution`** since ~Aug 18, the only one of 19 tables. supabase-js returns errors instead of throwing, so reads looked like cache misses and saves failed silently.
+  - Side effect: each lookup re-fetched 9 benchmark histories.
+  - The regime sweep also only ran 24h after boot, so deploys kept resetting it.
 - **Fixes:**
-  - Restored `grant select, insert, update, delete on public.proxy_resolution to service_role` (migration `proxy_resolution_restore_service_role_grant`). anon/authenticated stay at zero rows.
-  - Both functions now log Supabase errors.
-  - The sweep runs ~2 min after boot and hourly, but at most once per ET day (`runRegimePrewarmOncePerDay`). It logs `runRegimePrewarmSweep: done (<date>)` when it finishes.
-- **Rule: the grants check must also confirm `service_role` HAS privileges on every service-role table**, not just that anon/authenticated have none. A revoke that hits service_role fails silently.
+  - Grant restored (migration `proxy_resolution_restore_service_role_grant`).
+  - Errors are now logged.
+  - `runRegimePrewarmOncePerDay` runs at boot +2 min, then hourly, at most once per ET day.
+- **Confirmed live:** biotechs re-fit to XBI/IBB, and the first new `proxy_resolution` row was written (NOW).
+- **Rule:** the grants check runs in both directions. anon/authenticated must have ZERO, AND `service_role` must still have S/I/U/D on every table. The sign-up tables' anon INSERT is column-level (`column_privileges`) by design.
 
-### Oct 28, 2026 — full-system sweep (tables, repos, processes, intent)
-**Healthy:**
-- **Database.** All 19 public tables have zero anon/authenticated table grants, and `service_role` has full access after the proxy_resolution fix. `shark_waitlist` and `tester_signups` use column-level anon INSERT grants by design, which show in `information_schema.column_privileges`, not `role_table_grants`; both have 0 sign-ups.
-- **Grading.** It runs every 30 min with 0 overdue rows.
-- **Daily jobs.**
-  - The learning job runs nightly: 895 calls → 106 signal rows, 0 candidates proposed.
-  - The market-open push goes out daily (2 subscribers).
-  - The DAY-job sweep leaves every job READY.
-  - Pre-Gate trigger de-dup works.
-- **Frontend.** Pages deploys are all green, bundles have no duplicate modules, and the `?v=` strings are consistent.
-- **Repos.** 153/153 tests pass in both. The tsc baseline is the 7 known `?v=` errors. Mirror files are byte-identical except intentional comments.
-- **Scoping.** The Gate 3 window and DAY calls are Pro-only, as intended.
+### Full-system sweep → three more fixes (#147/#397)
+- **Healthy:**
+  - Grants on all 19 tables.
+  - Grading (0 overdue).
+  - Nightly learning.
+  - Daily push.
+  - DAY jobs.
+  - Pre-Gate de-dup.
+  - Pages deploys and bundles.
+  - Tests in both repos.
+  - Mirror parity.
+  - Pro-only scoping.
+- **Fixes:**
+  - **Market-open push uses the Pulse** (`ah.pulsePushBody`). This supersedes Tra #117, a draft unmerged since Sep 22 that only the mirror carried — the two-repo trap again.
+  - **A failed Pre-Gate (SEC down)** is marked `checkFailed` and retried in 10 min (`ah.preGateCacheMs`). Before, it was cached GREEN for 24h.
+  - **The 9:30 warm** also covers saved account watchlists (`savedWatchlistSymbols()`). After a restart it had covered 3 symbols, not ~40.
+- **Note:** Render request logs aren't available via MCP. Use Supabase `auth_logs` for sign-in questions.
 
-**Found:**
-1. **Unmerged Tra PR #117 (draft since Sep 22).** It makes the market-open push use the Sector Pulse. The mirror has this as `pulsePushBody()`, but production still sends the Gate note. Classic two-repo trap: the mirror merged, Tra didn't. Pulse is now words-only, so #117 needs rebuilding on `main`, not merging as-is.
-2. **Pre-Gate fails open for 24h.** An SEC error (5xx) makes `evaluatePreGate` return GREEN "check failed", and `/ticker` caches that in `preGateCache` for `PRE_GATE_REFRESH_MS` (24h). SEC 500s at 00:30 UTC Oct 28 hit about 3 tickers. A failed check should be cached briefly (minutes), not for a day.
-3. **The market-open warm only refreshes symbols already in memory.** `symbolMarketCache` is empty after a restart: Oct 27 warmed 3 symbols vs the usual 37-40. It does not read users' saved watchlists.
-4. **Render request logs aren't available through the MCP.** Use Supabase auth logs for sign-in questions.
+### Market-hours auto-refresh, no AI (#148/#398)
+Mr. T asked for refresh "as often as new is available." He chose two speeds and kept the tier windows.
+- **Backend `GET /prices?symbols=`** (normal auth, no credit, max 60):
+  - One Alpaca multi-symbol snapshot call (IEX) through `alpacaGet()`, with a 30s cache shared by all users.
+  - % change is measured against the card's own Finnhub previous close (`prevCloseBySymbol`, `ah.livePriceFromSnapshot`).
+  - Regular session only.
+- **Frontend `shared/live-refresh.ts`** (bundler-only), on Free, Starter and Pro:
+  - **Every 60s:** prices patched in place (`patchCardPriceDom`).
+  - **Every tier window** (Free 15 / Starter 5 / Pro 1 min): the full card refresh. Pro also refreshes the Gate box and overflow list.
+  - **After a full refresh,** the live price is reapplied, so the shown price never steps back.
+  - **Cards that are only price-patched:** mid-analysis, mid-swipe (`rolodex.isRoloSwiping()`), in the tutorial, or with Analyst View open.
+  - Runs only while the market is open and the page is visible.
+  - Bundles: Free `?v=114`, Starter `?v=132`, Pro `?v=82`.
+- **Verified:** a stubbed backend boot and headless runs on all tiers with a fast-forwarded clock.
+- **Not verified live:** the real Alpaca snapshot shape. Watch for `fetchLivePrices` errors.
 
-### Oct 28, 2026 — sweep fixes + market-hours auto-refresh (`Tra` #147 + auto-refresh PR / `trade-verdict` #397 + mirror)
-**Sweep fixes (#147/#397):**
-- **Market-open push.** The body is the Pulse's first sentence (`ah.pulsePushBody`). This closes Tra #117, which had sat unmerged since Sep 22.
-- **Pre-Gate failures.** A failed check (SEC down) is marked `checkFailed` and retried after 10 min (`ah.preGateCacheMs`). Before, it was cached as GREEN for 24h.
-- **Market-open warm.** The 9:30 warm also covers every symbol on a saved account watchlist (`savedWatchlistSymbols()`).
-
-**Auto-refresh during market hours, no AI** (Mr. T: "as often as new is available"; he chose two-speed and to keep the tier windows):
-- **Backend: `GET /prices?symbols=`** (normal auth, no credit, max 60 symbols).
-  - It makes one Alpaca multi-symbol snapshot call (`/v2/stocks/snapshots`, IEX feed) through `alpacaGet()`, with a 30s per-symbol cache shared by every user.
-  - The % change is measured against Finnhub's previous close (`prevCloseBySymbol`, set by `fetchTickerMetrics`), so it matches the card's own %. `ah.livePriceFromSnapshot` is tested.
-  - During regular session only; outside it returns `{marketOpen:false}` without calling Alpaca.
-- **Frontend: `shared/live-refresh.ts`** (bundler-only, no `?v=`), wired into Free, Starter and Pro.
-  - Every 60s: price, % and pill color for the whole watchlist, patched in place (`patchCardPriceDom`, no card re-render).
-  - Every tier window: the full card refresh (the pull-to-refresh data). Free is 15 min, Starter 5, Pro 1; Pro also refreshes the Gate box and the overflow list each time.
-  - After a full refresh, the newer live price is reapplied, so the shown price never steps backwards. A headless test caught exactly that flip.
-  - A card that's mid-analysis, mid-swipe (`rolodex.isRoloSwiping()`, new), in the tutorial, or (Pro) with Analyst View open is only price-patched.
-  - Runs only while `isMarketClosed()` is false and the page is visible. It catches up when the app returns to the foreground.
-- **Verified.**
-  - A stubbed Tra boot with a pinned clock: one batched Alpaca call; cached symbols skipped; bad symbols dropped; no Finnhub calls.
-  - Headless Pro/Starter/Free with a fast-forwarded clock: one `/prices` per minute; Pro re-fetches its 15 cards each minute; Starter/Free price-only between windows; zero calls after the close; no page errors.
-- **Not verified live:** the real Alpaca snapshot response shape (handled as a top-level map or `{snapshots}`). Watch for `fetchLivePrices` errors in Render logs. Also check IEX vs consolidated price drift on thin names.
-- Bundles: Free `?v=114`, Starter `?v=132`, Pro `?v=82`.
+### Still open
+- **Market-open check scheduled for 13:50 UTC Oct 28.** It covers:
+  - warm count (~40)
+  - Pulse push
+  - `/prices` errors
+  - `analyze-warm` cache hits
+  - regime sweep
+  - the new `confidence_v2` / `pct_above_50d` fields
+- **Saturday readout** (`trig_01L9WbVa1qDqycbZgWtpGBcE`) now covers:
+  - the g23 shadow
+  - confidence v2 vs live
+  - Gate 4
+  - fix health
+  - grants in both directions
+- **Waiting on data:** the g23 DAY design, confidence v2, Gate 4, and the tuner candidates.
+- **Gated on DAY reaching 65% on 100+ calls:** porting DAY to Starter/Free, and push for a ready DAY read.
+- **Thanksgiving (Nov 26-27)** is the first live holiday test.
