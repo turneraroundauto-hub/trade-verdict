@@ -2297,3 +2297,35 @@ Notion still called it "planned, not yet built" (logged Sep 6). It actually ship
     table.
 - Going live with a phase bump needs a real gap in `g4_stretched` and Mr. T's approval.
 - Rows before Oct 28 have no `pct_above_50d` (no backfill).
+
+### Oct 28, 2026 — live verification pass, five fixes (`Tra` #144 + confidence PR / `trade-verdict` #393 + mirror)
+**Confirmed live:**
+- The Pre-Gate exhibit filter fires. It excluded an EX-1.1 for ARCC, leaving 0 hits.
+- TWST is Pre-Gate GREEN. BALY is GREEN: the 45-day search window no longer reaches its August filings.
+- ALAB's UP calls have never been HIGH since Sep 14.
+- `/analyze` output is ~190-390 tokens, down from 630-710.
+- The silver spot price works.
+
+**Fixed:**
+1. **Cross-tab sign-outs (`shared/session.ts`).** Supabase rotates the refresh token on every use, so two open pages (tabs, or the TWA plus a browser) raced. The loser's `refresh_token_already_used` 401 cleared the shared `tv_session` and signed the user out everywhere: 5 of 51 refreshes in one day, per Supabase auth logs (`query_logs`, source `auth_logs`).
+   - The refresh now runs under a cross-tab Web Lock (`tv_session_refresh`) and re-reads the stored session inside it.
+   - A 401 signs out only if no other page has saved a newer token.
+   - Verified with a 2-page Node test; the old code fails it.
+2. **Best-fit proxy for the regime check.** `resolveProxyRegime` used only a rule's first symbol, so Commodities ("USO + GLD") put GLD/SLV/NEM/FCX/MP/UEC/CCJ against oil, and all read BROKEN. It now tries every listed symbol and keeps the highest rolling r (`ah.pickBestRegime`). Multi-symbol rows from before Oct 28 are recomputed once (`REGIME_BEST_FIT_SINCE_MS`).
+3. **Agitator articles stay on topic.**
+   - The commodity path adds Finnhub company news for the proxy ETF and two miners (`fetchSymbolNewsList`).
+   - `ah.rankTopicalArticles` sends only the articles that mention the topic's words when any exist; otherwise it sends the whole pool, so every query still gets a cited article.
+   - Logs a `computeTopicalFallback "q": pool N (marketaux X, symbol Y), Z mention the topic` line.
+   - Before this, "silver" cited a Waste Management earnings story.
+4. **Prompt-cache warm gate.** Analyze All batches were all `cache_write=4377 cache_read=0`: every concurrent call missed the cache. When the cache is cold, `ensureAnalyzeCacheWarm()` sends one 1-token request with the same system block, and the other calls wait for it (max 8s). In simulation that is 1 write + 15 reads instead of 15 writes. Look for `[CLAUDE USAGE] analyze-warm` in the logs.
+5. **Confidence v2, SHADOW ONLY** (Mr. T: "your rule everywhere, shadow first"; FLAT price-based).
+   - Why: every FLAT was LOW (364/364) under the model's rubric ("LOW: any YELLOW in critical gates"), and LOW didn't predict misses. DOWN-LOW was right 56% of the time at 5 sessions vs DOWN-MEDIUM 47%.
+   - `ah.confidenceV2` is logged as `gates.inputs.confidence_v2` on every call.
+     - UP/DOWN: `priceConfirmedConfidence`, then the proxy-fit and historical-accuracy ceilings.
+     - FLAT: stock and proxy both within ±1% → HIGH; both moving the same way beyond it → LOW; otherwise MEDIUM.
+   - Learning signal `confidence_v2`, compared against `confidence`. FLAT rows report as `FLAT <label>`.
+   - Switching what users see needs the readout to show v2 predicts better, plus Mr. T's approval.
+
+**Still open:**
+- Candidate proxy probation has never fired. No `proxy_resolution` writes since Aug 18.
+- Render request logs aren't available through the MCP; use Supabase auth logs for sign-in questions.
