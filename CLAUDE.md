@@ -2262,3 +2262,38 @@ IMVT/IREN were forced DOWN by Gate 1's 14/60-session downtrend while both rallie
   `g23_strength`.
 - Going live with g23 needs his approval after the Saturday readout shows the numbers (100 graded calls,
   gain > margin, both halves). Tests 147/147; stubbed end-to-end run wrote every candidate and tag row.
+
+## Oct 28, 2026 — Proposal 8 closed; Gate 4 50-day stretch is record-only
+
+### Proposal 8 (Native App-Feel Pass) — DONE, Phase 3 dropped
+Notion still called it "planned, not yet built" (logged Sep 6). It actually shipped Sep 7 inside
+`trade-verdict` #333 (bundled with the holiday-awareness PR — check `git log -S` rather than PR titles):
+- **Phase 1, live on Free/Starter/Pro.**
+  - Haptics: `vibrateTap()` (15ms) on taps and `vibrateResult()` (`[15,60,40]`) on results. Both are behind
+    `canVibrate()`, so they no-op on iOS.
+  - Loading placeholder: a `text-pulse` class pulses the placeholder values while a ticker's first fetch is in
+    flight. It is a deliberate text pulse, not a skeleton-shaped placeholder.
+- **Phase 2, live on all three tiers.** Pull-to-refresh is wired to the existing `fetchMarket()` /
+  `fetchTickerData(sym, true)` paths.
+- The code's "Proposal 8, Phase 3" comment is the new-user tutorial, which isn't in the Notion plan.
+- **Notion's Phase 3 (Supabase Realtime price push) is closed, not built** (Mr. T, Oct 28). It would only
+  deliver the existing 1-15 min cache refresh sooner; real speed needs a paid real-time data plan. Revisit
+  only if that's on the table. (Realtime *is* used for Pro's DAY read broadcast, #377 — unrelated.)
+- Haptics have never been confirmed on a real device.
+
+### Gate 4 "stretched above the 50-day average" — record only (`Tra` #143 / mirror)
+- **Backtest before building (educated decisions only).** Robinhood daily closes were joined to 217 graded
+  LONG UP/DOWN calls (Aug 26 - Oct 20). Only 10 were ≥10% above the 50-day while Gate 4 was GREEN/YELLOW,
+  the only case the modifier would act on. Those UP calls hit 44%, vs 46% for non-stretched YELLOW: no signal
+  and no cutoff to set.
+- **Side finding, not acted on.** DOWN calls with Gate 4 RED (>70% of the 52-week range) hit 80% (n=51) vs 17%
+  with Gate 4 YELLOW (n=54). The cases are clustered in a few tickers (ET heavy), so the learning loop should
+  confirm it.
+- **Shipped, no verdict change.**
+  - `ah.pctAboveSma(closes, price, 50)` (tested) logs `gates.inputs.g4.sma50` / `pct_above_50d` on every
+    `/analyze` call. The closes come from the server's own `symbolMarketCache` entry (no client relay, no `?v=`).
+  - Two learning signals: `vs_50d_avg` (<-10 / -10-0 / 0-10 / ≥10%) and `g4_stretched` (stretched vs not
+    stretched, GREEN/YELLOW only, `G4_STRETCH_PCT = 10`, a guess). Both show in the Saturday readout's signal
+    table.
+- Going live with a phase bump needs a real gap in `g4_stretched` and Mr. T's approval.
+- Rows before Oct 28 have no `pct_above_50d` (no backfill).
