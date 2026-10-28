@@ -34,6 +34,48 @@ export function isSessionValid(s: any): boolean {
 
 var inFlight: Promise<any> | null = null;
 
+// One refresh at a time across every open page of the app (Oct 28, 2026).
+// Supabase rotates the refresh token on each use, so two tabs (or the Play
+// app and a browser) refreshing with the same token made the second one
+// fail with "refresh_token_already_used" -- and that 401 used to clear the
+// shared tv_session, signing the user out everywhere (5 of 51 refreshes in
+// one day). Now the refresh runs under a cross-tab Web Lock, re-reads the
+// stored session inside it (another page may already have refreshed), and
+// a rejection only signs out if no other page has saved a newer token.
+function withRefreshLock(fn: () => Promise<any>): Promise<any> {
+  var locks = (typeof navigator !== 'undefined' && (navigator as any).locks) || null;
+  return locks && typeof locks.request === 'function' ? locks.request('tv_session_refresh', fn) : fn();
+}
+
+async function refreshOnce(apiUrl: string): Promise<any> {
+  var s = getStoredSession();
+  if (!isSessionValid(s)) return null;
+  if (!accessTokenExpired(s, REFRESH_LEAD_SEC) || !s.refreshToken) return s;
+  try {
+    var r = await fetch(apiUrl + '/auth/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: s.refreshToken }) });
+    if (r.ok) {
+      var fresh = await r.json();
+      if (fresh && fresh.token) {
+        var cur = getStoredSession() || s;
+        cur.token = fresh.token;
+        cur.refreshToken = fresh.refreshToken || cur.refreshToken;
+        cur.expiresAt = fresh.expiresAt;
+        storeSession(cur);
+        return cur;
+      }
+    }
+    if (r.status === 401) {
+      // Another page may have rotated the token while this request was out.
+      var now = getStoredSession();
+      if (now && now.refreshToken && now.refreshToken !== s.refreshToken && isSessionValid(now)) return now;
+      storeSession(null);
+      return null;
+    }
+  } catch (e) { }
+  // Transient failure: keep the session if its token still works.
+  return accessTokenExpired(s, 0) ? null : s;
+}
+
 // Returns the (possibly refreshed) stored session, or null when the user is
 // no longer signed in. A network failure while the access token is still
 // usable keeps the current session rather than signing anyone out.
@@ -42,26 +84,7 @@ export function ensureFreshSession(apiUrl: string): Promise<any> {
   if (!isSessionValid(s)) return Promise.resolve(null);
   if (!accessTokenExpired(s, REFRESH_LEAD_SEC) || !s.refreshToken) return Promise.resolve(s);
   if (inFlight) return inFlight;
-  inFlight = (async () => {
-    try {
-      var r = await fetch(apiUrl + '/auth/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: s.refreshToken }) });
-      if (r.ok) {
-        var fresh = await r.json();
-        if (fresh && fresh.token) {
-          var cur = getStoredSession() || s;
-          cur.token = fresh.token;
-          cur.refreshToken = fresh.refreshToken || cur.refreshToken;
-          cur.expiresAt = fresh.expiresAt;
-          storeSession(cur);
-          return cur;
-        }
-      }
-      // Refresh token rejected (revoked/rotated) — genuinely signed out.
-      if (r.status === 401) { storeSession(null); return null; }
-    } catch (e) { }
-    // Transient failure: keep the session if its token still works.
-    return accessTokenExpired(s, 0) ? null : s;
-  })();
+  inFlight = withRefreshLock(function () { return refreshOnce(apiUrl); });
   inFlight.finally(() => { inFlight = null; });
   return inFlight;
 }

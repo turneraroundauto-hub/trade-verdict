@@ -65,33 +65,45 @@ function isSessionValid(s) {
   return !accessTokenExpired(s, 60);
 }
 var inFlight2 = null;
+function withRefreshLock(fn) {
+  var locks = typeof navigator !== "undefined" && navigator.locks || null;
+  return locks && typeof locks.request === "function" ? locks.request("tv_session_refresh", fn) : fn();
+}
+async function refreshOnce(apiUrl) {
+  var s = getStoredSession();
+  if (!isSessionValid(s)) return null;
+  if (!accessTokenExpired(s, REFRESH_LEAD_SEC) || !s.refreshToken) return s;
+  try {
+    var r = await fetch(apiUrl + "/auth/refresh", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refreshToken: s.refreshToken }) });
+    if (r.ok) {
+      var fresh = await r.json();
+      if (fresh && fresh.token) {
+        var cur = getStoredSession() || s;
+        cur.token = fresh.token;
+        cur.refreshToken = fresh.refreshToken || cur.refreshToken;
+        cur.expiresAt = fresh.expiresAt;
+        storeSession(cur);
+        return cur;
+      }
+    }
+    if (r.status === 401) {
+      var now = getStoredSession();
+      if (now && now.refreshToken && now.refreshToken !== s.refreshToken && isSessionValid(now)) return now;
+      storeSession(null);
+      return null;
+    }
+  } catch (e) {
+  }
+  return accessTokenExpired(s, 0) ? null : s;
+}
 function ensureFreshSession(apiUrl) {
   var s = getStoredSession();
   if (!isSessionValid(s)) return Promise.resolve(null);
   if (!accessTokenExpired(s, REFRESH_LEAD_SEC) || !s.refreshToken) return Promise.resolve(s);
   if (inFlight2) return inFlight2;
-  inFlight2 = (async () => {
-    try {
-      var r = await fetch(apiUrl + "/auth/refresh", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refreshToken: s.refreshToken }) });
-      if (r.ok) {
-        var fresh = await r.json();
-        if (fresh && fresh.token) {
-          var cur = getStoredSession() || s;
-          cur.token = fresh.token;
-          cur.refreshToken = fresh.refreshToken || cur.refreshToken;
-          cur.expiresAt = fresh.expiresAt;
-          storeSession(cur);
-          return cur;
-        }
-      }
-      if (r.status === 401) {
-        storeSession(null);
-        return null;
-      }
-    } catch (e) {
-    }
-    return accessTokenExpired(s, 0) ? null : s;
-  })();
+  inFlight2 = withRefreshLock(function() {
+    return refreshOnce(apiUrl);
+  });
   inFlight2.finally(() => {
     inFlight2 = null;
   });
