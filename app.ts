@@ -44,6 +44,7 @@
 //   no ticker-card upgrade prompt, no bottom-of-page teaser card. Pro is
 //   still the only tier with a real tracker.
 import { initTickerCache, fetchTickerData } from './shared/ticker-cache';
+import { startLiveRefresh, patchTickerPrice, patchCardPriceDom } from './shared/live-refresh';
 import { getStoredSession, storeSession, isSessionValid, stampNewSession, ensureFreshSession, startSessionKeepAlive } from './shared/session';
 import { pingDeviceVisit, getOrCreateDeviceId } from './shared/device-id';
 import { shouldOfferPush, enablePush, resyncPushIfGranted } from './shared/push';
@@ -764,6 +765,47 @@ scroller.addEventListener('pointerdown', onScrollerPointerDown);
 scroller.addEventListener('pointermove', onScrollerPointerMove, { passive: false });
 scroller.addEventListener('pointerup', onScrollerPointerUp);
 scroller.addEventListener('pointercancel', onScrollerPointerUp);
+
+// ── Market-hours auto-refresh, no AI (Oct 28, 2026; shared/live-refresh.ts) ──
+// Every minute: live price, day change and pill color for the whole
+// watchlist, patched in place (no card re-render). Every 15 min (Free's server cache window): the full
+// card refresh (news, opening bars, gates) for the watchlist, the same data
+// pull-to-refresh gets. A card that's mid-analysis or mid-swipe is
+// patched, not repainted.
+function liveRefreshCard(sym: string): void {
+  const state = tickerState.get(sym);
+  const card = roloStage.querySelector(`.rolo-card[data-sym="${sym}"]`) as HTMLElement | null;
+  const busyCard = !state || state.analyzing || rolodex.isRoloSwiping() || rolodex.isTutorialActive();
+  if (busyCard) {
+    const td = state && state.td;
+    if (td && td.metrics && td.metrics.price != null) patchCardPriceDom(card, td.metrics.price, priceDirClass(td));
+  } else {
+    renderRoloCard(sym);
+  }
+  renderPill(sym);
+}
+
+function applyLivePrices(prices: Record<string, { price: number; pct: number | null }>): void {
+  Object.keys(prices).forEach((sym) => {
+    const state = tickerState.get(sym);
+    const td = state && state.td;
+    if (!td || !patchTickerPrice(td, prices[sym])) return;
+    patchCardPriceDom(roloStage.querySelector(`.rolo-card[data-sym="${sym}"]`), td.metrics.price, priceDirClass(td));
+    renderPill(sym);
+  });
+}
+
+async function liveFullRefresh(): Promise<void> {
+  const syms = watchlist.slice();
+  await Promise.all([
+    ...syms.map(async (sym) => {
+      const td = await fetchTickerData(sym, true);
+      const state = tickerState.get(sym);
+      if (state && td) state.td = td;
+    }),
+  ]);
+  syms.forEach(liveRefreshCard);
+}
 
 // ── ANALYZE — real, credit-consuming /analyze call ────────────────────
 // Snap the verdict card under the pill ribbon when ANALYZE is tapped and
@@ -1824,6 +1866,13 @@ function initApp(): void {
   setInterval(function () { fetchMarket(); }, 4 * 60 * 1000);
   enforceMarketState();
   setInterval(enforceMarketState, 60 * 1000);
+  startLiveRefresh({
+    API_URL, authH, addSecret, isMarketClosed,
+    getSymbols: () => watchlist.slice(),
+    applyPrices: applyLivePrices,
+    fullRefresh: liveFullRefresh,
+    fullRefreshMs: 15 * 60 * 1000,
+  });
 }
 
 async function boot(): Promise<void> {

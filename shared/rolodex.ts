@@ -241,6 +241,10 @@ function stepGateMarquee(): void {
 // ── Stacked-card positioning ────────────────────────────────────────────
 let roloCurrent = 0;
 
+// True while a swipe-to-delete gesture is in progress (Oct 28, 2026, used by
+// live auto-refresh so a timed repaint never lands under the user's finger).
+export function isRoloSwiping(): boolean { return !!roloSwipe; }
+
 export function getRoloCurrent(): number {
   return roloCurrent;
 }

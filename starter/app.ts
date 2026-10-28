@@ -25,6 +25,7 @@
 // conversion, not assumed). The emitted, committed starter/app.js is the
 // real bundle -- browsers never load this .ts file directly.
 import { initTickerCache, fetchTickerData } from '../shared/ticker-cache';
+import { startLiveRefresh, patchTickerPrice, patchCardPriceDom } from '../shared/live-refresh';
 import { getStoredSession, storeSession, isSessionValid, stampNewSession, ensureFreshSession, startSessionKeepAlive } from '../shared/session';
 import { pingDeviceVisit } from '../shared/device-id';
 import { initWatchlist, watchlist, addTickers, addKnownTicker, removeTicker, onWatchlistSave, onTickersAdded } from '../shared/watchlist';
@@ -636,6 +637,47 @@ scroller.addEventListener('pointerdown', onScrollerPointerDown);
 scroller.addEventListener('pointermove', onScrollerPointerMove, { passive: false });
 scroller.addEventListener('pointerup', onScrollerPointerUp);
 scroller.addEventListener('pointercancel', onScrollerPointerUp);
+
+// ── Market-hours auto-refresh, no AI (Oct 28, 2026; shared/live-refresh.ts) ──
+// Every minute: live price, day change and pill color for the whole
+// watchlist, patched in place (no card re-render). Every 5 min (Starter's server cache window): the full
+// card refresh (news, opening bars, gates) for the watchlist, the same data
+// pull-to-refresh gets. A card that's mid-analysis or mid-swipe is
+// patched, not repainted.
+function liveRefreshCard(sym: string): void {
+  const state = tickerState.get(sym);
+  const card = roloStage.querySelector(`.rolo-card[data-sym="${sym}"]`) as HTMLElement | null;
+  const busyCard = !state || state.analyzing || rolodex.isRoloSwiping() || rolodex.isTutorialActive();
+  if (busyCard) {
+    const td = state && state.td;
+    if (td && td.metrics && td.metrics.price != null) patchCardPriceDom(card, td.metrics.price, priceDirClass(td));
+  } else {
+    renderRoloCard(sym);
+  }
+  renderPill(sym);
+}
+
+function applyLivePrices(prices: Record<string, { price: number; pct: number | null }>): void {
+  Object.keys(prices).forEach((sym) => {
+    const state = tickerState.get(sym);
+    const td = state && state.td;
+    if (!td || !patchTickerPrice(td, prices[sym])) return;
+    patchCardPriceDom(roloStage.querySelector(`.rolo-card[data-sym="${sym}"]`), td.metrics.price, priceDirClass(td));
+    renderPill(sym);
+  });
+}
+
+async function liveFullRefresh(): Promise<void> {
+  const syms = watchlist.slice();
+  await Promise.all([
+    ...syms.map(async (sym) => {
+      const td = await fetchTickerData(sym, true);
+      const state = tickerState.get(sym);
+      if (state && td) state.td = td;
+    }),
+  ]);
+  syms.forEach(liveRefreshCard);
+}
 
 // ── PROPOSAL 6 — Aggression Dial (Aug 26, 2026) ─────────────────────
 // Client-only display metadata -- only sizingCeiling is actually
@@ -1778,6 +1820,13 @@ function initApp(): void {
   setInterval(function () { fetchMarket(); }, 4 * 60 * 1000);
   enforceMarketState();
   setInterval(enforceMarketState, 60 * 1000);
+  startLiveRefresh({
+    API_URL, authH, addSecret, isMarketClosed,
+    getSymbols: () => watchlist.slice(),
+    applyPrices: applyLivePrices,
+    fullRefresh: liveFullRefresh,
+    fullRefreshMs: 5 * 60 * 1000,
+  });
   if (sbSession && sbSession.email) {
     var pb = document.getElementById('profile-btn'); if (pb) pb.textContent = sbSession.email.charAt(0).toUpperCase();
     var pme = document.getElementById('profile-menu-email-text'); if (pme) pme.textContent = sbSession.email;
