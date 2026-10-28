@@ -2329,3 +2329,18 @@ Notion still called it "planned, not yet built" (logged Sep 6). It actually ship
 **Still open:**
 - Candidate proxy probation has never fired. No `proxy_resolution` writes since Aug 18.
 - Render request logs aren't available through the MCP; use Supabase auth logs for sign-in questions.
+
+### Oct 28, 2026 — why Candidate Probation never fired (`Tra` #146 / mirror)
+- **Root cause:** `service_role` had **no grants at all** on `proxy_resolution`. It was the only one of 19 public tables like that. The last successful write was Aug 18, so this probably came from an over-broad revoke around the Aug 13-18 grants work. Nothing surfaced it:
+  - supabase-js returns errors instead of throwing.
+  - `getCachedProxyResolution` treated "permission denied" as a cache miss.
+  - `saveProxyResolution` ignored the error from its upsert.
+- **What that broke:**
+  - Probation's 2-confirm streak never had a stored row to count against.
+  - Every lookup for an unclassified or BROKEN-proxy stock re-fetched 9 benchmark price histories from Alpaca.
+- **Also broken: the daily sweep almost never ran.** It ran only on a 24h `setInterval`, which every deploy resets, and Tra redeploys several times a day.
+- **Fixes:**
+  - Restored `grant select, insert, update, delete on public.proxy_resolution to service_role` (migration `proxy_resolution_restore_service_role_grant`). anon/authenticated stay at zero rows.
+  - Both functions now log Supabase errors.
+  - The sweep runs ~2 min after boot and hourly, but at most once per ET day (`runRegimePrewarmOncePerDay`). It logs `runRegimePrewarmSweep: done (<date>)` when it finishes.
+- **Rule: the grants check must also confirm `service_role` HAS privileges on every service-role table**, not just that anon/authenticated have none. A revoke that hits service_role fails silently.
