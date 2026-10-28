@@ -2234,3 +2234,13 @@ can't reach Robinhood, only chat can), and **Saturday readout + a line on Pro's 
   Aggressive Sep 15; app log, no-op, bad position 400, no token 401; nightly run adds no duplicates);
   headless Pro + Starter (one post per settle, none mid-drag, none on reload, audit line renders). Not
   verified live. Starter `?v=130`, Pro `?v=80`.
+
+### Oct 28, 2026 — bar-schedule bias: test it in the tuner first (Mr. T: option B, "educated decisions only")
+Oct 27 live check: 12 of 16 Pro calls got 5-min bars. The schedule compares the options-implied daily move
+(a standard deviation) with the normal move (an average absolute move, ~0.8 of one), so an ordinary day
+reads ~1.25 and clears the 1.3 cutoff; options also usually price more movement than happens. **Live is
+unchanged.** The tuner gained one candidate, `like-for-like 1.3 / 0.8` (`schedule.normalScale =
+learn.SD_PER_MEAN_ABS_MOVE` ≈ 1.2533, √(π/2)); on Oct 27's calls it moves 7 of 16 off 5-min (9 stay).
+It must clear the same guardrails (100 graded DAY calls, gain > margin, both halves) before it's proposed.
+First tuner read Oct 27: "always 5-min" scored 47% vs live 63% (inside the margin).
+
