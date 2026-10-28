@@ -37,6 +37,69 @@ async function fetchTickerData(symbol, force) {
   return p;
 }
 
+// shared/live-refresh.ts
+var LIVE_PRICE_MS = 60 * 1e3;
+var cfg = null;
+var lastFull = Date.now();
+var busy = false;
+async function pollPrices() {
+  if (!cfg) return null;
+  const syms = cfg.getSymbols().filter((s) => /^[A-Z]{1,5}(\.[A-Z])?$/.test(s)).slice(0, 60);
+  if (!syms.length) return null;
+  try {
+    const r = await fetch(cfg.addSecret(cfg.API_URL + "/prices?symbols=" + syms.join(",")), { headers: cfg.authH() });
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (d && d.marketOpen && d.prices && Object.keys(d.prices).length) {
+      cfg.applyPrices(d.prices);
+      return d.prices;
+    }
+  } catch (e) {
+  }
+  return null;
+}
+async function tick() {
+  if (!cfg || busy) return;
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+  if (cfg.isMarketClosed()) return;
+  busy = true;
+  try {
+    const prices = await pollPrices();
+    if (Date.now() - lastFull >= cfg.fullRefreshMs) {
+      lastFull = Date.now();
+      await cfg.fullRefresh();
+      if (prices) cfg.applyPrices(prices);
+    }
+  } finally {
+    busy = false;
+  }
+}
+function startLiveRefresh(config) {
+  cfg = config;
+  lastFull = Date.now();
+  setInterval(tick, LIVE_PRICE_MS);
+  document.addEventListener("visibilitychange", function() {
+    if (document.visibilityState === "visible") tick();
+  });
+}
+function patchCardPriceDom(card, price, dir) {
+  if (!card) return;
+  const p = card.querySelector(".ticker-price");
+  if (p) {
+    p.textContent = "$" + price.toFixed(2);
+    p.className = "ticker-price " + dir;
+  }
+  const s = card.querySelector(".ticker-sym");
+  if (s) s.className = "ticker-sym " + dir;
+}
+function patchTickerPrice(td, lp) {
+  if (!td || !td.metrics || !lp || !(lp.price > 0)) return false;
+  const changed = td.metrics.price !== lp.price || lp.pct != null && td.metrics.pct !== lp.pct;
+  td.metrics.price = lp.price;
+  if (lp.pct != null) td.metrics.pct = lp.pct;
+  return changed;
+}
+
 // shared/session.ts
 var SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1e3;
 var REFRESH_LEAD_SEC = 5 * 60;
@@ -110,12 +173,12 @@ function ensureFreshSession(apiUrl) {
   return inFlight2;
 }
 function startSessionKeepAlive(apiUrl, onChange) {
-  var tick = function() {
+  var tick2 = function() {
     ensureFreshSession(apiUrl).then(onChange);
   };
-  setInterval(tick, KEEPALIVE_MS);
+  setInterval(tick2, KEEPALIVE_MS);
   document.addEventListener("visibilitychange", function() {
-    if (document.visibilityState === "visible") tick();
+    if (document.visibilityState === "visible") tick2();
   });
 }
 
@@ -1068,21 +1131,21 @@ window.logResult = logResult;
 window.clearLog = clearLog;
 
 // shared/track-record-sync.ts
-var cfg = null;
+var cfg2 = null;
 var pulling = false;
 function initTrackRecordSync(config) {
-  cfg = config;
+  cfg2 = config;
 }
 var PULL_RETRY_DELAYS_MS = [0, 1500, 4e3];
 async function pullTrackRecordFromServer() {
-  if (!cfg) return;
+  if (!cfg2) return;
   var data = null;
   for (var i = 0; i < PULL_RETRY_DELAYS_MS.length && !data; i++) {
     if (PULL_RETRY_DELAYS_MS[i]) await new Promise(function(r) {
       setTimeout(r, PULL_RETRY_DELAYS_MS[i]);
     });
     try {
-      var res = await fetch(cfg.addSecret(cfg.API_URL + "/track"), { headers: cfg.authH(), cache: "no-store" });
+      var res = await fetch(cfg2.addSecret(cfg2.API_URL + "/track"), { headers: cfg2.authH(), cache: "no-store" });
       if (res.ok) data = await res.json();
     } catch (e) {
     }
@@ -1099,36 +1162,36 @@ async function pullTrackRecordFromServer() {
 }
 var pushTimer = null;
 function schedulePushTrackRecord() {
-  if (!cfg || pulling) return;
+  if (!cfg2 || pulling) return;
   if (pushTimer) clearTimeout(pushTimer);
   pushTimer = setTimeout(function() {
     pushTrackRecordToServer(false);
   }, 1200);
 }
 async function pushTrackRecordToServer(seed) {
-  if (!cfg) return;
+  if (!cfg2) return;
   try {
-    await fetch(cfg.addSecret(cfg.API_URL + "/track"), { method: "POST", headers: cfg.authH(), body: JSON.stringify({ entries: getAccuracyLog(), seed: !!seed }) });
+    await fetch(cfg2.addSecret(cfg2.API_URL + "/track"), { method: "POST", headers: cfg2.authH(), body: JSON.stringify({ entries: getAccuracyLog(), seed: !!seed }) });
   } catch (e) {
   }
 }
 
 // shared/watchlist-sync.ts
-var cfg2 = null;
+var cfg3 = null;
 var pulling2 = false;
 function initWatchlistSync(config) {
-  cfg2 = config;
+  cfg3 = config;
 }
 var PULL_RETRY_DELAYS_MS2 = [0, 1500, 4e3];
 async function pullWatchlistFromServer() {
-  if (!cfg2) return;
+  if (!cfg3) return;
   var data = null;
   for (var i = 0; i < PULL_RETRY_DELAYS_MS2.length && !data; i++) {
     if (PULL_RETRY_DELAYS_MS2[i]) await new Promise(function(r) {
       setTimeout(r, PULL_RETRY_DELAYS_MS2[i]);
     });
     try {
-      var res = await fetch(cfg2.addSecret(cfg2.API_URL + "/watchlist"), { headers: cfg2.authH(), cache: "no-store" });
+      var res = await fetch(cfg3.addSecret(cfg3.API_URL + "/watchlist"), { headers: cfg3.authH(), cache: "no-store" });
       if (res.ok) data = await res.json();
     } catch (e) {
     }
@@ -1145,16 +1208,16 @@ async function pullWatchlistFromServer() {
 }
 var pushTimer2 = null;
 function schedulePushWatchlist() {
-  if (!cfg2 || pulling2) return;
+  if (!cfg3 || pulling2) return;
   if (pushTimer2) clearTimeout(pushTimer2);
   pushTimer2 = setTimeout(function() {
     pushWatchlistToServer(false);
   }, 1200);
 }
 async function pushWatchlistToServer(seed) {
-  if (!cfg2) return;
+  if (!cfg3) return;
   try {
-    await fetch(cfg2.addSecret(cfg2.API_URL + "/watchlist"), { method: "POST", headers: cfg2.authH(), body: JSON.stringify({ tickers: watchlist, seed: !!seed }) });
+    await fetch(cfg3.addSecret(cfg3.API_URL + "/watchlist"), { method: "POST", headers: cfg3.authH(), body: JSON.stringify({ tickers: watchlist, seed: !!seed }) });
   } catch (e) {
   }
 }
@@ -1367,6 +1430,9 @@ function stepGateMarquee() {
   requestAnimationFrame(stepGateMarquee);
 }
 var roloCurrent = 0;
+function isRoloSwiping() {
+  return !!roloSwipe;
+}
 function getRoloCurrent() {
   return roloCurrent;
 }
@@ -1909,7 +1975,7 @@ function waitForScrollSettle(maxMs = 1800, quietMs = 160) {
   return new Promise((resolve) => {
     const start = Date.now();
     let last = els.scroller.scrollTop, stillSince = Date.now();
-    const tick = () => {
+    const tick2 = () => {
       const now = Date.now(), cur = els.scroller.scrollTop;
       if (Math.abs(cur - last) > 0.5) {
         last = cur;
@@ -1919,9 +1985,9 @@ function waitForScrollSettle(maxMs = 1800, quietMs = 160) {
         resolve();
         return;
       }
-      setTimeout(tick, 40);
+      setTimeout(tick2, 40);
     };
-    setTimeout(tick, 40);
+    setTimeout(tick2, 40);
   });
 }
 function collapseUtilityCards(keep) {
@@ -1947,8 +2013,8 @@ async function resetForTutorial() {
   sizeGateSpacer();
   await waitForScrollSettle();
 }
-function setTutorialBusy(busy) {
-  tutorialBusy = busy;
+function setTutorialBusy(busy2) {
+  tutorialBusy = busy2;
 }
 function tutorialSafeTop(anchor) {
   const scTop = els.scroller.getBoundingClientRect().top;
@@ -2172,10 +2238,10 @@ function isVisible(el) {
 }
 function showRatePromptIfAllowed() {
   if (!shouldShowRatePrompt()) return;
-  const busy = BLOCKING_OVERLAY_IDS.some(function(id) {
+  const busy2 = BLOCKING_OVERLAY_IDS.some(function(id) {
     return isVisible(document.getElementById(id));
   }) || !!document.querySelector(".spotlight-ring") || isTutorialActive();
-  if (busy) return;
+  if (busy2) return;
   const el = document.getElementById("rate-prompt");
   if (el) el.style.display = "flex";
 }
@@ -6391,11 +6457,11 @@ function watchDayReads(token, onDay) {
 // shared/dial-audit.ts
 var DIAL_LOG_SETTLE_MS = 1500;
 var LOGGED_KEY = "tv_dial_logged";
-var cfg3 = null;
+var cfg4 = null;
 var timer = null;
 var onLogged = null;
 function initDialAudit(config, afterLog) {
-  cfg3 = config;
+  cfg4 = config;
   onLogged = afterLog || null;
 }
 function readLogged() {
@@ -6406,17 +6472,17 @@ function readLogged() {
   }
 }
 function noteDialPosition(pos) {
-  if (!cfg3) return;
+  if (!cfg4) return;
   if (timer) clearTimeout(timer);
   timer = setTimeout(function fire() {
-    if (!cfg3) return;
-    if (cfg3.isDragging()) {
+    if (!cfg4) return;
+    if (cfg4.isDragging()) {
       timer = setTimeout(fire, DIAL_LOG_SETTLE_MS);
       return;
     }
     timer = null;
-    if (!cfg3.isSignedIn() || readLogged() === pos) return;
-    fetch(cfg3.addSecret(cfg3.API_URL + "/dial-change"), { method: "POST", headers: cfg3.authH(), body: JSON.stringify({ to: pos }) }).then(function(r) {
+    if (!cfg4.isSignedIn() || readLogged() === pos) return;
+    fetch(cfg4.addSecret(cfg4.API_URL + "/dial-change"), { method: "POST", headers: cfg4.authH(), body: JSON.stringify({ to: pos }) }).then(function(r) {
       return r.ok ? r.json() : null;
     }).then(function(d) {
       if (!d) return;
@@ -6430,9 +6496,9 @@ function noteDialPosition(pos) {
   }, DIAL_LOG_SETTLE_MS);
 }
 async function fetchDialAudit() {
-  if (!cfg3 || !cfg3.isSignedIn()) return null;
+  if (!cfg4 || !cfg4.isSignedIn()) return null;
   try {
-    const r = await fetch(cfg3.addSecret(cfg3.API_URL + "/dial-audit"), { headers: cfg3.authH() });
+    const r = await fetch(cfg4.addSecret(cfg4.API_URL + "/dial-audit"), { headers: cfg4.authH() });
     return r.ok ? await r.json() : null;
   } catch (e) {
     return null;
@@ -7274,6 +7340,44 @@ scroller.addEventListener("pointerdown", onScrollerPointerDown);
 scroller.addEventListener("pointermove", onScrollerPointerMove, { passive: false });
 scroller.addEventListener("pointerup", onScrollerPointerUp);
 scroller.addEventListener("pointercancel", onScrollerPointerUp);
+function liveRefreshCard(sym) {
+  const state = tickerState.get(sym);
+  const card = roloStage.querySelector(`.rolo-card[data-sym="${sym}"]`);
+  const busyCard = !state || state.analyzing || isRoloSwiping() || isTutorialActive() || analystOpen(card);
+  if (busyCard) {
+    const td = state && state.td;
+    if (td && td.metrics && td.metrics.price != null) patchCardPriceDom(card, td.metrics.price, priceDirClass(td));
+  } else {
+    renderRoloCard(sym);
+  }
+  renderPill(sym);
+}
+function applyLivePrices(prices) {
+  Object.keys(prices).forEach((sym) => {
+    const state = tickerState.get(sym);
+    const td = state && state.td;
+    if (!td || !patchTickerPrice(td, prices[sym])) return;
+    patchCardPriceDom(roloStage.querySelector(`.rolo-card[data-sym="${sym}"]`), td.metrics.price, priceDirClass(td));
+    renderPill(sym);
+  });
+}
+function analystOpen(card) {
+  const body = card ? card.querySelector("[data-analyst-body]") : null;
+  return !!body && body.style.display !== "none";
+}
+async function liveFullRefresh() {
+  const syms = cardWindow();
+  await Promise.all([
+    fetchMarket(),
+    ...syms.map(async (sym) => {
+      const td = await fetchTickerData(sym, true);
+      const state = tickerState.get(sym);
+      if (state && td) state.td = td;
+    })
+  ]);
+  syms.forEach(liveRefreshCard);
+  renderOverflowListIfOpen();
+}
 var DIAL_POSITIONS = {
   ACTIVE_SWING: { label: "Aggressive", cadence: "Session-by-session", entries: "Opening Drive, Pre-Catalyst Buildup, post-flush", stops: "Tight (+4% / -1%)", recheck: "Every session", sizing: "Smaller, capped at HALF" },
   ACTIVE_LEAN: { label: "Light Aggressive", cadence: "Daily", entries: "Pre-Catalyst Buildup, post-flush (no Opening Drive)", stops: "Standard (+4% / -3%)", recheck: "Daily", sizing: "Standard" },
@@ -8588,6 +8692,16 @@ function initApp() {
   }, 4 * 60 * 1e3);
   enforceMarketState();
   setInterval(enforceMarketState, 60 * 1e3);
+  startLiveRefresh({
+    API_URL: API_URL2,
+    authH: authH2,
+    addSecret: addSecret2,
+    isMarketClosed,
+    getSymbols: () => watchlist.slice(),
+    applyPrices: applyLivePrices,
+    fullRefresh: liveFullRefresh,
+    fullRefreshMs: 1 * 60 * 1e3
+  });
   if (sbSession && sbSession.email) {
     var pb = document.getElementById("profile-btn");
     if (pb) pb.textContent = sbSession.email.charAt(0).toUpperCase();

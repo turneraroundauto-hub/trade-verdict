@@ -2363,3 +2363,26 @@ Notion still called it "planned, not yet built" (logged Sep 6). It actually ship
 2. **Pre-Gate fails open for 24h.** An SEC error (5xx) makes `evaluatePreGate` return GREEN "check failed", and `/ticker` caches that in `preGateCache` for `PRE_GATE_REFRESH_MS` (24h). SEC 500s at 00:30 UTC Oct 28 hit about 3 tickers. A failed check should be cached briefly (minutes), not for a day.
 3. **The market-open warm only refreshes symbols already in memory.** `symbolMarketCache` is empty after a restart: Oct 27 warmed 3 symbols vs the usual 37-40. It does not read users' saved watchlists.
 4. **Render request logs aren't available through the MCP.** Use Supabase auth logs for sign-in questions.
+
+### Oct 28, 2026 — sweep fixes + market-hours auto-refresh (`Tra` #147 + auto-refresh PR / `trade-verdict` #397 + mirror)
+**Sweep fixes (#147/#397):**
+- **Market-open push.** The body is the Pulse's first sentence (`ah.pulsePushBody`). This closes Tra #117, which had sat unmerged since Sep 22.
+- **Pre-Gate failures.** A failed check (SEC down) is marked `checkFailed` and retried after 10 min (`ah.preGateCacheMs`). Before, it was cached as GREEN for 24h.
+- **Market-open warm.** The 9:30 warm also covers every symbol on a saved account watchlist (`savedWatchlistSymbols()`).
+
+**Auto-refresh during market hours, no AI** (Mr. T: "as often as new is available"; he chose two-speed and to keep the tier windows):
+- **Backend: `GET /prices?symbols=`** (normal auth, no credit, max 60 symbols).
+  - It makes one Alpaca multi-symbol snapshot call (`/v2/stocks/snapshots`, IEX feed) through `alpacaGet()`, with a 30s per-symbol cache shared by every user.
+  - The % change is measured against Finnhub's previous close (`prevCloseBySymbol`, set by `fetchTickerMetrics`), so it matches the card's own %. `ah.livePriceFromSnapshot` is tested.
+  - During regular session only; outside it returns `{marketOpen:false}` without calling Alpaca.
+- **Frontend: `shared/live-refresh.ts`** (bundler-only, no `?v=`), wired into Free, Starter and Pro.
+  - Every 60s: price, % and pill color for the whole watchlist, patched in place (`patchCardPriceDom`, no card re-render).
+  - Every tier window: the full card refresh (the pull-to-refresh data). Free is 15 min, Starter 5, Pro 1; Pro also refreshes the Gate box and the overflow list each time.
+  - After a full refresh, the newer live price is reapplied, so the shown price never steps backwards. A headless test caught exactly that flip.
+  - A card that's mid-analysis, mid-swipe (`rolodex.isRoloSwiping()`, new), in the tutorial, or (Pro) with Analyst View open is only price-patched.
+  - Runs only while `isMarketClosed()` is false and the page is visible. It catches up when the app returns to the foreground.
+- **Verified.**
+  - A stubbed Tra boot with a pinned clock: one batched Alpaca call; cached symbols skipped; bad symbols dropped; no Finnhub calls.
+  - Headless Pro/Starter/Free with a fast-forwarded clock: one `/prices` per minute; Pro re-fetches its 15 cards each minute; Starter/Free price-only between windows; zero calls after the close; no page errors.
+- **Not verified live:** the real Alpaca snapshot response shape (handled as a top-level map or `{snapshots}`). Watch for `fetchLivePrices` errors in Render logs. Also check IEX vs consolidated price drift on thin names.
+- Bundles: Free `?v=114`, Starter `?v=132`, Pro `?v=82`.
