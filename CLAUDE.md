@@ -2235,12 +2235,30 @@ can't reach Robinhood, only chat can), and **Saturday readout + a line on Pro's 
   headless Pro + Starter (one post per settle, none mid-drag, none on reload, audit line renders). Not
   verified live. Starter `?v=130`, Pro `?v=80`.
 
-### Oct 28, 2026 — bar-schedule bias: test it in the tuner first (Mr. T: option B, "educated decisions only")
-Oct 27 live check: 12 of 16 Pro calls got 5-min bars. The schedule compares the options-implied daily move
-(a standard deviation) with the normal move (an average absolute move, ~0.8 of one), so an ordinary day
-reads ~1.25 and clears the 1.3 cutoff; options also usually price more movement than happens. **Live is
-unchanged.** The tuner gained one candidate, `like-for-like 1.3 / 0.8` (`schedule.normalScale =
-learn.SD_PER_MEAN_ABS_MOVE` ≈ 1.2533, √(π/2)); on Oct 27's calls it moves 7 of 16 off 5-min (9 stay).
-It must clear the same guardrails (100 graded DAY calls, gain > margin, both halves) before it's proposed.
-First tuner read Oct 27: "always 5-min" scored 47% vs live 63% (inside the margin).
-
+### Oct 28, 2026 — DAY reads back to 15-min candles; Gate 2+3 DAY design runs in shadow (Mr. T)
+**Why:** the Oct 27 options lens went live without clear metrics (logged in the Rogue Actions Log): its
+5/15/30-min schedule put 12 of 16 Pro calls on 5-min bars (the ratio compares an implied standard
+deviation with an average absolute move, so ordinary days read ~1.25×), and IEX-only 5-min bars on
+thin stocks are near noise (SDGR Oct 27: 138-809 shares per bar vs thousands on the full tape). The DAY
+call was also "locked" whenever a hard override set LONG — my own Oct 19 choice, never put to him — so
+IMVT/IREN were forced DOWN by Gate 1's 14/60-session downtrend while both rallied 2%+.
+**Rule (his words): "educated decisions only"** — nothing new reaches a live call without metrics he's seen.
+- **Live now:** Render env `GATE3_OPTIONS_LENS=off` (set Oct 28) → every DAY read is three 15-min candles,
+  any move counts, no options lean. Options data still logs. `learn.LIVE_PARAMS` matches; the Oct 27
+  lens is the `OCT27_LENS_PARAMS` candidate. The live faithfulness check only counts calls with
+  `gates.g3_lens` null (made under the plain 15-min read).
+- **Shadow DAY design, `dayModel: 'g23'` (`learn.dayFromGates23`), his decisions:** Gates 2 (catalyst
+  color) and 3 (15-min bars) decide the DAY direction and **may point opposite to LONG**. Both agree →
+  that way (HALF); one says a direction, the other YELLOW → that way (QUARTER); they conflict → FLAT;
+  both YELLOW → FLAT unless it's a quiet day. **Every other gate is "a confidence story"** that only
+  weighs in on a **quiet day: options-expected move < 1.3× normal AND a neutral lean (±0.15)**
+  (`learn.isQuietDay`; same raw ratio, so its bias makes quiet days rare) — there LONG breaks a
+  YELLOW/YELLOW tie (QUARTER) and a disagreeing LONG steps size down. **The earnings block still blocks a
+  day trade** (direction kept, size NONE). Sizes are starting values; the tuner grades direction.
+- **Record-only tags** (nightly, `signal_stats` call_type `shadow_live` / `shadow_g23`):
+  `sub5_conviction` (how many 5-min bars inside each 15-min bar agree with it — his "5-min bars between
+  each 15-min give a more confident lean"), `thrust_candle` (heaviest-volume 5-min candle in the first 30
+  min vs the call — the SDGR 9:50 pattern), `expected_move` (quiet day / not quiet / no options data),
+  `g23_strength`.
+- Going live with g23 needs his approval after the Saturday readout shows the numbers (100 graded calls,
+  gain > margin, both halves). Tests 147/147; stubbed end-to-end run wrote every candidate and tag row.
