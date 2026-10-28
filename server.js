@@ -1093,7 +1093,7 @@ async function evaluatePreGate(symbol) {
     };
   } catch (e) {
     console.error(`evaluatePreGate ${symbol}:`, e.message);
-    return { status: "GREEN", hardTrigger: false, note: "Pre-Gate check failed — treating as pass-through, not blocking analysis." };
+    return { status: "GREEN", hardTrigger: false, checkFailed: true, note: "Pre-Gate check failed — treating as pass-through, not blocking analysis." };
   }
 }
 
@@ -5739,7 +5739,9 @@ app.get("/ticker/:symbol", async (req, res) => {
       })(),
       (async () => {
         let preGateEntry = preGateCache.get(symbol);
-        if (!preGateEntry || Date.now() - preGateEntry.time >= PRE_GATE_REFRESH_MS) {
+        // A failed check (SEC down) is retried after minutes, not kept as a
+        // pass for 24h (ah.preGateCacheMs, Oct 28, 2026).
+        if (!preGateEntry || Date.now() - preGateEntry.time >= ah.preGateCacheMs(preGateEntry.data, PRE_GATE_REFRESH_MS)) {
           const preGateData = await evaluatePreGate(symbol);
           preGateEntry = { data: preGateData, time: Date.now() };
           preGateCache.set(symbol, preGateEntry);
@@ -7089,24 +7091,6 @@ app.post("/stripe/credits", async (req, res) => {
   res.json({ received: true });
 });
 
-// Picks the market-open push's body text: the real Sector Pulse narrative
-// when it's available (its own first sentence only -- PULSE_PROMPT always
-// returns exactly 2 sentences, together too long for a push body, and a
-// notification cut off mid-sentence reads worse than a short complete one),
-// falling back to the mechanical gateNote line otherwise. Capped well under
-// Android's ~240-char truncation point for a notification body.
-function pulsePushBody(cache) {
-  const pulse = cache?.pulse ? String(cache.pulse).trim() : "";
-  if (pulse) {
-    const splitAt = pulse.indexOf(". ");
-    const firstSentence = splitAt > 0 ? pulse.slice(0, splitAt + 1) : pulse;
-    return firstSentence.length > 140
-      ? firstSentence.slice(0, 139).trimEnd() + "…"
-      : firstSentence;
-  }
-  return cache?.gateNote ? String(cache.gateNote).slice(0, 110) : "Check today's read.";
-}
-
 // Refreshes marketCache (the fixed SPY/QQQ/BTC/etc. tracked-symbol list
 // backing Gate 0 and the /market overview) via fetchQuote. Factored out so
 // both the boot-time warm and the market-open warm pass below use the same
@@ -7159,6 +7143,22 @@ async function warmTrackedMarketCache() {
 // day, in a 5-minute window starting at 9:30 (not a single instant) so a
 // missed tick from event-loop load doesn't just skip the day entirely.
 let lastOpenWarmDate = null;
+async function savedWatchlistSymbols() {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase.from("watchlists").select("tickers");
+    if (error) { console.error("savedWatchlistSymbols:", error.message); return []; }
+    const out = new Set();
+    for (const row of data || []) for (const t of (Array.isArray(row.tickers) ? row.tickers : [])) {
+      const sym = String(t).trim().toUpperCase();
+      if (/^[A-Z]{1,6}(-[A-Z]{2,4})?$/.test(sym)) out.add(sym);
+    }
+    return [...out];
+  } catch (e) {
+    console.error("savedWatchlistSymbols:", e.message);
+    return [];
+  }
+}
 setInterval(async () => {
   const et  = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
   const day = et.getDay(); // 0=Sun, 6=Sat
@@ -7170,7 +7170,11 @@ setInterval(async () => {
   console.log("Market open — warming cache for all tracked symbols...");
   try {
     await warmTrackedMarketCache();
-    const watchlistSymbols = Array.from(symbolMarketCache.keys());
+    // Every symbol on a saved account watchlist, not only what's already in
+    // memory -- a restart empties symbolMarketCache, and Oct 27's warm
+    // covered 3 symbols instead of ~40 (Oct 28, 2026). Free-tier
+    // watchlists live in the browser only, so they can't be included.
+    const watchlistSymbols = Array.from(new Set([...symbolMarketCache.keys(), ...(await savedWatchlistSymbols())]));
     await Promise.allSettled(watchlistSymbols.map(s => {
       const hardTrigger = preGateCache.get(s)?.data?.hardTrigger || false;
       return refreshMarketEntry(s, hardTrigger).catch(e => console.error(`Market open warm ${s}:`, e.message));
@@ -7198,7 +7202,7 @@ setInterval(async () => {
   // landed yet, exactly the prior behavior.
   try {
     const gs = marketCache?.gateStatus || "?";
-    const gn = pulsePushBody(marketCache);
+    const gn = ah.pulsePushBody(marketCache);
     const { sent, removed } = await pushNotifications.sendPushToAllSubscribers(supabase, {
       title: `Gate ${gs} — market's open`,
       body: gn,
