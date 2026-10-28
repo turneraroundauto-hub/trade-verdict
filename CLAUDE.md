@@ -2344,3 +2344,22 @@ Notion still called it "planned, not yet built" (logged Sep 6). It actually ship
   - Both functions now log Supabase errors.
   - The sweep runs ~2 min after boot and hourly, but at most once per ET day (`runRegimePrewarmOncePerDay`). It logs `runRegimePrewarmSweep: done (<date>)` when it finishes.
 - **Rule: the grants check must also confirm `service_role` HAS privileges on every service-role table**, not just that anon/authenticated have none. A revoke that hits service_role fails silently.
+
+### Oct 28, 2026 — full-system sweep (tables, repos, processes, intent)
+**Healthy:**
+- **Database.** All 19 public tables have zero anon/authenticated table grants, and `service_role` has full access after the proxy_resolution fix. `shark_waitlist` and `tester_signups` use column-level anon INSERT grants by design, which show in `information_schema.column_privileges`, not `role_table_grants`; both have 0 sign-ups.
+- **Grading.** It runs every 30 min with 0 overdue rows.
+- **Daily jobs.**
+  - The learning job runs nightly: 895 calls → 106 signal rows, 0 candidates proposed.
+  - The market-open push goes out daily (2 subscribers).
+  - The DAY-job sweep leaves every job READY.
+  - Pre-Gate trigger de-dup works.
+- **Frontend.** Pages deploys are all green, bundles have no duplicate modules, and the `?v=` strings are consistent.
+- **Repos.** 153/153 tests pass in both. The tsc baseline is the 7 known `?v=` errors. Mirror files are byte-identical except intentional comments.
+- **Scoping.** The Gate 3 window and DAY calls are Pro-only, as intended.
+
+**Found:**
+1. **Unmerged Tra PR #117 (draft since Sep 22).** It makes the market-open push use the Sector Pulse. The mirror has this as `pulsePushBody()`, but production still sends the Gate note. Classic two-repo trap: the mirror merged, Tra didn't. Pulse is now words-only, so #117 needs rebuilding on `main`, not merging as-is.
+2. **Pre-Gate fails open for 24h.** An SEC error (5xx) makes `evaluatePreGate` return GREEN "check failed", and `/ticker` caches that in `preGateCache` for `PRE_GATE_REFRESH_MS` (24h). SEC 500s at 00:30 UTC Oct 28 hit about 3 tickers. A failed check should be cached briefly (minutes), not for a day.
+3. **The market-open warm only refreshes symbols already in memory.** `symbolMarketCache` is empty after a restart: Oct 27 warmed 3 symbols vs the usual 37-40. It does not read users' saved watchlists.
+4. **Render request logs aren't available through the MCP.** Use Supabase auth logs for sign-in questions.
