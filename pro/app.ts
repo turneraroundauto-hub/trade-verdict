@@ -1593,11 +1593,14 @@ async function renderScorecardCard(): Promise<void> {
     var proofHTML = (w: any, pf: any) => {
       if (!pf) return '';
       var out = '<div class="sc-tile-proof">&plusmn;' + pf.margin + ' pts</div>';
-      if (pf.alwaysUpPct == null) return out;
-      var gap = w.pct - pf.alwaysUpPct;
+      // LONG (Nov 1, 2026): compared to a random pick under the same 5+14
+      // rules (randomPct); DAY keeps the always-UP comparison.
+      var base = pf.randomPct != null ? pf.randomPct : pf.alwaysUpPct;
+      if (base == null) return out;
+      var gap = w.pct - base;
       var verdict = gap > pf.margin ? ['beats it', 'var(--green)']
         : gap < -pf.margin ? ['trails it', 'var(--red)'] : ['not proven yet', 'var(--amber)'];
-      return out + '<div class="sc-tile-proof">Always-UP ' + pf.alwaysUpPct + '% &middot; <span style="color:' + verdict[1] + '">' + verdict[0] + '</span></div>';
+      return out + '<div class="sc-tile-proof">' + (pf.randomPct != null ? 'Random pick ' : 'Always-UP ') + base + '% &middot; <span style="color:' + verdict[1] + '">' + verdict[0] + '</span></div>';
     };
     var tile = (label: string, w: any, pf: any) => '<div class="sc-tile"><div class="sc-tile-lbl">' + label + '</div>'
       + (w && w.pct != null
@@ -1606,7 +1609,7 @@ async function renderScorecardCard(): Promise<void> {
       + '</div>';
     var proof = data.proof || {};
     var html = '<div class="sc-head-row"><div class="track-log-title" style="margin:0">VERDICT ACCURACY</div><span class="sc-pooled-badge">Pooled &middot; all users</span></div>'
-      + '<div class="sc-tile-grid">' + tile('DAY calls', data.day, proof.day) + tile('LONG calls (5 days)', data.long, proof.long) + '</div>';
+      + '<div class="sc-tile-grid">' + tile('DAY calls', data.day, proof.day) + tile('LONG calls (5 + 14 days)', data.long, proof.long) + '</div>';
     // Oct 27, 2026: the Day tile grades the DAY call itself (Pro, from the
     // morning bars), not the LONG call checked at the day's close. That old
     // number stays as its own line so nothing is lost.
@@ -2040,7 +2043,7 @@ var GLOSSARY: GlossaryTerm[] = [
   {cat:'CRF FRAMEWORK',term:'Credit',def:'What an analysis costs. Every 3 analyses use 1 credit, and an analysis that fails doesn’t cost anything. Free gets 3 credits a week; Starter and Pro get a monthly amount.',ex:'Analyze All on 3 stocks uses 1 credit.'},
   {cat:'CRF FRAMEWORK',term:'Sector Pulse',def:'Two plain sentences in the Gate box about what the market is doing today and which groups are leading or lagging. It explains the mood; the numbers are in the grid above it. Free shows the first few words; Starter and Pro show it all.',ex:'“Risk-on: investors are willing to take chances. Biotech and chip stocks are leading.”'},
   {cat:'CRF FRAMEWORK',term:'Aggression Dial',def:'Sets how actively you plan to trade, from Aggressive to Passive. It can lower the position size a verdict suggests, but never raises it past what the gates earned.',ex:'Aggressive caps a position at Half size, even when the gates allow Full.'},
-  {cat:'CRF FRAMEWORK',term:'Day / Long Call',def:'Every Pro verdict comes in two versions. LONG is the call for the next 5 trading days. DAY is the call for today only, checked against the last three price bars. The options market picks the bar size: 5-minute bars on days it expects a big move, 30-minute bars on quiet days, otherwise 15. A bar only counts if it moves enough for that stock, and if options traders lean the other way, DAY sizes down. After the close, only LONG applies.',ex:'LONG says UP, but this morning’s bars keep falling, so DAY says FLAT for today.'},
+  {cat:'CRF FRAMEWORK',term:'Day / Long Call',def:'Every Pro verdict comes in two versions. LONG is the call for the next 5 to 14 trading days. DAY is the call for today only, checked against the last three price bars. The options market picks the bar size: 5-minute bars on days it expects a big move, 30-minute bars on quiet days, otherwise 15. A bar only counts if it moves enough for that stock, and if options traders lean the other way, DAY sizes down. After the close, only LONG applies.',ex:'LONG says UP, but this morning’s bars keep falling, so DAY says FLAT for today.'},
   {cat:'CRF FRAMEWORK',term:'Gate 0 — Sector Gate',def:'Checks how the overall stock market is doing today. If the whole market is having a bad day, that drags down the outlook for pretty much everything.',ex:'A rising tide lifts all boats — a sinking one drags them down too.'},
   {cat:'CRF FRAMEWORK',term:'Gate 1 — Bidirectional Trend Structure',def:'Looks at whether the stock has already made a big move recently, up or down. A stock that’s already run up a lot is riskier to chase, and one that’s fallen too far too fast is a red flag too.',ex:'Like being wary of a stock that already “ran” — you don’t want to be the last one to the party.'},
   {cat:'CRF FRAMEWORK',term:'Gate 2 — Catalyst Congruence',def:'Checks whether recent news about the company actually supports the direction the app is leaning.',ex:'Makes sure the story and the numbers are telling the same story.'},
@@ -2350,7 +2353,7 @@ const HELP_CONTENT: Record<string, string> = {
   watchlist: 'Every stock beyond your top 15 cards. Tap + on a row to move it up into your cards.',
   proxy: 'Each stock is compared against a related stock or fund, its <a class="help-glossary-link" href="#" data-term="proxy">proxy</a>, for <a class="help-glossary-link" href="#" data-term="gate 5">Gate 5</a>. This shows which one and whether the two are still moving together. Purple means a new proxy that’s still being tested.',
   heatmap: 'A color-coded snapshot of major sectors and every ticker in your watchlist, sorted by today’s % change.',
-  scorecard: 'How often UP and DOWN calls were right, across every user.<br>• <b>DAY</b> = the <a class="help-glossary-link" href="#" data-term="day / long call">DAY call</a> from the morning price bars, right by that day’s close. <b>LONG</b> = the LONG call, right 5 trading days later.<br>• Only calls made while the market is open count.<br>• Half credit if it hit its target but closed the wrong way.<br>• <b>±</b> is the margin of error. <b>Always-UP</b> is what calling UP every time would score; “beats it” means the calls did better.<br>• <b>Your Log</b> is your own ✓/✗ record.',
+  scorecard: 'How often UP and DOWN calls were right, across every user.<br>• <b>DAY</b> = the <a class="help-glossary-link" href="#" data-term="day / long call">DAY call</a> from the morning price bars, right by that day’s close. <b>LONG</b> = the LONG call, checked 5 and 14 trading days later: UP needs more than +2% at 5 days and +3% at 14; DOWN needs under +1% at both; FLAT has to stay inside the stock’s normal range at both.<br>• Only calls made while the market is open count.<br>• DAY gets half credit if it hit its target but closed the wrong way.<br>• <b>±</b> is the margin of error. <b>Always-UP</b> (DAY) is what calling UP every time would score; <b>Random pick</b> (LONG) is what random stocks would score under the same rules. “Beats it” means the calls did better.<br>• <b>Your Log</b> is your own ✓/✗ record.',
   agitator: 'Check a stock, a company name or a headline before you add it. It’s free and uses no <a class="help-glossary-link" href="#" data-term="credit">credit</a>. You get a LOW / MEDIUM / HIGH read on how much the news could move the stock, a linked article, and a few related companies you can add with +.',
   'agitator-score': 'The average of the 6 signals, from 0 to 10. Higher means the news is more likely to move the stock. A quick read, not an exact measurement.',
   'agitator-surprise': 'How unexpected this is for this company. A routine, expected update scores low; something out of the blue scores high.',
@@ -2487,7 +2490,7 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   {
     // DAY/LONG switch (Oct 20, 2026). It only exists on an analyzed card, so
     // the balloon falls back to the card itself before the first ANALYZE.
-    html: 'After you ANALYZE, every card gets a <b><a class="help-glossary-link" href="#" data-term="day / long call">DAY / LONG</a></b> switch. <b>LONG</b> is the call for the next 5 trading days. <b>DAY</b> is the call for today only, read from the last three price bars (5, 15 or 30 minutes, depending on how big a day the options market expects). Before the third bar closes, DAY glows while it waits and flashes when it’s ready — no extra credit. After the market closes, DAY is greyed out.',
+    html: 'After you ANALYZE, every card gets a <b><a class="help-glossary-link" href="#" data-term="day / long call">DAY / LONG</a></b> switch. <b>LONG</b> is the call for the next 5 to 14 trading days. <b>DAY</b> is the call for today only, read from the last three price bars (5, 15 or 30 minutes, depending on how big a day the options market expects). Before the third bar closes, DAY glows while it waits and flashes when it’s ready — no extra credit. After the market closes, DAY is greyed out.',
     getAnchor: () => tutorialActiveCardEl()?.querySelector<HTMLElement>('[data-tutorial="daylong"]') || tutorialActiveCardEl(),
     before: () => tutorialTickerCard(),
   },

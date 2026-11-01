@@ -2360,3 +2360,13 @@ Mr. T asked for refresh "as often as new is available." He chose two speeds and 
 - Not verified live: the nested PostgREST `or` filters (sandbox can't reach Supabase REST). Watch for `fetchScorecardPool:` / learning-job errors.
 - Deployed live 19:00 UTC Oct 29. Nothing was ever lost: superseded rows are only hidden from stats, never deleted; the only other superseded DAY call (TWST, Oct 27) was correctly replaced by a later TWST DAY call.
 - **Lesson:** a new per-row field must be checked against every rule that hides rows (here `superseded`). The Oct 28 sign-out fix (cross-tab lock) also didn't cover a lost reply. Both are logged in the Rogue Actions Log.
+
+## Nov 1, 2026 — LONG grade rebuilt: 5 + 14 sessions, one merged grade (`Tra` patch30 / mirror patch33)
+Mr. T's rules after a sanity check of the old LONG grade (close 5 sessions later, any amount = right, half credit at +16% which never happened; 47.4% on 253, at the "always-UP" baseline). `ah.gradeLongCall` — TRUE/FALSE only:
+- **UP:** more than +2% at the 5th session AND ≥ +3% at the 14th.
+- **DOWN:** under +1% at the 5th AND the 14th (DOWN calls are all size NONE — "don't buy").
+- **FLAT:** within the ticker's normal daily move × √sessions at both (`fetchNormalDailyMovePct`; 1%/day fallback).
+- Merged on purpose (Mr. T): a call that's right at 5 but gives it back by 14 is wrong, not a false positive.
+- `gradeLongRows()` replaces the long branch of `gradeWindowRows`; due at `long14_due_at`; writes `return_long_pct` (5) and `return_long14_pct` (14). `backfillDayLongFields()` stamps `long14_target_date`/`long14_due_at`. Old grades kept in `grade_long_v1`/`return_long_pct_v1`; every LONG call is re-graded (Step 2 of the patch runs right after the deploy — running it before would let the old code re-grade under the old rules).
+- **Pro LONG tile compares to "Random pick", not Always-UP** (`longTileProof`): UP and DOWN have very different base rates under these rules (random stock clears UP ~19%, DOWN ~53%), so baseline = each call's own rule's pass rate across all graded stocks. Tiles say "LONG calls (5 + 14 days)"; help/glossary copy updated (Starter `?v=133`, Pro `?v=83`).
+- Projection from Robinhood closes before deploy: LONG tile 47.4% (253) → 35.5% (203; 138 recent calls wait for their 14th session), random pick 37.9% → "not proven yet". UP 26.4% (91), DOWN 42.9% (112, below the 53% random rate), FLAT 25.0% (511, ≈ random 26%).
