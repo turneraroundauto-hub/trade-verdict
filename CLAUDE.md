@@ -2379,3 +2379,5 @@ Mr. T's rules after a sanity check of the old LONG grade (close 5 sessions later
 - **Pro dial-audit line** = LONG and DAY grades (`learn.dialStats` → `{n,pct,dayN,dayPct}`), no stop-outs.
 - **Anonymous Free de-dup:** Free sends `deviceId` (the visit-counter id) with ANALYZE; `verdict_log.device_id`; `supersedeSameDayVerdicts(ticker, email, deviceId)` scopes anonymous rows per device. Free `?v=115`.
 - **Weekday:** LONG calls are recorded every trading day; weekday splits are 5-7 dates each, too thin — revisit at 20+ dates per weekday (~Feb).
+
+- **DAY cutoff moved to 10:30 AM PT / 1:30 PM ET** (`WINDOW_CUTOFF_MIN = 13*60+30`, Mr. T, Nov 2, 2026; was 12:30 ET). A fresh DAY read is available until then; later ANALYZE runs are LONG-only. The tuner's replay uses the same constant.
