@@ -2381,3 +2381,16 @@ Mr. T's rules after a sanity check of the old LONG grade (close 5 sessions later
 - **Weekday:** LONG calls are recorded every trading day; weekday splits are 5-7 dates each, too thin — revisit at 20+ dates per weekday (~Feb).
 
 - **DAY cutoff moved to 10:30 AM PT / 1:30 PM ET** (`WINDOW_CUTOFF_MIN = 13*60+30`, Mr. T, Nov 2, 2026; was 12:30 ET). A fresh DAY read is available until then; later ANALYZE runs are LONG-only. The tuner's replay uses the same constant.
+
+### Nov 2, 2026 — merged and deployed (`Tra` #150 / `trade-verdict` #402)
+- **Live 03:27 UTC Nov 2.** patch30 Step 2 ran right after the deploy: 973 LONG grades copied to `grade_long_v1`/`return_long_pct_v1` and cleared, so the sweep re-grades every call under the 5+14 rule (`backfillDayLongFields` stamps 500 rows per sweep). Expect the LONG tile to show few graded calls until it catches up; calls from the last ~14 sessions stay pending until their 14th session.
+- **Decisions (Mr. T):** keep the LONG tile **combined** (not split UP/DOWN); **no Free Scorecard** — Free's calls only feed the pool; DAY cutoff 10:30 AM PT.
+- **The LONG analysis behind B-2** (714 priced past calls, Robinhood closes, Aug 26–Oct 23):
+  - Misses were mostly **reversals**, not flat: UP calls fell 3%+ by session 14 49% of the time; FLAT calls moved down 47%.
+  - **Trend-following calls were the worst:** UP in an uptrend 11% right (n=44, 8 tickers), UP in the top quarter of its 20-day range 7% (n=27), DOWN in a downtrend 17% (n=58, 13 tickers). These names snap back over 5-14 sessions.
+  - **Strong-looking results that were one ticker:** DOWN with Pre-Gate RED 80% and DOWN in an uptrend 70% were mostly ET (32 calls); without ET they're near random.
+  - **Flipping calls is regime-dependent** (DOWN-in-downtrend → UP was 69% early, 4% late) — don't flip. **No bounce rule** (FLAT in a downtrend → UP had no edge). FLAT in an uptrend → DOWN held up without the biggest ticker (54%) and became B-2's check 4.
+  - **The 30-session look-back** (Mr. T's ask): the UP edge fades by session 30 (23% closed >+3% vs 31% blind), so it's not part of the grade.
+  - **Weekday:** too thin (5-7 dates per weekday).
+  - All in-sample; Aug–Oct was a falling stretch for these names (53% of stock-days fell 2%+ by session 14), which flatters DOWN-leaning rules. That's why B-2 is shadow-only and only post-approval calls count.
+- **Verified:** CI green on both repos; tests 164/164; Render deploy live. **Not yet verified live:** the re-graded Scorecard vs the projection (a check is scheduled 04:39 UTC Nov 2), B-2 rows appearing on the first market-hours calls, anonymous `device_id` on Free calls.
