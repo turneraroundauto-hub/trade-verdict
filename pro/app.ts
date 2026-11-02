@@ -1002,14 +1002,19 @@ function setDialPosition(pos: string): void {
   noteDialPosition(pos); // Proposal 7 audit trail: logged once the dial settles
 }
 // Proposal 7 audit trail (Oct 27, 2026): one plain line under the dial --
-// the last change, and how calls did since vs before it (dial-horizon
-// grade, stop-outs as the "losses" side). Observational only.
+// the last change, and how calls did since vs before it. Since Nov 2, 2026
+// it uses the Scorecard's own LONG and DAY grades (one test for every dial
+// setting), not each dial's horizon or stop-outs. Observational only.
 var dialAuditData: DialAudit | null = null;
 function dialName(p: string | null): string { return p && DIAL_POSITIONS[p] ? DIAL_POSITIONS[p].label : 'unknown'; }
-function dialStatsText(st: { n: number; pct: number | null; stopPct: number | null }, min: number): string {
-  if (!st || !st.n) return 'no graded calls yet';
-  if (st.n < min || st.pct == null) return st.n + ' graded call' + (st.n === 1 ? '' : 's') + ' so far (a % shows at ' + min + ')';
-  return '<b style="color:var(--ink)">' + Math.round(st.pct) + '% right</b>' + (st.stopPct != null ? ', ' + Math.round(st.stopPct) + '% stopped out' : '') + ' (' + st.n + ' graded)';
+function dialStatPart(label: string, n: number, pct: number | null, min: number): string {
+  if (!n) return label + ' none graded yet';
+  if (n < min || pct == null) return label + ' ' + n + ' graded (a % shows at ' + min + ')';
+  return label + ' <b style="color:var(--ink)">' + Math.round(pct) + '% right</b> (' + n + ')';
+}
+function dialStatsText(st: { n: number; pct: number | null; dayN: number; dayPct: number | null }, min: number): string {
+  if (!st) return 'no graded calls yet';
+  return dialStatPart('LONG', st.n, st.pct, min) + ' &middot; ' + dialStatPart('DAY', st.dayN || 0, st.dayPct, min);
 }
 function dialAuditLineHTML(): string {
   var a = dialAuditData;

@@ -7400,10 +7400,14 @@ var dialAuditData = null;
 function dialName(p) {
   return p && DIAL_POSITIONS[p] ? DIAL_POSITIONS[p].label : "unknown";
 }
+function dialStatPart(label, n, pct, min) {
+  if (!n) return label + " none graded yet";
+  if (n < min || pct == null) return label + " " + n + " graded (a % shows at " + min + ")";
+  return label + ' <b style="color:var(--ink)">' + Math.round(pct) + "% right</b> (" + n + ")";
+}
 function dialStatsText(st, min) {
-  if (!st || !st.n) return "no graded calls yet";
-  if (st.n < min || st.pct == null) return st.n + " graded call" + (st.n === 1 ? "" : "s") + " so far (a % shows at " + min + ")";
-  return '<b style="color:var(--ink)">' + Math.round(st.pct) + "% right</b>" + (st.stopPct != null ? ", " + Math.round(st.stopPct) + "% stopped out" : "") + " (" + st.n + " graded)";
+  if (!st) return "no graded calls yet";
+  return dialStatPart("LONG", st.n, st.pct, min) + " &middot; " + dialStatPart("DAY", st.dayN || 0, st.dayPct, min);
 }
 function dialAuditLineHTML() {
   var a = dialAuditData;
