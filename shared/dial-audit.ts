@@ -21,7 +21,9 @@ export interface DialAuditConfig {
   isDragging: () => boolean;
 }
 
-export interface DialAuditStats { n: number; pct: number | null; stopPct: number | null }
+// Nov 2, 2026: LONG (n/pct) and DAY (dayN/dayPct) grades -- the Scorecard's own
+// tests, the same for every dial setting.
+export interface DialAuditStats { n: number; pct: number | null; dayN: number; dayPct: number | null }
 export interface DialAudit {
   changes: Array<{ from: string | null; to: string; direction: string | null; at: string; source: string }>;
   latest: null | { from: string | null; to: string; direction: string | null; at: string; after: DialAuditStats; before: DialAuditStats };

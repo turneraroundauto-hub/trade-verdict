@@ -2360,3 +2360,24 @@ Mr. T asked for refresh "as often as new is available." He chose two speeds and 
 - Not verified live: the nested PostgREST `or` filters (sandbox can't reach Supabase REST). Watch for `fetchScorecardPool:` / learning-job errors.
 - Deployed live 19:00 UTC Oct 29. Nothing was ever lost: superseded rows are only hidden from stats, never deleted; the only other superseded DAY call (TWST, Oct 27) was correctly replaced by a later TWST DAY call.
 - **Lesson:** a new per-row field must be checked against every rule that hides rows (here `superseded`). The Oct 28 sign-out fix (cross-tab lock) also didn't cover a lost reply. Both are logged in the Rogue Actions Log.
+
+## Nov 1, 2026 — LONG grade rebuilt: 5 + 14 sessions, one merged grade (`Tra` patch30 / mirror patch33)
+Mr. T's rules after a sanity check of the old LONG grade (close 5 sessions later, any amount = right, half credit at +16% which never happened; 47.4% on 253, at the "always-UP" baseline). `ah.gradeLongCall` — TRUE/FALSE only:
+- **UP:** more than +2% at the 5th session AND ≥ +3% at the 14th.
+- **DOWN:** under +1% at the 5th AND the 14th (DOWN calls are all size NONE — "don't buy").
+- **FLAT:** within the ticker's normal daily move × √sessions at both (`fetchNormalDailyMovePct`; 1%/day fallback).
+- Merged on purpose (Mr. T): a call that's right at 5 but gives it back by 14 is wrong, not a false positive.
+- `gradeLongRows()` replaces the long branch of `gradeWindowRows`; due at `long14_due_at`; writes `return_long_pct` (5) and `return_long14_pct` (14). `backfillDayLongFields()` stamps `long14_target_date`/`long14_due_at`. Old grades kept in `grade_long_v1`/`return_long_pct_v1`; every LONG call is re-graded (Step 2 of the patch runs right after the deploy — running it before would let the old code re-grade under the old rules).
+- **Pro LONG tile compares to "Random pick", not Always-UP** (`longTileProof`): UP and DOWN have very different base rates under these rules (random stock clears UP ~19%, DOWN ~53%), so baseline = each call's own rule's pass rate across all graded stocks. Tiles say "LONG calls (5 + 14 days)"; help/glossary copy updated (Starter `?v=133`, Pro `?v=83`).
+- Projection from Robinhood closes before deploy: LONG tile 47.4% (253) → 35.5% (203; 138 recent calls wait for their 14th session), random pick 37.9% → "not proven yet". UP 26.4% (91), DOWN 42.9% (112, below the 53% random rate), FLAT 25.0% (511, ≈ random 26%).
+
+### Same day — rule B-2 shadow, one LONG score everywhere, anonymous de-dup (`Tra` patch31 / mirror patch34)
+**Principle (Mr. T):** the Scorecard judges the app's ability to call direction from public data — one condensed score per call type (DAY, LONG), pooled across every tier, account and dial setting. Free calls count in the pool; Free has no Scorecard (by choice).
+- **Rule B-2, SHADOW only, frozen Nov 2, 2026** (`ah.ruleB2`, `B2_VERSION`): 1 UP + Gate 1 UPTREND → FLAT; 2 UP + price ≥75% of its 20-completed-close range (`ah.rangePosition`, ≥15 closes, today's forming bar dropped via `completedDailyCloses()`/`dailyCloseLastDate`) → FLAT; 3 DOWN + DOWNTREND → FLAT; 4 FLAT + UPTREND → DOWN ("correction expected"). No bounce rule (FLAT+DOWNTREND→UP had no edge). Missing inputs never filter. Logged per call (`long_b2_verdict/_check/_range_pos/_trend/_version`), graded by the same 5+14 rule (`grade_long_b2`). **Never changes a live call.** Go-live bar: ≥100 post-approval kept calls ≥60%, ≥60% in each half, ≥55% without the biggest ticker, beats random-pick by more than the margin, plus Mr. T's OK; any change = new version, test restarts. In-sample backtest: 59.9% on 349 calls (57% w/o ET) vs live 35.5% on 203.
+- **TRACK RECORD row (all tiers) = the LONG grade** (`computeHistoricalReaction` reads `grade_long`), not each dial's horizon.
+- **Confidence ceiling:** live still reads `grade_horizon`; the LONG-grade version is logged as `gates.inputs.conf_ceiling_long {pct, n, would}` (shadow) until approved.
+- **Pro dial-audit line** = LONG and DAY grades (`learn.dialStats` → `{n,pct,dayN,dayPct}`), no stop-outs.
+- **Anonymous Free de-dup:** Free sends `deviceId` (the visit-counter id) with ANALYZE; `verdict_log.device_id`; `supersedeSameDayVerdicts(ticker, email, deviceId)` scopes anonymous rows per device. Free `?v=115`.
+- **Weekday:** LONG calls are recorded every trading day; weekday splits are 5-7 dates each, too thin — revisit at 20+ dates per weekday (~Feb).
+
+- **DAY cutoff moved to 10:30 AM PT / 1:30 PM ET** (`WINDOW_CUTOFF_MIN = 13*60+30`, Mr. T, Nov 2, 2026; was 12:30 ET). A fresh DAY read is available until then; later ANALYZE runs are LONG-only. The tuner's replay uses the same constant.

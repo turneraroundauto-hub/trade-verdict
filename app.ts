@@ -867,6 +867,10 @@ async function analyzeOne(sym: string): Promise<void> {
         preGateData: td && td.preGate ? td.preGate : null,
         weeklyCarryoverData: td && td.weeklyCarryover ? td.weeklyCarryover : null,
         regimeData: td && td.regime ? td.regime : null,
+        // Nov 2, 2026: lets the server count an anonymous visitor's last call
+        // per ticker per day, like a signed-in account (same random id the
+        // visit counter already uses -- no personal data).
+        deviceId: getOrCreateDeviceId(),
       }),
     });
     if (!res.ok) {
