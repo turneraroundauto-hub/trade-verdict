@@ -2393,7 +2393,11 @@ Mr. T's rules after a sanity check of the old LONG grade (close 5 sessions later
   - **The 30-session look-back** (Mr. T's ask): the UP edge fades by session 30 (23% closed >+3% vs 31% blind), so it's not part of the grade.
   - **Weekday:** too thin (5-7 dates per weekday).
   - All in-sample; Aug–Oct was a falling stretch for these names (53% of stock-days fell 2%+ by session 14), which flatters DOWN-leaning rules. That's why B-2 is shadow-only and only post-approval calls count.
-- **Verified:** CI green on both repos; tests 164/164; Render deploy live. **Not yet verified live:** the re-graded Scorecard vs the projection (a check is scheduled 04:39 UTC Nov 2), B-2 rows appearing on the first market-hours calls, anonymous `device_id` on Free calls.
+- **Verified:** CI green on both repos; tests 164/164; Render deploy live. **Not yet verified live:** B-2 rows appearing on the first market-hours calls (first possible Mon Nov 2 market open; first B-2 grades ~Nov 20), anonymous `device_id` on Free calls.
+- **Re-grade confirmed live (04:24 UTC Nov 2)** — matched the projection exactly. Every LONG call past its 14th session is graded (0 overdue); 145 still inside their window, 63 awaiting `long14_due_at` stamps (next sweeps), 11 closed ungraded (no entry price/bars). Non-superseded market-hours rows:
+  - **LONG tile (UP+DOWN) 35.5% (72/203)** → Pro reads "not proven yet" vs random pick ~37.9%.
+  - UP 26.4% (24/91), DOWN 42.9% (48/112), FLAT 25.0% (128/511). DAY unchanged (~73%).
+  - The drop from 47% is the stricter rule (small drifts that gave it back now grade FALSE), not new misses. The 145 pending mid/late-Oct calls will still move the tile; don't read it as settled until they land. The Saturday readout compares this live tile with the B-2 shadow.
 
 ## Nov 2, 2026 — DST opening-bar fix; LONG bracket shadow (BR-1); Gate 5 override order (`Tra` #151, #152 / mirror #405, patch32 / mirror patch35)
 - **DST bug (Tra #151):** `fetchOpeningBar()` had `T09:30:00-04:00` typed in. After DST ended Nov 1, its start was 8:30 ET, so Free/Starter Gate 3 (and the LONG prompt's opening-bar line) read IEX's 8:30–8:45 pre-market bar until the fix deploys. Now `ah.sessionOpenIso(date)` / `ah.etOffsetIso(date)`. Pro unaffected. **Rule: never type an ET offset in; derive it from the date.** Calls between the Nov 2 open and the deploy used the pre-market bar (not corrected).
@@ -2402,3 +2406,19 @@ Mr. T's rules after a sanity check of the old LONG grade (close 5 sessions later
 - **Fix (Tra #152):** Gate 5's branch ran after Gate 0 RED / Gate 1 breakdown and its coherence check could reset their forced DOWN to FLAT. `ah.gate5MayOverride()` now skips it. Changes live verdicts in that rare case only.
 - **Order:** patch32 applied before the deploy (logVerdict drops a verdict on an unknown column). Grants checked both ways.
 - **Not verified live:** `LONG bracket backfill: N graded call(s) scored.` in Render logs; `long_bracket_source='live'` on the first market-hours calls; Free/Starter opening-bar timestamps at 14:30 UTC.
+
+## Nov 2, 2026 — ticker news must be about the ticker (`Tra` / mirror, PRs open, not merged)
+- **Bug (systemic, not BB-only):** the ticker card, Gate 2's catalyst and the after-cutoff catalyst check showed the **newest article either feed had tagged to the symbol, whether or not it was about the company**. The relevance check (`isHeadlineRelevant`, Aug 27) only ran where a company name was passed, which was the Agitator only. Finnhub and Alpaca tag loosely. 20 of 34 cached headlines on Nov 2 were unrelated (BB: a Paramount/Spin Master story; MU, PLTR, IREN, NU, ET, AMD, NVDA, MSFT, AAPL…), so Gate 2 often judged someone else's news.
+- **Fix:** `ah.pickRelevantNews(pool, symbol, companyName)` (tested). Tiers: 3 = headline names the ticker/company, 2 = summary names it, 1 = a feed tagged this ticker alone, 0 = never shown. Highest tier, then newest.
+  - **Ticker matching:** a 2-letter ticker only counts in ticker form: `(ON)`, `$ON`, or `NASDAQ:ON`. An exchange prefix counts only for US/TSX listings (`LSE:ADM` ≠ ADM).
+  - **Name matching:** `companyNameVariants()` builds the name forms to match: the core name, the name plus its first suffix word (e.g. "Nu Holdings"), and a distinctive first word (not generic words like "Energy").
+- **`fetchNews()` widens the search before giving up,** for every ticker:
+  1. Finnhub + Alpaca, last 300h, pooled (Alpaca limit 50).
+  2. Both again over 30 days.
+  3. Marketaux keyword search on the company name (daily budget; once per symbol per 6h).
+  4. The last relevant `news_cache` article. A pre-fix unrelated cache row is never served.
+  - Only then is there no headline, logged as `[NEWS] <SYM>: no ticker-specific article`. Steps 2–3 log `[NEWS] <SYM>: found via …`.
+  - The company name comes from the fundamentals cache, or one `profile2` lookup cached for 24h (`companyNameFor`).
+- **Watch after deploy:**
+  - Count `[NEWS] … no ticker-specific article` per ticker. ETFs are the likeliest misses.
+  - Spot-check card headlines across the watchlist (MCP `get_ticker`).
