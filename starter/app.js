@@ -2596,14 +2596,22 @@ function priceDirClass(td) {
   const pct = td && td.metrics && typeof td.metrics.pct === "number" ? td.metrics.pct : 0;
   return pct > 0.05 ? "up" : pct < -0.05 ? "down" : "flat";
 }
+function newsBasisHTML(news) {
+  if (!news || !news.basis) return "";
+  if (news.basis === "related" && /^[A-Z]{1,5}$/.test(String(news.via || ""))) {
+    return ` \xB7 via <a href="${tickerHref(news.via)}" target="_blank">${news.via}</a>`;
+  }
+  if (news.basis === "sector") return " \xB7 sector news";
+  return "";
+}
 function roloCardHTML(sym, state) {
   const td = state.td;
   const price = td && td.metrics && td.metrics.price != null ? "$" + td.metrics.price.toFixed(2) : "\u2014";
   const news = td && td.news;
-  const rawHeadline = news ? news.headline : "No news within the last business week";
+  const rawHeadline = news ? news.headline : "No news within the last 14 days";
   const ctxEl = document.getElementById("context-input");
   const headline = autoLinkGlossaryTerms(news ? highlightContextMatches(rawHeadline, ctxEl ? ctxEl.value : "") : rawHeadline);
-  const age = news ? news.ageLabel : "\u2014";
+  const age = news ? news.ageLabel + newsBasisHTML(news) : "\u2014";
   const m = td && td.metrics;
   const w52 = m && m.rangePosition != null ? m.rangePosition + "%" : "?";
   const phase = m && m.phaseProxy ? m.phaseProxy.replace("PHASE_", "") : "?";

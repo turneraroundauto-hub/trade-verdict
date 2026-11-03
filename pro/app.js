@@ -7072,14 +7072,22 @@ function priceDirClass(td) {
   const pct = td && td.metrics && typeof td.metrics.pct === "number" ? td.metrics.pct : 0;
   return pct > 0.05 ? "up" : pct < -0.05 ? "down" : "flat";
 }
+function newsBasisHTML(news) {
+  if (!news || !news.basis) return "";
+  if (news.basis === "related" && /^[A-Z]{1,5}$/.test(String(news.via || ""))) {
+    return ` \xB7 via <a href="${tickerHref(news.via)}" target="_blank">${news.via}</a>`;
+  }
+  if (news.basis === "sector") return " \xB7 sector news";
+  return "";
+}
 function roloCardHTML(sym, state) {
   const td = state.td;
   const price = td && td.metrics && td.metrics.price != null ? "$" + td.metrics.price.toFixed(2) : "\u2014";
   const news = td && td.news;
-  const rawHeadline = news ? news.headline : "No news within the last business week";
+  const rawHeadline = news ? news.headline : "No news within the last 14 days";
   const ctxEl = document.getElementById("context-input");
   const headline = autoLinkGlossaryTerms(news ? highlightContextMatches(rawHeadline, ctxEl ? ctxEl.value : "") : rawHeadline);
-  const age = news ? news.ageLabel : "\u2014";
+  const age = news ? news.ageLabel + newsBasisHTML(news) : "\u2014";
   const m = td && td.metrics;
   const w52 = m && m.rangePosition != null ? m.rangePosition + "%" : "?";
   const phase = m && m.phaseProxy ? m.phaseProxy.replace("PHASE_", "") : "?";
@@ -7734,7 +7742,7 @@ async function renderOverflowList() {
   el.innerHTML = rows.map(function(r) {
     var t = r.ticker;
     var hasNews = r.news && r.news.ageHours <= 300;
-    return '<div class="compact-row-wrap" data-ticker="' + t + '"><div class="compact-swipe-bg"><span class="swipe-icon">&#128465;</span><span class="swipe-label">DELETE</span></div><div class="compact-row"><div class="compact-row-main"><div class="compact-row-top"><span class="compact-ticker" style="color:' + (r.pct != null ? pctColor(r.pct) : "var(--ink)") + '"><a class="ticker-a" href="' + tickerHref(t) + '" target="_blank">' + t + '</a></span><span class="compact-price" style="color:' + (r.pct != null ? pctColor(r.pct) : "var(--ink)") + '">' + (r.price != null ? "$" + r.price.toFixed(2) : "&mdash;") + '</span><span class="compact-pct" style="color:' + (r.pct != null ? pctColor(r.pct) : "var(--ink-dim)") + '">' + (r.pct != null ? fmtPct(r.pct) : "&mdash;") + '</span></div><div class="compact-news"' + (hasNews ? "" : ' style="display:none"') + ">" + (hasNews ? wrapHeadlineLinks(t, autoLinkGlossaryTerms(highlightContextMatches(r.news.headline, ctxVal))) : "") + '</div></div><button type="button" class="compact-plus-btn" title="Add as card" data-promote="' + t + '">+</button></div></div>';
+    return '<div class="compact-row-wrap" data-ticker="' + t + '"><div class="compact-swipe-bg"><span class="swipe-icon">&#128465;</span><span class="swipe-label">DELETE</span></div><div class="compact-row"><div class="compact-row-main"><div class="compact-row-top"><span class="compact-ticker" style="color:' + (r.pct != null ? pctColor(r.pct) : "var(--ink)") + '"><a class="ticker-a" href="' + tickerHref(t) + '" target="_blank">' + t + '</a></span><span class="compact-price" style="color:' + (r.pct != null ? pctColor(r.pct) : "var(--ink)") + '">' + (r.price != null ? "$" + r.price.toFixed(2) : "&mdash;") + '</span><span class="compact-pct" style="color:' + (r.pct != null ? pctColor(r.pct) : "var(--ink-dim)") + '">' + (r.pct != null ? fmtPct(r.pct) : "&mdash;") + '</span></div><div class="compact-news"' + (hasNews ? "" : ' style="display:none"') + ">" + (hasNews ? wrapHeadlineLinks(t, autoLinkGlossaryTerms(highlightContextMatches(r.news.headline, ctxVal))) + (newsBasisHTML(r.news) ? ' <span class="age">' + newsBasisHTML(r.news).replace(/^ · /, "") + "</span>" : "") : "") + '</div></div><button type="button" class="compact-plus-btn" title="Add as card" data-promote="' + t + '">+</button></div></div>';
   }).join("");
   el.querySelectorAll("[data-promote]").forEach((btn) => btn.addEventListener("click", () => promoteToCard(btn.dataset.promote)));
   bindCompactGestures();

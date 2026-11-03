@@ -2407,7 +2407,7 @@ Mr. T's rules after a sanity check of the old LONG grade (close 5 sessions later
 - **Order:** patch32 applied before the deploy (logVerdict drops a verdict on an unknown column). Grants checked both ways.
 - **Not verified live:** `LONG bracket backfill: N graded call(s) scored.` in Render logs; `long_bracket_source='live'` on the first market-hours calls; Free/Starter opening-bar timestamps at 14:30 UTC.
 
-## Nov 2, 2026 — ticker news must be about the ticker (`Tra` / mirror, PRs open, not merged)
+## Nov 2, 2026 — ticker news must be about the ticker (`Tra` #153 / `trade-verdict` #404, merged; related/sector fallback in the next PR pair)
 - **Bug (systemic, not BB-only):** the ticker card, Gate 2's catalyst and the after-cutoff catalyst check showed the **newest article either feed had tagged to the symbol, whether or not it was about the company**. The relevance check (`isHeadlineRelevant`, Aug 27) only ran where a company name was passed, which was the Agitator only. Finnhub and Alpaca tag loosely. 20 of 34 cached headlines on Nov 2 were unrelated (BB: a Paramount/Spin Master story; MU, PLTR, IREN, NU, ET, AMD, NVDA, MSFT, AAPL…), so Gate 2 often judged someone else's news.
 - **Fix:** `ah.pickRelevantNews(pool, symbol, companyName)` (tested). Tiers: 3 = headline names the ticker/company, 2 = summary names it, 1 = a feed tagged this ticker alone, 0 = never shown. Highest tier, then newest.
   - **Ticker matching:** a 2-letter ticker only counts in ticker form: `(ON)`, `$ON`, or `NASDAQ:ON`. An exchange prefix counts only for US/TSX listings (`LSE:ADM` ≠ ADM).
@@ -2422,3 +2422,25 @@ Mr. T's rules after a sanity check of the old LONG grade (close 5 sessions later
 - **Watch after deploy:**
   - Count `[NEWS] … no ticker-specific article` per ticker. ETFs are the likeliest misses.
   - Spot-check card headlines across the watchlist (MCP `get_ticker`).
+- **Related/sector fallback (Mr. T: "For ETFs it could pull sector news or news from associated tickers"; chosen: every ticker, and Gate 2 sees it labeled):**
+  - Step 5 of `fetchNews()` runs only after the ticker's own four steps find nothing. `fetchRelatedNews()` checks up to 4 associated tickers (`ah.associatedTickers`, which drops the ticker itself and SPY/QQQ/BTC/KOSPI-type symbols), in this order:
+    1. Knowledge Graph peers
+    2. the ticker's own Gate 5 proxy (an ETF's best-tracking benchmark)
+    3. its category's member list
+    4. Finnhub peers
+  - An associated ticker's article only counts if it's about that ticker (tier 2+); newest wins.
+  - If none qualifies, it uses the newest general-market article naming the category's keywords (`ah.pickSectorNews`).
+  - Returned with `basis: 'related'` + `via`, or `basis: 'sector'` + `sector`. Not written to `news_cache`.
+  - **Gate 2:** `ah.relatedNewsContext()` labels it in the `/analyze` prompt: "NOT about TICKER itself … sector context … do not classify it as COMPANY-SPECIFIC". It doesn't count as this ticker's fresh news for corroboration (`hasFreshNews`). SYSTEM_PROMPT is untouched (cache).
+  - **Cards (all tiers, Pro overflow rows too):** `newsBasisHTML()` adds "· via MU" (linked) or "· sector news" after the age. Free `?v=116`, Starter `?v=134`, Pro `?v=84`.
+  - **The Agitator opts out** (`fetchNews(..., { related: false })`) because it has its own topical fallback and comps.
+  - **Cost:** only on a miss: about 2 calls per associated ticker (≤8), plus one `profile2` per new name (cached 24h). Re-checked on the normal 30-min news cadence.
+  - **Not verified live:** count `[NEWS] <SYM>: … using related news via X` vs `no ticker-specific, related or sector article` in Render logs, and check DRAM's card.
+
+## Nov 3, 2026 — Gate 3 bar settle delay + cache guard; 14-day news window (`Tra` / mirror, merged with the related-news PR pair)
+- **Bug (IMVT, Nov 3):** a 7:26 AM PT ANALYZE read "2/3 bars done. Day read at 7:15 AM PT". The cause: `gate3BarsCache` keeps one bar fetch per symbol per candle. Something fetched IMVT's bars right after 7:15, before Alpaca had published the 7:00–7:15 bar, and those 2 bars were pinned for the whole candle. Both the live ANALYZE and the 60 s DAY-job sweep read that stale copy. The DAY call only resolved at the next candle, 7:30. This hits any ticker at any candle boundary.
+- **Fix (Mr. T: a 62 s delay, plus the guard):**
+  - `g3w.BAR_SETTLE_MS = 62000`. `fetchGate3Window()` and `windowCacheLookup()` run on a settle-shifted clock (`settledNow()`), so a bar counts 62 s after it closes. The first DAY read is 7:16:02 AM PT; `readyAt`/`cutoffAt` shift by the same 62 s.
+  - **Guard:** a fetch is cached only if it has `g3w.expectedCompletedCount()` bars. Otherwise the next call re-fetches and logs `[GATE3] <SYM>: newest … bar not published yet`.
+  - Replayed against the IMVT morning: a 20 s Alpaca lag resolves at 7:16:02, and a 90 s lag resolves one call later. A thin stock with an IEX bar that never prints just re-fetches on each call; this is bounded.
+- **News window 300 h → 14 days** (`MAX_NEWS_AGE_HOURS = 14 * 24`, Mr. T). It covers the first news search, Gate 2's cutoff and the "no news" prompt line ("No news within the last 14 days"). The cards' empty-state text matches. The 30-day card look-back is unchanged.

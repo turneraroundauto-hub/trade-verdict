@@ -400,14 +400,27 @@ function priceDirClass(td: TickerData | null): string {
   return pct > 0.05 ? 'up' : pct < -0.05 ? 'down' : 'flat';
 }
 
+// Nov 2, 2026: when a ticker has no news of its own, the backend sends a
+// related company's article (basis 'related', via TICKER) or sector news
+// (basis 'sector'). Labeled next to the age so it never reads as this
+// ticker's own news; the via ticker is a link like every displayed symbol.
+function newsBasisHTML(news: any): string {
+  if (!news || !news.basis) return '';
+  if (news.basis === 'related' && /^[A-Z]{1,5}$/.test(String(news.via || ''))) {
+    return ` · via <a href="${tickerHref(news.via)}" target="_blank">${news.via}</a>`;
+  }
+  if (news.basis === 'sector') return ' · sector news';
+  return '';
+}
+
 function roloCardHTML(sym: string, state: TickerState): string {
   const td = state.td;
   const price = td && td.metrics && td.metrics.price != null ? '$' + td.metrics.price.toFixed(2) : '—';
   const news: any = td && td.news;
-  const rawHeadline = news ? news.headline : 'No news within the last business week';
+  const rawHeadline = news ? news.headline : 'No news within the last 14 days';
   const ctxEl = document.getElementById('context-input') as HTMLTextAreaElement | null;
   const headline = autoLinkGlossaryTerms(news ? highlightContextMatches(rawHeadline, ctxEl ? ctxEl.value : '') : rawHeadline);
-  const age = news ? news.ageLabel : '—';
+  const age = news ? news.ageLabel + newsBasisHTML(news) : '—';
   const m: any = td && td.metrics;
   const w52 = m && m.rangePosition != null ? m.rangePosition + '%' : '?';
   const phase = m && m.phaseProxy ? m.phaseProxy.replace('PHASE_', '') : '?';

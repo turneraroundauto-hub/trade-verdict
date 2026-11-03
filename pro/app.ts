@@ -625,14 +625,27 @@ function priceDirClass(td: TickerData | null): string {
   return pct > 0.05 ? 'up' : pct < -0.05 ? 'down' : 'flat';
 }
 
+// Nov 2, 2026: when a ticker has no news of its own, the backend sends a
+// related company's article (basis 'related', via TICKER) or sector news
+// (basis 'sector'). Labeled next to the age so it never reads as this
+// ticker's own news; the via ticker is a link like every displayed symbol.
+function newsBasisHTML(news: any): string {
+  if (!news || !news.basis) return '';
+  if (news.basis === 'related' && /^[A-Z]{1,5}$/.test(String(news.via || ''))) {
+    return ` · via <a href="${tickerHref(news.via)}" target="_blank">${news.via}</a>`;
+  }
+  if (news.basis === 'sector') return ' · sector news';
+  return '';
+}
+
 function roloCardHTML(sym: string, state: TickerState): string {
   const td = state.td;
   const price = td && td.metrics && td.metrics.price != null ? '$' + td.metrics.price.toFixed(2) : '—';
   const news: any = td && td.news;
-  const rawHeadline = news ? news.headline : 'No news within the last business week';
+  const rawHeadline = news ? news.headline : 'No news within the last 14 days';
   const ctxEl = document.getElementById('context-input') as HTMLTextAreaElement | null;
   const headline = autoLinkGlossaryTerms(news ? highlightContextMatches(rawHeadline, ctxEl ? ctxEl.value : '') : rawHeadline);
-  const age = news ? news.ageLabel : '—';
+  const age = news ? news.ageLabel + newsBasisHTML(news) : '—';
   const m: any = td && td.metrics;
   const w52 = m && m.rangePosition != null ? m.rangePosition + '%' : '?';
   const phase = m && m.phaseProxy ? m.phaseProxy.replace('PHASE_', '') : '?';
@@ -1357,7 +1370,7 @@ async function renderOverflowList(): Promise<void> {
       + '<div class="compact-row-top"><span class="compact-ticker" style="color:' + (r.pct != null ? pctColor(r.pct) : 'var(--ink)') + '"><a class="ticker-a" href="' + tickerHref(t) + '" target="_blank">' + t + '</a></span>'
       + '<span class="compact-price" style="color:' + (r.pct != null ? pctColor(r.pct) : 'var(--ink)') + '">' + (r.price != null ? '$' + r.price.toFixed(2) : '&mdash;') + '</span>'
       + '<span class="compact-pct" style="color:' + (r.pct != null ? pctColor(r.pct) : 'var(--ink-dim)') + '">' + (r.pct != null ? fmtPct(r.pct) : '&mdash;') + '</span></div>'
-      + '<div class="compact-news"' + (hasNews ? '' : ' style="display:none"') + '>' + (hasNews ? wrapHeadlineLinks(t, autoLinkGlossaryTerms(highlightContextMatches((r.news as any).headline, ctxVal))) : '') + '</div>'
+      + '<div class="compact-news"' + (hasNews ? '' : ' style="display:none"') + '>' + (hasNews ? wrapHeadlineLinks(t, autoLinkGlossaryTerms(highlightContextMatches((r.news as any).headline, ctxVal))) + (newsBasisHTML(r.news) ? ' <span class="age">' + newsBasisHTML(r.news).replace(/^ · /, '') + '</span>' : '') : '') + '</div>'
       + '</div>'
       + '<button type="button" class="compact-plus-btn" title="Add as card" data-promote="' + t + '">+</button>'
       + '</div></div>';
