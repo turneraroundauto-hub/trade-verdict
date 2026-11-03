@@ -2436,3 +2436,11 @@ Mr. T's rules after a sanity check of the old LONG grade (close 5 sessions later
   - **The Agitator opts out** (`fetchNews(..., { related: false })`) because it has its own topical fallback and comps.
   - **Cost:** only on a miss: about 2 calls per associated ticker (≤8), plus one `profile2` per new name (cached 24h). Re-checked on the normal 30-min news cadence.
   - **Not verified live:** count `[NEWS] <SYM>: … using related news via X` vs `no ticker-specific, related or sector article` in Render logs, and check DRAM's card.
+
+## Nov 3, 2026 — Gate 3 bar settle delay + cache guard; 14-day news window (`Tra` / mirror, merged with the related-news PR pair)
+- **Bug (IMVT, Nov 3):** a 7:26 AM PT ANALYZE read "2/3 bars done. Day read at 7:15 AM PT". The cause: `gate3BarsCache` keeps one bar fetch per symbol per candle. Something fetched IMVT's bars right after 7:15, before Alpaca had published the 7:00–7:15 bar, and those 2 bars were pinned for the whole candle. Both the live ANALYZE and the 60 s DAY-job sweep read that stale copy. The DAY call only resolved at the next candle, 7:30. This hits any ticker at any candle boundary.
+- **Fix (Mr. T: a 62 s delay, plus the guard):**
+  - `g3w.BAR_SETTLE_MS = 62000`. `fetchGate3Window()` and `windowCacheLookup()` run on a settle-shifted clock (`settledNow()`), so a bar counts 62 s after it closes. The first DAY read is 7:16:02 AM PT; `readyAt`/`cutoffAt` shift by the same 62 s.
+  - **Guard:** a fetch is cached only if it has `g3w.expectedCompletedCount()` bars. Otherwise the next call re-fetches and logs `[GATE3] <SYM>: newest … bar not published yet`.
+  - Replayed against the IMVT morning: a 20 s Alpaca lag resolves at 7:16:02, and a 90 s lag resolves one call later. A thin stock with an IEX bar that never prints just re-fetches on each call; this is bounded.
+- **News window 300 h → 14 days** (`MAX_NEWS_AGE_HOURS = 14 * 24`, Mr. T). It covers the first news search, Gate 2's cutoff and the "no news" prompt line ("No news within the last 14 days"). The cards' empty-state text matches. The 30-day card look-back is unchanged.

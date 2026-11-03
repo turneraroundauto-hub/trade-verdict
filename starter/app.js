@@ -2608,7 +2608,7 @@ function roloCardHTML(sym, state) {
   const td = state.td;
   const price = td && td.metrics && td.metrics.price != null ? "$" + td.metrics.price.toFixed(2) : "\u2014";
   const news = td && td.news;
-  const rawHeadline = news ? news.headline : "No news within the last business week";
+  const rawHeadline = news ? news.headline : "No news within the last 14 days";
   const ctxEl = document.getElementById("context-input");
   const headline = autoLinkGlossaryTerms(news ? highlightContextMatches(rawHeadline, ctxEl ? ctxEl.value : "") : rawHeadline);
   const age = news ? news.ageLabel + newsBasisHTML(news) : "\u2014";
