@@ -2451,3 +2451,14 @@ Mr. T's rules after a sanity check of the old LONG grade (close 5 sessions later
 - **Seen, left alone:** the Free/Starter opening bar for thinly traded names can be the first IEX bar that has a trade. IMVT's was 14:45 UTC, not 14:30. This doesn't affect Pro's 3-bar window.
 - **Saturday readout:** now includes section 3b, the BR-1 bracket (live vs backfill, never pooled), plus bracket backfill health. Mr. T approved it Nov 2.
 - **Process slip (logged in the Rogue Actions Log):** restarting the trade-verdict branch from `main` with a force-push wiped #404's unmerged CLAUDE.md commit. It was restored by cherry-pick within minutes. **Before restarting a shared branch, check `git log origin/main..origin/<branch>` for unmerged work.**
+
+## Nov 4-11, 2026 — 62 s settle first live day; shadow audit (no code changes)
+- **62 s settle, Nov 4:** no ANALYZE ran near 7:16 AM PT, so the exact candle-boundary race is still untested live. Analyze All at 7:45 AM PT (mid-candle) gave 15/15 Pro calls 3/3 bars and RESOLVED, and zero `[GATE3] … not published yet` lines. The real test is an ANALYZE 1-3 minutes after a quarter-hour mark.
+- **Shadow audit, Nov 11** (148 market-hours calls Nov 2-10, read-only):
+  - **Coverage:** B-2, BR-1, `confidence_v2` and `pct_above_50d` are on every call. Options data, `g3_window` and `day_verdict` are on every Pro call (7 Free calls lack them by design). `conf_ceiling_long` records on 10 calls (mostly HIGH ones).
+  - **Math:** B-2 and BR-1 re-derived from each row's own logged inputs: 0 mismatches. `long_b2_trend` matched the live Gate 1 branch on all 148.
+  - **Range spot check vs Robinhood closes:** PLTR/MU within ~1 pt (IEX vs official close).
+  - **Grading:** `gradeLongRows()` grades live, B-2 and BR-1 together. Due dates are stamped Nov 20 – Dec 1 (Thanksgiving skipped). No missing entry prices.
+  - **g23 DAY design:** replay-only; the live replay matches 149/151 logged DAY calls.
+  - **By design:** Gate 1 is never neutral. 81% of calls were DOWNTREND in this falling market, so BR-1 leans UP (61/79 live) and B-2's check 3 does most of its work. Late-November grades mostly test whether these names bounce; one regime can flatter or punish either shadow.
+  - **Not checked:** Render logs (Render's log service returned 503 on Nov 7).
