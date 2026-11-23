@@ -2462,3 +2462,11 @@ Mr. T's rules after a sanity check of the old LONG grade (close 5 sessions later
   - **g23 DAY design:** replay-only; the live replay matches 149/151 logged DAY calls.
   - **By design:** Gate 1 is never neutral. 81% of calls were DOWNTREND in this falling market, so BR-1 leans UP (61/79 live) and B-2's check 3 does most of its work. Late-November grades mostly test whether these names bounce; one regime can flatter or punish either shadow.
   - **Not checked:** Render logs (Render's log service returned 503 on Nov 7).
+
+## Nov 23, 2026 — LONG bracket veto goes live (`Tra` / mirror; Mr. T approved)
+- **Why (all graded LONG calls Aug 26–Nov 2, vs random pick under the same 5+14 rule):** the model's LONG direction was 35.2% vs random 37.6% (−2.4; −7.0 without ET; beats random on 4 of 17 tickers). BR-1 alone was 43.9% vs 35.5% (+8.4; +5.5 without ET/ARCC; 13 of 17 tickers; positive every month). The worst leak: model UP while BR-1 says DOWN — 66 calls, right 10.6% vs ~18% random UP, −6.5% average by session 14, 13 tickers, below random every month.
+- **Rule (`ah.bracketVetoesUp`, `BRACKET_VETO_VERSION = 'V-1'`):** model UP + BR-1 DOWN → the LONG call ships FLAT, sizing NONE, confidence LOW, with a plain "Trend check" `wait_for`. It only removes UP calls. All tiers. Off switch: Render env `LONG_BRACKET_VETO=off`.
+- **Deliberate exception to the 100-call shadow bar**, approved by Mr. T on the in-sample evidence above. Re-check it in the Saturday readout.
+- **Scope kept narrow:** the DAY call still refines the model's own call (`modelLongVerdict`), so a card can read DAY UP / LONG FLAT. The frozen B-2 shadow and the BR-1 `confirms_up` flag also read the model's call. Vetoed rows log `override: "bracket_veto"` and `gates.inputs.long_veto {from, sizing, bracket, score, version}`; the tuner's DAY replay reads `long_veto.from` so replays stay faithful.
+- **Expected effect:** about 4 vetoes a week (11 of 51 model UPs since Nov 2). On past data the LONG tile goes from about 35% to about 42%.
+- Not rejected, still shadow: BR-1 as the full LONG direction (go-live bar: 100 live graded calls, ~mid-December). "Model and bracket agree" looked like 50% but 40 of its 131 calls were ET; without ET it was 37%.
