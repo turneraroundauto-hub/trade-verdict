@@ -2479,3 +2479,14 @@ Mr. T's rules after a sanity check of the old LONG grade (close 5 sessions later
   - **Off switch:** `LONG_DIRECTION=model` restores the AI's call plus the V-1 veto (`LONG_BRACKET_VETO=off` turns that off too).
   - **Known risk:** BR-1 is contrarian (it buys downtrends and fades uptrends), and Gate 1 is never neutral, so nearly every LONG call is now UP or DOWN. A long one-way trend will hurt it.
   - Pro's "Day / Long Call" glossary entry was rewritten (it still described the reverted Oct 27 options lens). Pro `?v=85`.
+
+## Nov 24, 2026 — Pro DAY call separated from LONG (D-2); LONG override logging (Mr. T, scope via `AskUserQuestion`)
+- **DAY is its own call (`g3w.dayCall`, `DAY_CALL_VERSION = 'D-2'`, Pro only).** It starts from the AI's own read (`modelLongVerdict`, after server market rules, never the A-1 algorithm) plus the last three 15-min bars.
+  - **Locks** (market/breakdown only): Gate 0 RED, Gate 1 breakdown, Gate 5 forceDown keep their call, **except** a Gate 1 breakdown DOWN on a morning of 3 green bars → DAY UP, QUARTER, "for today only" (8 of 10 past cases kept rising).
+  - **Price against:** if confidence v2 for the DAY direction is LOW (stock or sector already moving against it, computed at issue as `v2Low {UP, DOWN}`), DAY is FLAT/NONE.
+  - **Earnings:** the block no longer applies to DAY (Mr. T's choice; it still applies to LONG). DAY sizes from `sizingBeforeEarnings`.
+  - **Replay (155 DAY calls Oct 21–Nov 20, close-only grading):** 64.2% right on 120 calls vs 58.1% live; better in both halves. Day-clustered 95% range [54%, 73%]. The green-bar flip rests on only 10 cases; watch it.
+  - Persisted in the DAY job's `long` (`lock`, `v2Low`, `dayVersion`) so a DAY read that lands later uses the same rules; `dayOptsFrom()` keeps pre-D-2 jobs on the old refine. Logged in `gates.g3_day_opts {lock, v2Low, version, day_base_sizing}`; the tuner's live replay uses `g3w.dayCall` for D-2 rows.
+- **LONG logging fix:** `gates.inputs.override` still names the first rule that fired on the AI's call; new `gates.inputs.final_override` names the rule that set the shipped LONG call (`algo_direction` when the algorithm disagreed), plus `long_source.prior_override`.
+- **Pro card bug fixed:** since the options lens went off (Oct 28) a trailing `else` in `dayLongBarHTML()` overwrote the DAY "why" note with the Gate 3 note, so DAY's reason never showed. It now shows under the DAY/LONG switch. Pro glossary "Day / Long Call" rewritten. Pro `?v=86`.
+- Not verified live: first D-2 DAY reads (look for `g3_day_opts.version = 'D-2'`, and any `bars_over_breakdown` / `price_against` notes).
