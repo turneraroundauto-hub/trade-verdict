@@ -550,17 +550,24 @@ function dayLongBarHTML(sym: string, state: TickerState): string {
   if (closed) status = 'Market closed. DAY comes back at the next open; this is the Long call.';
   else if (w.day) status = (view === 'day' ? w.day.note + ' ' : '') + (w.asOf ? 'Bars as of ' + fmtClock(w.asOf) + '.' : '');
   else if (w.state === 'FORMING') status = `Day read at ${fmtClock(w.readyAt)} (${w.barsDone}/${w.barsNeeded} ${w.barMinutes || 15}-min bars). It will show here on its own, no extra credit.`;
+  else status = (w.gate3 && w.gate3.note) || 'Long verdict only.';
   // Options lens (Oct 27, 2026): which bars it reads and the options lean.
+  // (Nov 24: this used to end in an "else" that overwrote the DAY note
+  // whenever the lens was off, so the DAY "why" never showed.)
   if (!closed && w.lens) {
     const why = (w.barMinutes || 15) < 15 ? 'options expect a bigger day than usual' : (w.barMinutes || 15) > 15 ? 'options expect a quieter day than usual' : 'a normal day';
     status += ` Reading ${w.barMinutes}-min bars: ${why}.` + (w.lens.lean ? ` Options lean: ${w.lens.lean.toLowerCase()}.` : '');
   }
-  else status = (w.gate3 && w.gate3.note) || 'Long verdict only.';
   // DAY breathes while its read is still forming, and flashes when it lands.
   const dayExtra = closed ? '' : (state.dayFlashUntil && state.dayFlashUntil > Date.now()) ? ' view-flash' : (!w.day && w.state === 'FORMING') ? ' view-forming' : '';
   const btn = (v: string, label: string, enabled: boolean, extra: string) =>
     `<button type="button" class="view-btn${view === v ? ' active' : ''}${extra}" data-view="${v}" ${enabled ? '' : 'disabled'}>${label}</button>`;
-  return `<div class="day-long-bar" data-tutorial="daylong">${btn('day', 'DAY', !!w.day && !closed, dayExtra)}${btn('long', 'LONG', true, '')}</div><div class="day-note">${status}</div>`;
+  // D-2 (Nov 24, 2026, Mr. T: "45 minutes later the story can change"):
+  // before the cutoff, re-read the latest bars for free. Same AI read, no
+  // credit; a changed DAY call is graded on its own.
+  const canReread = !closed && !!w.day && !!w.cutoffAt && Date.now() < Date.parse(w.cutoffAt) && !state.analyzing;
+  const reread = canReread ? ` <button type="button" class="day-reread" data-reread="${sym}">↻ Re-read bars (free)</button>` : '';
+  return `<div class="day-long-bar" data-tutorial="daylong">${btn('day', 'DAY', !!w.day && !closed, dayExtra)}${btn('long', 'LONG', true, '')}</div><div class="day-note">${status}${reread}</div>`;
 }
 
 // historicalReaction (Sep 2, 2026): pooled, cross-user directional
@@ -694,6 +701,8 @@ function roloCardHTML(sym: string, state: TickerState): string {
 function wireCardButtons(card: HTMLElement, sym: string): void {
   const btn = card.querySelector('[data-analyze]');
   if (btn) btn.addEventListener('click', () => { vibrateTap(); snapOnAnalyze.add(sym); analyzeOne(sym); });
+  const rereadBtn = card.querySelector('[data-reread]');
+  if (rereadBtn) rereadBtn.addEventListener('click', () => { vibrateTap(); analyzeOne(sym); });
   card.querySelectorAll<HTMLElement>('[data-view]').forEach((b) => b.addEventListener('click', () => {
     const st = tickerState.get(sym);
     if (!st || b.hasAttribute('disabled')) return;
@@ -2061,7 +2070,7 @@ var GLOSSARY: GlossaryTerm[] = [
   {cat:'CRF FRAMEWORK',term:'Credit',def:'What an analysis costs. Every 3 analyses use 1 credit, and an analysis that fails doesn’t cost anything. Free gets 3 credits a week; Starter and Pro get a monthly amount.',ex:'Analyze All on 3 stocks uses 1 credit.'},
   {cat:'CRF FRAMEWORK',term:'Sector Pulse',def:'Two plain sentences in the Gate box about what the market is doing today and which groups are leading or lagging. It explains the mood; the numbers are in the grid above it. Free shows the first few words; Starter and Pro show it all.',ex:'“Risk-on: investors are willing to take chances. Biotech and chip stocks are leading.”'},
   {cat:'CRF FRAMEWORK',term:'Aggression Dial',def:'Sets how actively you plan to trade, from Aggressive to Passive. It can lower the position size a verdict suggests, but never raises it past what the gates earned.',ex:'Aggressive caps a position at Half size, even when the gates allow Full.'},
-  {cat:'CRF FRAMEWORK',term:'Day / Long Call',def:'Every Pro verdict comes in two versions. LONG is the call for the next 5 to 14 trading days. Its direction comes from a fixed rule, the stock’s 14-day trend plus any SEC filing flag, because that rule has called multi-week direction better than the AI. DAY is the call for today only: it starts from the AI’s read of the news and checks it against the last three 15-minute price bars. After the close, only LONG applies.',ex:'The stock has fallen for two weeks, so LONG says UP (names like this have tended to rebound), but this morning’s bars keep falling, so DAY says FLAT for today.'},
+  {cat:'CRF FRAMEWORK',term:'Day / Long Call',def:'Every Pro verdict comes as two separate calls. LONG is for the next 5 to 14 trading days; its direction comes from a fixed rule, the stock\u2019s 14-day trend plus any SEC filing flag. DAY is for today only: it starts from the AI\u2019s read of today and checks it against the last three 15-minute price bars. If the bars clearly point the other way, the bars lead (QUARTER size). If the stock or its sector is already moving against the DAY direction, DAY says FLAT. Nothing locks the DAY call: tap \u21bb Re-read bars any time before 10:30 AM PT to update it for free. The earnings block applies to LONG, not DAY. After the close, only LONG applies.',ex:'At 7:20 AM PT the AI reads DOWN and the bars agree. At 8:05 the last three bars are green, so a re-read flips DAY to UP for the rest of the morning.'},
   {cat:'CRF FRAMEWORK',term:'Gate 0 — Sector Gate',def:'Checks how the overall stock market is doing today. If the whole market is having a bad day, that drags down the outlook for pretty much everything.',ex:'A rising tide lifts all boats — a sinking one drags them down too.'},
   {cat:'CRF FRAMEWORK',term:'Gate 1 — Bidirectional Trend Structure',def:'Looks at whether the stock has already made a big move recently, up or down. A stock that’s already run up a lot is riskier to chase, and one that’s fallen too far too fast is a red flag too.',ex:'Like being wary of a stock that already “ran” — you don’t want to be the last one to the party.'},
   {cat:'CRF FRAMEWORK',term:'Gate 2 — Catalyst Congruence',def:'Checks whether recent news about the company actually supports the direction the app is leaning.',ex:'Makes sure the story and the numbers are telling the same story.'},
