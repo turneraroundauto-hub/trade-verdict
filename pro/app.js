@@ -7024,7 +7024,9 @@ function dayLongBarHTML(sym, state) {
   const btn = (v, label, enabled, extra) => `<button type="button" class="view-btn${view === v ? " active" : ""}${extra}" data-view="${v}" ${enabled ? "" : "disabled"}>${label}</button>`;
   const canReread = !closed && !!w.day && !!w.cutoffAt && Date.now() < Date.parse(w.cutoffAt) && !state.analyzing;
   const reread = canReread ? ` <button type="button" class="day-reread" data-reread="${sym}">\u21BB Re-read bars (free)</button>` : "";
-  return `<div class="day-long-bar" data-tutorial="daylong">${btn("day", "DAY", !!w.day && !closed, dayExtra)}${btn("long", "LONG", true, "")}</div><div class="day-note">${status}${reread}</div>`;
+  const rr = state.reread;
+  const rereadLine = rr && !closed && w.day ? `<div class="day-reread-line">\u21BB Re-read ${fmtClock(new Date(rr.at).toISOString())} \xB7 ` + (rr.from && rr.from !== rr.to ? `DAY changed: ${rr.from} \u2192 ${rr.to}` : "DAY unchanged") + (rr.aiAt ? ` \xB7 AI read ${fmtClock(rr.aiAt)} (reused, free)` : "") + `</div>` : "";
+  return `<div class="day-long-bar" data-tutorial="daylong">${btn("day", "DAY", !!w.day && !closed, dayExtra)}${btn("long", "LONG", true, "")}</div>${rereadLine}<div class="day-note">${status}${reread}</div>`;
 }
 function gateListHTML(sym, result, historicalReaction) {
   const stp = tickerState.get(sym);
@@ -7520,6 +7522,7 @@ function snapIfActive(sym) {
 async function analyzeOne(sym, holdThroughEarnings) {
   const state = tickerState.get(sym);
   if (!state || state.analyzing) return;
+  const prevResult = state.result;
   state.analyzing = true;
   state.error = null;
   state.progress = null;
@@ -7591,6 +7594,16 @@ async function analyzeOne(sym, holdThroughEarnings) {
     }
     var ctype = res.headers.get("content-type") || "";
     var _r = ctype.indexOf("ndjson") >= 0 && res.body ? await readAnalyzeStream(res, sym, state) : await res.json();
+    if (_r && _r.reread) {
+      const dayLabel = (d) => d ? d.verdict + (d.sizing && d.sizing !== "NONE" ? " " + d.sizing : "") : null;
+      const fromDay = dayLabel(prevResult && prevResult.window && prevResult.window.day);
+      const toDay = dayLabel(_r.window && _r.window.day);
+      state.reread = { at: Date.now(), from: fromDay, to: toDay, aiAt: _r.analyzedAt || null };
+      state.view = "day";
+      state.dayFlashUntil = Date.now() + 2700;
+    } else {
+      state.reread = null;
+    }
     cacheVerdict(sym, _r);
     lastAnalysis[sym] = _r;
     state.result = _r;

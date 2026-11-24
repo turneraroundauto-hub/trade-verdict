@@ -344,7 +344,7 @@ const roloStage = document.getElementById('roloStage') as HTMLElement;
 const roloIndex = document.getElementById('roloIndex') as HTMLElement;
 const scroller = document.getElementById('scroller') as HTMLElement;
 
-interface TickerState { td: TickerData | null; result: AnalyzeResponse | null; analyzing: boolean; error: string | null; progress?: any; view?: 'day' | 'long'; hold?: boolean; dayTimer?: any; dayFlashUntil?: number; }
+interface TickerState { td: TickerData | null; result: AnalyzeResponse | null; analyzing: boolean; error: string | null; progress?: any; view?: 'day' | 'long'; hold?: boolean; dayTimer?: any; dayFlashUntil?: number; reread?: { at: number; from: string | null; to: string | null; aiAt: string | null } | null; }
 const tickerState = new Map<string, TickerState>();
 
 const TYPE_COLOR: Record<string, string> = { CANARY: 'var(--amber)', SENTIMENT: 'var(--blue)', FLOW: 'var(--green)' };
@@ -567,7 +567,15 @@ function dayLongBarHTML(sym: string, state: TickerState): string {
   // credit; a changed DAY call is graded on its own.
   const canReread = !closed && !!w.day && !!w.cutoffAt && Date.now() < Date.parse(w.cutoffAt) && !state.analyzing;
   const reread = canReread ? ` <button type="button" class="day-reread" data-reread="${sym}">↻ Re-read bars (free)</button>` : '';
-  return `<div class="day-long-bar" data-tutorial="daylong">${btn('day', 'DAY', !!w.day && !closed, dayExtra)}${btn('long', 'LONG', true, '')}</div><div class="day-note">${status}${reread}</div>`;
+  // Re-read line (Nov 24, 2026, Mr. T: a re-read looked like a cached result):
+  // when it happened, whether DAY changed, and that the AI read is reused.
+  const rr = state.reread;
+  const rereadLine = rr && !closed && w.day
+    ? `<div class="day-reread-line">↻ Re-read ${fmtClock(new Date(rr.at).toISOString())} · `
+      + (rr.from && rr.from !== rr.to ? `DAY changed: ${rr.from} → ${rr.to}` : 'DAY unchanged')
+      + (rr.aiAt ? ` · AI read ${fmtClock(rr.aiAt)} (reused, free)` : '') + `</div>`
+    : '';
+  return `<div class="day-long-bar" data-tutorial="daylong">${btn('day', 'DAY', !!w.day && !closed, dayExtra)}${btn('long', 'LONG', true, '')}</div>${rereadLine}<div class="day-note">${status}${reread}</div>`;
 }
 
 // historicalReaction (Sep 2, 2026): pooled, cross-user directional
@@ -1151,6 +1159,7 @@ function snapIfActive(sym: string): void {
 async function analyzeOne(sym: string, holdThroughEarnings?: boolean): Promise<void> {
   const state = tickerState.get(sym);
   if (!state || state.analyzing) return;
+  const prevResult: any = state.result;
   state.analyzing = true; state.error = null; state.progress = null; state.view = undefined;
   state.hold = !!holdThroughEarnings;
   if (state.dayTimer) { clearTimeout(state.dayTimer); state.dayTimer = null; }
@@ -1215,6 +1224,16 @@ async function analyzeOne(sym: string, holdThroughEarnings?: boolean): Promise<v
     }
     var ctype = res.headers.get('content-type') || '';
     var _r = (ctype.indexOf('ndjson') >= 0 && res.body) ? await readAnalyzeStream(res, sym, state) : await res.json();
+    // A free DAY re-read (server flag): say so on the card, show DAY, flash it.
+    if (_r && _r.reread) {
+      const dayLabel = (d: any) => d ? d.verdict + (d.sizing && d.sizing !== 'NONE' ? ' ' + d.sizing : '') : null;
+      const fromDay = dayLabel(prevResult && prevResult.window && prevResult.window.day);
+      const toDay = dayLabel(_r.window && _r.window.day);
+      state.reread = { at: Date.now(), from: fromDay, to: toDay, aiAt: _r.analyzedAt || null };
+      state.view = 'day'; state.dayFlashUntil = Date.now() + 2700;
+    } else {
+      state.reread = null;
+    }
     cacheVerdict(sym, _r);
     lastAnalysis[sym] = _r;
     state.result = _r; state.analyzing = false;
