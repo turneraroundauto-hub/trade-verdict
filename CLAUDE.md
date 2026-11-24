@@ -2502,3 +2502,10 @@ Mr. T's rules after a sanity check of the old LONG grade (close 5 sessions later
   - **Follow-ups set:**
     - The scheduled check "Confirm DAY D-2/D-3 live" (`trig_011gS6Je3tkBss4XcNKYD9GV`, 9:15 AM PT Nov 24) checks `g3_session`, the day-so-far note, and the size step-down on reads after 7:30.
     - The Saturday readout (`trig_01L9WbVa1qDqycbZgWtpGBcE`) gained section 4(c), "the D-3 question": among DAY UP/DOWN calls with more than 3 bars of the day so far, compare accuracy when the day agrees with the call vs when it runs against it (the trimmed calls). If after 50+ such calls the trimmed calls are as good or better, it flags D-3 at the top for reconsideration.
+  - **First live re-read, 8:08 AM PT Nov 24 (`Tra` #159 / `trade-verdict` #414):** Mr. T said a re-analyze "looked cached".
+    - It was the free re-read working as designed. The AI part is reused, so the card came back unchanged unless the bars changed the DAY call.
+    - The card showed no sign of a re-read; only the small "Bars as of" stamp changed.
+    - Real bug: `logDayReread` failed on `verdict_log`'s NOT NULL `crf_version` / `grading_window_days` / `grade_due_at`. ET's changed DAY call was shown but never graded, and it can't be recovered. Fixed by copying those columns from the original row.
+    - Card fix (Pro `?v=88`): on a `reread` response the card shows a blue `.day-reread-line` ("↻ Re-read 8:08 AM PT · DAY changed: FLAT → UP QUARTER · AI read 7:31 AM PT (reused, free)"), switches to the DAY view and flashes it.
+    - `/analyze` results now carry `analyzedAt`, the time of the AI read.
+    - Note: an Analyze All at 7:31:00 reads only bars 1–3. The 62 s settle means the 7:15–7:30 bar counts from 7:31:02.
