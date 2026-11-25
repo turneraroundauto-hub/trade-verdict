@@ -2509,3 +2509,28 @@ Mr. T's rules after a sanity check of the old LONG grade (close 5 sessions later
     - Card fix (Pro `?v=88`): on a `reread` response the card shows a blue `.day-reread-line` ("↻ Re-read 8:08 AM PT · DAY changed: FLAT → UP QUARTER · AI read 7:31 AM PT (reused, free)"), switches to the DAY view and flashes it.
     - `/analyze` results now carry `analyzedAt`, the time of the AI read.
     - Note: an Analyze All at 7:31:00 reads only bars 1–3. The 62 s settle means the 7:15–7:30 bar counts from 7:31:02.
+
+## Nov 24-25, 2026 — DAY-call layer study; twice-a-day shadow trials (`Tra` patch33 / mirror patch36)
+- **Layer study (434 graded DAY reads, Oct 21 – Nov 24, 15 tickers, 22 days).** Each DAY layer was replayed alone and stacked through the real `g3w.dayCall`; "right" = the close moved the call's way from the entry; about half of all reads closed up.
+  - The AI's own read: 60% (88 calls). Market rules (Gate 1 breakdown, Gate 0 RED, Gate 5, Pre-Gate): 51%, faded 63 → 43%. Bars: 57%.
+  - The price check is the best add-on (+4–7 points on every stack).
+  - **AI + bars + price check, no market rules: 64% (53 calls, 95% range 53–76%, halves 71/59)** — the only stack whose range stayed above 50%.
+  - Market rules fire on 36% of reads and overwrite the AI's read before it's logged, so the AI's own read on those reads was unknown until the shadow runs below.
+- **Signal search** (21 read-time signals plus every pair and triple, ~1,800 combos): nothing beat chance. Combos that were 85–89% in the first half scored 38–50% in the second. Shuffling outcomes produced as many "stable" combos as the real data, so the 50-day + proxy family that looked strong is luck at this sample size. Scripts: scratchpad `edge/edge.py`, `edge/layers.js`.
+- **Shadow trials (Mr. T: "run it twice a day on a schedule … in complete shadow"; choices via `AskUserQuestion`: Pro top 15, 7:17 + 9:00 AM PT, 3 weeks).**
+  - **Runner (`Tra` `server.js`):** `maybeRunShadowSlots()` checks every 30 s. It runs on trading days from `SHADOW_TRIALS_START` (2026-11-25) to `SHADOW_TRIALS_UNTIL` (2026-12-15), at 10:17 and 12:00 ET.
+  - `runShadowSlot()` runs `/market`, then `/ticker` and `/analyze` for each ticker in `SHADOW_TICKERS` (ALAB, ARCC, AS, BB, DRAM, ET, HOOD, IMVT, IREN, MU, NU, PLTR, SDGR, TWST, VCYT, frozen). Loopback calls carry a per-boot random `SHADOW_RUN_TOKEN` (auth PATH 0, `req.shadowRun`). If the DAY read isn't resolved it retries up to twice, 75 s apart. It skips tickers already recorded for that slot, so a restart is safe.
+  - **Complete shadow:** `shadowRun` skips the re-read/cache lookup, the credit check and deduction, `logCorroborationHits`, `windowVerdictCache`, DAY jobs and `logVerdict`. It returns `{shadow: {aiRaw, aiAfterRules, override, inputs, dayOpts}}`; `aiRaw` is the AI's read captured right after parsing, before any market rule. Locally confirmed: the only other write is the shared `proxy_regime_state` correlation cache that any `/ticker` refresh writes.
+  - **Trials (`shadow-trials.ts`, `TRIALS_VERSION = 'S-1'`, frozen; tests in `tests/shadow-trials.test.js`):**
+    - `live` (D-2/D-3 as shipped)
+    - `no_market_rules` (AI's own read + bars + price check + day so far)
+    - `ai_alone`
+    - `bars_alone`
+    - `rules_plus_bars`
+    - `options_lean` (±0.15)
+    - `ma50_proxy_day` (all three agree)
+  - **Table `shadow_day_trials`** (service-role only, RLS off + revoked; grants checked both ways): one row per run date, slot and ticker, with the snapshot, trials, entry, `due_at`, and after the close `close_price` / `return_pct` / `grades`. `gradeShadowTrials()` runs in the 30-min grading sweep with the live DAY rules (`gradeDirectionalCall` +4% half credit; FLAT via `classifyFlatReturn` with the same-session band).
+  - **Cost:** ~30 AI calls/day (about $0.40/day). Off switch: Render `SHADOW_TRIALS=off`.
+  - **Readouts:** the Saturday readout has a shadow-trials section; a one-time go/no-go readout is scheduled for Dec 15 after the close. Nothing reaches a live call without Mr. T's OK.
+  - **Verified:** locally booted Tra with the market data and AI faked and the clock pinned to 7:18 AM PT. It recorded 15/15, retried correctly, wrote no verdict_log or credits rows, and grading TRUE/FALSE/null matched. 189/189 tests in both repos.
+  - **Not verified live:** the first real run at 7:17 AM PT Nov 25. Check Render for `[SHADOW] 2026-11-25 0717PT: N/15 ticker(s) recorded`.
