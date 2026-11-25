@@ -2533,4 +2533,12 @@ Mr. T's rules after a sanity check of the old LONG grade (close 5 sessions later
   - **Cost:** ~30 AI calls/day (about $0.40/day). Off switch: Render `SHADOW_TRIALS=off`.
   - **Readouts:** the Saturday readout has a shadow-trials section; a one-time go/no-go readout is scheduled for Dec 15 after the close. Nothing reaches a live call without Mr. T's OK.
   - **Verified:** locally booted Tra with the market data and AI faked and the clock pinned to 7:18 AM PT. It recorded 15/15, retried correctly, wrote no verdict_log or credits rows, and grading TRUE/FALSE/null matched. 189/189 tests in both repos.
-  - **Not verified live:** the first real run at 7:17 AM PT Nov 25. Check Render for `[SHADOW] 2026-11-25 0717PT: N/15 ticker(s) recorded`.
+  - **Merged and live** (`Tra` #160 / `trade-verdict` #415, deployed 06:07 UTC Nov 25). Patch33 was applied before the deploy.
+  - **Ticker list now 18 (Mr. T, before the first run):** the original 15 plus SNDK, ONDS and SMHX.
+    - It is set by the Render env var `SHADOW_TICKERS`, not code, so add or remove tickers there (the change redeploys on its own). The code default is still the original 15.
+    - All three resolve. SNDK and ONDS are in Gate 1 breakdowns (−60% / −49% over 60 sessions), so live DAY there is a forced DOWN NONE; the shadow shows the AI's own read on those mornings. SMHX tracks SOXX (r 0.97); its newest article is 18 days old.
+  - **Scheduled checks:**
+    - First-run check: Nov 25, 9:25 AM PT (`trig_01HtvP81ETsrskTTgHE8JKkZ`), expects 18 rows per slot.
+    - Saturday readout section 4d (`trig_01L9WbVa1qDqycbZgWtpGBcE`).
+    - Go/no-go: Dec 15, 5:23 PM PT (`trig_01Cq836UCWmXM1SGPAUiwXKo`).
+  - **Not verified live:** the first real run at 7:17 AM PT Nov 25. Check Render for `[SHADOW] 2026-11-25 0717PT: N/18 ticker(s) recorded`.
