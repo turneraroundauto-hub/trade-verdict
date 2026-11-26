@@ -2541,4 +2541,6 @@ Mr. T's rules after a sanity check of the old LONG grade (close 5 sessions later
     - First-run check: Nov 25, 9:25 AM PT (`trig_01HtvP81ETsrskTTgHE8JKkZ`), expects 18 rows per slot.
     - Saturday readout section 4d (`trig_01L9WbVa1qDqycbZgWtpGBcE`).
     - Go/no-go: Dec 15, 5:23 PM PT (`trig_01Cq836UCWmXM1SGPAUiwXKo`).
-  - **Not verified live:** the first real run at 7:17 AM PT Nov 25. Check Render for `[SHADOW] 2026-11-25 0717PT: N/18 ticker(s) recorded`.
+  - **First run, Nov 25:** 33 of 36 recorded and all 33 graded at the close (prices match Robinhood). SMHX at 7:17 had no DAY read yet (it recorded at 9:00); ARCC and HOOD at 9:00 hit the bug below. A sharp midday V-reversal meant almost every trial graded wrong on day 1.
+  - **Caveat for the Dec 15 readout:** `ai_alone` is not rule-free. SYSTEM_PROMPT itself tells the model "Gate 0 RED forces DOWN", and the AI's reasons quote it, so on a Gate 0 RED day the AI's own read already follows the market rules. Trials stay frozen (S-1).
+- **`/analyze` reads only the first JSON object (Nov 26, 2026; Mr. T approved).** The model sometimes adds a note after its JSON answer, and `JSON.parse` rejected the whole reply (3 cases, all Nov 25: Mr. T's live ARCC, refunded, plus shadow ARCC/HOOD). `ah.extractFirstJsonObject()` (string-aware brace matching, tested) keeps the first complete object; dropped text logs `/analyze <SYM>: ignored N char(s) after the AI's JSON`. The shadow runner also retries once, 5 s later, on a server error from `/analyze` (no credit, trials unchanged).
