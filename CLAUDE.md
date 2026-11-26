@@ -2533,7 +2533,14 @@ Mr. T's rules after a sanity check of the old LONG grade (close 5 sessions later
   - **Cost:** ~30 AI calls/day (about $0.40/day). Off switch: Render `SHADOW_TRIALS=off`.
   - **Readouts:** the Saturday readout has a shadow-trials section; a one-time go/no-go readout is scheduled for Dec 15 after the close. Nothing reaches a live call without Mr. T's OK.
   - **Verified:** locally booted Tra with the market data and AI faked and the clock pinned to 7:18 AM PT. It recorded 15/15, retried correctly, wrote no verdict_log or credits rows, and grading TRUE/FALSE/null matched. 189/189 tests in both repos.
-  - **Not verified live:** the first real run at 7:17 AM PT Nov 25. Check Render for `[SHADOW] 2026-11-25 0717PT: N/15 ticker(s) recorded`.
+  - **Merged and live** (`Tra` #160 / `trade-verdict` #415, deployed 06:07 UTC Nov 25). Patch33 was applied before the deploy.
+  - **Ticker list now 18 (Mr. T, before the first run):** the original 15 plus SNDK, ONDS and SMHX.
+    - It is set by the Render env var `SHADOW_TICKERS`, not code, so add or remove tickers there (the change redeploys on its own). The code default is still the original 15.
+    - All three resolve. SNDK and ONDS are in Gate 1 breakdowns (−60% / −49% over 60 sessions), so live DAY there is a forced DOWN NONE; the shadow shows the AI's own read on those mornings. SMHX tracks SOXX (r 0.97); its newest article is 18 days old.
+  - **Scheduled checks:**
+    - First-run check: Nov 25, 9:25 AM PT (`trig_01HtvP81ETsrskTTgHE8JKkZ`), expects 18 rows per slot.
+    - Saturday readout section 4d (`trig_01L9WbVa1qDqycbZgWtpGBcE`).
+    - Go/no-go: Dec 15, 5:23 PM PT (`trig_01Cq836UCWmXM1SGPAUiwXKo`).
   - **First run, Nov 25:** 33 of 36 recorded and all 33 graded at the close (prices match Robinhood). SMHX at 7:17 had no DAY read yet (it recorded at 9:00); ARCC and HOOD at 9:00 hit the bug below. A sharp midday V-reversal meant almost every trial graded wrong on day 1.
   - **Caveat for the Dec 15 readout:** `ai_alone` is not rule-free. SYSTEM_PROMPT itself tells the model "Gate 0 RED forces DOWN", and the AI's reasons quote it, so on a Gate 0 RED day the AI's own read already follows the market rules. Trials stay frozen (S-1).
 - **`/analyze` reads only the first JSON object (Nov 26, 2026; Mr. T approved).** The model sometimes adds a note after its JSON answer, and `JSON.parse` rejected the whole reply (3 cases, all Nov 25: Mr. T's live ARCC, refunded, plus shadow ARCC/HOOD). `ah.extractFirstJsonObject()` (string-aware brace matching, tested) keeps the first complete object; dropped text logs `/analyze <SYM>: ignored N char(s) after the AI's JSON`. The shadow runner also retries once, 5 s later, on a server error from `/analyze` (no credit, trials unchanged).
